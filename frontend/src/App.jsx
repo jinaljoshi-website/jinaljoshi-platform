@@ -13,6 +13,9 @@ const SLIDES = [
   '/jinal-hero-10.jpg',
 ]
 
+const HERO_INTERVAL = 6000
+const CAROUSEL_INTERVAL = 6000
+
 function getYouTubeId(url) {
   if (!url) return null
 
@@ -48,7 +51,7 @@ function getEmbedInfo(url) {
     return {
       type: 'youtube',
       videoId: youtubeId,
-      embedUrl: `https://www.youtube.com/embed/${youtubeId}?enablejsapi=1&rel=0&modestbranding=1&playsinline=1`,
+      embedUrl: `https://www.youtube.com/embed/${youtubeId}?rel=0&modestbranding=1&playsinline=1`,
     }
   }
 
@@ -294,69 +297,85 @@ function WorkMeta({ label, value }) {
   )
 }
 
-function WorksCarouselSection({ title, items }) {
-  const [activeIndex, setActiveIndex] = useState(0)
-  const [displayIndex, setDisplayIndex] = useState(0)
-  const [phase, setPhase] = useState('visible')
-  const timeoutRef = useRef(null)
+function CarouselControls({ current, total, onPrev, onNext, compact = false }) {
+  return (
+    <div className={`carousel-controls ${compact ? 'carousel-controls--compact' : ''}`}>
+      <button
+        type="button"
+        className="carousel-arrow"
+        onClick={onPrev}
+        aria-label="Previous item"
+      >
+        ←
+      </button>
+
+      <div className="carousel-count">
+        {current + 1} of {total}
+      </div>
+
+      <button
+        type="button"
+        className="carousel-arrow"
+        onClick={onNext}
+        aria-label="Next item"
+      >
+        →
+      </button>
+    </div>
+  )
+}
+
+function useConstantCarousel(itemsLength, interval = CAROUSEL_INTERVAL) {
+  const [index, setIndex] = useState(0)
   const intervalRef = useRef(null)
 
-  const clearAllTimers = () => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+  const clearTimer = () => {
     if (intervalRef.current) clearInterval(intervalRef.current)
   }
 
-  const transitionTo = (nextIndex) => {
-    if (nextIndex === displayIndex || phase === 'hiding') return
-
-    setPhase('hiding')
-
-    timeoutRef.current = setTimeout(() => {
-      setDisplayIndex(nextIndex)
-      setActiveIndex(nextIndex)
-      setPhase('showing')
-
-      timeoutRef.current = setTimeout(() => {
-        setPhase('visible')
-      }, 520)
-    }, 520)
-  }
-
-  const startAutoPlay = () => {
-    if (!items?.length || items.length <= 1) return
-
+  const startTimer = () => {
+    clearTimer()
+    if (itemsLength <= 1) return
     intervalRef.current = setInterval(() => {
-      setActiveIndex((prev) => {
-        const nextIndex = (prev + 1) % items.length
-        transitionTo(nextIndex)
-        return nextIndex
-      })
-    }, 7600)
+      setIndex((prev) => (prev + 1) % itemsLength)
+    }, interval)
   }
 
   useEffect(() => {
-    if (!items?.length) return
+    setIndex(0)
+    startTimer()
+    return clearTimer
+  }, [itemsLength, interval])
 
-    setActiveIndex(0)
-    setDisplayIndex(0)
-    setPhase('visible')
-    startAutoPlay()
+  const goTo = (nextIndex) => {
+    setIndex((nextIndex + itemsLength) % itemsLength)
+    startTimer()
+  }
 
-    return () => clearAllTimers()
-  }, [items])
+  const next = () => goTo(index + 1)
+  const prev = () => goTo(index - 1)
 
-  const activeItem = items[displayIndex]
+  return { index, goTo, next, prev }
+}
+
+function WorksCarouselSection({ title, items }) {
+  const { index, next, prev } = useConstantCarousel(items.length)
+  const activeItem = items[index]
 
   return (
     <section className="works-section">
       <div className="works-section__header">
         <h2 className="works-section__title">{title}</h2>
+        <CarouselControls
+          current={index}
+          total={items.length}
+          onPrev={prev}
+          onNext={next}
+        />
       </div>
 
       <div className="works-feature works-feature--locked">
-        <div
-          className={`works-feature__media works-feature__media--locked works-feature__media--${phase}`}
-        >
+        <div className="works-feature__media works-feature__media--locked works-feature__media--visible">
           <img
             src={activeItem.image}
             alt={activeItem.title}
@@ -365,7 +384,7 @@ function WorksCarouselSection({ title, items }) {
           />
         </div>
 
-        <div className={`works-feature__content works-feature__content--${phase}`}>
+        <div className="works-feature__content works-feature__content--visible">
           <div className="works-feature__meta-grid works-feature__meta-grid--works">
             <WorkMeta label="Title" value={activeItem.title} />
             <WorkMeta label="Year of Release" value={activeItem.year} />
@@ -401,150 +420,31 @@ function WorksCarouselSection({ title, items }) {
   )
 }
 
-function AutoVideoPanel({ title, items, panelId }) {
-  const [activeIndex, setActiveIndex] = useState(0)
-  const [displayIndex, setDisplayIndex] = useState(0)
-  const [phase, setPhase] = useState('visible')
-  const [isPausedByPlayback, setIsPausedByPlayback] = useState(false)
-  const timeoutRef = useRef(null)
-  const intervalRef = useRef(null)
-  const playerRef = useRef(null)
-  const ytApiReadyRef = useRef(false)
-
-  const clearAllTimers = () => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    if (intervalRef.current) clearInterval(intervalRef.current)
-  }
-
-  const transitionTo = (nextIndex) => {
-    if (!items?.length) return
-    if (nextIndex === displayIndex || phase === 'hiding') return
-    if (isPausedByPlayback) return
-
-    setPhase('hiding')
-
-    timeoutRef.current = setTimeout(() => {
-      setDisplayIndex(nextIndex)
-      setActiveIndex(nextIndex)
-      setPhase('showing')
-
-      timeoutRef.current = setTimeout(() => {
-        setPhase('visible')
-      }, 500)
-    }, 500)
-  }
-
-  const startAutoPlay = () => {
-    if (!items?.length || items.length <= 1 || isPausedByPlayback) return
-
-    intervalRef.current = setInterval(() => {
-      setActiveIndex((prev) => {
-        const nextIndex = (prev + 1) % items.length
-        transitionTo(nextIndex)
-        return nextIndex
-      })
-    }, 7200)
-  }
-
-  useEffect(() => {
-    if (!items?.length) return
-
-    setActiveIndex(0)
-    setDisplayIndex(0)
-    setPhase('visible')
-    setIsPausedByPlayback(false)
-  }, [items])
-
-  useEffect(() => {
-    clearAllTimers()
-    if (!isPausedByPlayback) {
-      startAutoPlay()
-    }
-    return () => clearAllTimers()
-  }, [displayIndex, isPausedByPlayback, items])
-
-  useEffect(() => {
-    if (window.YT && window.YT.Player) {
-      ytApiReadyRef.current = true
-      return
-    }
-
-    const existing = document.querySelector(
-      'script[src="https://www.youtube.com/iframe_api"]'
-    )
-
-    if (!existing) {
-      const tag = document.createElement('script')
-      tag.src = 'https://www.youtube.com/iframe_api'
-      document.body.appendChild(tag)
-    }
-
-    const previous = window.onYouTubeIframeAPIReady
-    window.onYouTubeIframeAPIReady = () => {
-      ytApiReadyRef.current = true
-      if (typeof previous === 'function') previous()
-    }
-  }, [])
-
-  const activeItem = items[displayIndex]
+function AutoVideoPanel({ title, items }) {
+  const { index, next, prev } = useConstantCarousel(items.length)
+  const activeItem = items[index]
   const embed = getEmbedInfo(activeItem.watchNow)
-  const iframeId = `${panelId}-player-${displayIndex}`
-
-  useEffect(() => {
-    if (!embed.videoId || !ytApiReadyRef.current || !window.YT?.Player) return
-
-    if (playerRef.current?.destroy) {
-      playerRef.current.destroy()
-      playerRef.current = null
-    }
-
-    const waitForIframe = window.setTimeout(() => {
-      const node = document.getElementById(iframeId)
-      if (!node) return
-
-      playerRef.current = new window.YT.Player(iframeId, {
-        events: {
-          onStateChange: (event) => {
-            if (event.data === window.YT.PlayerState.PLAYING) {
-              setIsPausedByPlayback(true)
-              clearAllTimers()
-            }
-
-            if (
-              event.data === window.YT.PlayerState.PAUSED ||
-              event.data === window.YT.PlayerState.ENDED
-            ) {
-              setIsPausedByPlayback(false)
-            }
-          },
-        },
-      })
-    }, 120)
-
-    return () => {
-      window.clearTimeout(waitForIframe)
-      if (playerRef.current?.destroy) {
-        playerRef.current.destroy()
-        playerRef.current = null
-      }
-    }
-  }, [iframeId, embed.videoId])
 
   return (
     <div className="split-video__panel">
       <div className="split-video__panel-header">
         <h2 className="split-video__title">{title}</h2>
+        <CarouselControls
+          current={index}
+          total={items.length}
+          onPrev={prev}
+          onNext={next}
+          compact
+        />
       </div>
 
-      <div className={`split-video__stage split-video__stage--${phase}`}>
+      <div className="split-video__stage split-video__stage--visible">
         {embed.type === 'youtube' && embed.embedUrl ? (
           <div className="split-video__iframe-wrap">
             <iframe
-              id={iframeId}
-              key={embed.embedUrl}
               className="split-video__iframe"
               src={embed.embedUrl}
-              title={activeItem.title}
+              title={`${title} - ${activeItem.title}`}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
               allowFullScreen
               loading="lazy"
@@ -552,7 +452,12 @@ function AutoVideoPanel({ title, items, panelId }) {
             />
           </div>
         ) : (
-          <div className="split-video__fallback">
+          <a
+            href={activeItem.watchNow}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="split-video__fallback"
+          >
             <img
               src={activeItem.image}
               alt={activeItem.title}
@@ -562,7 +467,7 @@ function AutoVideoPanel({ title, items, panelId }) {
             <div className="split-video__fallback-note">
               Opens on {embed.type === 'instagram' ? 'Instagram' : 'external site'}
             </div>
-          </div>
+          </a>
         )}
       </div>
 
@@ -575,6 +480,7 @@ function AutoVideoPanel({ title, items, panelId }) {
         >
           {activeItem.title}
         </a>
+        <div className="split-video__more">More</div>
       </div>
     </div>
   )
@@ -583,16 +489,8 @@ function AutoVideoPanel({ title, items, panelId }) {
 function SplitVideoSection({ leftTitle, leftItems, rightTitle, rightItems }) {
   return (
     <section className="split-video">
-      <AutoVideoPanel
-        title={leftTitle}
-        items={leftItems}
-        panelId={leftTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')}
-      />
-      <AutoVideoPanel
-        title={rightTitle}
-        items={rightItems}
-        panelId={rightTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')}
-      />
+      <AutoVideoPanel title={leftTitle} items={leftItems} />
+      <AutoVideoPanel title={rightTitle} items={rightItems} />
     </section>
   )
 }
@@ -608,8 +506,8 @@ function ContactSection() {
         </h2>
 
         <p className="contact-cta__note">
-          For casting enquiries, collaborations, and creative conversations,
-          Please reach out directly.
+          For casting enquiries, collaborations, and professional conversations,
+          please reach out directly.
         </p>
 
         <div className="contact-cta__grid">
@@ -624,7 +522,7 @@ function ContactSection() {
             rel="noopener noreferrer"
             className="contact-cta__item"
           >
-            <span className="contact-cta__label">WhatsApp</span>
+            <span className="contact-cta__label">WhatsApp (Team Managed)</span>
             <span className="contact-cta__value">+91 86898 88658</span>
           </a>
         </div>
@@ -635,56 +533,89 @@ function ContactSection() {
 
 export default function App() {
   const [current, setCurrent] = useState(0)
+  const heroTimerRef = useRef(null)
 
-  useEffect(() => {
+  const restartHeroTimer = () => {
+    if (heroTimerRef.current) clearInterval(heroTimerRef.current)
     if (SLIDES.length <= 1) return
 
-    const timer = setInterval(() => {
+    heroTimerRef.current = setInterval(() => {
       setCurrent((prev) => (prev + 1) % SLIDES.length)
-    }, 6000)
+    }, HERO_INTERVAL)
+  }
 
-    return () => clearInterval(timer)
+  useEffect(() => {
+    document.title = 'Jinal Joshi'
+    restartHeroTimer()
+
+    return () => {
+      if (heroTimerRef.current) clearInterval(heroTimerRef.current)
+    }
   }, [])
+
+  const goToHero = (index) => {
+    setCurrent(index)
+    restartHeroTimer()
+  }
+
+  const nextHero = () => {
+    setCurrent((prev) => (prev + 1) % SLIDES.length)
+    restartHeroTimer()
+  }
 
   return (
     <div className="site-shell">
-      <header className="topbar">
-        <div className="brand">Jinal Joshi</div>
-        <button className="fan-connect" type="button">
-          
-        </button>
-      </header>
-
+      
       <main>
         <section className="hero">
-          {SLIDES.map((src, index) => (
-            <img
-              key={src}
-              className={`hero__image ${index === current ? 'is-active' : ''}`}
-              src={src}
-              alt="Jinal Joshi"
-              draggable="false"
-            />
-          ))}
+          <div
+            className="hero__tap-target"
+            onClick={nextHero}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                nextHero()
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label="Show next photo"
+          >
+            {SLIDES.map((src, index) => (
+              <img
+                key={src}
+                className={`hero__image ${index === current ? 'is-active' : ''}`}
+                src={src}
+                alt="Jinal Joshi"
+                draggable="false"
+              />
+            ))}
 
-          <div className="hero__scrim" />
+            <div className="hero__scrim" />
 
-          <div className="hero__caption">
-            <h1 className="hero__name">Jinal Joshi</h1>
-            <p className="hero__meta">Actor — Mumbai</p>
+            <div className="hero__caption">
+              <h1 className="hero__name">Jinal Joshi</h1>
+              <p className="hero__meta">Actor — Mumbai</p>
+            </div>
           </div>
 
           {SLIDES.length > 1 && (
-            <div className="hero__dots">
-              {SLIDES.map((_, index) => (
-                <button
-                  key={index}
-                  type="button"
-                  className={`hero__dot ${index === current ? 'is-active' : ''}`}
-                  onClick={() => setCurrent(index)}
-                  aria-label={`Go to slide ${index + 1}`}
-                />
-              ))}
+            <div className="hero__nav">
+              <div className="hero__count">
+                {current + 1} of {SLIDES.length}
+              </div>
+
+              <div className="hero__dots">
+                {SLIDES.map((_, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    className={`hero__dot ${index === current ? 'is-active' : ''}`}
+                    onClick={() => goToHero(index)}
+                    aria-label={`Go to slide ${index + 1}`}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </section>
@@ -701,8 +632,14 @@ export default function App() {
               <p className="about__text">
                 Jinal Joshi is an actor based in Mumbai whose work spans feature
                 films, web series, short films, music videos, ad films, and
-                short-form video — a body of work shaped by presence, precision,
+                short-form videos. A body of work shaped by presence, precision,
                 and a deep interest in the emotional life of a character.
+              </p>
+
+              <p className="about__text">
+                This homepage is a focused, professional view of Jinal Joshi's work and
+                screen presence composed for collaborators, casting teams,
+                filmmakers, and brands.
               </p>
             </div>
 
@@ -710,9 +647,9 @@ export default function App() {
               <div>3 Feature Films</div>
               <div>4 Web Series</div>
               <div>4 Music Videos</div>
-              <div>4 Short Films</div>
-              <div>7 Ad Films</div>
-              <div>13 Skits / Short Videos</div>
+              <div>3 Short Films</div>
+              <div>6 Ad Films</div>
+              <div>2 Releases in 2025</div>
             </div>
           </div>
 
@@ -739,7 +676,7 @@ export default function App() {
               YouTube
             </a>
             <a
-              href="https://www.facebook.com/actorjinal"
+              href="https://www.facebook.com/jinal.jjj"
               target="_blank"
               rel="noopener noreferrer"
             >
