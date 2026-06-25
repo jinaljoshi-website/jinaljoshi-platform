@@ -5,7 +5,17 @@ const cors    = require('cors');
 
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://ps.jinaljoshi.in',
+    'https://studio.jinaljoshi.in',
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:5175',
+    'http://localhost:5176',
+  ],
+  credentials: true,
+}));
 app.use(express.json());
 
 app.use('/api/auth',         require('./routes/auth'));
