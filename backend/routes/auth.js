@@ -1,12 +1,15 @@
+// backend/routes/auth.js
 const router = require('express').Router();
 const argon2 = require('argon2');
-const jwt = require('jsonwebtoken');
+const jwt    = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
-const pool = require('../db/pool');
+const pool   = require('../db/pool');
 const authMid = require('../middleware/auth');
 
+// ── SIGNUP ────────────────────────────────────
+
 router.post('/signup', async (req, res) => {
-  const { email, password, dob } = req.body;
+  const { email, password, dob, consentTerms, consentNoRefund } = req.body;
 
   if (!email || !password || !dob) {
     return res.status(400).json({ error: 'Email, password and date of birth are required' });
@@ -18,17 +21,21 @@ router.post('/signup', async (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
 
+  // Age check
   const birthDate = new Date(dob);
-  const today = new Date();
-  const age = today.getFullYear() - birthDate.getFullYear();
+  const today     = new Date();
+  const age       = today.getFullYear() - birthDate.getFullYear();
   const monthDiff = today.getMonth() - birthDate.getMonth();
-  const actualAge =
-    monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())
-      ? age - 1
-      : age;
+  const actualAge = (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate()))
+    ? age - 1 : age;
 
   if (actualAge < 18) {
     return res.status(400).json({ error: 'You must be 18 or older' });
+  }
+
+  // Consent check
+  if (!consentTerms || !consentNoRefund) {
+    return res.status(400).json({ error: 'You must accept both agreements to create an account' });
   }
 
   const existing = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
@@ -39,13 +46,16 @@ router.post('/signup', async (req, res) => {
   const hash = await argon2.hash(password);
 
   const { rows } = await pool.query(
-    'INSERT INTO users (email, password_hash, dob) VALUES ($1, $2, $3) RETURNING id, email, tier, coin_balance',
-    [normalizedEmail, hash, dob]
+    `INSERT INTO users
+       (email, password_hash, dob, consent_terms, consent_no_refund, consented_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     RETURNING id, email, tier, coin_balance`,
+    [normalizedEmail, hash, dob, true, true]
   );
   const user = rows[0];
 
   const sessionId = uuidv4();
-  const token = jwt.sign(
+  const token     = jwt.sign(
     { userId: user.id, sessionId, isArtist: false },
     process.env.JWT_SECRET,
     { expiresIn: '24h' }
@@ -58,14 +68,11 @@ router.post('/signup', async (req, res) => {
 
   res.json({
     jwt: token,
-    user: {
-      id: user.id,
-      email: user.email,
-      tier: user.tier,
-      coinBalance: user.coin_balance,
-    },
+    user: { id: user.id, email: user.email, tier: user.tier, coinBalance: user.coin_balance },
   });
 });
+
+// ── LOGIN ─────────────────────────────────────
 
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
@@ -75,13 +82,13 @@ router.post('/login', async (req, res) => {
   }
 
   const normalizedEmail = email.toLowerCase().trim();
-
   const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
+
   if (!rows.length) {
     return res.status(401).json({ error: 'Email or password is incorrect' });
   }
 
-  const user = rows[0];
+  const user  = rows[0];
   const valid = await argon2.verify(user.password_hash, password);
   if (!valid) {
     return res.status(401).json({ error: 'Email or password is incorrect' });
@@ -92,11 +99,10 @@ router.post('/login', async (req, res) => {
     const streamClient = require('../stream');
     await streamClient.upsertUsers([{ id: user.id, name: user.display_name || user.email }]);
     streamToken = streamClient.generateUserToken({ user_id: user.id });
-  } catch (e) {
-  }
+  } catch (e) {}
 
   const sessionId = uuidv4();
-  const token = jwt.sign(
+  const token     = jwt.sign(
     { userId: user.id, sessionId, isArtist: user.is_artist },
     process.env.JWT_SECRET,
     { expiresIn: '24h' }
@@ -109,43 +115,46 @@ router.post('/login', async (req, res) => {
     [user.id, sessionId, req.headers['user-agent']?.slice(0, 100)]
   );
 
+  // Update last login
+  await pool.query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
+
   res.json({
     jwt: token,
     streamToken,
     user: {
-      id: user.id,
-      email: user.email,
-      tier: user.tier,
-      coinBalance: user.coin_balance,
+      id:            user.id,
+      email:         user.email,
+      tier:          user.tier,
+      coinBalance:   user.coin_balance,
       phoneVerified: user.phone_verified,
-      isArtist: user.is_artist,
+      isArtist:      user.is_artist,
     },
   });
 });
+
+// ── LOGOUT ────────────────────────────────────
 
 router.post('/logout', authMid, async (req, res) => {
   await pool.query('DELETE FROM active_sessions WHERE user_id = $1', [req.user.userId]);
   res.json({ ok: true });
 });
 
+// ── PHONE VERIFY ──────────────────────────────
+
 router.post('/verify-phone/send', authMid, async (req, res) => {
   const { phone } = req.body;
-
-  if (!phone) {
-    return res.status(400).json({ error: 'Phone number is required' });
-  }
+  if (!phone) return res.status(400).json({ error: 'Phone number is required' });
 
   const { rows } = await pool.query(
     "SELECT COUNT(*) FROM coin_ledger WHERE user_id = $1 AND type = 'recharge'",
     [req.user.userId]
   );
-
   if (parseInt(rows[0].count, 10) === 0) {
     return res.status(403).json({ error: 'Phone verification is available after your first purchase' });
   }
 
   const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-  await twilio.verify.v2.services(process.env.TWILIO_VERIFY_SID)
+  await twilio.verify.v2.services(process.env.TWILIO_VERIFY_SERVICE_SID)
     .verifications.create({ to: phone, channel: 'sms' });
 
   res.json({ sent: true });
@@ -153,65 +162,54 @@ router.post('/verify-phone/send', authMid, async (req, res) => {
 
 router.post('/verify-phone/confirm', authMid, async (req, res) => {
   const { phone, code } = req.body;
-
-  if (!phone || !code) {
-    return res.status(400).json({ error: 'Phone number and code are required' });
-  }
+  if (!phone || !code) return res.status(400).json({ error: 'Phone number and code are required' });
 
   const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-  const check = await twilio.verify.v2.services(process.env.TWILIO_VERIFY_SID)
+  const check  = await twilio.verify.v2.services(process.env.TWILIO_VERIFY_SERVICE_SID)
     .verificationChecks.create({ to: phone, code });
 
-  if (check.status !== 'approved') {
-    return res.status(400).json({ error: 'Incorrect code' });
-  }
+  if (check.status !== 'approved') return res.status(400).json({ error: 'Incorrect code' });
 
   await pool.query(
     'UPDATE users SET phone = $1, phone_verified = true WHERE id = $2',
     [phone, req.user.userId]
   );
-
   res.json({ verified: true });
 });
 
+// ── FORGOT PASSWORD ───────────────────────────
+
 router.post('/forgot/request', async (req, res) => {
   const { email } = req.body;
-
-  if (!email) {
-    return res.status(400).json({ error: 'Email is required' });
-  }
+  if (!email) return res.status(400).json({ error: 'Email is required' });
 
   const normalizedEmail = email.toLowerCase().trim();
-
   const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
-  if (!rows.length) {
-    return res.status(404).json({ error: 'No account found with this email' });
-  }
+  if (!rows.length) return res.status(404).json({ error: 'No account found with this email' });
 
   const user = rows[0];
   if (!user.phone_verified) {
     return res.status(400).json({ error: 'Phone verification required before password reset' });
   }
 
-  const monthKey = new Date().toISOString().slice(0, 7);
+  const monthKey   = new Date().toISOString().slice(0, 7);
   const { rows: allotRows } = await pool.query(
     'SELECT password_resets_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2',
     [user.id, monthKey]
   );
 
   const resetsUsed = allotRows[0]?.password_resets_used || 0;
-  const freeLimit = parseInt(process.env.PASSWORD_RESET_FREE_LIMIT || 2, 10);
-  const penalty = parseInt(process.env.PASSWORD_RESET_COIN_PENALTY || 25, 10);
+  const freeLimit  = parseInt(process.env.PASSWORD_RESET_FREE_LIMIT || 2, 10);
+  const penalty    = parseInt(process.env.PASSWORD_RESET_COIN_PENALTY || 25, 10);
 
   if (resetsUsed >= freeLimit) {
     if (user.coin_balance < penalty) {
       return res.status(402).json({
-        error: 'INSUFFICIENT_COINS',
-        message: `You need ${penalty} Wonder Coins for an additional password reset this month`,
+        error:   'INSUFFICIENT_COINS',
+        message: `You need ${penalty} tokens for an additional password reset this month`,
         shortBy: penalty - user.coin_balance,
       });
     }
-
     await pool.query('UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2', [penalty, user.id]);
     await pool.query(
       `INSERT INTO coin_ledger (user_id, type, amount, label) VALUES ($1, 'debit', $2, 'Password reset fee')`,
@@ -220,7 +218,7 @@ router.post('/forgot/request', async (req, res) => {
   }
 
   const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-  await twilio.verify.v2.services(process.env.TWILIO_VERIFY_SID)
+  await twilio.verify.v2.services(process.env.TWILIO_VERIFY_SERVICE_SID)
     .verifications.create({ to: user.phone, channel: 'sms' });
 
   await pool.query(
@@ -236,30 +234,21 @@ router.post('/forgot/request', async (req, res) => {
 
 router.post('/forgot/confirm', async (req, res) => {
   const { email, code, newPassword } = req.body;
-
   if (!email || !code || !newPassword) {
     return res.status(400).json({ error: 'Email, code, and new password are required' });
   }
 
   const normalizedEmail = email.toLowerCase().trim();
-
   const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
-  if (!rows.length) {
-    return res.status(404).json({ error: 'Account not found' });
-  }
+  if (!rows.length) return res.status(404).json({ error: 'Account not found' });
 
-  const user = rows[0];
+  const user   = rows[0];
   const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-  const check = await twilio.verify.v2.services(process.env.TWILIO_VERIFY_SID)
+  const check  = await twilio.verify.v2.services(process.env.TWILIO_VERIFY_SERVICE_SID)
     .verificationChecks.create({ to: user.phone, code });
 
-  if (check.status !== 'approved') {
-    return res.status(400).json({ error: 'Incorrect code' });
-  }
-
-  if (newPassword.length < 8) {
-    return res.status(400).json({ error: 'Password must be 8+ characters' });
-  }
+  if (check.status !== 'approved') return res.status(400).json({ error: 'Incorrect code' });
+  if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be 8+ characters' });
 
   const hash = await argon2.hash(newPassword);
   await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, user.id]);

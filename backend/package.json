@@ -4,14 +4,16 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-  "dev": "nodemon server.js",
-  "start": "node server.js"
-},
+    "dev": "nodemon server.js",
+    "start": "node server.js"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1075.0",
+    "@aws-sdk/s3-request-presigner": "^3.1075.0",
     "@stream-io/node-sdk": "^0.7.59",
     "argon2": "^0.44.0",
     "aws-sdk": "^2.1693.0",
@@ -24,7 +26,8 @@
     "pg": "^8.22.0",
     "stripe": "^22.2.2",
     "twilio": "^6.0.2",
-    "uuid": "^14.0.1"
+    "uuid": "^14.0.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

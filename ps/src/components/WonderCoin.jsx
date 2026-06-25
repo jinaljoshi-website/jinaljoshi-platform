@@ -25,6 +25,7 @@ export function WonderCoinAmount({
   amount,
   size = 18,
   showInr = false,
+  hideAmount = false,
   textColor = C.text,
   subColor = C.muted,
   gap = 8,
@@ -38,35 +39,37 @@ export function WonderCoinAmount({
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap,
+        gap: hideAmount ? 0 : gap,
       }}
     >
       <WonderCoin size={size} />
-      <div style={{ lineHeight: 1.1 }}>
-        <div
-          style={{
-            fontFamily: F.sans,
-            fontSize: fontSize || Math.max(14, Math.round(size * 1.15)),
-            color: textColor,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {amount}
-        </div>
-        {showInr && (
+      {!hideAmount && (
+        <div style={{ lineHeight: 1.1 }}>
           <div
             style={{
               fontFamily: F.sans,
-              fontSize: subSize,
-              color: subColor,
-              marginTop: 4,
+              fontSize: fontSize || Math.max(14, Math.round(size * 1.15)),
+              color: textColor,
               whiteSpace: 'nowrap',
             }}
           >
-            ₹{inrValue.toLocaleString('en-IN')}
+            {amount}
           </div>
-        )}
-      </div>
+          {showInr && (
+            <div
+              style={{
+                fontFamily: F.sans,
+                fontSize: subSize,
+                color: subColor,
+                marginTop: 4,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              ₹{inrValue.toLocaleString('en-IN')}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

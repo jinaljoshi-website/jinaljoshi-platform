@@ -1,267 +1,166 @@
 import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
-import {
-  TIERS,
-  TERMS,
-  termPrice,
-  TOKEN_DISCLAIMER,
-  TOKEN_RATE_INR,
-  FEATURE_LABELS,
-  PLATFORM_NAME,
-} from '../data';
-import { WonderCoin } from '../components/WonderCoin';
+import { TIERS, TERMS, termPrice } from '../data';
+import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 
 export default function Homepage() {
-  const navigate = useNavigate();
-  const tiers = Object.values(TIERS).filter((t) => t.id !== 'none');
-  const featuredTerm = TERMS[0];
+  const navigate    = useNavigate();
+  const paidTiers   = ['community', 'insider', 'premium', 'supreme'].map((id) => TIERS[id]);
+  const monthlyTerm = TERMS[0];
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.text }}>
-      <div style={topBar}>
-        <div style={{ fontFamily: F.display, fontSize: 20, color: C.text }}>
-          {PLATFORM_NAME}
-        </div>
 
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <button onClick={() => navigate('/auth?mode=login')} style={ghostBtn}>
-            Sign in
-          </button>
-          <button onClick={() => navigate('/auth?mode=signup')} style={solidBtn}>
-            Join now
-          </button>
+      {/* ── TOP BAR ── */}
+      <div style={topBar}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <WonderCoin size={22} />
+          <span style={{ fontFamily: F.display, fontSize: 19, color: C.text }}>Personal Space</span>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={() => navigate('/auth?mode=login')}  style={ghostBtn}>Sign in</button>
+          <button onClick={() => navigate('/auth?mode=signup')} style={solidBtn}>Join now</button>
         </div>
       </div>
 
-      <section style={heroSection}>
+      {/* ── HERO ── */}
+      <section style={hero}>
         <div style={heroInner}>
-          <div style={eyebrow}>Member platform</div>
+          <WonderCoin size={64} />
 
-          <h1 style={heroTitle}>
-            A closer, structured way
+          <h1 style={heroTitle}>Jinal's Personal Space</h1>
+
+          <p style={heroTagline}>
+            A private platform; where I get to celebrate you !
             <br />
-            to experience {PLATFORM_NAME}.
-          </h1>
-
-          <p style={heroText}>
-            An all-in-one fan engagement hub for followers of Jinal Joshi. Access exclusive media,
-            join official member community channels, request personalised engagement experiences,
-            and redeem official merchandise within a single Wonder Coin-powered platform.
+            <span style={{ fontFamily: F.mono, fontSize: 14, color: C.muted, letterSpacing: '0.06em' }}>~ Jinal J</span>
           </p>
 
-          <p style={noticeText}>
-            {PLATFORM_NAME} is a private, adult-only digital engagement platform. Creating an
-            account confirms you are 18 or older and that you have read and accepted the platform
-            terms. Membership is voluntary and all purchases are final.
+          <p style={heroSub}>
+            For the select few who wish to be a part of my journey and experience my world
+            with a special lens. This is not a fan page. This is my space; and yours!
           </p>
 
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
-            <button onClick={() => navigate('/auth?mode=signup')} style={solidBtnLarge}>
-              Create account
+          <div style={privateBadge}>
+            Personally run & managed by Jinal Joshi · Not a multi-artist platform
+          </div>
+
+          {/* Offerings grid */}
+          <div style={offeringsGrid}>
+            {OFFERINGS.map((o) => (
+              <div key={o.id} style={offeringCard}>
+                <div style={offeringTitle}>{o.title}</div>
+                <div style={offeringText}>{o.text}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Disclaimer */}
+          <p style={disclaimer}>
+            Personal Space is a private space with voluntary membership options. Creating an account
+            confirms that you are an adult and accept the{' '}
+            <a href="/terms" target="_blank" rel="noopener noreferrer" style={termsLink}>
+              Terms of Use
+            </a>
+            . All purchases are final.
+          </p>
+
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+            <button onClick={() => navigate('/auth?mode=signup')} style={solidBtnLg}>
+              Choose a plan &amp; join
             </button>
-            <button onClick={() => navigate('/auth?mode=login')} style={ghostBtnLarge}>
+            <button onClick={() => navigate('/auth?mode=login')} style={ghostBtnLg}>
               Already a member
             </button>
           </div>
+
+          <div style={{ textAlign: 'center' }}>
+            <button onClick={() => navigate('/auth?mode=signup&guest=true')} style={guestLink}>
+              Explore without a membership →
+            </button>
+            <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 6, opacity: 0.7 }}>
+              Guest prices are higher. Membership always gets you more.
+            </div>
+          </div>
         </div>
       </section>
 
-      <section style={sectionWrap}>
-        <div style={sectionHeader}>
-          <div style={eyebrow}>Platform overview</div>
-          <h2 style={sectionTitle}>Everything in one place</h2>
-          <p style={sectionText}>
-            {PLATFORM_NAME} brings together content access, community participation, direct creator
-            interaction, and member purchases in one secure portal.
-          </p>
-        </div>
-
-        <div style={featureGrid}>
-          <FeatureCard
-            title="Exclusive media access"
-            text="Unlock curated photo sets, videos, and albums using Wonder Coins inside your member account."
-          />
-          <FeatureCard
-            title="Direct messaging"
-            text="Use your membership allocation to begin and maintain direct messaging access inside the platform."
-          />
-          <FeatureCard
-            title="Virtual sessions"
-            text="Request audio or video sessions through structured booking flows tied to your platform balance."
-          />
-          <FeatureCard
-            title="Member community"
-            text="Participate in official member community spaces based on your active membership tier."
-          />
-          <FeatureCard
-            title="Personalised requests"
-            text="Submit shoutouts, greetings, and other custom experiences through guided request options."
-          />
-          <FeatureCard
-            title="Official merchandise"
-            text="Redeem selected merchandise offerings within the same platform environment."
-          />
-        </div>
-      </section>
-
-      <section style={sectionWrap}>
-        <div style={sectionHeader}>
+      {/* ── HOW IT WORKS ── */}
+      <section style={section}>
+        <div style={sectionHead}>
           <div style={eyebrow}>How it works</div>
-          <h2 style={sectionTitle}>Wonder Coins power access</h2>
-          <p style={sectionText}>
-            Purchase Wonder Coins using your preferred payment method, then use your balance across
-            the platform for unlocks, requests, sessions, messaging-related actions, and merchandise.
-          </p>
+          <h2 style={sectionTitle}>Our Own World</h2>
         </div>
-
-        <div style={infoGrid}>
-          <div style={infoCard}>
-            <div style={infoTitle}>Recharge once</div>
-            <div style={infoText}>
-              Your card is charged only when you recharge Wonder Coins. Individual platform actions
-              are then handled from your coin balance.
-            </div>
-          </div>
-
-          <div style={infoCard}>
-            <div style={infoTitle}>Clear conversion</div>
-            <div style={coinLabelRow}>
-              <WonderCoin size={22} />
-              <span>Wonder Coin</span>
-            </div>
-            <div style={infoText}>
-              1 Wonder Coin = ₹{TOKEN_RATE_INR} incl. GST.
-            </div>
-          </div>
-
-          <div style={infoCard}>
-            <div style={infoTitle}>Platform spending</div>
-            <div style={infoText}>
-              {TOKEN_DISCLAIMER}
-            </div>
-          </div>
+        <div style={stepsGrid}>
+          <HowCard
+            title="J Token"
+            text="A wonderful currency that works inside the platform. Remember tokens from Play Zone? Same thing. One token works for everything — content, calls, messages, merchandise, memberships."
+          />
+          <HowCard
+            title="Membership"
+            text="Each item has an associated token value. A membership offers a discounted token price for every item you access. Multiple tiers to choose from. Explore what works best for you."
+          />
+          <HowCard
+            title="No Cash Reward or Refund"
+            text="Tokens can never be redeemed for cash or refund. In case of a technical issue, get token credits by writing to support. All purchases are voluntary and final."
+          />
+          <HowCard
+            title="Heavy Discounts"
+            text="Memberships bring discounts on every purchase. Tokens can also be bought at a discounted price in bulk — 5% off on 500 tokens, 10% off on 1000. Save more, do more."
+          />
         </div>
       </section>
 
-      <section style={sectionWrap}>
-        <div style={sectionHeader}>
+      {/* ── MEMBERSHIP ── */}
+      <section style={section}>
+        <div style={sectionHead}>
           <div style={eyebrow}>Membership</div>
-          <h2 style={sectionTitle}>Choose your tier</h2>
-          <p style={sectionText}>
-            Membership is prepaid for a fixed term with no automatic renewal. Access ends when the
-            term concludes unless you decide to renew manually.
+          <h2 style={sectionTitle}>Choose your access</h2>
+          <p style={sectionSubtext}>
+            Community &nbsp;|&nbsp; Insider &nbsp;|&nbsp; Premium &nbsp;|&nbsp; Supreme
+            <br />
+            <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>Prepaid. No Auto-Renewals.</span>
           </p>
         </div>
-
-        <div style={tierGrid}>
-          {tiers.map((tier) => (
+        <div style={tiersGrid}>
+          {paidTiers.map((tier) => (
             <div key={tier.id} style={tierCard}>
-              <div
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: '50%',
-                  background: tier.color,
-                  marginBottom: 16,
-                }}
-              />
-              <div style={{ fontFamily: F.display, fontSize: 26, color: C.text, marginBottom: 6 }}>
-                {tier.name}
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: tier.color, marginBottom: 14 }} />
+              <div style={{ fontFamily: F.display, fontSize: 26, color: C.text, marginBottom: 6 }}>{tier.name}</div>
+              <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, marginBottom: 16, lineHeight: 1.6 }}>{tier.description}</div>
+              <div style={{ marginBottom: 4 }}>
+                <WonderCoinAmount amount={termPrice(tier, monthlyTerm)} size={22} textColor={tier.color} fontSize={28} />
               </div>
-              <div
-                style={{
-                  fontFamily: F.sans,
-                  color: C.muted,
-                  fontSize: 14,
-                  lineHeight: 1.7,
-                  marginBottom: 16,
-                }}
-              >
-                {tier.description}
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 18 }}>
+                per month · prepaid · no auto-renewal
               </div>
-
-              <div style={{ ...priceRow, color: tier.color }}>
-                <span style={priceValue}>{termPrice(tier, featuredTerm)}</span>
-                <WonderCoin size={22} />
-              </div>
-
-              <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginBottom: 18 }}>
-                {featuredTerm.label} · prepaid · no auto-renewal
-              </div>
-
               <ul style={perkList}>
-                {tier.perks.map((perk) => (
-                  <li key={perk}>{perk}</li>
-                ))}
+                {TIER_PERKS[tier.id].map((p) => <li key={p}>{p}</li>)}
               </ul>
-
-              <div
-                style={{
-                  fontFamily: F.sans,
-                  fontSize: 12,
-                  color: C.muted,
-                  lineHeight: 1.7,
-                  marginBottom: 18,
-                }}
-              >
-                Monthly messaging and unlock allocations reset on the 1st of each calendar month.
-                Unused allocations do not roll over.
-              </div>
-
-              <button onClick={() => navigate('/auth?mode=signup')} style={{ ...solidBtn, width: '100%' }}>
-                Join {tier.name}
+              <button onClick={() => navigate('/auth?mode=signup')} style={{ ...solidBtn, width: '100%', marginTop: 'auto' }}>
+                Select Tenure
               </button>
             </div>
           ))}
         </div>
-      </section>
-
-      <section style={sectionWrap}>
-        <div style={closingCard}>
-          <div style={eyebrow}>Access</div>
-          <h2 style={{ ...sectionTitle, marginBottom: 14 }}>Create your account to begin</h2>
-          <p style={{ ...sectionText, maxWidth: 720, margin: '0 auto 22px' }}>
-            Choose your membership, recharge Wonder Coins when needed, and access the full member
-            platform in one place.
-          </p>
-
-          <div
-            style={{
-              fontFamily: F.sans,
-              fontSize: 13,
-              color: C.muted,
-              lineHeight: 1.8,
-              marginBottom: 24,
-            }}
-          >
-            Available areas include {FEATURE_LABELS.gallery}, {FEATURE_LABELS.community},{' '}
-            {FEATURE_LABELS.messages}, {FEATURE_LABELS.calls}, {FEATURE_LABELS.extras}, and{' '}
-            {FEATURE_LABELS.shop}.
-          </div>
-
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button onClick={() => navigate('/auth?mode=signup')} style={solidBtnLarge}>
-              Enter {PLATFORM_NAME}
-            </button>
-            <button onClick={() => navigate('/auth?mode=login')} style={ghostBtnLarge}>
-              Sign in
-            </button>
-          </div>
+        <div style={termNote}>
+          Quarterly billing = 2.5 months charged, 3 months access. &nbsp;
+          Annual billing = 9 months charged, 12 months access.
         </div>
       </section>
 
+      {/* ── FOOTER ── */}
       <footer style={footer}>
-        <div style={{ fontFamily: F.display, fontSize: 16, color: C.muted }}>
-          {PLATFORM_NAME} · ps.jinaljoshi.in
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <WonderCoin size={18} />
+          <span style={{ fontFamily: F.display, fontSize: 15, color: C.muted }}>
+            Personal Space · ps.jinaljoshi.in
+          </span>
         </div>
-        <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>
+        <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, textAlign: 'right' }}>
+          <a href="/terms" style={{ color: C.muted, textDecoration: 'none', marginRight: 16 }}>Terms of Use</a>
           © {new Date().getFullYear()} ·{' '}
-          <a
-            href="https://jinaljoshi.in"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: C.muted, textDecoration: 'none' }}
-          >
+          <a href="https://jinaljoshi.in" target="_blank" rel="noopener noreferrer" style={{ color: C.muted, textDecoration: 'none' }}>
             jinaljoshi.in
           </a>
         </div>
@@ -270,164 +169,217 @@ export default function Homepage() {
   );
 }
 
-function FeatureCard({ title, text }) {
+function HowCard({ title, text }) {
   return (
-    <div style={featureCard}>
-      <div style={{ fontFamily: F.display, fontSize: 24, color: C.text, marginBottom: 10 }}>
-        {title}
-      </div>
-      <div style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.8 }}>
-        {text}
-      </div>
+    <div style={howCard}>
+      <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 10 }}>{title}</div>
+      <div style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.8 }}>{text}</div>
     </div>
   );
 }
 
+// ── OFFERINGS COPY ───────────────────────────────────────────────────────────
+
+const OFFERINGS = [
+  {
+    id: 'community',
+    title: 'Member Community',
+    text: "A live space where we are One! All of you and me in one community where we interact daily. In real time!",
+  },
+  {
+    id: 'merchandise',
+    title: 'Official Merchandise',
+    text: "You get the option to own select merchandise, handcrafted accessories and outfits. Regular drops!",
+  },
+  {
+    id: 'messages',
+    title: 'Direct Messaging',
+    text: "For those of you who wish to write to me directly. No AI, No Representative. You speak with me!",
+  },
+  {
+    id: 'calls',
+    title: 'Virtual Connect',
+    text: "Looking for direct access? Request a call — Audio or Video. Propose a time. Let's connect and allow me to know you better.",
+  },
+  {
+    id: 'extras',
+    title: 'Personalised Requests',
+    text: "Special days! Get a video from me wishing you or your loved ones on special days.",
+  },
+  {
+    id: 'gallery',
+    title: 'Exclusive Content',
+    text: "There's only so much I can post on social media. Extended videos, alternate edits, more photos. Get all of them in one place. Only here!",
+  },
+  {
+    id: 'bts',
+    title: 'Behind the Scenes',
+    text: "Experience my life behind the lens when I am shooting in a studio, beach, home or anywhere. Be with me at the shoots!",
+  },
+  {
+    id: 'earlyAccess',
+    title: 'Early Access',
+    text: "Public posts are planned and go live at a pre-decided time. Here, you see what might take a week to come live on Social Media.",
+  },
+];
+
+// ── TIER PERKS ───────────────────────────────────────────────────────────────
+
+const TIER_PERKS = {
+  community: [
+    'Community Chat Centre',
+    '5 free Direct Messages · 2 Per Day max',
+    'Unlock any One Set',
+    '5% Discount site-wide',
+    'All content posted to community',
+  ],
+  insider: [
+    'Community Chat Centre',
+    '30 free Direct Messages · 3 Per Day max',
+    'Unlock any Four Sets',
+    '10% Discount site-wide',
+    'All content posted to community',
+  ],
+  premium: [
+    'Community Chat Centre',
+    '100 free Direct Messages · 5 Per Day max',
+    'Unlock any Seven Sets',
+    '15% Discount site-wide',
+    'All content posted to community',
+  ],
+  supreme: [
+    'Community Chat Centre',
+    '250 free Direct Messages · 10 Per Day max',
+    'Unlock any Ten Sets',
+    '20% Discount site-wide',
+    'All content posted to community',
+  ],
+};
+
+// ── STYLES ───────────────────────────────────────────────────────────────────
+
 const topBar = {
-  position: 'sticky',
-  top: 0,
-  zIndex: 50,
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  padding: '18px 28px',
-  background: 'rgba(13,12,10,0.92)',
+  position: 'sticky', top: 0, zIndex: 50,
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+  padding: '16px 28px',
+  background: 'rgba(13,12,10,0.94)',
   borderBottom: `1px solid ${C.border}`,
   backdropFilter: 'blur(12px)',
 };
 
-const heroSection = {
-  minHeight: '100vh',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: '120px 24px 80px',
-};
-
-const heroInner = {
-  width: '100%',
-  maxWidth: 900,
-  textAlign: 'center',
-};
-
-const sectionWrap = {
-  padding: '80px 24px',
-  maxWidth: 1120,
-  margin: '0 auto',
-};
-
-const sectionHeader = {
-  textAlign: 'center',
-  marginBottom: 42,
-};
-
-const eyebrow = {
-  fontFamily: F.mono,
-  fontSize: 11,
-  color: C.accent,
-  letterSpacing: '0.18em',
-  textTransform: 'uppercase',
-  marginBottom: 12,
-};
+const hero      = { padding: '80px 24px 64px', display: 'flex', justifyContent: 'center' };
+const heroInner = { width: '100%', maxWidth: 1060, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 };
 
 const heroTitle = {
   fontFamily: F.display,
   fontWeight: 300,
-  fontSize: 'clamp(40px, 7vw, 78px)',
-  lineHeight: 1.05,
-  margin: '0 0 22px',
+  fontSize: 'clamp(42px, 6vw, 80px)',
+  lineHeight: 1.06,
   color: C.text,
+  margin: 0,
 };
 
-const heroText = {
+const heroTagline = {
+  fontFamily: F.display,
+  fontStyle: 'italic',
+  fontSize: 'clamp(18px, 2.5vw, 26px)',
+  color: C.muted,
+  margin: 0,
+  lineHeight: 1.6,
+};
+
+const heroSub = {
   fontFamily: F.sans,
   fontSize: 16,
   color: C.muted,
-  lineHeight: 1.85,
-  maxWidth: 760,
-  margin: '0 auto 22px',
+  lineHeight: 1.8,
+  maxWidth: 680,
+  margin: 0,
 };
 
-const noticeText = {
+const privateBadge = {
+  fontFamily: F.mono,
+  fontSize: 11,
+  color: C.accent,
+  letterSpacing: '0.12em',
+  textTransform: 'uppercase',
+  background: 'rgba(193,125,74,0.08)',
+  border: `1px solid rgba(193,125,74,0.2)`,
+  borderRadius: 999,
+  padding: '6px 16px',
+};
+
+const offeringsGrid = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+  gap: 14,
+  width: '100%',
+  textAlign: 'left',
+};
+
+const offeringCard = {
+  background: C.surface,
+  border: `1px solid ${C.border}`,
+  borderRadius: 10,
+  padding: '18px 20px',
+};
+
+const offeringTitle = { fontFamily: F.display, fontSize: 20, color: C.text, marginBottom: 8 };
+const offeringText  = { fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.75 };
+
+const disclaimer = {
   fontFamily: F.sans,
   fontSize: 12,
   color: C.muted,
-  lineHeight: 1.8,
-  maxWidth: 620,
-  margin: '0 auto 30px',
+  lineHeight: 1.7,
+  maxWidth: 560,
+  margin: 0,
   opacity: 0.85,
 };
 
+const termsLink = { color: C.accent, textDecoration: 'none' };
+
+const guestLink = {
+  background: 'none', border: 'none', color: C.muted,
+  fontFamily: F.sans, fontSize: 13, cursor: 'pointer',
+  textDecoration: 'underline', padding: 0,
+};
+
+const section     = { padding: '72px 24px', maxWidth: 1100, margin: '0 auto' };
+const sectionHead = { textAlign: 'center', marginBottom: 40 };
+
+const eyebrow = {
+  fontFamily: F.mono, fontSize: 11, color: C.accent,
+  letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 10,
+};
+
 const sectionTitle = {
-  fontFamily: F.display,
-  fontWeight: 300,
-  fontSize: 'clamp(28px, 4vw, 50px)',
-  margin: '0 0 10px',
-  color: C.text,
+  fontFamily: F.display, fontWeight: 300,
+  fontSize: 'clamp(28px, 4vw, 48px)', color: C.text, margin: '0 0 8px',
 };
 
-const sectionText = {
-  fontFamily: F.sans,
-  fontSize: 15,
-  color: C.muted,
-  lineHeight: 1.8,
-  maxWidth: 760,
-  margin: '0 auto',
+const sectionSubtext = {
+  fontFamily: F.sans, fontSize: 15, color: C.muted,
+  margin: '8px auto 0', maxWidth: 560, lineHeight: 1.8,
+  textAlign: 'center',
 };
 
-const featureGrid = {
+const stepsGrid = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
   gap: 16,
 };
 
-const featureCard = {
+const howCard = {
   background: C.surface,
   border: `1px solid ${C.border}`,
   borderRadius: 10,
   padding: 24,
 };
 
-const infoGrid = {
+const tiersGrid = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-  gap: 16,
-};
-
-const infoCard = {
-  background: C.surface,
-  border: `1px solid ${C.border}`,
-  borderRadius: 10,
-  padding: 24,
-};
-
-const coinLabelRow = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  fontFamily: F.display,
-  fontSize: 22,
-  color: C.accent,
-  marginBottom: 12,
-};
-
-const infoTitle = {
-  fontFamily: F.display,
-  fontSize: 24,
-  color: C.text,
-  marginBottom: 10,
-};
-
-const infoText = {
-  fontFamily: F.sans,
-  fontSize: 14,
-  color: C.muted,
-  lineHeight: 1.8,
-};
-
-const tierGrid = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
   gap: 16,
 };
 
@@ -435,78 +387,40 @@ const tierCard = {
   background: C.surface,
   border: `1px solid ${C.border}`,
   borderRadius: 10,
-  padding: 26,
-};
-
-const priceRow = {
+  padding: 24,
   display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  marginBottom: 6,
-};
-
-const priceValue = {
-  fontFamily: F.display,
-  fontSize: 30,
-  lineHeight: 1,
+  flexDirection: 'column',
 };
 
 const perkList = {
-  fontFamily: F.sans,
-  fontSize: 14,
-  color: C.muted,
-  lineHeight: 1.9,
-  paddingLeft: 18,
-  margin: '0 0 18px',
+  fontFamily: F.sans, fontSize: 13, color: C.muted,
+  lineHeight: 1.9, paddingLeft: 18, margin: '0 0 20px', flexGrow: 1,
 };
 
-const closingCard = {
-  background: C.surface,
-  border: `1px solid ${C.border}`,
-  borderRadius: 14,
-  padding: '36px 28px',
-  textAlign: 'center',
+const termNote = {
+  fontFamily: F.sans, fontSize: 12, color: C.muted,
+  textAlign: 'center', marginTop: 20, opacity: 0.75,
 };
 
 const footer = {
-  padding: '34px 28px 48px',
+  padding: '32px 28px 48px',
   borderTop: `1px solid ${C.border}`,
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  gap: 16,
-  flexWrap: 'wrap',
+  display: 'flex', justifyContent: 'space-between',
+  alignItems: 'center', flexWrap: 'wrap', gap: 12,
 };
 
 const solidBtn = {
-  background: C.accent,
-  border: 'none',
-  color: '#1A1714',
-  fontFamily: F.sans,
-  fontSize: 14,
-  fontWeight: 700,
-  padding: '12px 18px',
-  borderRadius: 8,
-  cursor: 'pointer',
+  background: C.accent, border: 'none', color: '#1A1714',
+  fontFamily: F.sans, fontSize: 14, fontWeight: 700,
+  padding: '11px 18px', borderRadius: 8, cursor: 'pointer',
 };
+
+const solidBtnLg = { ...solidBtn, padding: '13px 24px', fontSize: 15 };
 
 const ghostBtn = {
-  background: 'transparent',
-  border: `1px solid ${C.border}`,
-  color: C.text,
-  fontFamily: F.sans,
-  fontSize: 14,
-  padding: '12px 18px',
-  borderRadius: 8,
-  cursor: 'pointer',
+  background: 'transparent', border: `1px solid ${C.border}`,
+  color: C.text, fontFamily: F.sans, fontSize: 14,
+  padding: '11px 18px', borderRadius: 8, cursor: 'pointer',
 };
 
-const solidBtnLarge = {
-  ...solidBtn,
-  padding: '13px 22px',
-};
-
-const ghostBtnLarge = {
-  ...ghostBtn,
-  padding: '13px 22px',
-};
+const ghostBtnLg = { ...ghostBtn, padding: '13px 24px', fontSize: 15 };
