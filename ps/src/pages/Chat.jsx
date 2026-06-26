@@ -5,11 +5,7 @@ import { WonderCoinAmount } from '../components/WonderCoin';
 import { TIERS } from '../data';
 import { useUpload } from '../hooks/useUpload';
 import TopUpModal from '../components/TopUpModal';
-
-// Stream Chat for real-time
 import { StreamChat } from 'stream-chat';
-
-const ARTIST_ID = import.meta.env.VITE_ARTIST_USER_ID;
 
 export default function Chat() {
   const [messages,   setMessages]   = useState([]);
@@ -17,96 +13,113 @@ export default function Chat() {
   const [message,    setMessage]    = useState('');
   const [loading,    setLoading]    = useState(true);
   const [sending,    setSending]    = useState(false);
-  const [typing,     setTyping]     = useState(false); // Jinal is typing
+  const [typing,     setTyping]     = useState(false);
   const [error,      setError]      = useState('');
   const [topUp,      setTopUp]      = useState(null);
-  const bottomRef    = useRef(null);
-  const fileRef      = useRef(null);
-  const channelRef   = useRef(null);
-  const scClientRef  = useRef(null);
-  const typingTimer  = useRef(null);
-  const currentUser  = getUser();
+  const bottomRef   = useRef(null);
+  const fileRef     = useRef(null);
+  const channelRef  = useRef(null);
+  const scClientRef = useRef(null);
+  const myIdRef     = useRef(null);
+  const typingTimer = useRef(null);
   const { upload, uploading } = useUpload();
 
   const loadStatus = () => api.get('/api/chat/status').then(setStatus).catch(() => {});
+
+  // Convert Stream message to our format
+  const streamMsgToLocal = (msg, myId) => ({
+    id:             msg.id,
+    stream_id:      msg.id,
+    sender_id:      msg.user?.id,
+    content:        msg.text || null,
+    media_url:      msg.attachments?.[0]?.image_url || msg.attachments?.[0]?.asset_url || null,
+    media_type:     msg.attachments?.[0]?.type === 'video' ? 'video' : msg.attachments?.[0]?.image_url ? 'image' : null,
+    tokens_charged: msg.tokens_charged || 0,
+    created_at:     msg.created_at,
+    is_mine:        msg.user?.id === myId,
+    status:         'delivered',
+  });
 
   useEffect(() => {
     let mounted = true;
 
     const init = async () => {
       try {
-        // Load messages and status from our backend
-        const [msgData, statusData] = await Promise.all([
-          api.get('/api/chat/messages'),
-          api.get('/api/chat/status'),
-        ]);
+        // Load status from backend
+        const statusData = await api.get('/api/chat/status');
         if (!mounted) return;
-        setMessages(msgData.messages || []);
         setStatus(statusData);
 
-        // Connect to Stream Chat for real-time
+        // Get Stream token (also upserts both users)
         const tokenData = await api.post('/api/stream-chat/token', {});
         if (!mounted) return;
 
+        myIdRef.current = tokenData.userId;
+
+        // Connect to Stream
         const scClient = StreamChat.getInstance(tokenData.apiKey);
         scClientRef.current = scClient;
 
-        await scClient.connectUser(
-          { id: tokenData.userId, name: tokenData.userName },
-          tokenData.token
-        );
+        if (!scClient.userID) {
+          await scClient.connectUser(
+            { id: tokenData.userId, name: tokenData.userName },
+            tokenData.token
+          );
+        }
 
-        // Channel ID = sorted pair of user IDs
+        // Create channel with both members
         const ids = [tokenData.userId, tokenData.artistId].sort();
-const channelId = 'dm-' + ids[0].slice(0, 15) + ids[1].slice(0, 15);
+        const channelId = 'dm' + ids[0].replace(/-/g, '').slice(0, 12) + ids[1].replace(/-/g, '').slice(0, 12);
+
         const channel = scClient.channel('messaging', channelId, {
           members: [tokenData.userId, tokenData.artistId],
+          created_by_id: tokenData.artistId,
         });
+
         channelRef.current = channel;
 
-        await channel.watch();
-
-        // Listen for new messages
+        // Set up listeners BEFORE watch
         channel.on('message.new', (event) => {
           if (!mounted) return;
           const msg = event.message;
-          // Only add if not already in list (avoid duplicates from our own sends)
           setMessages((prev) => {
-            if (prev.find((m) => m.stream_id === msg.id)) return prev;
-            return [...prev, {
-              id:             msg.id,
-              stream_id:      msg.id,
-              sender_id:      msg.user.id,
-              content:        msg.text || null,
-              media_url:      msg.attachments?.[0]?.image_url || msg.attachments?.[0]?.asset_url || null,
-              media_type:     msg.attachments?.[0]?.type === 'video' ? 'video' : msg.attachments?.[0]?.image_url ? 'image' : null,
-              tokens_charged: msg.tokens_charged || 0,
-              created_at:     msg.created_at,
-              is_mine:        msg.user.id === tokenData.userId,
-              status:         'delivered',
-            }];
+            if (prev.find((m) => m.stream_id === msg.id || m.id === msg.id)) return prev;
+            return [...prev, streamMsgToLocal(msg, myIdRef.current)];
           });
-          // Mark as read
-          channel.markRead();
+          channel.markRead().catch(() => {});
         });
 
-        // Typing indicator
         channel.on('typing.start', (event) => {
-          if (event.user.id !== tokenData.userId) setTyping(true);
+          if (mounted && event.user?.id !== tokenData.userId) setTyping(true);
         });
+
         channel.on('typing.stop', (event) => {
-          if (event.user.id !== tokenData.userId) setTyping(false);
+          if (mounted && event.user?.id !== tokenData.userId) setTyping(false);
         });
 
-        // Message read receipts
         channel.on('message.read', () => {
-          setMessages((prev) => prev.map((m) => m.is_mine ? { ...m, status: 'read' } : m));
+          if (mounted) setMessages((prev) => prev.map((m) => m.is_mine ? { ...m, status: 'read' } : m));
         });
 
-        channel.markRead();
+        // Watch channel and load history
+        const state = await channel.watch();
+        if (!mounted) return;
+
+        // Use Stream message history as source of truth
+        const history = (state.messages || []).map((m) => streamMsgToLocal(m, tokenData.userId));
+        setMessages(history);
+
+        channel.markRead().catch(() => {});
       } catch (err) {
         console.error('Chat init error:', err);
-        if (mounted) setError('Could not connect to chat.');
+        if (mounted) {
+          // Fallback to backend messages if Stream fails
+          try {
+            const msgData = await api.get('/api/chat/messages');
+            if (mounted) setMessages(msgData.messages || []);
+          } catch {}
+          setError('Real-time connection unavailable. Messages may not update automatically.');
+        }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -116,8 +129,9 @@ const channelId = 'dm-' + ids[0].slice(0, 15) + ids[1].slice(0, 15);
 
     return () => {
       mounted = false;
-      if (channelRef.current) channelRef.current.stopWatching();
-      if (scClientRef.current) scClientRef.current.disconnectUser();
+      clearTimeout(typingTimer.current);
+      if (channelRef.current) channelRef.current.stopWatching().catch(() => {});
+      if (scClientRef.current?.userID) scClientRef.current.disconnectUser().catch(() => {});
     };
   }, []);
 
@@ -126,10 +140,10 @@ const channelId = 'dm-' + ids[0].slice(0, 15) + ids[1].slice(0, 15);
   }, [messages, typing]);
 
   const handleTyping = () => {
-    if (channelRef.current) channelRef.current.keystroke();
+    if (channelRef.current) channelRef.current.keystroke().catch(() => {});
     clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => {
-      if (channelRef.current) channelRef.current.stopTyping();
+      if (channelRef.current) channelRef.current.stopTyping().catch(() => {});
     }, 2000);
   };
 
@@ -137,30 +151,33 @@ const channelId = 'dm-' + ids[0].slice(0, 15) + ids[1].slice(0, 15);
     setError('');
     setSending(true);
     try {
+      // Charge tokens via backend
       const data = await api.post('/api/chat/send', {
         content:   content || undefined,
         mediaUrl:  mediaUrl  || undefined,
         mediaType: mediaType || undefined,
       });
 
-      // Add to local state with stream_id for dedup
-      const msg = data.message;
-      setMessages((prev) => {
-        if (prev.find((m) => m.id === msg.id)) return prev;
-        return [...prev, { ...msg, status: 'sent' }];
-      });
-      setMessage('');
-
-      // Also send via Stream Chat so Jinal gets real-time
+      // Send via Stream for real-time delivery
       if (channelRef.current) {
-        const streamMsg = { text: content || undefined };
+        const streamMsg = {};
+        if (content) streamMsg.text = content;
         if (mediaUrl) {
-          streamMsg.attachments = [{ type: mediaType === 'video' ? 'video' : 'image', [mediaType === 'video' ? 'asset_url' : 'image_url']: mediaUrl }];
+          streamMsg.attachments = [{
+            type: mediaType === 'video' ? 'video' : 'image',
+            [mediaType === 'video' ? 'asset_url' : 'image_url']: mediaUrl,
+          }];
         }
         streamMsg.tokens_charged = data.tokensCharged;
+        streamMsg.id = data.message.id; // use our DB id to prevent duplicates
+
         await channelRef.current.sendMessage(streamMsg);
+      } else {
+        // Fallback: add to local state manually
+        setMessages((prev) => [...prev, { ...data.message, status: 'sent' }]);
       }
 
+      setMessage('');
       loadStatus();
     } catch (err) {
       if (err.message === 'INSUFFICIENT_TOKENS') {
@@ -227,20 +244,19 @@ const channelId = 'dm-' + ids[0].slice(0, 15) + ids[1].slice(0, 15);
         </div>
       )}
 
-      {/* Messages */}
+      {/* Messages feed */}
       <div style={{ ...feed, padding: chatBg ? '0 12px' : '0' }}>
         {messages.length === 0 && (
           <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>
             No messages yet. Say hello!
           </div>
         )}
-        {messages.map((msg) => <MessageBubble key={msg.id || msg.stream_id} msg={msg} />)}
+        {messages.map((msg) => <MessageBubble key={msg.stream_id || msg.id} msg={msg} />)}
 
-        {/* Typing indicator */}
         {typing && (
           <div style={{ alignSelf: 'flex-start', display: 'flex', flexDirection: 'column' }}>
             <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 3 }}>★ Jinal Joshi</div>
-            <div style={{ ...bubble, background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontStyle: 'italic' }}>
+            <div style={{ ...bubble, background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontStyle: 'italic', padding: '10px 14px' }}>
               typing…
             </div>
           </div>
@@ -252,7 +268,7 @@ const channelId = 'dm-' + ids[0].slice(0, 15) + ids[1].slice(0, 15);
       {error && (
         <div style={{ ...errorBox, margin: chatBg ? '0 12px 8px' : '0 0 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
           <span>{error}</span>
-          <button onClick={() => setTopUp(nextCost)} style={inlineTopUp}>Top up now</button>
+          {error.includes('tokens') && <button onClick={() => setTopUp(nextCost)} style={inlineTopUp}>Top up now</button>}
         </div>
       )}
 
@@ -299,8 +315,8 @@ const channelId = 'dm-' + ids[0].slice(0, 15) + ids[1].slice(0, 15);
 }
 
 function MessageBubble({ msg }) {
-  const isMe = msg.is_mine;
-  const status = msg.status; // 'sent' | 'delivered' | 'read'
+  const isMe   = msg.is_mine;
+  const status = msg.status;
 
   return (
     <div style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '75%', display: 'flex', flexDirection: 'column' }}>
@@ -315,7 +331,7 @@ function MessageBubble({ msg }) {
           {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
         {isMe && (
-          <span style={{ fontSize: 10, color: status === 'read' ? C.accent : C.muted }}>
+          <span style={{ fontSize: 11, color: status === 'read' ? C.accent : C.muted }}>
             {status === 'read' ? '✓✓' : status === 'delivered' ? '✓✓' : '✓'}
           </span>
         )}
