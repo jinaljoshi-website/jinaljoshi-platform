@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { C, F } from '../tokens';
-import { api, getUser } from '../api';
+import { api } from '../api';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import { TIERS } from '../data';
 import { useUpload } from '../hooks/useUpload';
@@ -26,17 +26,16 @@ export default function Chat() {
 
   const loadStatus = () => api.get('/api/chat/status').then(setStatus).catch(() => {});
 
-  // Convert Stream message to our format
-  const streamMsgToLocal = (msg, myId) => ({
-    id:             msg.id,
-    stream_id:      msg.id,
-    sender_id:      msg.user?.id,
-    content:        msg.text || null,
-    media_url:      msg.attachments?.[0]?.image_url || msg.attachments?.[0]?.asset_url || null,
-    media_type:     msg.attachments?.[0]?.type === 'video' ? 'video' : msg.attachments?.[0]?.image_url ? 'image' : null,
-    tokens_charged: msg.tokens_charged || 0,
-    created_at:     msg.created_at,
-    is_mine:        msg.user?.id === myId,
+  const msgToLocal = (m, myId) => ({
+    id:             m.id,
+    stream_id:      m.id,
+    sender_id:      m.user?.id,
+    content:        m.text || null,
+    media_url:      m.attachments?.[0]?.image_url || m.attachments?.[0]?.asset_url || null,
+    media_type:     m.attachments?.[0]?.type === 'video' ? 'video' : m.attachments?.[0]?.image_url ? 'image' : null,
+    tokens_charged: m.tokens_charged || 0,
+    created_at:     m.created_at,
+    is_mine:        m.user?.id === myId,
     status:         'delivered',
   });
 
@@ -45,18 +44,15 @@ export default function Chat() {
 
     const init = async () => {
       try {
-        // Load status from backend
-        const statusData = await api.get('/api/chat/status');
+        const [statusData, tokenData] = await Promise.all([
+          api.get('/api/chat/status'),
+          api.post('/api/stream-chat/token', {}),
+        ]);
         if (!mounted) return;
+
         setStatus(statusData);
-
-        // Get Stream token (also upserts both users)
-        const tokenData = await api.post('/api/stream-chat/token', {});
-        if (!mounted) return;
-
         myIdRef.current = tokenData.userId;
 
-        // Connect to Stream
         const scClient = StreamChat.getInstance(tokenData.apiKey);
         scClientRef.current = scClient;
 
@@ -67,7 +63,6 @@ export default function Chat() {
           );
         }
 
-        // Create channel with both members
         const ids = [tokenData.userId, tokenData.artistId].sort();
         const channelId = 'dm' + ids[0].replace(/-/g, '').slice(0, 12) + ids[1].replace(/-/g, '').slice(0, 12);
 
@@ -76,15 +71,13 @@ export default function Chat() {
           created_by_id: tokenData.artistId,
         });
 
-        channelRef.current = channel;
-
-        // Set up listeners BEFORE watch
+        // ── Listeners BEFORE watch ──────────────────────
         channel.on('message.new', (event) => {
           if (!mounted) return;
           const msg = event.message;
           setMessages((prev) => {
-            if (prev.find((m) => m.stream_id === msg.id || m.id === msg.id)) return prev;
-            return [...prev, streamMsgToLocal(msg, myIdRef.current)];
+            if (prev.find((m) => m.stream_id === msg.id)) return prev;
+            return [...prev, msgToLocal(msg, tokenData.userId)];
           });
           channel.markRead().catch(() => {});
         });
@@ -92,45 +85,40 @@ export default function Chat() {
         channel.on('typing.start', (event) => {
           if (mounted && event.user?.id !== tokenData.userId) setTyping(true);
         });
-
         channel.on('typing.stop', (event) => {
           if (mounted && event.user?.id !== tokenData.userId) setTyping(false);
         });
-
         channel.on('message.read', () => {
           if (mounted) setMessages((prev) => prev.map((m) => m.is_mine ? { ...m, status: 'read' } : m));
         });
 
-        // Watch channel and load history
+        channelRef.current = channel;
+
+        // Watch and load history from Stream
         const state = await channel.watch();
         if (!mounted) return;
 
-        // Use Stream message history as source of truth
-        const history = (state.messages || []).map((m) => streamMsgToLocal(m, tokenData.userId));
-        setMessages(history);
-
+        setMessages((state.messages || []).map((m) => msgToLocal(m, tokenData.userId)));
         channel.markRead().catch(() => {});
       } catch (err) {
         console.error('Chat init error:', err);
-        if (mounted) {
-          // Fallback to backend messages if Stream fails
-          try {
-            const msgData = await api.get('/api/chat/messages');
-            if (mounted) setMessages(msgData.messages || []);
-          } catch {}
-          setError('Real-time connection unavailable. Messages may not update automatically.');
-        }
+        if (!mounted) return;
+        // Fallback to backend
+        try {
+          const msgData = await api.get('/api/chat/messages');
+          if (mounted) setMessages(msgData.messages || []);
+        } catch {}
+        if (mounted) setError('Live updates unavailable — messages load on refresh.');
       } finally {
         if (mounted) setLoading(false);
       }
     };
 
     init();
-
     return () => {
       mounted = false;
       clearTimeout(typingTimer.current);
-      if (channelRef.current) channelRef.current.stopWatching().catch(() => {});
+      channelRef.current?.stopWatching().catch(() => {});
       if (scClientRef.current?.userID) scClientRef.current.disconnectUser().catch(() => {});
     };
   }, []);
@@ -140,10 +128,10 @@ export default function Chat() {
   }, [messages, typing]);
 
   const handleTyping = () => {
-    if (channelRef.current) channelRef.current.keystroke().catch(() => {});
+    channelRef.current?.keystroke().catch(() => {});
     clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => {
-      if (channelRef.current) channelRef.current.stopTyping().catch(() => {});
+      channelRef.current?.stopTyping().catch(() => {});
     }, 2000);
   };
 
@@ -157,10 +145,12 @@ export default function Chat() {
         mediaUrl:  mediaUrl  || undefined,
         mediaType: mediaType || undefined,
       });
+      setMessage('');
+      loadStatus();
 
-      // Send via Stream for real-time delivery
+      // Send via Stream — message.new event adds it to state on BOTH sides
       if (channelRef.current) {
-        const streamMsg = {};
+        const streamMsg = { id: data.message.id, tokens_charged: data.tokensCharged };
         if (content) streamMsg.text = content;
         if (mediaUrl) {
           streamMsg.attachments = [{
@@ -168,17 +158,11 @@ export default function Chat() {
             [mediaType === 'video' ? 'asset_url' : 'image_url']: mediaUrl,
           }];
         }
-        streamMsg.tokens_charged = data.tokensCharged;
-        streamMsg.id = data.message.id; // use our DB id to prevent duplicates
-
         await channelRef.current.sendMessage(streamMsg);
       } else {
-        // Fallback: add to local state manually
+        // Fallback if Stream not connected
         setMessages((prev) => [...prev, { ...data.message, status: 'sent' }]);
       }
-
-      setMessage('');
-      loadStatus();
     } catch (err) {
       if (err.message === 'INSUFFICIENT_TOKENS') {
         setTopUp(status?.nextCost || 1);
@@ -222,7 +206,6 @@ export default function Chat() {
         <h1 style={title}>Chat with Jinal</h1>
       </div>
 
-      {/* Status bar */}
       {status && (
         <div style={{ ...statusBar, margin: chatBg ? '0 12px 12px' : '0 0 12px' }}>
           {isGuest ? (
@@ -244,27 +227,20 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Messages feed */}
       <div style={{ ...feed, padding: chatBg ? '0 12px' : '0' }}>
         {messages.length === 0 && (
-          <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>
-            No messages yet. Say hello!
-          </div>
+          <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>No messages yet. Say hello!</div>
         )}
         {messages.map((msg) => <MessageBubble key={msg.stream_id || msg.id} msg={msg} />)}
-
         {typing && (
-          <div style={{ alignSelf: 'flex-start', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ alignSelf: 'flex-start' }}>
             <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 3 }}>★ Jinal Joshi</div>
-            <div style={{ ...bubble, background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontStyle: 'italic', padding: '10px 14px' }}>
-              typing…
-            </div>
+            <div style={{ ...bubble, background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontStyle: 'italic', padding: '10px 14px' }}>typing…</div>
           </div>
         )}
         <div ref={bottomRef} />
       </div>
 
-      {/* Error */}
       {error && (
         <div style={{ ...errorBox, margin: chatBg ? '0 12px 8px' : '0 0 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
           <span>{error}</span>
@@ -272,7 +248,6 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Composer */}
       <div style={{ ...composer, padding: chatBg ? '12px' : '12px 0 0' }}>
         {!nextIsFree && nextCost > 0 && (
           <div style={costPreview}>
@@ -289,19 +264,8 @@ export default function Chat() {
               </button>
             </>
           )}
-          <textarea
-            value={message}
-            onChange={(e) => { setMessage(e.target.value); handleTyping(); }}
-            onKeyDown={handleKeyDown}
-            placeholder={nextIsFree ? `Message Jinal… (${freeRemaining} free remaining)` : isGuest ? `Message Jinal… (${nextCost} tokens each)` : `Message Jinal… (${nextCost} token${nextCost > 1 ? 's' : ''} each)`}
-            style={composerInput}
-            rows={2}
-          />
-          <button
-            onClick={() => { if (message.trim()) sendMessage(message.trim()); }}
-            disabled={sending || uploading || !message.trim()}
-            style={{ ...sendBtn, opacity: (sending || uploading || !message.trim()) ? 0.5 : 1 }}
-          >
+          <textarea value={message} onChange={(e) => { setMessage(e.target.value); handleTyping(); }} onKeyDown={handleKeyDown} placeholder={nextIsFree ? `Message Jinal… (${freeRemaining} free remaining)` : isGuest ? `Message Jinal… (${nextCost} tokens each)` : `Message Jinal… (${nextCost} token${nextCost > 1 ? 's' : ''} each)`} style={composerInput} rows={2} />
+          <button onClick={() => { if (message.trim()) sendMessage(message.trim()); }} disabled={sending || uploading || !message.trim()} style={{ ...sendBtn, opacity: (sending || uploading || !message.trim()) ? 0.5 : 1 }}>
             {sending ? '…' : 'Send'}
           </button>
         </div>
@@ -315,9 +279,7 @@ export default function Chat() {
 }
 
 function MessageBubble({ msg }) {
-  const isMe   = msg.is_mine;
-  const status = msg.status;
-
+  const isMe = msg.is_mine;
   return (
     <div style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '75%', display: 'flex', flexDirection: 'column' }}>
       {!isMe && <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 3 }}>★ Jinal Joshi</div>}
@@ -327,36 +289,26 @@ function MessageBubble({ msg }) {
         {msg.content && <div style={{ padding: msg.media_url ? '0 8px 8px' : 0 }}>{msg.content}</div>}
       </div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3, alignSelf: isMe ? 'flex-end' : 'flex-start' }}>
-        <span style={{ fontFamily: F.sans, fontSize: 10, color: C.muted }}>
-          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </span>
-        {isMe && (
-          <span style={{ fontSize: 11, color: status === 'read' ? C.accent : C.muted }}>
-            {status === 'read' ? '✓✓' : status === 'delivered' ? '✓✓' : '✓'}
-          </span>
-        )}
-        {msg.tokens_charged > 0 && isMe && (
-          <span style={{ fontFamily: F.sans, fontSize: 10, color: C.muted, display: 'flex', alignItems: 'center', gap: 2 }}>
-            · <WonderCoinAmount amount={msg.tokens_charged} size={10} textColor={C.muted} fontSize={10} /> charged
-          </span>
-        )}
+        <span style={{ fontFamily: F.sans, fontSize: 10, color: C.muted }}>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+        {isMe && <span style={{ fontSize: 11, color: msg.status === 'read' ? C.accent : C.muted }}>{msg.status === 'read' ? '✓✓' : msg.status === 'delivered' ? '✓✓' : '✓'}</span>}
+        {msg.tokens_charged > 0 && isMe && <span style={{ fontFamily: F.sans, fontSize: 10, color: C.muted, display: 'flex', alignItems: 'center', gap: 2 }}>· <WonderCoinAmount amount={msg.tokens_charged} size={10} textColor={C.muted} fontSize={10} /> charged</span>}
       </div>
     </div>
   );
 }
 
-const eyebrow      = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 8 };
-const title        = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(24px,4vw,42px)', margin: 0 };
-const statusBar    = { padding: '8px 12px', background: 'rgba(22,20,16,0.85)', border: `1px solid ${C.border}`, borderRadius: 8, backdropFilter: 'blur(8px)' };
-const statItem     = { display: 'flex', flexDirection: 'column', gap: 2 };
-const statLabel    = { fontFamily: F.sans, fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em' };
-const topUpBtn     = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 11, padding: '4px 8px', borderRadius: 6, cursor: 'pointer' };
-const inlineTopUp  = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
-const feed         = { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, paddingBottom: 8, marginBottom: 8 };
-const bubble       = { fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, borderRadius: 10, wordBreak: 'break-word' };
-const errorBox     = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
-const costPreview  = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 };
-const composer     = { borderTop: `1px solid ${C.border}` };
+const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 8 };
+const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(24px,4vw,42px)', margin: 0 };
+const statusBar   = { padding: '8px 12px', background: 'rgba(22,20,16,0.85)', border: `1px solid ${C.border}`, borderRadius: 8, backdropFilter: 'blur(8px)' };
+const statItem    = { display: 'flex', flexDirection: 'column', gap: 2 };
+const statLabel   = { fontFamily: F.sans, fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em' };
+const topUpBtn    = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 11, padding: '4px 8px', borderRadius: 6, cursor: 'pointer' };
+const inlineTopUp = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
+const feed        = { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, paddingBottom: 8, marginBottom: 8 };
+const bubble      = { fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, borderRadius: 10, wordBreak: 'break-word' };
+const errorBox    = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
+const costPreview = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 };
+const composer    = { borderTop: `1px solid ${C.border}` };
 const composerInput = { flex: 1, width: '100%', background: 'rgba(22,20,16,0.9)', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 14, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', lineHeight: 1.5, boxSizing: 'border-box' };
-const sendBtn      = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '10px 20px', borderRadius: 8, flexShrink: 0, cursor: 'pointer' };
-const attachBtn    = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontSize: 16, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', flexShrink: 0 };
+const sendBtn     = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '10px 20px', borderRadius: 8, flexShrink: 0, cursor: 'pointer' };
+const attachBtn   = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontSize: 16, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', flexShrink: 0 };
