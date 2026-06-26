@@ -1,160 +1,233 @@
 // backend/routes/coins.js
-// Updated to allow any token amount with bulk discounts
-
-const router = require('express').Router();
-const crypto = require('crypto');
-const pool   = require('../db/pool');
+const router  = require('express').Router();
+const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
+const { postSystemMessage } = require('./community');
 
-const TOKEN_RATE    = parseInt(process.env.TOKEN_RATE_INR || 66, 10);
-const CONSENT_VER  = 'voluntary-payment-v1';
-const CONSENT_TEXT = 'I am making this payment voluntarily, of my own free will';
+const TOKEN_RATE_INR = parseInt(process.env.TOKEN_RATE_INR || '66');
 
-// Minimum 1 token, no fixed list — any amount allowed
-const MIN_TOKENS = 1;
-const MAX_TOKENS = 10000;
-
-// Bulk discount tiers — mirrors data.js
-function getDiscount(tokens) {
+function calcDiscount(tokens) {
   if (tokens >= 1000) return 10;
   if (tokens >= 500)  return 5;
   return 0;
 }
 
-function calcAmountPaise(tokens) {
-  const base     = tokens * TOKEN_RATE * 100; // paise
-  const pct      = getDiscount(tokens);
-  const discount = pct ? Math.round(base * pct / 100) : 0;
-  return base - discount;
+function calcPrice(tokens) {
+  const pct  = calcDiscount(tokens);
+  const base = tokens * TOKEN_RATE_INR;
+  return Math.round(base * (1 - pct / 100));
 }
 
-// ── GET BALANCE ──────────────────────────────
+// ─────────────────────────────────────────────
+// GET /api/coins/balance
+// ─────────────────────────────────────────────
 
 router.get('/balance', authMid, async (req, res) => {
-  const { rows: user } = await pool.query(
-    'SELECT coin_balance FROM users WHERE id = $1', [req.user.userId]
-  );
-  const { rows: ledger } = await pool.query(
-    'SELECT * FROM coin_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20',
-    [req.user.userId]
-  );
-  res.json({ balance: user[0].coin_balance, ledger });
+  try {
+    const { rows: userRows } = await pool.query(
+      `SELECT coin_balance FROM users WHERE id = $1`,
+      [req.user.userId]
+    );
+    const { rows: ledger } = await pool.query(
+      `SELECT id, type, direction, amount, label, created_at
+       FROM coin_ledger WHERE user_id = $1
+       ORDER BY created_at DESC LIMIT 30`,
+      [req.user.userId]
+    );
+    res.json({ balance: userRows[0]?.coin_balance || 0, ledger });
+  } catch (err) {
+    console.error('coins/balance error:', err);
+    res.status(500).json({ error: 'Failed to load balance' });
+  }
 });
 
-// ── RAZORPAY RECHARGE ────────────────────────
+// ─────────────────────────────────────────────
+// POST /api/coins/recharge/initiate
+// Creates a Razorpay order
+// Body: { tokens }
+// ─────────────────────────────────────────────
 
-router.post('/recharge/razorpay', authMid, async (req, res) => {
-  const { amount } = req.body;
-  const tokens = parseInt(amount, 10);
+router.post('/recharge/initiate', authMid, async (req, res) => {
+  const { tokens } = req.body;
+  const amount     = parseInt(tokens);
 
-  if (!tokens || tokens < MIN_TOKENS || tokens > MAX_TOKENS) {
-    return res.status(400).json({ error: `Amount must be between ${MIN_TOKENS} and ${MAX_TOKENS} tokens.` });
+  if (!amount || amount < 1) {
+    return res.status(400).json({ error: 'Token amount is required' });
+  }
+  if (amount > 10000) {
+    return res.status(400).json({ error: 'Maximum 10,000 tokens per transaction' });
   }
 
-  const Razorpay = require('razorpay');
-  const razorpay = new Razorpay({
-    key_id:     process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET,
-  });
+  const priceINR   = calcPrice(amount);
+  const discountPct = calcDiscount(amount);
 
-  const amountPaise = calcAmountPaise(tokens);
-  const order = await razorpay.orders.create({
-    amount:   amountPaise,
-    currency: 'INR',
-    notes:    { userId: req.user.userId, wcAmount: String(tokens) },
-  });
+  try {
+    const Razorpay = require('razorpay');
+    const razorpay = new Razorpay({
+      key_id:     process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
 
-  res.json({
-    orderId:    order.id,
-    key:        process.env.RAZORPAY_KEY_ID,
-    amountPaise,
-    wcAmount:   tokens,
-    inrAmount:  amountPaise / 100,
-    discountPct: getDiscount(tokens),
-  });
+    const order = await razorpay.orders.create({
+      amount:   priceINR * 100, // paise
+      currency: 'INR',
+      notes: {
+        user_id:    req.user.userId,
+        tokens:     String(amount),
+        discount:   String(discountPct),
+      },
+    });
+
+    res.json({
+      orderId:     order.id,
+      amount:      priceINR,
+      tokens:      amount,
+      discountPct,
+      razorpayKey: process.env.RAZORPAY_KEY_ID,
+    });
+  } catch (err) {
+    console.error('coins/recharge/initiate error:', err);
+    res.status(500).json({ error: 'Failed to create payment order' });
+  }
 });
 
-// ── RAZORPAY WEBHOOK ─────────────────────────
+// ─────────────────────────────────────────────
+// POST /api/coins/recharge/verify
+// Verifies Razorpay payment and credits tokens
+// Body: { razorpay_order_id, razorpay_payment_id, razorpay_signature, tokens }
+// ─────────────────────────────────────────────
 
-router.post('/webhook/razorpay', express_raw(), async (req, res) => {
-  const sig      = req.headers['x-razorpay-signature'];
-  const expected = crypto
+router.post('/recharge/verify', authMid, async (req, res) => {
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, tokens } = req.body;
+
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !tokens) {
+    return res.status(400).json({ error: 'Payment verification data is incomplete' });
+  }
+
+  const amount = parseInt(tokens);
+  if (!amount || amount < 1) return res.status(400).json({ error: 'Invalid token amount' });
+
+  try {
+    // Verify signature
+    const crypto    = require('crypto');
+    const body      = razorpay_order_id + '|' + razorpay_payment_id;
+    const expected  = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(body)
+      .digest('hex');
+
+    if (expected !== razorpay_signature) {
+      return res.status(400).json({ error: 'Payment verification failed — signature mismatch' });
+    }
+
+    // Check not already processed
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM coin_ledger WHERE payment_id = $1`,
+      [razorpay_payment_id]
+    );
+    if (existing.length) {
+      return res.status(409).json({ error: 'Payment already processed' });
+    }
+
+    const priceINR    = calcPrice(amount);
+    const discountPct = calcDiscount(amount);
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      await client.query(
+        `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
+        [amount, req.user.userId]
+      );
+
+      await client.query(
+        `INSERT INTO coin_ledger (user_id, type, direction, amount, label, payment_id, payment_amount_inr)
+         VALUES ($1, 'recharge', 'credit', $2, $3, $4, $5)`,
+        [req.user.userId, amount, `Recharge ${amount} tokens${discountPct > 0 ? ` (${discountPct}% off)` : ''}`, razorpay_payment_id, priceINR]
+      );
+
+      const { rows: userRows } = await client.query(
+        `SELECT coin_balance FROM users WHERE id = $1`,
+        [req.user.userId]
+      );
+
+      await client.query('COMMIT');
+
+      // System message to community
+      postSystemMessage('🪙 Someone just recharged their J Tokens!');
+
+      res.json({
+        ok:         true,
+        tokens:     amount,
+        priceINR,
+        discountPct,
+        newBalance: userRows[0].coin_balance,
+        message:    `${amount} tokens added to your balance!`,
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('coins/recharge/verify error:', err);
+    res.status(500).json({ error: 'Failed to verify payment' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/coins/recharge/webhook
+// Razorpay webhook (backup in case verify is missed)
+// ─────────────────────────────────────────────
+
+router.post('/recharge/webhook', async (req, res) => {
+  const signature = req.headers['x-razorpay-signature'];
+  const crypto    = require('crypto');
+  const expected  = crypto
     .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
-    .update(req.body)
+    .update(JSON.stringify(req.body))
     .digest('hex');
 
-  if (sig !== expected) return res.status(400).json({ error: 'Invalid signature' });
+  if (expected !== signature) return res.status(400).json({ error: 'Invalid webhook signature' });
 
-  const event = JSON.parse(req.body.toString());
-  if (event.event !== 'payment.captured') return res.sendStatus(200);
+  const event   = req.body;
+  const payment = event?.payload?.payment?.entity;
 
-  const payment = event.payload.payment.entity;
-  const { userId, wcAmount, isGift } = payment.notes;
-  const coins         = parseInt(wcAmount, 10);
-  const processorTxId = payment.id;
-
-  if (isGift === 'true') {
-    await pool.query(
-      `INSERT INTO artist_notifications (type, fan_id, payload) VALUES ('gift_received', $1, $2)`,
-      [userId, JSON.stringify({ amount: coins, method: 'fresh_payment', processorTxId })]
-    );
-    await pool.query(
-      `INSERT INTO coin_ledger (user_id, type, direction, amount, label, funding_rail, processor_tx_id, consent_version, consented_at)
-       VALUES ($1, 'gift_sent', 'debit', $2, 'Gift to Jinal Joshi', 'razorpay', $3, $4, NOW())`,
-      [userId, coins, processorTxId, CONSENT_VER]
-    );
-    return res.sendStatus(200);
+  if (event.event !== 'payment.captured' || !payment) {
+    return res.json({ ok: true });
   }
 
-  await creditCoins(userId, coins, 'razorpay', processorTxId);
-  res.sendStatus(200);
-});
+  const userId     = payment.notes?.user_id;
+  const tokens     = parseInt(payment.notes?.tokens);
+  const paymentId  = payment.id;
 
-// ── GIFT FROM BALANCE ────────────────────────
+  if (!userId || !tokens) return res.json({ ok: true });
 
-router.post('/gift/balance', authMid, async (req, res) => {
-  const { amount } = req.body;
-  if (!amount || amount < 1) return res.status(400).json({ error: 'Invalid gift amount' });
+  try {
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM coin_ledger WHERE payment_id = $1`, [paymentId]
+    );
+    if (existing.length) return res.json({ ok: true });
 
-  const { rows } = await pool.query('SELECT coin_balance FROM users WHERE id = $1', [req.user.userId]);
-  if (rows[0].coin_balance < amount) {
-    return res.status(402).json({ error: 'Insufficient balance', shortBy: amount - rows[0].coin_balance });
+    const priceINR = Math.round(payment.amount / 100);
+    await pool.query(
+      `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
+      [tokens, userId]
+    );
+    await pool.query(
+      `INSERT INTO coin_ledger (user_id, type, direction, amount, label, payment_id, payment_amount_inr)
+       VALUES ($1, 'recharge', 'credit', $2, $3, $4, $5)`,
+      [userId, tokens, `Recharge via webhook — ${tokens} tokens`, paymentId, priceINR]
+    );
+
+    postSystemMessage('🪙 Someone just recharged their J Tokens!');
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('webhook error:', err);
+    res.status(500).json({ error: 'Webhook processing failed' });
   }
-
-  await pool.query('UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2', [amount, req.user.userId]);
-  await pool.query(
-    `INSERT INTO coin_ledger (user_id, type, direction, amount, label) VALUES ($1, 'gift_sent', 'debit', $2, 'Gift to Jinal Joshi')`,
-    [req.user.userId, amount]
-  );
-  await pool.query(
-    `INSERT INTO artist_notifications (type, fan_id, payload) VALUES ('gift_received', $1, $2)`,
-    [req.user.userId, JSON.stringify({ amount, method: 'balance' })]
-  );
-  res.json({ ok: true });
 });
-
-// ── WEBHOOKS (stubs) ─────────────────────────
-
-router.post('/webhook/segpay', async (req, res) => res.sendStatus(200));
-router.post('/webhook/verotel', async (req, res) => res.sendStatus(200));
-
-// ── CREDIT HELPER ────────────────────────────
-
-async function creditCoins(userId, coins, rail, processorTxId) {
-  await pool.query('UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2', [coins, userId]);
-  await pool.query(
-    `INSERT INTO coin_ledger (user_id, type, direction, amount, label, funding_rail, processor_tx_id, consent_version, consented_at)
-     VALUES ($1, 'recharge', 'credit', $2, 'J Token recharge', $3, $4, $5, NOW())`,
-    [userId, coins, rail, processorTxId, CONSENT_VER]
-  );
-  await pool.query(
-    `INSERT INTO artist_notifications (type, fan_id, payload) VALUES ('recharge', $1, $2)`,
-    [userId, JSON.stringify({ amount: coins, rail })]
-  );
-}
-
-function express_raw() {
-  return require('express').raw({ type: 'application/json' });
-}
 
 module.exports = router;

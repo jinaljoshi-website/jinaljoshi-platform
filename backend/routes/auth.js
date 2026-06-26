@@ -1,10 +1,10 @@
 // backend/routes/auth.js
-const router = require('express').Router();
-const argon2 = require('argon2');
-const jwt    = require('jsonwebtoken');
+const router   = require('express').Router();
+const argon2   = require('argon2');
+const jwt      = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
-const pool   = require('../db/pool');
-const authMid = require('../middleware/auth');
+const pool     = require('../db/pool');
+const authMid  = require('../middleware/auth');
 
 // ── SIGNUP ────────────────────────────────────
 
@@ -24,14 +24,10 @@ router.post('/signup', async (req, res) => {
   // Age check
   const birthDate = new Date(dob);
   const today     = new Date();
-  const age       = today.getFullYear() - birthDate.getFullYear();
-  const monthDiff = today.getMonth() - birthDate.getMonth();
-  const actualAge = (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate()))
-    ? age - 1 : age;
-
-  if (actualAge < 18) {
-    return res.status(400).json({ error: 'You must be 18 or older' });
-  }
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+  if (age < 18) return res.status(400).json({ error: 'You must be 18 or older' });
 
   // Consent check
   if (!consentTerms || !consentNoRefund) {
@@ -66,6 +62,12 @@ router.post('/signup', async (req, res) => {
     [user.id, sessionId]
   );
 
+  // System message to community (fire and forget)
+  try {
+    const { postSystemMessage } = require('./community');
+    postSystemMessage('🎉 A new member just joined Personal Space. Welcome!');
+  } catch {}
+
   res.json({
     jwt: token,
     user: { id: user.id, email: user.email, tier: user.tier, coinBalance: user.coin_balance },
@@ -96,10 +98,11 @@ router.post('/login', async (req, res) => {
 
   let streamToken = null;
   try {
-    const streamClient = require('../stream');
+    const { StreamClient } = require('@stream-io/node-sdk');
+    const streamClient = new StreamClient(process.env.STREAM_API_KEY, process.env.STREAM_API_SECRET);
     await streamClient.upsertUsers([{ id: user.id, name: user.display_name || user.email }]);
     streamToken = streamClient.generateUserToken({ user_id: user.id });
-  } catch (e) {}
+  } catch {}
 
   const sessionId = uuidv4();
   const token     = jwt.sign(
@@ -115,7 +118,6 @@ router.post('/login', async (req, res) => {
     [user.id, sessionId, req.headers['user-agent']?.slice(0, 100)]
   );
 
-  // Update last login
   await pool.query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
 
   res.json({
@@ -162,7 +164,7 @@ router.post('/verify-phone/send', authMid, async (req, res) => {
 
 router.post('/verify-phone/confirm', authMid, async (req, res) => {
   const { phone, code } = req.body;
-  if (!phone || !code) return res.status(400).json({ error: 'Phone number and code are required' });
+  if (!phone || !code) return res.status(400).json({ error: 'Phone and code are required' });
 
   const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
   const check  = await twilio.verify.v2.services(process.env.TWILIO_VERIFY_SERVICE_SID)
@@ -199,8 +201,8 @@ router.post('/forgot/request', async (req, res) => {
   );
 
   const resetsUsed = allotRows[0]?.password_resets_used || 0;
-  const freeLimit  = parseInt(process.env.PASSWORD_RESET_FREE_LIMIT || 2, 10);
-  const penalty    = parseInt(process.env.PASSWORD_RESET_COIN_PENALTY || 25, 10);
+  const freeLimit  = parseInt(process.env.PASSWORD_RESET_FREE_LIMIT || '2', 10);
+  const penalty    = parseInt(process.env.PASSWORD_RESET_COIN_PENALTY || '25', 10);
 
   if (resetsUsed >= freeLimit) {
     if (user.coin_balance < penalty) {
@@ -212,7 +214,8 @@ router.post('/forgot/request', async (req, res) => {
     }
     await pool.query('UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2', [penalty, user.id]);
     await pool.query(
-      `INSERT INTO coin_ledger (user_id, type, amount, label) VALUES ($1, 'debit', $2, 'Password reset fee')`,
+      `INSERT INTO coin_ledger (user_id, type, direction, amount, label)
+       VALUES ($1, 'debit', 'debit', $2, 'Password reset fee')`,
       [user.id, penalty]
     );
   }
@@ -235,7 +238,7 @@ router.post('/forgot/request', async (req, res) => {
 router.post('/forgot/confirm', async (req, res) => {
   const { email, code, newPassword } = req.body;
   if (!email || !code || !newPassword) {
-    return res.status(400).json({ error: 'Email, code, and new password are required' });
+    return res.status(400).json({ error: 'Email, code and new password are required' });
   }
 
   const normalizedEmail = email.toLowerCase().trim();
