@@ -16,6 +16,7 @@ app.use(cors({
   ],
   credentials: true,
 }));
+
 app.use(express.json());
 
 app.use('/api/auth',         require('./routes/auth'));
@@ -25,6 +26,7 @@ app.use('/api/community',    require('./routes/community'));
 app.use('/api/chat',         require('./routes/chat'));
 app.use('/api/calls',        require('./routes/calls'));
 app.use('/api/stream-calls', require('./routes/streamcalls'));
+app.use('/api/stream-chat',  require('./routes/streamchat'));
 app.use('/api/gallery',      require('./routes/gallery'));
 app.use('/api/shop',         require('./routes/shop'));
 app.use('/api/push',         require('./routes/push'));
