@@ -1,44 +1,165 @@
 import { useEffect, useRef, useState } from 'react';
 import { C, F } from '../tokens';
-import { api } from '../api';
+import { api, getUser } from '../api';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import { TIERS } from '../data';
 import { useUpload } from '../hooks/useUpload';
 import TopUpModal from '../components/TopUpModal';
 
+// Stream Chat for real-time
+import { StreamChat } from 'stream-chat';
+
+const ARTIST_ID = import.meta.env.VITE_ARTIST_USER_ID;
+
 export default function Chat() {
-  const [messages,  setMessages]  = useState([]);
-  const [status,    setStatus]    = useState(null);
-  const [message,   setMessage]   = useState('');
-  const [loading,   setLoading]   = useState(true);
-  const [sending,   setSending]   = useState(false);
-  const [error,     setError]     = useState('');
-  const [topUp,     setTopUp]     = useState(null);
-  const bottomRef = useRef(null);
-  const fileRef   = useRef(null);
+  const [messages,   setMessages]   = useState([]);
+  const [status,     setStatus]     = useState(null);
+  const [message,    setMessage]    = useState('');
+  const [loading,    setLoading]    = useState(true);
+  const [sending,    setSending]    = useState(false);
+  const [typing,     setTyping]     = useState(false); // Jinal is typing
+  const [error,      setError]      = useState('');
+  const [topUp,      setTopUp]      = useState(null);
+  const bottomRef    = useRef(null);
+  const fileRef      = useRef(null);
+  const channelRef   = useRef(null);
+  const scClientRef  = useRef(null);
+  const typingTimer  = useRef(null);
+  const currentUser  = getUser();
   const { upload, uploading } = useUpload();
 
   const loadStatus = () => api.get('/api/chat/status').then(setStatus).catch(() => {});
 
   useEffect(() => {
-    Promise.all([api.get('/api/chat/messages'), api.get('/api/chat/status')])
-      .then(([msgData, statusData]) => { setMessages(msgData.messages || []); setStatus(statusData); })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+    let mounted = true;
+
+    const init = async () => {
+      try {
+        // Load messages and status from our backend
+        const [msgData, statusData] = await Promise.all([
+          api.get('/api/chat/messages'),
+          api.get('/api/chat/status'),
+        ]);
+        if (!mounted) return;
+        setMessages(msgData.messages || []);
+        setStatus(statusData);
+
+        // Connect to Stream Chat for real-time
+        const tokenData = await api.post('/api/stream-chat/token', {});
+        if (!mounted) return;
+
+        const scClient = StreamChat.getInstance(tokenData.apiKey);
+        scClientRef.current = scClient;
+
+        await scClient.connectUser(
+          { id: tokenData.userId, name: tokenData.userName },
+          tokenData.token
+        );
+
+        // Channel ID = sorted pair of user IDs
+        const channelId = [tokenData.userId, tokenData.artistId].sort().join('-');
+        const channel = scClient.channel('messaging', channelId, {
+          members: [tokenData.userId, tokenData.artistId],
+        });
+        channelRef.current = channel;
+
+        await channel.watch();
+
+        // Listen for new messages
+        channel.on('message.new', (event) => {
+          if (!mounted) return;
+          const msg = event.message;
+          // Only add if not already in list (avoid duplicates from our own sends)
+          setMessages((prev) => {
+            if (prev.find((m) => m.stream_id === msg.id)) return prev;
+            return [...prev, {
+              id:             msg.id,
+              stream_id:      msg.id,
+              sender_id:      msg.user.id,
+              content:        msg.text || null,
+              media_url:      msg.attachments?.[0]?.image_url || msg.attachments?.[0]?.asset_url || null,
+              media_type:     msg.attachments?.[0]?.type === 'video' ? 'video' : msg.attachments?.[0]?.image_url ? 'image' : null,
+              tokens_charged: msg.tokens_charged || 0,
+              created_at:     msg.created_at,
+              is_mine:        msg.user.id === tokenData.userId,
+              status:         'delivered',
+            }];
+          });
+          // Mark as read
+          channel.markRead();
+        });
+
+        // Typing indicator
+        channel.on('typing.start', (event) => {
+          if (event.user.id !== tokenData.userId) setTyping(true);
+        });
+        channel.on('typing.stop', (event) => {
+          if (event.user.id !== tokenData.userId) setTyping(false);
+        });
+
+        // Message read receipts
+        channel.on('message.read', () => {
+          setMessages((prev) => prev.map((m) => m.is_mine ? { ...m, status: 'read' } : m));
+        });
+
+        channel.markRead();
+      } catch (err) {
+        console.error('Chat init error:', err);
+        if (mounted) setError('Could not connect to chat.');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    init();
+
+    return () => {
+      mounted = false;
+      if (channelRef.current) channelRef.current.stopWatching();
+      if (scClientRef.current) scClientRef.current.disconnectUser();
+    };
   }, []);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, typing]);
+
+  const handleTyping = () => {
+    if (channelRef.current) channelRef.current.keystroke();
+    clearTimeout(typingTimer.current);
+    typingTimer.current = setTimeout(() => {
+      if (channelRef.current) channelRef.current.stopTyping();
+    }, 2000);
+  };
 
   const sendMessage = async (content = null, mediaUrl = null, mediaType = null) => {
-    setError(''); setSending(true);
+    setError('');
+    setSending(true);
     try {
       const data = await api.post('/api/chat/send', {
         content:   content || undefined,
         mediaUrl:  mediaUrl  || undefined,
         mediaType: mediaType || undefined,
       });
-      setMessages((prev) => [...prev, data.message]);
+
+      // Add to local state with stream_id for dedup
+      const msg = data.message;
+      setMessages((prev) => {
+        if (prev.find((m) => m.id === msg.id)) return prev;
+        return [...prev, { ...msg, status: 'sent' }];
+      });
       setMessage('');
+
+      // Also send via Stream Chat so Jinal gets real-time
+      if (channelRef.current) {
+        const streamMsg = { text: content || undefined };
+        if (mediaUrl) {
+          streamMsg.attachments = [{ type: mediaType === 'video' ? 'video' : 'image', [mediaType === 'video' ? 'asset_url' : 'image_url']: mediaUrl }];
+        }
+        streamMsg.tokens_charged = data.tokensCharged;
+        await channelRef.current.sendMessage(streamMsg);
+      }
+
       loadStatus();
     } catch (err) {
       if (err.message === 'INSUFFICIENT_TOKENS') {
@@ -46,10 +167,17 @@ export default function Chat() {
       } else {
         setError(err.message);
       }
-    } finally { setSending(false); }
+    } finally {
+      setSending(false);
+    }
   };
 
-  const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (message.trim()) sendMessage(message.trim()); } };
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (message.trim()) sendMessage(message.trim());
+    }
+  };
 
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
@@ -59,7 +187,7 @@ export default function Chat() {
     if (result) await sendMessage(null, result.publicUrl, result.mediaType);
   };
 
-  if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading chat…</div>;
+  if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Connecting to chat…</div>;
 
   const isGuest        = status?.tier === 'guest';
   const nextIsFree     = status?.nextIsFree;
@@ -76,6 +204,7 @@ export default function Chat() {
         <h1 style={title}>Chat with Jinal</h1>
       </div>
 
+      {/* Status bar */}
       {status && (
         <div style={{ ...statusBar, margin: chatBg ? '0 12px 12px' : '0 0 12px' }}>
           {isGuest ? (
@@ -97,12 +226,28 @@ export default function Chat() {
         </div>
       )}
 
+      {/* Messages */}
       <div style={{ ...feed, padding: chatBg ? '0 12px' : '0' }}>
-        {messages.length === 0 && <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>No messages yet. Send the first one.</div>}
-        {messages.map((msg) => <MessageBubble key={msg.id} msg={msg} />)}
+        {messages.length === 0 && (
+          <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>
+            No messages yet. Say hello!
+          </div>
+        )}
+        {messages.map((msg) => <MessageBubble key={msg.id || msg.stream_id} msg={msg} />)}
+
+        {/* Typing indicator */}
+        {typing && (
+          <div style={{ alignSelf: 'flex-start', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 3 }}>★ Jinal Joshi</div>
+            <div style={{ ...bubble, background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontStyle: 'italic' }}>
+              typing…
+            </div>
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 
+      {/* Error */}
       {error && (
         <div style={{ ...errorBox, margin: chatBg ? '0 12px 8px' : '0 0 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
           <span>{error}</span>
@@ -110,6 +255,7 @@ export default function Chat() {
         </div>
       )}
 
+      {/* Composer */}
       <div style={{ ...composer, padding: chatBg ? '12px' : '12px 0 0' }}>
         {!nextIsFree && nextCost > 0 && (
           <div style={costPreview}>
@@ -121,13 +267,24 @@ export default function Chat() {
           {canSendMedia && (
             <>
               <input ref={fileRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleFileChange} />
-              <button onClick={() => fileRef.current?.click()} disabled={uploading || sending} style={{ ...attachBtn, opacity: (uploading || sending) ? 0.5 : 1 }} title="Attach image or video">
+              <button onClick={() => fileRef.current?.click()} disabled={uploading || sending} style={{ ...attachBtn, opacity: (uploading || sending) ? 0.5 : 1 }}>
                 {uploading ? '…' : '📎'}
               </button>
             </>
           )}
-          <textarea value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={handleKeyDown} placeholder={nextIsFree ? `Message Jinal… (${freeRemaining} free remaining)` : isGuest ? `Message Jinal… (${nextCost} tokens each)` : `Message Jinal… (${nextCost} token${nextCost > 1 ? 's' : ''} each)`} style={composerInput} rows={2} />
-          <button onClick={() => { if (message.trim()) sendMessage(message.trim()); }} disabled={sending || uploading || !message.trim()} style={{ ...sendBtn, opacity: (sending || uploading || !message.trim()) ? 0.5 : 1 }}>
+          <textarea
+            value={message}
+            onChange={(e) => { setMessage(e.target.value); handleTyping(); }}
+            onKeyDown={handleKeyDown}
+            placeholder={nextIsFree ? `Message Jinal… (${freeRemaining} free remaining)` : isGuest ? `Message Jinal… (${nextCost} tokens each)` : `Message Jinal… (${nextCost} token${nextCost > 1 ? 's' : ''} each)`}
+            style={composerInput}
+            rows={2}
+          />
+          <button
+            onClick={() => { if (message.trim()) sendMessage(message.trim()); }}
+            disabled={sending || uploading || !message.trim()}
+            style={{ ...sendBtn, opacity: (sending || uploading || !message.trim()) ? 0.5 : 1 }}
+          >
             {sending ? '…' : 'Send'}
           </button>
         </div>
@@ -142,17 +299,30 @@ export default function Chat() {
 
 function MessageBubble({ msg }) {
   const isMe = msg.is_mine;
+  const status = msg.status; // 'sent' | 'delivered' | 'read'
+
   return (
     <div style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '75%', display: 'flex', flexDirection: 'column' }}>
       {!isMe && <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 3 }}>★ Jinal Joshi</div>}
-      <div style={{ fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, padding: msg.media_url ? 6 : '10px 14px', borderRadius: 10, wordBreak: 'break-word', overflow: 'hidden', background: isMe ? 'rgba(193,125,74,0.1)' : C.surface, border: isMe ? `1px solid rgba(193,125,74,0.25)` : `1px solid ${C.border}` }}>
+      <div style={{ ...bubble, background: isMe ? 'rgba(193,125,74,0.1)' : C.surface, border: isMe ? `1px solid rgba(193,125,74,0.25)` : `1px solid ${C.border}`, padding: msg.media_url ? 6 : '10px 14px', overflow: 'hidden' }}>
         {msg.media_url && msg.media_type === 'image' && <img src={msg.media_url} alt="" style={{ width: '100%', maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: msg.content ? 8 : 0 }} />}
         {msg.media_url && msg.media_type === 'video' && <video src={msg.media_url} controls style={{ width: '100%', maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: msg.content ? 8 : 0 }} />}
         {msg.content && <div style={{ padding: msg.media_url ? '0 8px 8px' : 0 }}>{msg.content}</div>}
       </div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 3 }}>
-        <span style={{ fontFamily: F.sans, fontSize: 10, color: C.muted }}>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-        {msg.tokens_charged > 0 && isMe && <span style={{ fontFamily: F.sans, fontSize: 10, color: C.muted, display: 'flex', alignItems: 'center', gap: 3 }}>· <WonderCoinAmount amount={msg.tokens_charged} size={10} textColor={C.muted} fontSize={10} /> charged</span>}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3, alignSelf: isMe ? 'flex-end' : 'flex-start' }}>
+        <span style={{ fontFamily: F.sans, fontSize: 10, color: C.muted }}>
+          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </span>
+        {isMe && (
+          <span style={{ fontSize: 10, color: status === 'read' ? C.accent : C.muted }}>
+            {status === 'read' ? '✓✓' : status === 'delivered' ? '✓✓' : '✓'}
+          </span>
+        )}
+        {msg.tokens_charged > 0 && isMe && (
+          <span style={{ fontFamily: F.sans, fontSize: 10, color: C.muted, display: 'flex', alignItems: 'center', gap: 2 }}>
+            · <WonderCoinAmount amount={msg.tokens_charged} size={10} textColor={C.muted} fontSize={10} /> charged
+          </span>
+        )}
       </div>
     </div>
   );
@@ -166,6 +336,7 @@ const statLabel    = { fontFamily: F.sans, fontSize: 10, color: C.muted, textTra
 const topUpBtn     = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 11, padding: '4px 8px', borderRadius: 6, cursor: 'pointer' };
 const inlineTopUp  = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
 const feed         = { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, paddingBottom: 8, marginBottom: 8 };
+const bubble       = { fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, borderRadius: 10, wordBreak: 'break-word' };
 const errorBox     = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
 const costPreview  = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 };
 const composer     = { borderTop: `1px solid ${C.border}` };
