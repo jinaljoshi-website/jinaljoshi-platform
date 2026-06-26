@@ -57,7 +57,8 @@ export default function Chat() {
         );
 
         // Channel ID = sorted pair of user IDs
-        const channelId = [tokenData.userId, tokenData.artistId].sort().join('-');
+        const ids = [tokenData.userId, tokenData.artistId].sort();
+const channelId = 'dm-' + ids[0].slice(0, 15) + ids[1].slice(0, 15);
         const channel = scClient.channel('messaging', channelId, {
           members: [tokenData.userId, tokenData.artistId],
         });
