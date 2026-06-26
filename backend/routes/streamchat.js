@@ -1,6 +1,4 @@
 // backend/routes/streamchat.js
-// Stream Chat token generation for real-time messaging
-
 const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
@@ -13,28 +11,47 @@ function getStreamClient() {
 // POST /api/stream-chat/token
 router.post('/token', authMid, async (req, res) => {
   try {
+    const artistId = process.env.ARTIST_USER_ID;
+
+    // Get both fan and artist details
     const { rows } = await pool.query(
-      `SELECT email, display_name FROM users WHERE id = $1`,
-      [req.user.userId]
+      `SELECT id, email, display_name, is_artist FROM users WHERE id = ANY($1)`,
+      [[req.user.userId, artistId]]
     );
-    const user = rows[0];
-    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const fan    = rows.find((u) => u.id === req.user.userId);
+    const artist = rows.find((u) => u.id === artistId);
+
+    if (!fan) return res.status(404).json({ error: 'User not found' });
 
     const client = getStreamClient();
 
-    await client.upsertUsers([{
-      id:   req.user.userId,
-      name: user.display_name || user.email,
-      role: req.user.isArtist ? 'admin' : 'user',
-    }]);
+    // Upsert BOTH users in Stream before token is used
+    const usersToUpsert = [
+      {
+        id:   fan.id,
+        name: fan.display_name || fan.email,
+        role: 'user',
+      },
+    ];
 
-    const token = client.generateUserToken({ user_id: req.user.userId });
+    if (artist) {
+      usersToUpsert.push({
+        id:   artist.id,
+        name: artist.display_name || artist.email || 'Jinal Joshi',
+        role: 'admin',
+      });
+    }
+
+    await client.upsertUsers(usersToUpsert);
+
+    const token = client.generateUserToken({ user_id: fan.id });
 
     res.json({
       token,
-      userId:   req.user.userId,
-      userName: user.display_name || user.email,
-      artistId: process.env.ARTIST_USER_ID,
+      userId:   fan.id,
+      userName: fan.display_name || fan.email,
+      artistId,
       apiKey:   process.env.STREAM_API_KEY,
     });
   } catch (err) {
