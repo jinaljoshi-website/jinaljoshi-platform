@@ -124,7 +124,6 @@ export function Messages() {
       const channelId = makeChannelId(artistId, fanId);
       const channel = scClientRef.current.channel('messaging', channelId, {
         members: [artistId, fanId],
-        created_by_id: artistId,
       });
 
       // Set listeners before watch

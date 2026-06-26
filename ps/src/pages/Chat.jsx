@@ -68,7 +68,6 @@ export default function Chat() {
 
         const channel = scClient.channel('messaging', channelId, {
           members: [tokenData.userId, tokenData.artistId],
-          created_by_id: tokenData.artistId,
         });
 
         // ── Listeners BEFORE watch ──────────────────────
