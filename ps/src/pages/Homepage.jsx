@@ -1,14 +1,84 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
-import { TIERS, TERMS, termPrice } from '../data';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 
 const TOKEN_RATE = 66;
+const API = import.meta.env.VITE_API_URL || '';
+
+// Default fallback prices (tokens per month)
+const DEFAULT_TIER_PRICES = {
+  community: 10,
+  insider:   30,
+  premium:   75,
+  supreme:   150,
+};
+
+const TIER_META = {
+  community: { name: 'Community', color: '#C17D4A', description: 'Entry-level membership with community access and a monthly content unlock.' },
+  insider:   { name: 'Insider',   color: '#B8860B', description: 'More messages, more unlocks, and a better discount on every purchase.' },
+  premium:   { name: 'Premium',   color: '#9B8F83', description: 'Generous monthly allocations and a significant discount across the platform.' },
+  supreme:   { name: 'Supreme',   color: '#C17D4A', description: 'The highest access tier — maximum unlocks, best discount, full DM access.' },
+};
+
+const TIER_PERKS = {
+  community: ['Community Chat Centre', '5 free Direct Messages · 2 Per Day max', 'Unlock any One Set', '5% Discount site-wide', 'All content posted to community'],
+  insider:   ['Community Chat Centre', '30 free Direct Messages · 3 Per Day max', 'Unlock any Four Sets', '10% Discount site-wide', 'All content posted to community'],
+  premium:   ['Community Chat Centre', '100 free Direct Messages · 5 Per Day max', 'Unlock any Seven Sets', '15% Discount site-wide', 'All content posted to community'],
+  supreme:   ['Community Chat Centre', '250 free Direct Messages · 10 Per Day max', 'Unlock any Ten Sets', '20% Discount site-wide', 'All content posted to community'],
+};
+
+const OFFERINGS = [
+  { id: 'community',   title: 'Member Community',      text: "A live space where we are One! All of you and me in one community where we interact daily. In real time!" },
+  { id: 'merchandise', title: 'Official Merchandise',  text: "You get the option to own select merchandise, handcrafted accessories and outfits. Regular drops!" },
+  { id: 'messages',    title: 'Direct Messaging',      text: "For those of you who wish to write to me directly. No AI, No Representative. You speak with me!" },
+  { id: 'calls',       title: 'Virtual Connect',       text: "Looking for direct access? Request a call — Audio or Video. Propose a time. Let's connect and allow me to know you better." },
+  { id: 'extras',      title: 'Personalised Requests', text: "Special days! Get a video from me wishing you or your loved ones on special days." },
+  { id: 'gallery',     title: 'Exclusive Content',     text: "There's only so much I can post on social media. Extended videos, alternate edits, more photos. Get all of them here. Only here!" },
+  { id: 'bts',         title: 'Behind the Scenes',     text: "Experience my life behind the lens when I am shooting in a studio, beach, home or anywhere. Be with me at the shoots!" },
+  { id: 'earlyAccess', title: 'Early Access',          text: "Public posts are planned and go live at a pre-decided time. Here, you see what might take a week to come live on Social Media." },
+];
+
+const HOW_IT_WORKS = [
+  { title: 'J Token',                  text: "A wonderful currency that works inside the platform. Remember tokens from Play Zone? Same thing. One token works for everything — content, calls, messages, merchandise, memberships." },
+  { title: 'Membership',               text: "Each item has an associated token value. A membership offers a discounted token price for every item you access. Multiple tiers to choose from. Explore what works best for you." },
+  { title: 'No Cash Reward or Refund', text: "Tokens can never be redeemed for cash or refund. In case of a technical issue, get token credits by writing to support. All purchases are voluntary and final." },
+  { title: 'Heavy Discounts',          text: "Memberships bring discounts on every purchase. Tokens can also be bought at a discounted price in bulk — 5% off on 500 tokens, 10% off on 1000. Save more, do more." },
+];
 
 export default function Homepage() {
-  const navigate    = useNavigate();
-  const paidTiers   = ['community', 'insider', 'premium', 'supreme'].map((id) => TIERS[id]);
-  const monthlyTerm = TERMS[0];
+  const navigate = useNavigate();
+  const [tierPrices, setTierPrices] = useState(DEFAULT_TIER_PRICES);
+  const [tokenRate,  setTokenRate]  = useState(TOKEN_RATE);
+  const [loading,    setLoading]    = useState(true);
+
+  useEffect(() => {
+    // Fetch live pricing from backend config
+    fetch(`${API}/api/public/config`)
+      .then((r) => r.json())
+      .then((data) => {
+        const c = data.config || {};
+        setTokenRate(parseInt(c.token_rate_inr || TOKEN_RATE));
+        setTierPrices({
+          community: parseInt(c.community_monthly_cost || DEFAULT_TIER_PRICES.community),
+          insider:   parseInt(c.insider_monthly_cost   || DEFAULT_TIER_PRICES.insider),
+          premium:   parseInt(c.premium_monthly_cost   || DEFAULT_TIER_PRICES.premium),
+          supreme:   parseInt(c.supreme_monthly_cost   || DEFAULT_TIER_PRICES.supreme),
+        });
+      })
+      .catch(() => {
+        // Silently fall back to defaults
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const tokenPackages = [
+    { tokens: 10,   inr: 10   * tokenRate,           label: 'A message or two',   saving: null,    highlight: false },
+    { tokens: 50,   inr: 50   * tokenRate,           label: 'A week of chats',    saving: null,    highlight: false },
+    { tokens: 100,  inr: 100  * tokenRate,           label: 'Content + messages', saving: null,    highlight: false },
+    { tokens: 500,  inr: Math.round(500  * tokenRate * 0.95), label: 'More for less', saving: '5% off',  highlight: true  },
+    { tokens: 1000, inr: Math.round(1000 * tokenRate * 0.90), label: 'Best value',    saving: '10% off', highlight: true  },
+  ];
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.text }}>
@@ -42,7 +112,6 @@ export default function Homepage() {
             Personally run &amp; managed by Jinal Joshi · Not a multi-artist platform
           </div>
 
-          {/* Offerings grid */}
           <div style={offeringsGrid}>
             {OFFERINGS.map((o) => (
               <div key={o.id} style={offeringCard}>
@@ -99,27 +168,28 @@ export default function Homepage() {
           </p>
         </div>
         <div style={tiersGrid}>
-          {paidTiers.map((tier) => {
-            const tokens = termPrice(tier, monthlyTerm);
-            const inr    = tokens * TOKEN_RATE;
+          {['community', 'insider', 'premium', 'supreme'].map((id) => {
+            const meta   = TIER_META[id];
+            const tokens = tierPrices[id];
+            const inr    = tokens * tokenRate;
             return (
-              <div key={tier.id} style={tierCard}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: tier.color, marginBottom: 14 }} />
-                <div style={{ fontFamily: F.display, fontSize: 26, color: C.text, marginBottom: 6 }}>{tier.name}</div>
-                <div style={{ fontFamily: F.sans, fontSize: 13, color: '#9B8F83', marginBottom: 16, lineHeight: 1.6 }}>{tier.description}</div>
+              <div key={id} style={tierCard}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color, marginBottom: 14 }} />
+                <div style={{ fontFamily: F.display, fontSize: 26, color: C.text, marginBottom: 6 }}>{meta.name}</div>
+                <div style={{ fontFamily: F.sans, fontSize: 13, color: '#9B8F83', marginBottom: 16, lineHeight: 1.6 }}>{meta.description}</div>
                 <div style={{ marginBottom: 2 }}>
-                  <WonderCoinAmount amount={tokens} size={22} textColor={tier.color} fontSize={28} />
+                  <WonderCoinAmount amount={tokens} size={22} textColor={meta.color} fontSize={28} />
                 </div>
-                <div style={{ fontFamily: F.sans, fontSize: 18, color: C.text, fontWeight: 600, marginBottom: 4 }}>
+                <div style={{ fontFamily: F.sans, fontSize: 20, color: C.text, fontWeight: 600, marginBottom: 4 }}>
                   ₹{inr.toLocaleString('en-IN')}
                 </div>
                 <div style={{ fontFamily: F.sans, fontSize: 11, color: '#9B8F83', marginBottom: 18 }}>
                   per month · prepaid · no auto-renewal
                 </div>
                 <ul style={perkList}>
-                  {TIER_PERKS[tier.id].map((p) => <li key={p}>{p}</li>)}
+                  {TIER_PERKS[id].map((p) => <li key={p}>{p}</li>)}
                 </ul>
-                <button onClick={() => navigate('/auth?mode=signup')} style={{ ...solidBtn, width: '100%', marginTop: 'auto', background: tier.color }}>
+                <button onClick={() => navigate('/auth?mode=signup')} style={{ ...solidBtn, width: '100%', marginTop: 'auto', background: meta.color }}>
                   Select Tenure
                 </button>
               </div>
@@ -133,27 +203,29 @@ export default function Homepage() {
       </section>
 
       {/* ── TOKEN PRICING TABLE ── */}
-      <section style={{ ...section, background: 'rgba(193,125,74,0.04)', borderTop: `1px solid rgba(193,125,74,0.1)`, borderBottom: `1px solid rgba(193,125,74,0.1)` }}>
-        <div style={sectionHead}>
-          <div style={eyebrow}>J Tokens</div>
-          <h2 style={sectionTitle}>Simple, transparent pricing</h2>
-          <p style={sectionSubtext}>1 J Token = ₹66 incl. GST. Buy any amount. The more you buy, the more you save.</p>
+      <section style={{ padding: '72px 24px', background: 'rgba(193,125,74,0.04)', borderTop: `1px solid rgba(193,125,74,0.1)`, borderBottom: `1px solid rgba(193,125,74,0.1)` }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+          <div style={sectionHead}>
+            <div style={eyebrow}>J Tokens</div>
+            <h2 style={sectionTitle}>Simple, transparent pricing</h2>
+            <p style={sectionSubtext}>1 J Token = ₹{tokenRate} incl. GST. Buy any amount. The more you buy, the more you save.</p>
+          </div>
+          <div style={tokenGrid}>
+            {tokenPackages.map((pkg) => (
+              <div key={pkg.tokens} style={{ ...tokenCard, border: pkg.highlight ? `1px solid rgba(193,125,74,0.4)` : `1px solid rgba(242,235,224,0.08)` }}>
+                <div style={{ fontFamily: F.display, fontSize: 34, color: C.text, marginBottom: 4 }}>{pkg.tokens}</div>
+                <div style={{ fontFamily: F.mono, fontSize: 10, color: C.accent, letterSpacing: '0.12em', marginBottom: 10 }}>J TOKENS</div>
+                <div style={{ fontFamily: F.sans, fontSize: 22, color: C.text, fontWeight: 700, marginBottom: 2 }}>₹{pkg.inr.toLocaleString('en-IN')}</div>
+                <div style={{ fontFamily: F.sans, fontSize: 11, color: '#9B8F83', marginBottom: 8 }}>incl. GST</div>
+                {pkg.saving && <div style={savingBadge}>{pkg.saving}</div>}
+                <div style={{ fontFamily: F.sans, fontSize: 11, color: '#9B8F83', marginTop: 8 }}>{pkg.label}</div>
+              </div>
+            ))}
+          </div>
+          <p style={{ fontFamily: F.sans, fontSize: 12, color: '#6B6560', textAlign: 'center', marginTop: 20 }}>
+            All token purchases are voluntary, final, and non-refundable · Tokens never expire · Bulk discounts applied automatically
+          </p>
         </div>
-        <div style={tokenGrid}>
-          {TOKEN_PACKAGES.map((pkg) => (
-            <div key={pkg.tokens} style={{ ...tokenCard, border: pkg.highlight ? `1px solid rgba(193,125,74,0.4)` : `1px solid rgba(242,235,224,0.08)` }}>
-              <div style={{ fontFamily: F.display, fontSize: 34, color: C.text, marginBottom: 4 }}>{pkg.tokens}</div>
-              <div style={{ fontFamily: F.mono, fontSize: 10, color: C.accent, letterSpacing: '0.12em', marginBottom: 10 }}>J TOKENS</div>
-              <div style={{ fontFamily: F.sans, fontSize: 22, color: C.text, fontWeight: 700, marginBottom: 2 }}>₹{pkg.inr.toLocaleString('en-IN')}</div>
-              <div style={{ fontFamily: F.sans, fontSize: 11, color: '#9B8F83', marginBottom: 8 }}>incl. GST</div>
-              {pkg.saving && <div style={savingBadge}>{pkg.saving}</div>}
-              <div style={{ fontFamily: F.sans, fontSize: 11, color: '#9B8F83', marginTop: 8 }}>{pkg.label}</div>
-            </div>
-          ))}
-        </div>
-        <p style={{ fontFamily: F.sans, fontSize: 12, color: '#6B6560', textAlign: 'center', marginTop: 20 }}>
-          All token purchases are voluntary, final, and non-refundable · Tokens never expire · Bulk discounts applied automatically
-        </p>
       </section>
 
       {/* ── FOOTER ── */}
@@ -203,43 +275,7 @@ export default function Homepage() {
   );
 }
 
-// ── DATA ─────────────────────────────────────────────────────────────────────
-
-const OFFERINGS = [
-  { id: 'community',   title: 'Member Community',      text: "A live space where we are One! All of you and me in one community where we interact daily. In real time!" },
-  { id: 'merchandise', title: 'Official Merchandise',  text: "You get the option to own select merchandise, handcrafted accessories and outfits. Regular drops!" },
-  { id: 'messages',    title: 'Direct Messaging',      text: "For those of you who wish to write to me directly. No AI, No Representative. You speak with me!" },
-  { id: 'calls',       title: 'Virtual Connect',       text: "Looking for direct access? Request a call — Audio or Video. Propose a time. Let's connect and allow me to know you better." },
-  { id: 'extras',      title: 'Personalised Requests', text: "Special days! Get a video from me wishing you or your loved ones on special days." },
-  { id: 'gallery',     title: 'Exclusive Content',     text: "There's only so much I can post on social media. Extended videos, alternate edits, more photos. Get all of them here. Only here!" },
-  { id: 'bts',         title: 'Behind the Scenes',     text: "Experience my life behind the lens when I am shooting in a studio, beach, home or anywhere. Be with me at the shoots!" },
-  { id: 'earlyAccess', title: 'Early Access',          text: "Public posts are planned and go live at a pre-decided time. Here, you see what might take a week to come live on Social Media." },
-];
-
-const HOW_IT_WORKS = [
-  { title: 'J Token',                text: "A wonderful currency that works inside the platform. Remember tokens from Play Zone? Same thing. One token works for everything — content, calls, messages, merchandise, memberships." },
-  { title: 'Membership',             text: "Each item has an associated token value. A membership offers a discounted token price for every item you access. Multiple tiers to choose from. Explore what works best for you." },
-  { title: 'No Cash Reward or Refund', text: "Tokens can never be redeemed for cash or refund. In case of a technical issue, get token credits by writing to support. All purchases are voluntary and final." },
-  { title: 'Heavy Discounts',        text: "Memberships bring discounts on every purchase. Tokens can also be bought at a discounted price in bulk — 5% off on 500 tokens, 10% off on 1000. Save more, do more." },
-];
-
-const TIER_PERKS = {
-  community: ['Community Chat Centre', '5 free Direct Messages · 2 Per Day max', 'Unlock any One Set', '5% Discount site-wide', 'All content posted to community'],
-  insider:   ['Community Chat Centre', '30 free Direct Messages · 3 Per Day max', 'Unlock any Four Sets', '10% Discount site-wide', 'All content posted to community'],
-  premium:   ['Community Chat Centre', '100 free Direct Messages · 5 Per Day max', 'Unlock any Seven Sets', '15% Discount site-wide', 'All content posted to community'],
-  supreme:   ['Community Chat Centre', '250 free Direct Messages · 10 Per Day max', 'Unlock any Ten Sets', '20% Discount site-wide', 'All content posted to community'],
-};
-
-const TOKEN_PACKAGES = [
-  { tokens: 10,   inr: 660,   label: 'A message or two',    saving: null },
-  { tokens: 50,   inr: 3300,  label: 'A week of chats',     saving: null },
-  { tokens: 100,  inr: 6600,  label: 'Content + messages',  saving: null },
-  { tokens: 500,  inr: 31350, label: 'More for less',       saving: '5% off', highlight: true },
-  { tokens: 1000, inr: 59400, label: 'Best value',          saving: '10% off', highlight: true },
-];
-
 // ── STYLES ───────────────────────────────────────────────────────────────────
-
 const topBar        = { position: 'sticky', top: 0, zIndex: 50, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 28px', background: 'rgba(13,12,10,0.94)', borderBottom: `1px solid rgba(242,235,224,0.08)`, backdropFilter: 'blur(12px)' };
 const hero          = { padding: '80px 24px 64px', display: 'flex', justifyContent: 'center' };
 const heroInner     = { width: '100%', maxWidth: 1060, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 };
@@ -272,8 +308,6 @@ const solidBtn      = { background: C.accent, border: 'none', color: '#1A1714', 
 const solidBtnLg    = { ...solidBtn, padding: '13px 24px', fontSize: 15 };
 const ghostBtn      = { background: 'transparent', border: `1px solid rgba(242,235,224,0.15)`, color: C.text, fontFamily: F.sans, fontSize: 14, padding: '11px 18px', borderRadius: 8, cursor: 'pointer' };
 const ghostBtnLg    = { ...ghostBtn, padding: '13px 24px', fontSize: 15 };
-
-// Footer
 const footerWrap    = { background: '#0A0908', borderTop: `1px solid rgba(242,235,224,0.08)`, padding: '48px 28px 32px' };
 const footerTop     = { maxWidth: 1100, margin: '0 auto', display: 'flex', justifyContent: 'space-between', gap: 40, flexWrap: 'wrap', marginBottom: 40, paddingBottom: 40, borderBottom: `1px solid rgba(242,235,224,0.06)` };
 const footerBrand   = { maxWidth: 220 };

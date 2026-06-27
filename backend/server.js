@@ -19,6 +19,10 @@ app.use(cors({
 
 app.use(express.json());
 
+// Public routes (no auth)
+app.use('/api/public',       require('./routes/public'));
+
+// Authenticated routes
 app.use('/api/auth',         require('./routes/auth'));
 app.use('/api/coins',        require('./routes/coins'));
 app.use('/api/membership',   require('./routes/membership'));
