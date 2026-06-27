@@ -4,6 +4,10 @@ import Homepage from './pages/Homepage';
 import Auth     from './pages/Auth';
 import Platform from './pages/Platform';
 import Terms    from './pages/Terms';
+import Privacy  from './pages/Privacy';
+import Refund   from './pages/Refund';
+import Contact  from './pages/Contact';
+import Sitemap  from './pages/Sitemap';
 import { C, F } from './tokens';
 
 function isLoggedIn() {
@@ -19,9 +23,13 @@ export default function App() {
     <BrowserRouter>
       <div style={{ background: C.bg, minHeight: '100vh', color: C.text, fontFamily: F.sans }}>
         <Routes>
-          <Route path="/"       element={<Homepage />} />
-          <Route path="/auth"   element={<Auth />} />
-          <Route path="/terms"  element={<Terms />} />
+          <Route path="/"        element={<Homepage />} />
+          <Route path="/auth"    element={<Auth />} />
+          <Route path="/terms"   element={<Terms />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/refund"  element={<Refund />} />
+          <Route path="/contact" element={<Contact />} />
+          <Route path="/sitemap" element={<Sitemap />} />
           <Route
             path="/platform/*"
             element={
