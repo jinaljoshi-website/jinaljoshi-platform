@@ -1,7 +1,17 @@
 // studio/src/api.js
 const BASE_URL = import.meta.env.VITE_API_URL;
 
+function handleUnauthorized() {
+  sessionStorage.removeItem('jwt');
+  sessionStorage.removeItem('user');
+  window.location.href = '/login';
+}
+
 async function parseResponse(res) {
+  if (res.status === 401) {
+    handleUnauthorized();
+    return; // never resolves — redirect happens
+  }
   const text = await res.text();
   let data = {};
   try { data = text ? JSON.parse(text) : {}; } catch { data = { message: text }; }
@@ -55,4 +65,5 @@ export function getUser() {
 export function logout() {
   sessionStorage.removeItem('jwt');
   sessionStorage.removeItem('user');
+  window.location.href = '/login';
 }

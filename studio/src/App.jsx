@@ -1,13 +1,39 @@
 // studio/src/App.jsx
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Login      from './pages/Login';
-import Studio     from './pages/Studio';
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import Login  from './pages/Login';
+import Studio from './pages/Studio';
+import { api } from './api';
 
 function isLoggedIn() {
   return !!sessionStorage.getItem('jwt');
 }
 
+// Wraps protected routes — checks session on mount and every 5 minutes
 function Private({ children }) {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!isLoggedIn()) {
+      navigate('/login', { replace: true });
+      return;
+    }
+
+    // Verify token is still valid against the backend
+    const checkSession = () => {
+      api.get('/api/studio/dashboard').catch(() => {
+        // api.js already redirects on 401 — this catches network errors
+        // or cases where the token is malformed but not yet expired
+      });
+    };
+
+    checkSession();
+
+    // Re-check every 5 minutes
+    const interval = setInterval(checkSession, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [navigate]);
+
   return isLoggedIn() ? children : <Navigate to="/login" replace />;
 }
 
