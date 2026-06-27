@@ -174,7 +174,7 @@ router.post('/send', authMid, async (req, res) => {
          SET free_dms_used  = free_dms_used + $1,
              free_dms_today = $2, dms_date = $3
          WHERE user_id = $4 AND month_key = $5`,
-        [useFreeDM ? 1 : 0, useFreeDM ? (allot.free_dms_today || 0) + 1 : (allot.free_dms_today || 0), now, req.user.userId, monthKey]
+        [useFreeDM ? 1 : 0, useFreeDM ? todayUsed + 1 : todayUsed, now, req.user.userId, monthKey]
       );
     }
 
