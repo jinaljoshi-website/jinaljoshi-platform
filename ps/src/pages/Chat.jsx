@@ -24,6 +24,7 @@ export default function Chat() {
   const typingTimer = useRef(null);
   const { upload, uploading } = useUpload();
 
+  // Only called on mount and after TopUp success — never after sending
   const loadStatus = () => api.get('/api/chat/status').then(setStatus).catch(() => {});
 
   const msgToLocal = (m, myId) => ({
@@ -134,6 +135,24 @@ export default function Chat() {
   const sendMessage = async (content = null, mediaUrl = null, mediaType = null) => {
     setError('');
     setSending(true);
+
+    // Optimistically update both counters BEFORE the API call
+    // so there's no flicker — state is set once and stays
+    setStatus((prev) => {
+      if (!prev || prev.tier === 'guest') return prev;
+      const wasFreeDM   = prev.freeRemaining > 0 && prev.dailyRemaining > 0;
+      const newFreeRem  = wasFreeDM ? Math.max(0, prev.freeRemaining - 1) : prev.freeRemaining;
+      const newDailyRem = Math.max(0, prev.dailyRemaining - 1);
+      const newIsFree   = newFreeRem > 0 && newDailyRem > 0;
+      return {
+        ...prev,
+        freeRemaining:  newFreeRem,
+        dailyRemaining: newDailyRem,
+        nextIsFree:     newIsFree,
+        nextCost:       newIsFree ? 0 : prev.overageCost,
+      };
+    });
+
     try {
       const data = await api.post('/api/chat/send', {
         content:   content || undefined,
@@ -141,25 +160,6 @@ export default function Chat() {
         mediaType: mediaType || undefined,
       });
       setMessage('');
-
-      // Optimistically update both counters immediately
-      setStatus((prev) => {
-        if (!prev || prev.tier === 'guest') return prev;
-        const wasFreeDM   = prev.freeRemaining > 0 && prev.dailyRemaining > 0;
-        const newFreeRem  = wasFreeDM ? Math.max(0, prev.freeRemaining - 1) : prev.freeRemaining;
-        const newDailyRem = Math.max(0, prev.dailyRemaining - 1);
-        const newIsFree   = newFreeRem > 0 && newDailyRem > 0;
-        return {
-          ...prev,
-          freeRemaining:  newFreeRem,
-          dailyRemaining: newDailyRem,
-          nextIsFree:     newIsFree,
-          nextCost:       newIsFree ? 0 : prev.overageCost,
-        };
-      });
-
-      // Sync real values from backend after DB write commits
-      setTimeout(loadStatus, 1500);
 
       if (channelRef.current) {
         const streamMsg = { id: data.message.id, tokens_charged: data.tokensCharged };
@@ -175,6 +175,20 @@ export default function Chat() {
         setMessages((prev) => [...prev, { ...data.message, status: 'sent' }]);
       }
     } catch (err) {
+      // On error, revert the optimistic update
+      setStatus((prev) => {
+        if (!prev || prev.tier === 'guest') return prev;
+        const revertFreeRem  = prev.nextIsFree ? prev.freeRemaining + 1 : prev.freeRemaining;
+        const revertDailyRem = prev.dailyRemaining + 1;
+        const revertIsFree   = revertFreeRem > 0 && revertDailyRem > 0;
+        return {
+          ...prev,
+          freeRemaining:  revertFreeRem,
+          dailyRemaining: revertDailyRem,
+          nextIsFree:     revertIsFree,
+          nextCost:       revertIsFree ? 0 : prev.overageCost,
+        };
+      });
       if (err.message === 'INSUFFICIENT_TOKENS') {
         setTopUp(status?.nextCost || 1);
       } else {
