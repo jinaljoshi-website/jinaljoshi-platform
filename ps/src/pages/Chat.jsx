@@ -145,7 +145,21 @@ export default function Chat() {
         mediaType: mediaType || undefined,
       });
       setMessage('');
-      loadStatus();
+      // Optimistically update counters immediately
+      setStatus((prev) => {
+        if (!prev || prev.tier === 'guest') return prev;
+        const wasFreeDM = prev.freeRemaining > 0 && prev.dailyRemaining > 0;
+        return {
+          ...prev,
+          freeRemaining:  wasFreeDM ? Math.max(0, prev.freeRemaining - 1)  : prev.freeRemaining,
+          dailyRemaining: Math.max(0, prev.dailyRemaining - 1),
+          nextIsFree:     (prev.freeRemaining - 1 > 0) && (prev.dailyRemaining - 1 > 0),
+          nextCost:       (prev.freeRemaining - 1 > 0) && (prev.dailyRemaining - 1 > 0) ? 0 : prev.overageCost,
+          };
+     });
+     
+loadStatus(); // also refresh from backend
+      
 
       // Send via Stream — message.new event adds it to state on BOTH sides
       if (channelRef.current) {
