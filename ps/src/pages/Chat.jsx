@@ -70,7 +70,6 @@ export default function Chat() {
           members: [tokenData.userId, tokenData.artistId],
         });
 
-        // ── Listeners BEFORE watch ──────────────────────
         channel.on('message.new', (event) => {
           if (!mounted) return;
           const msg = event.message;
@@ -93,7 +92,6 @@ export default function Chat() {
 
         channelRef.current = channel;
 
-        // Watch and load history from Stream
         const state = await channel.watch();
         if (!mounted) return;
 
@@ -102,7 +100,6 @@ export default function Chat() {
       } catch (err) {
         console.error('Chat init error:', err);
         if (!mounted) return;
-        // Fallback to backend
         try {
           const msgData = await api.get('/api/chat/messages');
           if (mounted) setMessages(msgData.messages || []);
@@ -138,30 +135,32 @@ export default function Chat() {
     setError('');
     setSending(true);
     try {
-      // Charge tokens via backend
       const data = await api.post('/api/chat/send', {
         content:   content || undefined,
-        mediaUrl:  mediaUrl  || undefined,
+        mediaUrl:  mediaUrl || undefined,
         mediaType: mediaType || undefined,
       });
       setMessage('');
-      // Optimistically update counters immediately
+
+      // Optimistically update both counters immediately
       setStatus((prev) => {
         if (!prev || prev.tier === 'guest') return prev;
-        const wasFreeDM = prev.freeRemaining > 0 && prev.dailyRemaining > 0;
+        const wasFreeDM   = prev.freeRemaining > 0 && prev.dailyRemaining > 0;
+        const newFreeRem  = wasFreeDM ? Math.max(0, prev.freeRemaining - 1) : prev.freeRemaining;
+        const newDailyRem = Math.max(0, prev.dailyRemaining - 1);
+        const newIsFree   = newFreeRem > 0 && newDailyRem > 0;
         return {
           ...prev,
-          freeRemaining:  wasFreeDM ? Math.max(0, prev.freeRemaining - 1)  : prev.freeRemaining,
-          dailyRemaining: Math.max(0, prev.dailyRemaining - 1),
-          nextIsFree:     (prev.freeRemaining - 1 > 0) && (prev.dailyRemaining - 1 > 0),
-          nextCost:       (prev.freeRemaining - 1 > 0) && (prev.dailyRemaining - 1 > 0) ? 0 : prev.overageCost,
-          };
-     });
-     
-loadStatus(); // also refresh from backend
-      
+          freeRemaining:  newFreeRem,
+          dailyRemaining: newDailyRem,
+          nextIsFree:     newIsFree,
+          nextCost:       newIsFree ? 0 : prev.overageCost,
+        };
+      });
 
-      // Send via Stream — message.new event adds it to state on BOTH sides
+      // Sync real values from backend after DB write commits
+      setTimeout(loadStatus, 1500);
+
       if (channelRef.current) {
         const streamMsg = { id: data.message.id, tokens_charged: data.tokensCharged };
         if (content) streamMsg.text = content;
@@ -173,7 +172,6 @@ loadStatus(); // also refresh from backend
         }
         await channelRef.current.sendMessage(streamMsg);
       } else {
-        // Fallback if Stream not connected
         setMessages((prev) => [...prev, { ...data.message, status: 'sent' }]);
       }
     } catch (err) {
@@ -310,18 +308,18 @@ function MessageBubble({ msg }) {
   );
 }
 
-const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 8 };
-const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(24px,4vw,42px)', margin: 0 };
-const statusBar   = { padding: '8px 12px', background: 'rgba(22,20,16,0.85)', border: `1px solid ${C.border}`, borderRadius: 8, backdropFilter: 'blur(8px)' };
-const statItem    = { display: 'flex', flexDirection: 'column', gap: 2 };
-const statLabel   = { fontFamily: F.sans, fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em' };
-const topUpBtn    = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 11, padding: '4px 8px', borderRadius: 6, cursor: 'pointer' };
-const inlineTopUp = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
-const feed        = { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, paddingBottom: 8, marginBottom: 8 };
-const bubble      = { fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, borderRadius: 10, wordBreak: 'break-word' };
-const errorBox    = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
-const costPreview = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 };
-const composer    = { borderTop: `1px solid ${C.border}` };
+const eyebrow      = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 8 };
+const title        = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(24px,4vw,42px)', margin: 0 };
+const statusBar    = { padding: '8px 12px', background: 'rgba(22,20,16,0.85)', border: `1px solid ${C.border}`, borderRadius: 8, backdropFilter: 'blur(8px)' };
+const statItem     = { display: 'flex', flexDirection: 'column', gap: 2 };
+const statLabel    = { fontFamily: F.sans, fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em' };
+const topUpBtn     = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 11, padding: '4px 8px', borderRadius: 6, cursor: 'pointer' };
+const inlineTopUp  = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
+const feed         = { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, paddingBottom: 8, marginBottom: 8 };
+const bubble       = { fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, borderRadius: 10, wordBreak: 'break-word' };
+const errorBox     = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
+const costPreview  = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 };
+const composer     = { borderTop: `1px solid ${C.border}` };
 const composerInput = { flex: 1, width: '100%', background: 'rgba(22,20,16,0.9)', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 14, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', lineHeight: 1.5, boxSizing: 'border-box' };
-const sendBtn     = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '10px 20px', borderRadius: 8, flexShrink: 0, cursor: 'pointer' };
-const attachBtn   = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontSize: 16, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', flexShrink: 0 };
+const sendBtn      = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '10px 20px', borderRadius: 8, flexShrink: 0, cursor: 'pointer' };
+const attachBtn    = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontSize: 16, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', flexShrink: 0 };
