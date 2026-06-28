@@ -141,7 +141,6 @@ router.post('/send', authMid, async (req, res) => {
     const monthKey = currentMonthKey();
     const dayStr   = currentDayStr();
 
-    // Media permission check (artist can always send media)
     if (mediaUrl && !req.user.isArtist && !user.can_send_media) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'Media sending is not enabled for your account' });
@@ -178,6 +177,7 @@ router.post('/send', authMid, async (req, res) => {
       );
     }
 
+    // Block if insufficient balance
     if (tokensCharged > 0 && user.coin_balance < tokensCharged) {
       await client.query('ROLLBACK');
       return res.status(402).json({
@@ -187,6 +187,7 @@ router.post('/send', authMid, async (req, res) => {
       });
     }
 
+    let newBalance = user.coin_balance;
     if (tokensCharged > 0) {
       await client.query(
         `UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`,
@@ -197,6 +198,7 @@ router.post('/send', authMid, async (req, res) => {
          VALUES ($1, 'dm_charge', 'debit', $2, $3)`,
         [req.user.userId, tokensCharged, userTier === 'guest' ? 'Direct message — guest rate' : 'Direct message — overage']
       );
+      newBalance = user.coin_balance - tokensCharged;
     }
 
     const { rows: msgRows } = await client.query(
@@ -214,14 +216,20 @@ router.post('/send', authMid, async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Notify Jinal via push (best-effort, after commit)
     notifyArtist({
       title: 'New message',
       body:  `A ${userTier === 'guest' ? 'guest' : userTier + ' member'} sent you a message`,
       url:   '/messages',
     });
 
-    res.json({ ok: true, message: { ...msgRows[0], is_mine: true }, tokensCharged, usedFreeDM: useFreeDM });
+    // Return newBalance so frontend can sync without a reload
+    res.json({
+      ok: true,
+      message: { ...msgRows[0], is_mine: true },
+      tokensCharged,
+      usedFreeDM: useFreeDM,
+      newBalance,
+    });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('chat/send error:', err);
