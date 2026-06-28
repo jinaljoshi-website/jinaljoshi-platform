@@ -22,10 +22,13 @@ export default function Chat() {
   const scClientRef = useRef(null);
   const myIdRef     = useRef(null);
   const typingTimer = useRef(null);
+  const statusRef   = useRef(null); // keep a ref so catch block sees current status
   const { upload, uploading } = useUpload();
 
-  // Only called on mount and after TopUp success — never after sending
-  const loadStatus = () => api.get('/api/chat/status').then(setStatus).catch(() => {});
+  const loadStatus = () => api.get('/api/chat/status').then((d) => {
+    setStatus(d);
+    statusRef.current = d;
+  }).catch(() => {});
 
   const msgToLocal = (m, myId) => ({
     id:             m.id,
@@ -52,6 +55,7 @@ export default function Chat() {
         if (!mounted) return;
 
         setStatus(statusData);
+        statusRef.current = statusData;
         myIdRef.current = tokenData.userId;
 
         const scClient = StreamChat.getInstance(tokenData.apiKey);
@@ -134,24 +138,36 @@ export default function Chat() {
 
   const sendMessage = async (content = null, mediaUrl = null, mediaType = null) => {
     setError('');
+
+    // Snapshot current status before any changes
+    const snap = statusRef.current;
+    if (!snap) return;
+
+    // Block send if not free and no balance
+    const willBeFree = snap.freeRemaining > 0 && snap.dailyRemaining > 0;
+    const cost = willBeFree ? 0 : (snap.overageCost || 1);
+    if (!willBeFree && snap.coinBalance < cost) {
+      setTopUp(cost);
+      return;
+    }
+
     setSending(true);
 
-    // Optimistically update both counters BEFORE the API call
-    // so there's no flicker — state is set once and stays
-    setStatus((prev) => {
-      if (!prev || prev.tier === 'guest') return prev;
-      const wasFreeDM   = prev.freeRemaining > 0 && prev.dailyRemaining > 0;
-      const newFreeRem  = wasFreeDM ? Math.max(0, prev.freeRemaining - 1) : prev.freeRemaining;
-      const newDailyRem = Math.max(0, prev.dailyRemaining - 1);
-      const newIsFree   = newFreeRem > 0 && newDailyRem > 0;
-      return {
-        ...prev,
-        freeRemaining:  newFreeRem,
-        dailyRemaining: newDailyRem,
-        nextIsFree:     newIsFree,
-        nextCost:       newIsFree ? 0 : prev.overageCost,
-      };
-    });
+    // Optimistic update — decrement counters and balance immediately
+    const newFreeRem  = willBeFree ? Math.max(0, snap.freeRemaining - 1) : snap.freeRemaining;
+    const newDailyRem = Math.max(0, snap.dailyRemaining - 1);
+    const newIsFree   = newFreeRem > 0 && newDailyRem > 0;
+    const newBalance  = snap.coinBalance - cost;
+    const newStatus   = {
+      ...snap,
+      freeRemaining:  newFreeRem,
+      dailyRemaining: newDailyRem,
+      nextIsFree:     newIsFree,
+      nextCost:       newIsFree ? 0 : snap.overageCost,
+      coinBalance:    newBalance,
+    };
+    setStatus(newStatus);
+    statusRef.current = newStatus;
 
     try {
       const data = await api.post('/api/chat/send', {
@@ -160,6 +176,12 @@ export default function Chat() {
         mediaType: mediaType || undefined,
       });
       setMessage('');
+
+      // Update balance from real server response
+      if (data.newBalance !== undefined) {
+        setStatus((prev) => ({ ...prev, coinBalance: data.newBalance }));
+        statusRef.current = { ...statusRef.current, coinBalance: data.newBalance };
+      }
 
       if (channelRef.current) {
         const streamMsg = { id: data.message.id, tokens_charged: data.tokensCharged };
@@ -175,22 +197,11 @@ export default function Chat() {
         setMessages((prev) => [...prev, { ...data.message, status: 'sent' }]);
       }
     } catch (err) {
-      // On error, revert the optimistic update
-      setStatus((prev) => {
-        if (!prev || prev.tier === 'guest') return prev;
-        const revertFreeRem  = prev.nextIsFree ? prev.freeRemaining + 1 : prev.freeRemaining;
-        const revertDailyRem = prev.dailyRemaining + 1;
-        const revertIsFree   = revertFreeRem > 0 && revertDailyRem > 0;
-        return {
-          ...prev,
-          freeRemaining:  revertFreeRem,
-          dailyRemaining: revertDailyRem,
-          nextIsFree:     revertIsFree,
-          nextCost:       revertIsFree ? 0 : prev.overageCost,
-        };
-      });
+      // Revert to snapshot on error
+      setStatus(snap);
+      statusRef.current = snap;
       if (err.message === 'INSUFFICIENT_TOKENS') {
-        setTopUp(status?.nextCost || 1);
+        setTopUp(cost);
       } else {
         setError(err.message);
       }
