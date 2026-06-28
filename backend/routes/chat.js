@@ -15,6 +15,20 @@ const TIER_CONFIG = {
 function currentMonthKey() { return new Date().toISOString().slice(0, 7); }
 function currentDayStr()   { return new Date().toISOString().slice(0, 10); }
 
+// Convert a Postgres date value to YYYY-MM-DD string safely (UTC)
+function toDateStr(val) {
+  if (!val) return null;
+  if (typeof val === 'string') return val.slice(0, 10);
+  // JS Date from pg — use UTC methods to avoid timezone shift
+  if (val instanceof Date) {
+    const y = val.getUTCFullYear();
+    const m = String(val.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(val.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return String(val).slice(0, 10);
+}
+
 // ─────────────────────────────────────────────
 // GET /api/chat/messages
 // ─────────────────────────────────────────────
@@ -80,7 +94,7 @@ router.get('/status', authMid, async (req, res) => {
       [req.user.userId, monthKey]
     );
     const allot      = allotRows[0] || { free_dms_used: 0, free_dms_today: 0, dms_date: null };
-    const dmsDateStr = allot.dms_date ? String(allot.dms_date).slice(0, 10) : null;
+    const dmsDateStr = toDateStr(allot.dms_date);
     const todayUsed  = dmsDateStr === dayStr ? (allot.free_dms_today || 0) : 0;
     const monthUsed  = allot.free_dms_used || 0;
     const freeRem    = Math.max(0, config.freeDMsPerMonth - monthUsed);
@@ -169,26 +183,22 @@ router.post('/send', authMid, async (req, res) => {
         [req.user.userId, monthKey]
       );
       const allot      = allotRows[0];
-      const dmsDateStr = allot.dms_date ? String(allot.dms_date).slice(0, 10) : null;
+      const dmsDateStr = toDateStr(allot.dms_date);
       const todayUsed  = dmsDateStr === dayStr ? (allot.free_dms_today || 0) : 0;
       const freeRem    = Math.max(0, config.freeDMsPerMonth - (allot.free_dms_used || 0));
       const dailyRem   = Math.max(0, config.dailyDMCap - todayUsed);
       useFreeDM        = freeRem > 0 && dailyRem > 0;
       tokensCharged    = useFreeDM ? 0 : overageCost;
 
-      console.log('DMS UPDATE:', { useFreeDM, todayUsed, dayStr, userId: req.user.userId, monthKey });
-
-      // Update counters — use user_id + month_key (guaranteed unique)
-      const updateResult = await client.query(
+      // Update counters
+      await client.query(
         `UPDATE monthly_allotments
          SET free_dms_used  = free_dms_used + $1,
              free_dms_today = $2,
              dms_date       = $3::date
-         WHERE user_id = $4 AND month_key = $5
-         RETURNING dms_date, free_dms_today`,
+         WHERE user_id = $4 AND month_key = $5`,
         [useFreeDM ? 1 : 0, todayUsed + 1, dayStr, req.user.userId, monthKey]
       );
-      console.log('DMS UPDATE RESULT:', updateResult.rows[0]);
     }
 
     // Block if insufficient balance
