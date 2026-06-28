@@ -480,4 +480,27 @@ router.patch('/fan-settings/:userId', async (req, res) => {
   }
 });
 
+// POST /api/studio/content/:id/delete
+router.post('/content/:id/delete', async (req, res) => {
+  const { id } = req.params;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: items } = await client.query(
+      `SELECT r2_key FROM set_items WHERE set_id = $1`, [id]
+    );
+    await client.query(`DELETE FROM set_items WHERE set_id = $1`, [id]);
+    await client.query(`DELETE FROM access_grants WHERE set_id = $1`, [id]);
+    await client.query(`DELETE FROM sets WHERE id = $1`, [id]);
+    await client.query('COMMIT');
+    res.json({ ok: true, deletedItems: items.length });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('studio/content/delete error:', err);
+    res.status(500).json({ error: 'Failed to delete set' });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;

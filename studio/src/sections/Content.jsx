@@ -8,6 +8,13 @@ const MAX_ITEMS  = 100;
 const MAX_IMG_PX = 2048;
 const JPEG_Q     = 0.85;
 const MAX_VIDEO_MB = 500;
+const R2_PUBLIC_URL = import.meta.env.VITE_R2_PUBLIC_URL || '';
+
+function toUrl(key) {
+  if (!key) return null;
+  if (key.startsWith('http')) return key;
+  return `${R2_PUBLIC_URL}/${key}`;
+}
 
 // ── Image compression ────────────────────────────────────────────────────────
 async function compressImage(file) {
@@ -49,25 +56,23 @@ export function Content() {
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
 
-  // Create form state
   const [form, setForm] = useState({
     title: '', type: 'photo_set', price_coins: '0',
     min_tier: 'community', use_unlock_credit: true, visible: false,
   });
 
-  // Upload state
-  const [files,        setFiles]        = useState([]); // { file, preview, status, publicUrl }
-  const [coverFile,    setCoverFile]    = useState(null);
-  const [coverPreview, setCoverPreview] = useState('');
-  const [creating,     setCreating]     = useState(false);
+  const [files,          setFiles]          = useState([]);
+  const [coverFile,      setCoverFile]      = useState(null);
+  const [coverPreview,   setCoverPreview]   = useState('');
+  const [creating,       setCreating]       = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
+  const [editing,        setEditing]        = useState(null);
+  const [editForm,       setEditForm]       = useState({});
+  const [deleting,       setDeleting]       = useState(null);
+  const [confirmDelete,  setConfirmDelete]  = useState(null);
 
-  // Edit state
-  const [editing,  setEditing]  = useState(null);
-  const [editForm, setEditForm] = useState({});
-
-  const filesRef  = useRef(null);
-  const coverRef  = useRef(null);
+  const filesRef = useRef(null);
+  const coverRef = useRef(null);
 
   useEffect(() => {
     api.get('/api/studio/content')
@@ -113,7 +118,6 @@ export function Content() {
   const handleCreate = async () => {
     setError(''); setSuccess(''); setCreating(true);
     try {
-      // 1. Create the set record
       const setData = await api.post('/api/studio/content', {
         title:             form.title,
         type:              form.type,
@@ -124,7 +128,6 @@ export function Content() {
       });
       const setId = setData.set.id;
 
-      // 2. Upload cover image if provided
       let coverUrl = null;
       if (coverFile) {
         setUploadProgress('Uploading cover image…');
@@ -133,13 +136,11 @@ export function Content() {
         await api.patch(`/api/studio/content/${setId}`, { cover_key: coverUrl });
       }
 
-      // 3. Upload each file
       const total = files.length;
       for (let i = 0; i < total; i++) {
         const item = files[i];
         setUploadProgress(`Uploading item ${i + 1} of ${total}…`);
 
-        // Check video size
         if (item.isVideo && parseFloat(item.sizeMB) > MAX_VIDEO_MB) {
           setFiles((prev) => {
             const updated = [...prev];
@@ -150,21 +151,14 @@ export function Content() {
         }
 
         try {
-          // Compress images
-          const fileToUpload = item.isVideo
-            ? item.file
-            : await compressImage(item.file);
-
+          const fileToUpload = item.isVideo ? item.file : await compressImage(item.file);
           const publicUrl = await uploadFile(fileToUpload, 'content');
-
-          // Save set item
           await api.post('/api/studio/content/item', {
             setId,
-            type:      item.isVideo ? 'video' : 'image',
-            r2Key:     publicUrl,
-            position:  i,
+            type:     item.isVideo ? 'video' : 'image',
+            r2Key:    publicUrl,
+            position: i,
           });
-
           setFiles((prev) => {
             const updated = [...prev];
             updated[i] = { ...updated[i], status: 'done', publicUrl };
@@ -181,9 +175,7 @@ export function Content() {
 
       setUploadProgress('');
       setSuccess(`"${form.title}" created with ${total} item${total !== 1 ? 's' : ''}.`);
-      setSets((prev) => [setData.set, ...prev]);
-
-      // Reset form
+      setSets((prev) => [{ ...setData.set, cover_url: coverUrl }, ...prev]);
       setForm({ title: '', type: 'photo_set', price_coins: '0', min_tier: 'community', use_unlock_credit: true, visible: false });
       setFiles([]);
       setCoverFile(null);
@@ -205,17 +197,31 @@ export function Content() {
     setError('');
     try {
       const data = await api.patch(`/api/studio/content/${id}`, { ...editForm, price_coins: parseInt(editForm.price_coins) });
-      setSets((prev) => prev.map((s) => s.id === id ? data.set : s));
+      setSets((prev) => prev.map((s) => s.id === id ? { ...data.set, cover_url: s.cover_url } : s));
       setEditing(null);
       setSuccess('Updated.');
     } catch (err) { setError(err.message); }
   };
 
+  const handleDelete = async (setId) => {
+    setDeleting(setId);
+    setError('');
+    try {
+      await api.post(`/api/studio/content/${setId}/delete`, {});
+      setSets((prev) => prev.filter((s) => s.id !== setId));
+      setConfirmDelete(null);
+      setSuccess('Set deleted.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDeleting(null);
+    }
+  };
+
   if (loading) return <T.muted>Loading content…</T.muted>;
 
-  const allDone    = files.length > 0 && files.every((f) => f.status === 'done' || f.status === 'skipped' || f.status === 'error');
-  const hasErrors  = files.some((f) => f.status === 'error');
-  const canCreate  = form.title.trim() && !creating;
+  const hasErrors = files.some((f) => f.status === 'error');
+  const canCreate = form.title.trim() && !creating;
 
   return (
     <div>
@@ -280,17 +286,13 @@ export function Content() {
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div style={fieldLabel}>Media files ({files.length} / {MAX_ITEMS})</div>
-            <button
-              onClick={() => filesRef.current?.click()}
-              disabled={files.length >= MAX_ITEMS}
-              style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', opacity: files.length >= MAX_ITEMS ? 0.5 : 1 }}
-            >
+            <button onClick={() => filesRef.current?.click()} disabled={files.length >= MAX_ITEMS} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', opacity: files.length >= MAX_ITEMS ? 0.5 : 1 }}>
               + Add files
             </button>
           </div>
           <input ref={filesRef} type="file" accept="image/*,video/*" multiple style={{ display: 'none' }} onChange={handleFilePick} />
 
-          {files.length > 0 && (
+          {files.length > 0 ? (
             <div style={fileGrid}>
               {files.map((f, i) => (
                 <div key={i} style={{ ...fileCard, borderColor: f.status === 'done' ? 'rgba(100,160,100,0.4)' : f.status === 'error' ? 'rgba(156,90,90,0.4)' : colors.border }}>
@@ -300,10 +302,7 @@ export function Content() {
                   }
                   <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 10, color: colors.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.file.name}</div>
                   <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 10, color: f.status === 'done' ? '#8FC88F' : f.status === 'error' ? '#D99A9A' : colors.muted }}>
-                    {f.status === 'done'    ? '✓ Uploaded'
-                     : f.status === 'error'   ? `✗ ${f.error || 'Failed'}`
-                     : f.status === 'skipped' ? '⚠ Skipped'
-                     : `${f.sizeMB}MB`}
+                    {f.status === 'done' ? '✓ Uploaded' : f.status === 'error' ? `✗ ${f.error || 'Failed'}` : f.status === 'skipped' ? '⚠ Skipped' : `${f.sizeMB}MB`}
                   </div>
                   {f.status === 'pending' && (
                     <button onClick={() => removeFile(i)} style={{ ...removeBtn, position: 'relative', top: 'auto', right: 'auto', marginTop: 4, width: '100%' }}>Remove</button>
@@ -311,9 +310,7 @@ export function Content() {
                 </div>
               ))}
             </div>
-          )}
-
-          {files.length === 0 && (
+          ) : (
             <button onClick={() => filesRef.current?.click()} style={dropZone}>
               <div style={{ fontSize: 24, marginBottom: 6 }}>📁</div>
               <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: colors.muted }}>Click to add photos or videos</div>
@@ -324,7 +321,6 @@ export function Content() {
           )}
         </div>
 
-        {/* Progress */}
         {uploadProgress && (
           <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: colors.accent, marginBottom: 12, padding: '8px 12px', background: 'rgba(193,125,74,0.08)', borderRadius: 6 }}>
             {uploadProgress}
@@ -352,7 +348,24 @@ export function Content() {
         {sets.length === 0 && <T.muted>No content yet.</T.muted>}
         {sets.map((set) => (
           <div key={set.id} style={S.card}>
-            {editing === set.id ? (
+            {/* Delete confirmation */}
+            {confirmDelete === set.id ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 14, color: '#D99A9A' }}>
+                  Delete <strong>"{set.title}"</strong>? This will permanently remove the set and all {set.item_count || 0} items from the server. This cannot be undone.
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={() => handleDelete(set.id)}
+                    disabled={deleting === set.id}
+                    style={{ ...S.btn, background: '#8B3A3A', opacity: deleting === set.id ? 0.6 : 1 }}
+                  >
+                    {deleting === set.id ? 'Deleting…' : 'Yes, delete permanently'}
+                  </button>
+                  <button onClick={() => setConfirmDelete(null)} style={S.ghostBtn}>Cancel</button>
+                </div>
+              </div>
+            ) : editing === set.id ? (
               <div>
                 <div style={S.formGrid}>
                   <Field label="Title">
@@ -393,7 +406,12 @@ export function Content() {
               </div>
             ) : (
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                {set.cover_key && <img src={set.cover_key} alt="" style={{ width: 60, height: 50, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />}
+                {set.cover_url
+                  ? <img src={set.cover_url} alt="" style={{ width: 60, height: 50, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
+                  : set.cover_key
+                    ? <img src={toUrl(set.cover_key)} alt="" style={{ width: 60, height: 50, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
+                    : null
+                }
                 <div style={{ flex: 1 }}>
                   <div style={S.rowTitle}>{set.title}</div>
                   <div style={S.rowSub}>
@@ -407,6 +425,7 @@ export function Content() {
                     {set.visible ? 'Live' : 'Hidden'}
                   </span>
                   <button onClick={() => startEdit(set)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Edit</button>
+                  <button onClick={() => setConfirmDelete(set.id)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A', borderColor: 'rgba(156,90,90,0.35)' }}>Delete</button>
                 </div>
               </div>
             )}
@@ -418,41 +437,7 @@ export function Content() {
 }
 
 const fieldLabel = { fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: colors.muted, marginBottom: 6 };
-
-const fileGrid = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
-  gap: 8,
-  marginBottom: 12,
-};
-
-const fileCard = {
-  background: '#0D0C0A',
-  border: '1px solid',
-  borderRadius: 6,
-  padding: 8,
-  position: 'relative',
-};
-
-const removeBtn = {
-  position: 'absolute',
-  top: 4, right: 4,
-  background: 'rgba(0,0,0,0.6)',
-  border: 'none',
-  color: '#F2EBE0',
-  fontSize: 10,
-  padding: '2px 5px',
-  borderRadius: 4,
-  cursor: 'pointer',
-};
-
-const dropZone = {
-  width: '100%',
-  border: `2px dashed ${colors.border}`,
-  borderRadius: 8,
-  padding: '28px 20px',
-  background: 'transparent',
-  cursor: 'pointer',
-  textAlign: 'center',
-  color: colors.muted,
-};
+const fileGrid   = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 8, marginBottom: 12 };
+const fileCard   = { background: '#0D0C0A', border: '1px solid', borderRadius: 6, padding: 8, position: 'relative' };
+const removeBtn  = { position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.6)', border: 'none', color: '#F2EBE0', fontSize: 10, padding: '2px 5px', borderRadius: 4, cursor: 'pointer' };
+const dropZone   = { width: '100%', border: `2px dashed ${colors.border}`, borderRadius: 8, padding: '28px 20px', background: 'transparent', cursor: 'pointer', textAlign: 'center', color: colors.muted };
