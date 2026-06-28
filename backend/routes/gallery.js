@@ -104,7 +104,7 @@ router.post('/unlock', authMid, async (req, res) => {
     }
 
     // Community post (price 0) — free for paid members
-    if (set.price_coins === 0 && userTier !== 'guest') {
+    if (set.price_coins === 0 && (userTier !== 'guest' || set.min_tier === 'none')) {
       await client.query(
         `INSERT INTO access_grants (user_id, set_id, grant_type, coins_paid)
          VALUES ($1, $2, 'membership_free', 0)`,
