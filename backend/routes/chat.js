@@ -157,7 +157,7 @@ router.post('/send', authMid, async (req, res) => {
         `INSERT INTO monthly_allotments (user_id, month_key)
          VALUES ($1, $2) ON CONFLICT (user_id, month_key)
          DO UPDATE SET month_key = EXCLUDED.month_key
-         RETURNING free_dms_used, free_dms_today, dms_date`,
+         RETURNING id, free_dms_used, free_dms_today, dms_date`,
         [req.user.userId, monthKey]
       );
       const allot      = allotRows[0];
@@ -171,12 +171,13 @@ router.post('/send', authMid, async (req, res) => {
       await client.query(
         `UPDATE monthly_allotments
          SET free_dms_used  = free_dms_used + $1,
-             free_dms_today = $2, dms_date = $3
-         WHERE user_id = $4 AND month_key = $5`,
-        [useFreeDM ? 1 : 0, todayUsed + 1, now, req.user.userId, monthKey]
+             free_dms_today = $2,
+             dms_date       = $3::date
+         WHERE id = $4`,
+        [useFreeDM ? 1 : 0, todayUsed + 1, dayStr, allot.id]
       );
     }
-
+    
     // Block if insufficient balance
     if (tokensCharged > 0 && user.coin_balance < tokensCharged) {
       await client.query('ROLLBACK');
