@@ -200,6 +200,7 @@ router.post('/send', authMid, async (req, res) => {
 
     let newBalance = user.coin_balance;
     if (tokensCharged > 0) {
+console.log('DMS UPDATE:', { useFreeDM, todayUsed, dayStr, id: allot.id });
       await client.query(
         `UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`,
         [tokensCharged, req.user.userId]
