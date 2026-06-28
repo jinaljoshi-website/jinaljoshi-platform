@@ -208,9 +208,9 @@ function GalleryCard({ item, userTier, isGuest, discountPct, coinBalance, onErro
 
   return (
     <div style={card}>
-      {item.cover_key ? (
+      {item.cover_url ? (
         <img
-          src={item.cover_key}
+          src={item.cover_url}
           alt={item.title}
           style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 6, marginBottom: 12, cursor: unlocked ? 'pointer' : 'default' }}
           onClick={() => unlocked && onOpen(item)}

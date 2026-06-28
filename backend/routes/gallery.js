@@ -3,9 +3,16 @@ const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 
+const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
+
+function toUrl(key) {
+  if (!key) return null;
+  if (key.startsWith('http')) return key;
+  return `${R2_PUBLIC_URL}/${key}`;
+}
+
 // ─────────────────────────────────────────────
 // GET /api/gallery/sets
-// Returns visible sets with access status
 // ─────────────────────────────────────────────
 
 router.get('/sets', authMid, async (req, res) => {
@@ -18,7 +25,6 @@ router.get('/sets', authMid, async (req, res) => {
     const now       = new Date();
     const isActive  = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier  = isActive ? user.tier : 'guest';
-
     const discountMap = { community: 5, insider: 10, premium: 15, supreme: 20 };
     const discountPct = discountMap[userTier] || 0;
 
@@ -32,8 +38,14 @@ router.get('/sets', authMid, async (req, res) => {
       [req.user.userId]
     );
 
+    // Convert cover_key to full URL
+    const setsWithUrls = sets.map((s) => ({
+      ...s,
+      cover_url: toUrl(s.cover_key),
+    }));
+
     res.json({
-      sets,
+      sets: setsWithUrls,
       userTier,
       discountPct,
       isGuest:     userTier === 'guest',
@@ -47,8 +59,6 @@ router.get('/sets', authMid, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // POST /api/gallery/unlock
-// Unlock a set — checks balance, deducts tokens
-// Body: { setId }
 // ─────────────────────────────────────────────
 
 router.post('/unlock', authMid, async (req, res) => {
@@ -61,7 +71,6 @@ router.post('/unlock', authMid, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Get user
     const { rows: userRows } = await client.query(
       `SELECT tier, membership_expires_at, coin_balance FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
@@ -71,7 +80,6 @@ router.post('/unlock', authMid, async (req, res) => {
     const isActive  = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier  = isActive ? user.tier : 'guest';
 
-    // Get set
     const { rows: setRows } = await client.query(
       `SELECT * FROM sets WHERE id = $1 AND visible = TRUE`,
       [setId]
@@ -82,7 +90,6 @@ router.post('/unlock', authMid, async (req, res) => {
     }
     const set = setRows[0];
 
-    // Check already unlocked
     const { rows: existing } = await client.query(
       `SELECT id FROM access_grants WHERE user_id = $1 AND set_id = $2`,
       [req.user.userId, setId]
@@ -92,7 +99,6 @@ router.post('/unlock', authMid, async (req, res) => {
       return res.status(409).json({ error: 'Already unlocked' });
     }
 
-    // Check tier access
     const minTierIdx  = TIER_ORDER.indexOf(set.min_tier === 'none' ? 'guest' : set.min_tier);
     const userTierIdx = TIER_ORDER.indexOf(userTier);
     if (userTierIdx < minTierIdx) {
@@ -103,7 +109,7 @@ router.post('/unlock', authMid, async (req, res) => {
       });
     }
 
-    // Community post (price 0) — free for paid members
+    // Free for members or free for all
     if (set.price_coins === 0 && (userTier !== 'guest' || set.min_tier === 'none')) {
       await client.query(
         `INSERT INTO access_grants (user_id, set_id, grant_type, coins_paid)
@@ -114,32 +120,27 @@ router.post('/unlock', authMid, async (req, res) => {
       return res.json({ ok: true, coinsSpent: 0, grantType: 'membership_free' });
     }
 
-    // Calculate price
     const discountMap = { community: 5, insider: 10, premium: 15, supreme: 20 };
     const discountPct = discountMap[userTier] || 0;
     let price = set.price_coins;
 
     if (userTier === 'guest') {
-      price = price === 0 ? 5 : price * 2; // community posts cost 5 for guests
+      price = price === 0 ? 5 : price * 2;
     } else if (discountPct && price > 0) {
       const raw = price * (1 - discountPct / 100);
       price = raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
     }
 
-    // Check unlock credits first (for paid members)
     let useUnlockCredit = false;
     if (userTier !== 'guest' && set.use_unlock_credit && price > 0) {
       const monthKey = now.toISOString().slice(0, 7);
       const tierUnlocks = { community: 1, insider: 4, premium: 7, supreme: 10 };
       const maxUnlocks  = tierUnlocks[userTier] || 0;
-
       const { rows: allotRows } = await client.query(
-        `SELECT unlocks_used FROM monthly_allotments
-         WHERE user_id = $1 AND month_key = $2`,
+        `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2`,
         [req.user.userId, monthKey]
       );
       const used = allotRows[0]?.unlocks_used || 0;
-
       if (used < maxUnlocks) {
         useUnlockCredit = true;
         await client.query(
@@ -153,7 +154,6 @@ router.post('/unlock', authMid, async (req, res) => {
       }
     }
 
-    // Check balance if token purchase needed
     if (price > 0 && user.coin_balance < price) {
       await client.query('ROLLBACK');
       return res.status(402).json({
@@ -165,7 +165,6 @@ router.post('/unlock', authMid, async (req, res) => {
       });
     }
 
-    // Deduct tokens
     if (price > 0) {
       await client.query(
         `UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`,
@@ -178,7 +177,6 @@ router.post('/unlock', authMid, async (req, res) => {
       );
     }
 
-    // Grant access
     await client.query(
       `INSERT INTO access_grants (user_id, set_id, grant_type, coins_paid)
        VALUES ($1, $2, $3, $4)`,
@@ -188,11 +186,11 @@ router.post('/unlock', authMid, async (req, res) => {
     await client.query('COMMIT');
 
     res.json({
-      ok:          true,
-      coinsSpent:  price,
-      usedCredit:  useUnlockCredit,
-      newBalance:  user.coin_balance - price,
-      grantType:   useUnlockCredit ? 'unlock_credit' : price === 0 ? 'membership_free' : 'token_purchase',
+      ok:         true,
+      coinsSpent: price,
+      usedCredit: useUnlockCredit,
+      newBalance: user.coin_balance - price,
+      grantType:  useUnlockCredit ? 'unlock_credit' : price === 0 ? 'membership_free' : 'token_purchase',
     });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -202,27 +200,24 @@ router.post('/unlock', authMid, async (req, res) => {
     client.release();
   }
 });
-// Add this route to backend/routes/gallery.js BEFORE module.exports
 
 // ─────────────────────────────────────────────
 // GET /api/gallery/sets/:setId/items
-// Returns items for an unlocked set
 // ─────────────────────────────────────────────
 
 router.get('/sets/:setId/items', authMid, async (req, res) => {
   const { setId } = req.params;
   try {
-    // Verify user has access
+    // Check access grant
     const { rows: accessRows } = await pool.query(
-      `SELECT ag.id FROM access_grants ag
-       WHERE ag.user_id = $1 AND ag.set_id = $2`,
+      `SELECT id FROM access_grants WHERE user_id = $1 AND set_id = $2`,
       [req.user.userId, setId]
     );
 
-    // Also allow if set is free and user is a member
     if (!accessRows.length) {
+      // Check if set is free for this user
       const { rows: setRows } = await pool.query(
-        `SELECT s.price_coins, s.min_tier FROM sets s WHERE s.id = $1 AND s.visible = TRUE`,
+        `SELECT price_coins, min_tier FROM sets WHERE id = $1 AND visible = TRUE`,
         [setId]
       );
       if (!setRows.length) return res.status(404).json({ error: 'Set not found' });
@@ -244,17 +239,61 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
       }
     }
 
+    // Fetch items — use r2_key and convert to URL
     const { rows: items } = await pool.query(
-      `SELECT id, media_url, media_type, sort_order
+      `SELECT id, r2_key, media_type, position
        FROM set_items WHERE set_id = $1
-       ORDER BY sort_order ASC, created_at ASC`,
+       ORDER BY position ASC, created_at ASC`,
       [setId]
     );
 
-    res.json({ items });
+    const itemsWithUrls = items.map((item) => ({
+      ...item,
+      media_url: toUrl(item.r2_key),
+    }));
+
+    res.json({ items: itemsWithUrls });
   } catch (err) {
     console.error('gallery/items error:', err);
     res.status(500).json({ error: 'Failed to load set items' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// DELETE /api/gallery/sets/:setId
+// Artist only — delete a set and all its items
+// ─────────────────────────────────────────────
+
+router.delete('/sets/:setId', authMid, async (req, res) => {
+  // Only artist can delete
+  if (req.user.email !== process.env.ARTIST_EMAIL) {
+    return res.status(403).json({ error: 'Not authorised' });
+  }
+
+  const { setId } = req.params;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Get all item r2_keys for deletion reference (R2 deletion handled by Studio frontend)
+    const { rows: items } = await client.query(
+      `SELECT r2_key FROM set_items WHERE set_id = $1`,
+      [setId]
+    );
+
+    await client.query(`DELETE FROM set_items WHERE set_id = $1`, [setId]);
+    await client.query(`DELETE FROM access_grants WHERE set_id = $1`, [setId]);
+    await client.query(`DELETE FROM sets WHERE id = $1`, [setId]);
+
+    await client.query('COMMIT');
+
+    res.json({ ok: true, deletedItems: items.length, r2Keys: items.map((i) => i.r2_key) });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('gallery/delete error:', err);
+    res.status(500).json({ error: 'Failed to delete set' });
+  } finally {
+    client.release();
   }
 });
 
