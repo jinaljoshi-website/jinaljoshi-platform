@@ -8,21 +8,25 @@ export default function Auth() {
   const navigate  = useNavigate();
   const [params]  = useSearchParams();
 
-  const [mode,     setMode]    = useState(params.get('mode') || 'login');
-  const [email,    setEmail]   = useState('');
-  const [password, setPass]    = useState('');
-  const [dob,      setDob]     = useState('');
-  const [consent1, setConsent1] = useState(false); // terms
-  const [consent2, setConsent2] = useState(false); // no refund
-  const [error,    setError]   = useState('');
-  const [loading,  setLoading] = useState(false);
+  const [mode,     setMode]     = useState(params.get('mode') || 'login');
+  const [email,    setEmail]    = useState('');
+  const [password, setPass]     = useState('');
+  const [dob,      setDob]      = useState('');
+  const [consent1, setConsent1] = useState(false);
+  const [consent2, setConsent2] = useState(false);
+  const [error,    setError]    = useState('');
+  const [notice,   setNotice]   = useState('');
+  const [loading,  setLoading]  = useState(false);
 
   useEffect(() => {
     setMode(params.get('mode') || 'login');
+    const n = params.get('notice');
+    if (n) setNotice(decodeURIComponent(n));
   }, [params]);
 
   const handleSubmit = async () => {
     setError('');
+    setNotice('');
 
     if (!email || !password || (mode === 'signup' && !dob)) {
       setError('Please fill in all required fields.');
@@ -71,6 +75,13 @@ export default function Auth() {
             : 'Sign in to continue to your member space.'}
         </div>
 
+        {/* Session notice — shown when redirected due to session expiry */}
+        {notice && (
+          <div style={noticeBox}>
+            <span style={{ marginRight: 8 }}>ℹ️</span>{notice}
+          </div>
+        )}
+
         <Field label="Email address">
           <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
         </Field>
@@ -88,7 +99,6 @@ export default function Auth() {
               </div>
             </Field>
 
-            {/* Consent checkboxes */}
             <div style={consentBox}>
               <label style={consentLabel}>
                 <input
@@ -170,15 +180,16 @@ function Field({ label, children }) {
   );
 }
 
-const wrap = { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, background: C.bg };
-const card = { width: '100%', maxWidth: 460, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 34, boxSizing: 'border-box' };
-const backBtn = { background: 'transparent', border: 'none', color: C.muted, marginBottom: 22, cursor: 'pointer', padding: 0, fontFamily: F.sans };
-const labelStyle = { fontFamily: F.sans, fontSize: 13, color: C.muted, marginBottom: 8 };
-const inputStyle = { width: '100%', boxSizing: 'border-box', background: '#100F0C', border: `1px solid ${C.border}`, color: C.text, padding: '12px 14px', borderRadius: 8, outline: 'none', fontFamily: F.sans, fontSize: 15 };
-const submitBtn = { background: C.accent, border: 'none', color: '#1A1714', fontWeight: 700, padding: '13px 18px', borderRadius: 8, width: '100%', fontSize: 15, fontFamily: F.sans };
-const errorBox = { background: 'rgba(156,90,90,0.15)', border: '1px solid rgba(156,90,90,0.45)', color: '#D99A9A', padding: 12, borderRadius: 8, marginBottom: 18, fontSize: 14, fontFamily: F.sans };
-const legalText = { fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 12, textAlign: 'center', lineHeight: 1.6 };
-const linkBtn = { background: 'transparent', border: 'none', color: C.accent, cursor: 'pointer', fontFamily: F.sans, fontSize: 13, padding: 0 };
-const consentBox = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${C.border}`, borderRadius: 8, padding: 16, marginBottom: 20 };
+const wrap        = { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, background: C.bg };
+const card        = { width: '100%', maxWidth: 460, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 34, boxSizing: 'border-box' };
+const backBtn     = { background: 'transparent', border: 'none', color: C.muted, marginBottom: 22, cursor: 'pointer', padding: 0, fontFamily: F.sans };
+const labelStyle  = { fontFamily: F.sans, fontSize: 13, color: C.muted, marginBottom: 8 };
+const inputStyle  = { width: '100%', boxSizing: 'border-box', background: '#100F0C', border: `1px solid ${C.border}`, color: C.text, padding: '12px 14px', borderRadius: 8, outline: 'none', fontFamily: F.sans, fontSize: 15 };
+const submitBtn   = { background: C.accent, border: 'none', color: '#1A1714', fontWeight: 700, padding: '13px 18px', borderRadius: 8, width: '100%', fontSize: 15, fontFamily: F.sans };
+const errorBox    = { background: 'rgba(156,90,90,0.15)', border: '1px solid rgba(156,90,90,0.45)', color: '#D99A9A', padding: 12, borderRadius: 8, marginBottom: 18, fontSize: 14, fontFamily: F.sans };
+const noticeBox   = { background: 'rgba(193,125,74,0.08)', border: `1px solid rgba(193,125,74,0.25)`, color: '#C17D4A', padding: 12, borderRadius: 8, marginBottom: 18, fontSize: 14, fontFamily: F.sans, lineHeight: 1.6 };
+const legalText   = { fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 12, textAlign: 'center', lineHeight: 1.6 };
+const linkBtn     = { background: 'transparent', border: 'none', color: C.accent, cursor: 'pointer', fontFamily: F.sans, fontSize: 13, padding: 0 };
+const consentBox  = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${C.border}`, borderRadius: 8, padding: 16, marginBottom: 20 };
 const consentLabel = { display: 'flex', alignItems: 'flex-start', fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.65, cursor: 'pointer' };
-const termsLink = { color: C.accent, textDecoration: 'none' };
+const termsLink   = { color: C.accent, textDecoration: 'none' };
