@@ -202,5 +202,60 @@ router.post('/unlock', authMid, async (req, res) => {
     client.release();
   }
 });
+// Add this route to backend/routes/gallery.js BEFORE module.exports
+
+// ─────────────────────────────────────────────
+// GET /api/gallery/sets/:setId/items
+// Returns items for an unlocked set
+// ─────────────────────────────────────────────
+
+router.get('/sets/:setId/items', authMid, async (req, res) => {
+  const { setId } = req.params;
+  try {
+    // Verify user has access
+    const { rows: accessRows } = await pool.query(
+      `SELECT ag.id FROM access_grants ag
+       WHERE ag.user_id = $1 AND ag.set_id = $2`,
+      [req.user.userId, setId]
+    );
+
+    // Also allow if set is free and user is a member
+    if (!accessRows.length) {
+      const { rows: setRows } = await pool.query(
+        `SELECT s.price_coins, s.min_tier FROM sets s WHERE s.id = $1 AND s.visible = TRUE`,
+        [setId]
+      );
+      if (!setRows.length) return res.status(404).json({ error: 'Set not found' });
+
+      const set = setRows[0];
+      const { rows: userRows } = await pool.query(
+        `SELECT tier, membership_expires_at FROM users WHERE id = $1`,
+        [req.user.userId]
+      );
+      const user     = userRows[0];
+      const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > new Date();
+      const userTier = isActive ? user.tier : 'guest';
+
+      const isFreeForAll    = set.price_coins === 0 && set.min_tier === 'none';
+      const isFreeForMember = set.price_coins === 0 && userTier !== 'guest';
+
+      if (!isFreeForAll && !isFreeForMember) {
+        return res.status(403).json({ error: 'Access not granted' });
+      }
+    }
+
+    const { rows: items } = await pool.query(
+      `SELECT id, media_url, media_type, sort_order
+       FROM set_items WHERE set_id = $1
+       ORDER BY sort_order ASC, created_at ASC`,
+      [setId]
+    );
+
+    res.json({ items });
+  } catch (err) {
+    console.error('gallery/items error:', err);
+    res.status(500).json({ error: 'Failed to load set items' });
+  }
+});
 
 module.exports = router;
