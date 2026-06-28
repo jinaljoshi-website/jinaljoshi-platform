@@ -153,24 +153,22 @@ router.post('/send', authMid, async (req, res) => {
     if (userTier === 'guest') {
       tokensCharged = overageCost;
     } else {
-      // Get or create allotment row
+      // Ensure allotment row exists
+      await client.query(
+        `INSERT INTO monthly_allotments (user_id, month_key)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id, month_key) DO NOTHING`,
+        [req.user.userId, monthKey]
+      );
+
+      // Read current values
       const { rows: allotRows } = await client.query(
-        `SELECT id, free_dms_used, free_dms_today, dms_date
+        `SELECT free_dms_used, free_dms_today, dms_date
          FROM monthly_allotments
          WHERE user_id = $1 AND month_key = $2`,
         [req.user.userId, monthKey]
       );
-
-      let allot = allotRows[0];
-      if (!allot) {
-        const { rows: inserted } = await client.query(
-          `INSERT INTO monthly_allotments (user_id, month_key)
-           VALUES ($1, $2) RETURNING id, free_dms_used, free_dms_today, dms_date`,
-          [req.user.userId, monthKey]
-        );
-        allot = inserted[0];
-      }
-
+      const allot      = allotRows[0];
       const dmsDateStr = allot.dms_date ? String(allot.dms_date).slice(0, 10) : null;
       const todayUsed  = dmsDateStr === dayStr ? (allot.free_dms_today || 0) : 0;
       const freeRem    = Math.max(0, config.freeDMsPerMonth - (allot.free_dms_used || 0));
@@ -178,16 +176,21 @@ router.post('/send', authMid, async (req, res) => {
       useFreeDM        = freeRem > 0 && dailyRem > 0;
       tokensCharged    = useFreeDM ? 0 : overageCost;
 
-      await client.query(
+      console.log('DMS UPDATE:', { useFreeDM, todayUsed, dayStr, userId: req.user.userId, monthKey });
+
+      // Update counters — use user_id + month_key (guaranteed unique)
+      const updateResult = await client.query(
         `UPDATE monthly_allotments
          SET free_dms_used  = free_dms_used + $1,
              free_dms_today = $2,
              dms_date       = $3::date
-         WHERE id = $4`,
-        [useFreeDM ? 1 : 0, todayUsed + 1, dayStr, allot.id]
+         WHERE user_id = $4 AND month_key = $5
+         RETURNING dms_date, free_dms_today`,
+        [useFreeDM ? 1 : 0, todayUsed + 1, dayStr, req.user.userId, monthKey]
       );
+      console.log('DMS UPDATE RESULT:', updateResult.rows[0]);
     }
-    
+
     // Block if insufficient balance
     if (tokensCharged > 0 && user.coin_balance < tokensCharged) {
       await client.query('ROLLBACK');
@@ -200,7 +203,6 @@ router.post('/send', authMid, async (req, res) => {
 
     let newBalance = user.coin_balance;
     if (tokensCharged > 0) {
-console.log('DMS UPDATE:', { useFreeDM, todayUsed, dayStr, id: allot.id });
       await client.query(
         `UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`,
         [tokensCharged, req.user.userId]
@@ -234,7 +236,6 @@ console.log('DMS UPDATE:', { useFreeDM, todayUsed, dayStr, id: allot.id });
       url:   '/messages',
     });
 
-    // Return newBalance so frontend can sync without a reload
     res.json({
       ok: true,
       message: { ...msgRows[0], is_mine: true },
