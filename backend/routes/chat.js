@@ -153,14 +153,24 @@ router.post('/send', authMid, async (req, res) => {
     if (userTier === 'guest') {
       tokensCharged = overageCost;
     } else {
+      // Get or create allotment row
       const { rows: allotRows } = await client.query(
-        `INSERT INTO monthly_allotments (user_id, month_key)
-         VALUES ($1, $2) ON CONFLICT (user_id, month_key)
-         DO UPDATE SET month_key = EXCLUDED.month_key
-         RETURNING id, free_dms_used, free_dms_today, dms_date`,
+        `SELECT id, free_dms_used, free_dms_today, dms_date
+         FROM monthly_allotments
+         WHERE user_id = $1 AND month_key = $2`,
         [req.user.userId, monthKey]
       );
-      const allot      = allotRows[0];
+
+      let allot = allotRows[0];
+      if (!allot) {
+        const { rows: inserted } = await client.query(
+          `INSERT INTO monthly_allotments (user_id, month_key)
+           VALUES ($1, $2) RETURNING id, free_dms_used, free_dms_today, dms_date`,
+          [req.user.userId, monthKey]
+        );
+        allot = inserted[0];
+      }
+
       const dmsDateStr = allot.dms_date ? String(allot.dms_date).slice(0, 10) : null;
       const todayUsed  = dmsDateStr === dayStr ? (allot.free_dms_today || 0) : 0;
       const freeRem    = Math.max(0, config.freeDMsPerMonth - (allot.free_dms_used || 0));
