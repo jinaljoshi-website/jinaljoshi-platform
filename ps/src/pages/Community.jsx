@@ -40,7 +40,7 @@ export default function Community() {
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading community…</div>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '80vh' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ marginBottom: 16 }}>
         <div style={eyebrow}>Live space</div>
         <h1 style={title}>Community</h1>

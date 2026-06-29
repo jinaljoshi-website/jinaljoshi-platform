@@ -236,7 +236,7 @@ export default function Chat() {
   const chatBg         = status?.chatBg;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '80vh', background: chatBg || 'transparent', borderRadius: chatBg ? 10 : 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: chatBg || 'transparent', borderRadius: chatBg ? 10 : 0 }}>
       <div style={{ marginBottom: 12, padding: chatBg ? '12px 12px 0' : 0 }}>
         <div style={eyebrow}>Direct messages</div>
         <h1 style={title}>Chat with Jinal</h1>
