@@ -2,6 +2,7 @@
 const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
+const { postSystemMessage } = require('./community');
 
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
 
@@ -38,7 +39,6 @@ router.get('/sets', authMid, async (req, res) => {
       [req.user.userId]
     );
 
-    // Convert cover_key to full URL
     const setsWithUrls = sets.map((s) => ({
       ...s,
       cover_url: toUrl(s.cover_key),
@@ -117,6 +117,7 @@ router.post('/unlock', authMid, async (req, res) => {
         [req.user.userId, setId]
       );
       await client.query('COMMIT');
+      postSystemMessage(`🔓 A member just unlocked new content!`);
       return res.json({ ok: true, coinsSpent: 0, grantType: 'membership_free' });
     }
 
@@ -185,6 +186,8 @@ router.post('/unlock', authMid, async (req, res) => {
 
     await client.query('COMMIT');
 
+    postSystemMessage(`🔓 A member just unlocked new content!`);
+
     res.json({
       ok:         true,
       coinsSpent: price,
@@ -208,14 +211,12 @@ router.post('/unlock', authMid, async (req, res) => {
 router.get('/sets/:setId/items', authMid, async (req, res) => {
   const { setId } = req.params;
   try {
-    // Check access grant
     const { rows: accessRows } = await pool.query(
       `SELECT id FROM access_grants WHERE user_id = $1 AND set_id = $2`,
       [req.user.userId, setId]
     );
 
     if (!accessRows.length) {
-      // Check if set is free for this user
       const { rows: setRows } = await pool.query(
         `SELECT price_coins, min_tier FROM sets WHERE id = $1 AND visible = TRUE`,
         [setId]
@@ -239,7 +240,6 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
       }
     }
 
-    // Fetch items — use r2_key and convert to URL
     const { rows: items } = await pool.query(
       `SELECT id, r2_key, media_type, position
        FROM set_items WHERE set_id = $1
@@ -261,11 +261,9 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // DELETE /api/gallery/sets/:setId
-// Artist only — delete a set and all its items
 // ─────────────────────────────────────────────
 
 router.delete('/sets/:setId', authMid, async (req, res) => {
-  // Only artist can delete
   if (req.user.email !== process.env.ARTIST_EMAIL) {
     return res.status(403).json({ error: 'Not authorised' });
   }
@@ -274,19 +272,13 @@ router.delete('/sets/:setId', authMid, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-
-    // Get all item r2_keys for deletion reference (R2 deletion handled by Studio frontend)
     const { rows: items } = await client.query(
-      `SELECT r2_key FROM set_items WHERE set_id = $1`,
-      [setId]
+      `SELECT r2_key FROM set_items WHERE set_id = $1`, [setId]
     );
-
     await client.query(`DELETE FROM set_items WHERE set_id = $1`, [setId]);
     await client.query(`DELETE FROM access_grants WHERE set_id = $1`, [setId]);
     await client.query(`DELETE FROM sets WHERE id = $1`, [setId]);
-
     await client.query('COMMIT');
-
     res.json({ ok: true, deletedItems: items.length, r2Keys: items.map((i) => i.r2_key) });
   } catch (err) {
     await client.query('ROLLBACK');

@@ -5,6 +5,7 @@ const router     = require('express').Router();
 const pool       = require('../db/pool');
 const authMid    = require('../middleware/auth');
 const artistOnly = require('../middleware/artistOnly');
+const { postSystemMessage } = require('./community');
 
 router.use(authMid, artistOnly);
 
@@ -250,13 +251,15 @@ router.post('/content', async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
       [title.trim(), type, price_coins, min_tier, use_unlock_credit, visible]
     );
+    if (visible) {
+      postSystemMessage(`📸 New content just dropped: "${title.trim()}". Check the Gallery!`);
+    }
     res.json({ ok: true, set: rows[0] });
   } catch (err) {
     res.status(500).json({ error: 'Failed to create content' });
   }
 });
 
-// NEW: Add a media item to a set
 router.post('/content/item', async (req, res) => {
   const { setId, type, r2Key, position } = req.body;
   if (!setId || !type || !r2Key) {
@@ -275,10 +278,16 @@ router.post('/content/item', async (req, res) => {
   }
 });
 
-// UPDATED: includes cover_key support
 router.patch('/content/:id', async (req, res) => {
   const { title, price_coins, min_tier, use_unlock_credit, visible, type, category, cover_key } = req.body;
   try {
+    // Check if currently hidden and being made visible
+    const { rows: currentRows } = await pool.query(
+      `SELECT title, visible FROM sets WHERE id = $1`, [req.params.id]
+    );
+    const wasHidden       = currentRows[0] && !currentRows[0].visible;
+    const becomingVisible = visible === true;
+
     const { rows } = await pool.query(
       `UPDATE sets SET
          title             = COALESCE($1, title),
@@ -293,9 +302,36 @@ router.patch('/content/:id', async (req, res) => {
       [title, price_coins, min_tier, use_unlock_credit, visible, type, category, cover_key, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Set not found' });
+
+    if (wasHidden && becomingVisible) {
+      postSystemMessage(`📸 New content just dropped: "${rows[0].title}". Check the Gallery!`);
+    }
+
     res.json({ ok: true, set: rows[0] });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update content' });
+  }
+});
+
+router.post('/content/:id/delete', async (req, res) => {
+  const { id } = req.params;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: items } = await client.query(
+      `SELECT r2_key FROM set_items WHERE set_id = $1`, [id]
+    );
+    await client.query(`DELETE FROM set_items WHERE set_id = $1`, [id]);
+    await client.query(`DELETE FROM access_grants WHERE set_id = $1`, [id]);
+    await client.query(`DELETE FROM sets WHERE id = $1`, [id]);
+    await client.query('COMMIT');
+    res.json({ ok: true, deletedItems: items.length });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('studio/content/delete error:', err);
+    res.status(500).json({ error: 'Failed to delete set' });
+  } finally {
+    client.release();
   }
 });
 
@@ -323,6 +359,9 @@ router.post('/merch', async (req, res) => {
        VALUES ($1, $2, $3, $4, $4, $5) RETURNING *`,
       [title.trim(), description || '', price_coins, total_stock, visible]
     );
+    if (visible) {
+      postSystemMessage(`🛍️ New merchandise just dropped: "${title.trim()}". Check the Shop!`);
+    }
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
     res.status(500).json({ error: 'Failed to create merchandise' });
@@ -332,6 +371,13 @@ router.post('/merch', async (req, res) => {
 router.patch('/merch/:id', async (req, res) => {
   const { title, description, price_coins, remaining, visible } = req.body;
   try {
+    // Check if being made visible for the first time
+    const { rows: currentRows } = await pool.query(
+      `SELECT title, visible FROM merchandise WHERE id = $1`, [req.params.id]
+    );
+    const wasHidden       = currentRows[0] && !currentRows[0].visible;
+    const becomingVisible = visible === true;
+
     const { rows } = await pool.query(
       `UPDATE merchandise SET
          title       = COALESCE($1, title),
@@ -343,6 +389,11 @@ router.patch('/merch/:id', async (req, res) => {
       [title, description, price_coins, remaining, visible, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Item not found' });
+
+    if (wasHidden && becomingVisible) {
+      postSystemMessage(`🛍️ New merchandise just dropped: "${rows[0].title}". Check the Shop!`);
+    }
+
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update merchandise' });
@@ -477,29 +528,6 @@ router.patch('/fan-settings/:userId', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update fan settings' });
-  }
-});
-
-// POST /api/studio/content/:id/delete
-router.post('/content/:id/delete', async (req, res) => {
-  const { id } = req.params;
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const { rows: items } = await client.query(
-      `SELECT r2_key FROM set_items WHERE set_id = $1`, [id]
-    );
-    await client.query(`DELETE FROM set_items WHERE set_id = $1`, [id]);
-    await client.query(`DELETE FROM access_grants WHERE set_id = $1`, [id]);
-    await client.query(`DELETE FROM sets WHERE id = $1`, [id]);
-    await client.query('COMMIT');
-    res.json({ ok: true, deletedItems: items.length });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('studio/content/delete error:', err);
-    res.status(500).json({ error: 'Failed to delete set' });
-  } finally {
-    client.release();
   }
 });
 

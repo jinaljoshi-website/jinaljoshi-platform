@@ -11,19 +11,34 @@ export default function Community() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error,   setError]   = useState('');
-  const bottomRef = useRef(null);
-  const currentUser = getUser();
+  const bottomRef  = useRef(null);
+  const isAtBottom = useRef(true);
 
-  const load = () => api.get('/api/community/posts')
-    .then((d) => setPosts(d.posts || []))
-    .catch((err) => setError(err.message))
-    .finally(() => setLoading(false));
-
-  useEffect(() => { load(); }, []);
+  const load = (silent = false) => api.get('/api/community/posts')
+    .then((d) => {
+      setPosts(d.posts || []);
+      if (!silent) setLoading(false);
+    })
+    .catch((err) => { if (!silent) setError(err.message); setLoading(false); });
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    load();
+    // Poll every 8 seconds for new posts
+    const interval = setInterval(() => load(true), 8000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Only auto-scroll if user is already at bottom
+  useEffect(() => {
+    if (isAtBottom.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [posts]);
+
+  const handleScroll = (e) => {
+    const el = e.target;
+    isAtBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  };
 
   const handleSend = async () => {
     if (!message.trim()) return;
@@ -31,7 +46,8 @@ export default function Community() {
     try {
       await api.post('/api/community/post', { content: message.trim() });
       setMessage('');
-      load();
+      isAtBottom.current = true;
+      load(true);
     } catch (err) {
       setError(err.message);
     } finally { setSending(false); }
@@ -40,16 +56,15 @@ export default function Community() {
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading community…</div>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ marginBottom: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, padding: '12px 16px 0', boxSizing: 'border-box' }}>
+      <div style={{ marginBottom: 8, flexShrink: 0 }}>
         <div style={eyebrow}>Live space</div>
         <h1 style={title}>Community</h1>
       </div>
 
-      {error && <div style={errorBox}>{error}</div>}
+      {error && <div style={{ ...errorBox, flexShrink: 0 }}>{error}</div>}
 
-      {/* Posts feed */}
-      <div style={feed}>
+      <div style={feed} onScroll={handleScroll}>
         {posts.length === 0 && (
           <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>
             Be the first to say something!
@@ -59,8 +74,7 @@ export default function Community() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Composer */}
-      <div style={composer}>
+      <div style={{ ...composer, flexShrink: 0, padding: '12px 0' }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <textarea
             value={message}
@@ -87,7 +101,6 @@ function PostBubble({ post, artistId }) {
   const isArtist = post.is_artist || post.user_id === artistId;
   const isSystem = post.is_system;
 
-  // System messages — centered
   if (isSystem) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0' }}>
@@ -96,7 +109,6 @@ function PostBubble({ post, artistId }) {
     );
   }
 
-  // Artist messages — right aligned
   if (isArtist) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
@@ -109,7 +121,6 @@ function PostBubble({ post, artistId }) {
     );
   }
 
-  // User messages — left aligned
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
       <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 3 }}>
@@ -126,13 +137,13 @@ function PostBubble({ post, artistId }) {
   );
 }
 
-const eyebrow      = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 8 };
-const title        = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(24px,4vw,42px)', margin: 0 };
-const feed         = { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 8, marginBottom: 8 };
+const eyebrow      = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 6 };
+const title        = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(22px,4vw,42px)', margin: '0 0 4px' };
+const feed         = { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 8, minHeight: 0 };
 const bubble       = { fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, padding: '10px 14px', borderRadius: 10, wordBreak: 'break-word' };
 const systemBubble = { fontFamily: F.sans, fontSize: 12, color: C.muted, background: 'rgba(242,235,224,0.04)', border: `1px solid ${C.border}`, borderRadius: 999, padding: '5px 14px', fontStyle: 'italic' };
 const timestamp    = { fontFamily: F.sans, fontSize: 10, color: C.muted, marginTop: 3 };
 const errorBox     = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: 12, borderRadius: 8, marginBottom: 12, fontFamily: F.sans, fontSize: 13 };
-const composer     = { borderTop: `1px solid ${C.border}`, paddingTop: 12 };
+const composer     = { borderTop: `1px solid ${C.border}` };
 const composerInput = { flex: 1, width: '100%', background: 'rgba(22,20,16,0.9)', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 14, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', lineHeight: 1.5, boxSizing: 'border-box' };
 const sendBtn      = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '10px 20px', borderRadius: 8, flexShrink: 0, cursor: 'pointer' };
