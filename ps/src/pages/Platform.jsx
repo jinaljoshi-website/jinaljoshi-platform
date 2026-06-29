@@ -26,8 +26,8 @@ const navItems = [
   { to: '/platform/coins',      label: 'Coins'      },
 ];
 
-// Pages where the content should be locked to screen height (no page scroll)
 const FULLSCREEN_PAGES = ['/platform/chat', '/platform/community'];
+const TOP_BAR_H = 56;
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
@@ -39,8 +39,6 @@ function useIsMobile() {
   return isMobile;
 }
 
-const TOP_BAR_H = 56; // px — keep in sync with topBar height below
-
 export default function Platform() {
   const user      = getUser();
   const navigate  = useNavigate();
@@ -50,75 +48,39 @@ export default function Platform() {
 
   const isFullscreen = FULLSCREEN_PAGES.includes(location.pathname);
 
-  // Lock/unlock body scroll based on page
-  useEffect(() => {
-    if (isMobile && isFullscreen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
-  }, [isMobile, isFullscreen]);
-
-  // Auto-close menu on navigation
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
 
   const handleLogout = () => { logout(); navigate('/auth?mode=login'); };
 
   const currentNav = navItems.find((n) => n.to === location.pathname);
-  const isHome     = location.pathname === '/platform' || location.pathname === '/platform/';
 
   return (
-    <div style={{ 
-      minHeight: '100vh', 
-      background: C.bg, 
-      color: C.text,
-      // On fullscreen mobile pages, prevent any outer scroll
-      overflow: isMobile && isFullscreen ? 'hidden' : 'auto',
-      height: isMobile && isFullscreen ? '100vh' : 'auto',
-    }}>
+    // Outer wrapper — always full height, never clips
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: C.bg, color: C.text, overflow: 'hidden' }}>
 
-      {/* ── TOP BAR ── */}
+      {/* ── TOP BAR — always fixed at top, never scrolls away ── */}
       <div style={topBar}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           {isMobile ? (
-            // Mobile: show back arrow if inside a section, or hamburger on home
-            isHome ? (
-              <button onClick={() => setMenuOpen(!menuOpen)} style={hamburger} aria-label="Menu">
-                <span style={{ ...hamLine, transform: menuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none', transition: '0.2s' }} />
-                <span style={{ ...hamLine, opacity: menuOpen ? 0 : 1, transition: '0.2s' }} />
-                <span style={{ ...hamLine, transform: menuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none', transition: '0.2s' }} />
-              </button>
-            ) : (
-              <button onClick={() => navigate('/platform/chat')} style={backButton} aria-label="Back">
-                ←
-              </button>
-            )
+            <button onClick={() => navigate(-1)} style={backButton} aria-label="Back">←</button>
           ) : (
             <div style={{ fontFamily: F.display, fontSize: 22 }}>Personal Space</div>
           )}
-
-          {isMobile && (
-            <div style={{ fontFamily: F.display, fontSize: 18, color: C.text }}>
-              {currentNav?.label || 'Personal Space'}
-            </div>
-          )}
-          {!isMobile && (
-            <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>{user?.email}</div>
-          )}
+          <div style={{ fontFamily: isMobile ? F.display : F.sans, fontSize: isMobile ? 17 : 11, color: isMobile ? C.text : C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {isMobile ? (currentNav?.label || 'Personal Space') : user?.email}
+          </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
           <NotificationBell />
-          {!isMobile && (
-            <button onClick={handleLogout} style={ghostBtn}>Sign out</button>
-          )}
-          {isMobile && !isHome && (
+          {isMobile ? (
             <button onClick={() => setMenuOpen(!menuOpen)} style={hamburger} aria-label="Menu">
               <span style={{ ...hamLine, transform: menuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none', transition: '0.2s' }} />
               <span style={{ ...hamLine, opacity: menuOpen ? 0 : 1, transition: '0.2s' }} />
               <span style={{ ...hamLine, transform: menuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none', transition: '0.2s' }} />
             </button>
+          ) : (
+            <button onClick={handleLogout} style={ghostBtn}>Sign out</button>
           )}
         </div>
       </div>
@@ -153,17 +115,16 @@ export default function Platform() {
         </>
       )}
 
-      {/* ── MAIN LAYOUT ── */}
+      {/* ── CONTENT AREA — fills remaining height ── */}
       {isMobile ? (
         <div style={{
-          // Fullscreen pages: exact remaining height, no scroll, no padding on chat/community
-          height:   isFullscreen ? `calc(100vh - ${TOP_BAR_H}px)` : 'auto',
+          flex: 1,
+          minHeight: 0,
           overflow: isFullscreen ? 'hidden' : 'auto',
-          padding:  isFullscreen ? 0 : '16px',
-          // Prevent horizontal scroll on all mobile pages
-          width:    '100%',
-          maxWidth: '100vw',
+          width: '100%',
           boxSizing: 'border-box',
+          // No padding for fullscreen pages — Chat/Community handle their own
+          padding: isFullscreen ? 0 : '16px',
         }}>
           <Routes>
             <Route index element={<Navigate to="chat" replace />} />
@@ -179,37 +140,39 @@ export default function Platform() {
           </Routes>
         </div>
       ) : (
-        // Desktop — sidebar + content
-        <div style={desktopLayout}>
-          <aside style={sidebar}>
-            <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 12 }}>{user?.email}</div>
-            {navItems.map((item) => {
-              const active = location.pathname === item.to;
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  style={{ ...navLink, background: active ? 'rgba(193,125,74,0.12)' : 'transparent', color: active ? C.text : C.muted, border: active ? `1px solid ${C.border}` : '1px solid transparent' }}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </aside>
-          <main style={{ minHeight: '70vh' }}>
-            <Routes>
-              <Route index element={<Navigate to="chat" replace />} />
-              <Route path="chat"       element={<Chat />}       />
-              <Route path="gallery"    element={<Gallery />}    />
-              <Route path="membership" element={<Membership />} />
-              <Route path="community"  element={<Community />}  />
-              <Route path="calls"      element={<Calls />}      />
-              <Route path="shop"       element={<Shop />}       />
-              <Route path="extras"     element={<Extras />}     />
-              <Route path="coins"      element={<Coins />}      />
-              <Route path="*"          element={<Navigate to="chat" replace />} />
-            </Routes>
-          </main>
+        // Desktop — sidebar + scrollable content
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          <div style={desktopLayout}>
+            <aside style={sidebar}>
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 12 }}>{user?.email}</div>
+              {navItems.map((item) => {
+                const active = location.pathname === item.to;
+                return (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    style={{ ...navLink, background: active ? 'rgba(193,125,74,0.12)' : 'transparent', color: active ? C.text : C.muted, border: active ? `1px solid ${C.border}` : '1px solid transparent' }}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </aside>
+            <main style={{ minHeight: '70vh' }}>
+              <Routes>
+                <Route index element={<Navigate to="chat" replace />} />
+                <Route path="chat"       element={<Chat />}       />
+                <Route path="gallery"    element={<Gallery />}    />
+                <Route path="membership" element={<Membership />} />
+                <Route path="community"  element={<Community />}  />
+                <Route path="calls"      element={<Calls />}      />
+                <Route path="shop"       element={<Shop />}       />
+                <Route path="extras"     element={<Extras />}     />
+                <Route path="coins"      element={<Coins />}      />
+                <Route path="*"          element={<Navigate to="chat" replace />} />
+              </Routes>
+            </main>
+          </div>
         </div>
       )}
 
@@ -218,14 +181,14 @@ export default function Platform() {
   );
 }
 
-const topBar      = { position: 'sticky', top: 0, zIndex: 30, height: TOP_BAR_H, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 16px', background: 'rgba(13,12,10,0.97)', borderBottom: `1px solid ${C.border}`, backdropFilter: 'blur(12px)', boxSizing: 'border-box' };
+const topBar      = { flexShrink: 0, height: TOP_BAR_H, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 16px', background: 'rgba(13,12,10,0.97)', borderBottom: `1px solid ${C.border}`, zIndex: 30, boxSizing: 'border-box' };
 const hamburger   = { display: 'flex', flexDirection: 'column', gap: 5, background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 6, flexShrink: 0 };
 const hamLine     = { display: 'block', width: 22, height: 2, background: C.text, borderRadius: 2 };
 const backButton  = { background: 'transparent', border: 'none', color: C.text, fontSize: 22, cursor: 'pointer', padding: '0 6px', lineHeight: 1, flexShrink: 0 };
 const ghostBtn    = { border: `1px solid ${C.border}`, background: 'transparent', color: C.text, borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontFamily: F.sans, fontSize: 13 };
 const backdrop    = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 40, backdropFilter: 'blur(4px)' };
-const drawer      = { position: 'fixed', top: 0, left: 0, width: 260, height: '100vh', background: C.surface, borderRight: `1px solid ${C.border}`, zIndex: 50, padding: 24, display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' };
+const drawer      = { position: 'fixed', top: 0, right: 0, width: 260, height: '100vh', background: C.surface, borderLeft: `1px solid ${C.border}`, zIndex: 50, padding: 24, display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' };
 const drawerLink  = { textDecoration: 'none', fontFamily: F.sans, fontSize: 15, padding: '12px 14px', borderRadius: 8, display: 'block' };
 const desktopLayout = { display: 'grid', gridTemplateColumns: '200px 1fr', gap: 24, padding: '24px', maxWidth: 1200, margin: '0 auto' };
-const sidebar     = { display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'start', position: 'sticky', top: 80, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 };
+const sidebar     = { display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'start', position: 'sticky', top: 24, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 };
 const navLink     = { textDecoration: 'none', fontFamily: F.sans, fontSize: 14, padding: '10px 14px', borderRadius: 8, display: 'block' };
