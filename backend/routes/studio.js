@@ -241,21 +241,22 @@ router.get('/content', async (req, res) => {
 });
 
 router.post('/content', async (req, res) => {
-  const { title, type = 'photo_set', price_coins = 0, min_tier = 'community', use_unlock_credit = true, visible = false } = req.body;
+  const { title, description, type = 'photo_set', price_coins = 0, min_tier = 'community', use_unlock_credit = true, visible = false } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
   const VALID_TIERS = ['none', 'community', 'insider', 'premium', 'supreme'];
   if (!VALID_TIERS.includes(min_tier)) return res.status(400).json({ error: 'Invalid min_tier' });
   try {
     const { rows } = await pool.query(
-      `INSERT INTO sets (title, type, price_coins, min_tier, use_unlock_credit, visible)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [title.trim(), type, price_coins, min_tier, use_unlock_credit, visible]
+      `INSERT INTO sets (title, description, type, price_coins, min_tier, use_unlock_credit, visible)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [title.trim(), description || null, type, price_coins, min_tier, use_unlock_credit, visible]
     );
     if (visible) {
       postSystemMessage(`📸 New content just dropped: "${title.trim()}". Check the Gallery!`);
     }
     res.json({ ok: true, set: rows[0] });
   } catch (err) {
+    console.error('studio/content error:', err);
     res.status(500).json({ error: 'Failed to create content' });
   }
 });
@@ -279,9 +280,8 @@ router.post('/content/item', async (req, res) => {
 });
 
 router.patch('/content/:id', async (req, res) => {
-  const { title, price_coins, min_tier, use_unlock_credit, visible, type, category, cover_key } = req.body;
+  const { title, description, price_coins, min_tier, use_unlock_credit, visible, type, category, cover_key } = req.body;
   try {
-    // Check if currently hidden and being made visible
     const { rows: currentRows } = await pool.query(
       `SELECT title, visible FROM sets WHERE id = $1`, [req.params.id]
     );
@@ -291,15 +291,16 @@ router.patch('/content/:id', async (req, res) => {
     const { rows } = await pool.query(
       `UPDATE sets SET
          title             = COALESCE($1, title),
-         price_coins       = COALESCE($2, price_coins),
-         min_tier          = COALESCE($3, min_tier),
-         use_unlock_credit = COALESCE($4, use_unlock_credit),
-         visible           = COALESCE($5, visible),
-         type              = COALESCE($6, type),
-         category          = COALESCE($7, category),
-         cover_key         = COALESCE($8, cover_key)
-       WHERE id = $9 RETURNING *`,
-      [title, price_coins, min_tier, use_unlock_credit, visible, type, category, cover_key, req.params.id]
+         description       = COALESCE($2, description),
+         price_coins       = COALESCE($3, price_coins),
+         min_tier          = COALESCE($4, min_tier),
+         use_unlock_credit = COALESCE($5, use_unlock_credit),
+         visible           = COALESCE($6, visible),
+         type              = COALESCE($7, type),
+         category          = COALESCE($8, category),
+         cover_key         = COALESCE($9, cover_key)
+       WHERE id = $10 RETURNING *`,
+      [title, description, price_coins, min_tier, use_unlock_credit, visible, type, category, cover_key, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Set not found' });
 
@@ -309,6 +310,7 @@ router.patch('/content/:id', async (req, res) => {
 
     res.json({ ok: true, set: rows[0] });
   } catch (err) {
+    console.error('studio/content patch error:', err);
     res.status(500).json({ error: 'Failed to update content' });
   }
 });
@@ -350,9 +352,9 @@ router.get('/merch', async (req, res) => {
 
 router.post('/merch', async (req, res) => {
   const { title, description, price_coins, total_stock, visible = false } = req.body;
-  if (!title?.trim())    return res.status(400).json({ error: 'Title is required' });
-  if (!price_coins)      return res.status(400).json({ error: 'Price is required' });
-  if (!total_stock)      return res.status(400).json({ error: 'Stock quantity is required' });
+  if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
+  if (!price_coins)   return res.status(400).json({ error: 'Price is required' });
+  if (!total_stock)   return res.status(400).json({ error: 'Stock quantity is required' });
   try {
     const { rows } = await pool.query(
       `INSERT INTO merchandise (title, description, price_coins, total_stock, remaining, visible)
@@ -371,7 +373,6 @@ router.post('/merch', async (req, res) => {
 router.patch('/merch/:id', async (req, res) => {
   const { title, description, price_coins, remaining, visible } = req.body;
   try {
-    // Check if being made visible for the first time
     const { rows: currentRows } = await pool.query(
       `SELECT title, visible FROM merchandise WHERE id = $1`, [req.params.id]
     );

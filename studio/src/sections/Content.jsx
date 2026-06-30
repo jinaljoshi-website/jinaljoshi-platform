@@ -3,10 +3,10 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { T, S, Card, Eyebrow, Field, TokenField, colors } from '../ui';
 
-const TOKEN_RATE = 66;
-const MAX_ITEMS  = 100;
-const MAX_IMG_PX = 2048;
-const JPEG_Q     = 0.85;
+const TOKEN_RATE   = 66;
+const MAX_ITEMS    = 100;
+const MAX_IMG_PX   = 2048;
+const JPEG_Q       = 0.85;
 const MAX_VIDEO_MB = 500;
 const R2_PUBLIC_URL = import.meta.env.VITE_R2_PUBLIC_URL || '';
 
@@ -16,7 +16,6 @@ function toUrl(key) {
   return `${R2_PUBLIC_URL}/${key}`;
 }
 
-// ── Image compression ────────────────────────────────────────────────────────
 async function compressImage(file) {
   return new Promise((resolve) => {
     const img = new Image();
@@ -31,20 +30,16 @@ async function compressImage(file) {
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
       canvas.toBlob(
         (blob) => resolve(new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' })),
-        'image/jpeg',
-        JPEG_Q
+        'image/jpeg', JPEG_Q
       );
     };
     img.src = url;
   });
 }
 
-// ── Upload one file to R2 via presigned URL ──────────────────────────────────
 async function uploadFile(file, context = 'content') {
   const { uploadUrl, publicUrl } = await api.post('/api/upload/presign', {
-    filename:    file.name,
-    contentType: file.type,
-    context,
+    filename: file.name, contentType: file.type, context,
   });
   await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
   return publicUrl;
@@ -57,7 +52,7 @@ export function Content() {
   const [success, setSuccess] = useState('');
 
   const [form, setForm] = useState({
-    title: '', type: 'photo_set', price_coins: '0',
+    title: '', description: '', type: 'photo_set', price_coins: '0',
     min_tier: 'community', use_unlock_credit: true, visible: false,
   });
 
@@ -88,7 +83,7 @@ export function Content() {
       return;
     }
     const newFiles = picked.map((f) => ({
-      file:     f,
+      file: f,
       preview:  f.type.startsWith('image/') ? URL.createObjectURL(f) : null,
       isVideo:  f.type.startsWith('video/'),
       status:   'pending',
@@ -120,6 +115,7 @@ export function Content() {
     try {
       const setData = await api.post('/api/studio/content', {
         title:             form.title,
+        description:       form.description || null,
         type:              form.type,
         price_coins:       parseInt(form.price_coins) || 0,
         min_tier:          form.min_tier,
@@ -129,6 +125,8 @@ export function Content() {
       const setId = setData.set.id;
 
       let coverUrl = null;
+
+      // Upload cover if provided, otherwise use first image as cover
       if (coverFile) {
         setUploadProgress('Uploading cover image…');
         const compressed = await compressImage(coverFile);
@@ -142,41 +140,34 @@ export function Content() {
         setUploadProgress(`Uploading item ${i + 1} of ${total}…`);
 
         if (item.isVideo && parseFloat(item.sizeMB) > MAX_VIDEO_MB) {
-          setFiles((prev) => {
-            const updated = [...prev];
-            updated[i] = { ...updated[i], status: 'skipped', error: `File too large (max ${MAX_VIDEO_MB}MB)` };
-            return updated;
-          });
+          setFiles((prev) => { const u = [...prev]; u[i] = { ...u[i], status: 'skipped', error: `File too large (max ${MAX_VIDEO_MB}MB)` }; return u; });
           continue;
         }
 
         try {
           const fileToUpload = item.isVideo ? item.file : await compressImage(item.file);
           const publicUrl = await uploadFile(fileToUpload, 'content');
+
           await api.post('/api/studio/content/item', {
-            setId,
-            type:     item.isVideo ? 'video' : 'image',
-            r2Key:    publicUrl,
-            position: i,
+            setId, type: item.isVideo ? 'video' : 'image', r2Key: publicUrl, position: i,
           });
-          setFiles((prev) => {
-            const updated = [...prev];
-            updated[i] = { ...updated[i], status: 'done', publicUrl };
-            return updated;
-          });
+
+          // Auto-set first image as cover if no cover provided
+          if (i === 0 && !coverUrl && !item.isVideo) {
+            coverUrl = publicUrl;
+            await api.patch(`/api/studio/content/${setId}`, { cover_key: publicUrl });
+          }
+
+          setFiles((prev) => { const u = [...prev]; u[i] = { ...u[i], status: 'done', publicUrl }; return u; });
         } catch (err) {
-          setFiles((prev) => {
-            const updated = [...prev];
-            updated[i] = { ...updated[i], status: 'error', error: err.message };
-            return updated;
-          });
+          setFiles((prev) => { const u = [...prev]; u[i] = { ...u[i], status: 'error', error: err.message }; return u; });
         }
       }
 
       setUploadProgress('');
       setSuccess(`"${form.title}" created with ${total} item${total !== 1 ? 's' : ''}.`);
       setSets((prev) => [{ ...setData.set, cover_url: coverUrl }, ...prev]);
-      setForm({ title: '', type: 'photo_set', price_coins: '0', min_tier: 'community', use_unlock_credit: true, visible: false });
+      setForm({ title: '', description: '', type: 'photo_set', price_coins: '0', min_tier: 'community', use_unlock_credit: true, visible: false });
       setFiles([]);
       setCoverFile(null);
       setCoverPreview('');
@@ -190,7 +181,7 @@ export function Content() {
 
   const startEdit = (set) => {
     setEditing(set.id);
-    setEditForm({ title: set.title, type: set.type, price_coins: set.price_coins, min_tier: set.min_tier, use_unlock_credit: set.use_unlock_credit, visible: set.visible });
+    setEditForm({ title: set.title, description: set.description || '', type: set.type, price_coins: set.price_coins, min_tier: set.min_tier, use_unlock_credit: set.use_unlock_credit, visible: set.visible });
   };
 
   const handleUpdate = async (id) => {
@@ -264,9 +255,21 @@ export function Content() {
           </Field>
         </div>
 
-        {/* Cover image */}
+        {/* Description */}
         <div style={{ marginTop: 16, marginBottom: 16 }}>
-          <div style={fieldLabel}>Cover image (optional)</div>
+          <div style={fieldLabel}>Description (shown to fans in gallery)</div>
+          <textarea
+            style={{ ...S.input, resize: 'vertical', minHeight: 72, lineHeight: 1.6 }}
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            placeholder="A short description of what's in this set…"
+            rows={3}
+          />
+        </div>
+
+        {/* Cover image */}
+        <div style={{ marginTop: 0, marginBottom: 16 }}>
+          <div style={fieldLabel}>Cover image (optional — first photo used if not set)</div>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <input ref={coverRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleCoverPick} />
             <button onClick={() => coverRef.current?.click()} style={S.ghostBtn}>Browse cover photo</button>
@@ -348,18 +351,13 @@ export function Content() {
         {sets.length === 0 && <T.muted>No content yet.</T.muted>}
         {sets.map((set) => (
           <div key={set.id} style={S.card}>
-            {/* Delete confirmation */}
             {confirmDelete === set.id ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 14, color: '#D99A9A' }}>
-                  Delete <strong>"{set.title}"</strong>? This will permanently remove the set and all {set.item_count || 0} items from the server. This cannot be undone.
+                  Delete <strong>"{set.title}"</strong>? This will permanently remove the set and all items. Cannot be undone.
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <button
-                    onClick={() => handleDelete(set.id)}
-                    disabled={deleting === set.id}
-                    style={{ ...S.btn, background: '#8B3A3A', opacity: deleting === set.id ? 0.6 : 1 }}
-                  >
+                  <button onClick={() => handleDelete(set.id)} disabled={deleting === set.id} style={{ ...S.btn, background: '#8B3A3A', opacity: deleting === set.id ? 0.6 : 1 }}>
                     {deleting === set.id ? 'Deleting…' : 'Yes, delete permanently'}
                   </button>
                   <button onClick={() => setConfirmDelete(null)} style={S.ghostBtn}>Cancel</button>
@@ -395,7 +393,17 @@ export function Content() {
                     </select>
                   </Field>
                 </div>
-                <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center' }}>
+                {/* Description in edit */}
+                <div style={{ margin: '12px 0' }}>
+                  <div style={fieldLabel}>Description</div>
+                  <textarea
+                    style={{ ...S.input, resize: 'vertical', minHeight: 60, lineHeight: 1.6 }}
+                    value={editForm.description || ''}
+                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                    rows={2}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <label style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: colors.muted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
                     <input type="checkbox" checked={editForm.visible} onChange={(e) => setEditForm({ ...editForm, visible: e.target.checked })} />
                     Visible
@@ -406,17 +414,17 @@ export function Content() {
               </div>
             ) : (
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                {set.cover_url
-                  ? <img src={set.cover_url} alt="" style={{ width: 60, height: 50, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
-                  : set.cover_key
-                    ? <img src={toUrl(set.cover_key)} alt="" style={{ width: 60, height: 50, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
-                    : null
-                }
+                {(set.cover_url || set.cover_key) && (
+                  <img src={set.cover_url || toUrl(set.cover_key)} alt="" style={{ width: 60, height: 50, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
+                )}
                 <div style={{ flex: 1 }}>
                   <div style={S.rowTitle}>{set.title}</div>
+                  {set.description && (
+                    <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: colors.muted, marginBottom: 4, fontStyle: 'italic' }}>{set.description}</div>
+                  )}
                   <div style={S.rowSub}>
                     {set.type?.replace('_', ' ')} · {set.min_tier === 'none' ? 'no membership required' : `${set.min_tier}+`} ·{' '}
-                    {set.price_coins === 0 ? 'Free for members' : `${set.price_coins} tokens (₹${(set.price_coins * TOKEN_RATE).toLocaleString('en-IN')})`} ·{' '}
+                    {set.price_coins === 0 ? 'Free for members' : `${set.price_coins} tokens`} ·{' '}
                     {set.use_unlock_credit ? 'Credits OK' : 'Purchase only'}
                   </div>
                 </div>

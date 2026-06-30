@@ -5,17 +5,22 @@ import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
 
-const API = import.meta.env.VITE_API_URL || '';
+const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
+
+function tierMeetsMin(userTier, minTier) {
+  if (!minTier || minTier === 'none') return true;
+  return TIER_ORDER.indexOf(userTier) >= TIER_ORDER.indexOf(minTier);
+}
 
 export default function Gallery() {
-  const [data,       setData]       = useState(null);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState('');
-  const [topUp,      setTopUp]      = useState(null);
-  const [openSet,    setOpenSet]    = useState(null); // set being viewed
-  const [setItems,   setSetItems]   = useState([]);
-  const [itemsLoad,  setItemsLoad]  = useState(false);
-  const [lightbox,   setLightbox]   = useState(null); // index into setItems
+  const [data,      setData]      = useState(null);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState('');
+  const [topUp,     setTopUp]     = useState(null);
+  const [openSet,   setOpenSet]   = useState(null);
+  const [setItems,  setSetItems]  = useState([]);
+  const [itemsLoad, setItemsLoad] = useState(false);
+  const [lightbox,  setLightbox]  = useState(null);
 
   const load = () => api.get('/api/gallery/sets')
     .then(setData)
@@ -50,13 +55,19 @@ export default function Gallery() {
   if (openSet) {
     return (
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
           <button onClick={closeViewer} style={backBtn}>← Back</button>
           <div>
             <div style={eyebrow}>Gallery</div>
-            <h1 style={{ ...title, fontSize: 'clamp(22px,4vw,36px)', margin: 0 }}>{openSet.title}</h1>
+            <h1 style={{ ...title, fontSize: 'clamp(20px,4vw,34px)', margin: 0 }}>{openSet.title}</h1>
           </div>
         </div>
+
+        {openSet.description && (
+          <p style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.7, marginBottom: 16, maxWidth: 600 }}>
+            {openSet.description}
+          </p>
+        )}
 
         {itemsLoad && <div style={{ color: C.muted, fontFamily: F.sans }}>Loading…</div>}
 
@@ -72,9 +83,7 @@ export default function Gallery() {
               ) : (
                 <img src={item.media_url} alt="" style={thumb} />
               )}
-              {item.media_type === 'video' && (
-                <div style={playBadge}>▶</div>
-              )}
+              {item.media_type === 'video' && <div style={playBadge}>▶</div>}
             </div>
           ))}
         </div>
@@ -83,35 +92,18 @@ export default function Gallery() {
         {lightbox !== null && (
           <div style={lightboxOverlay} onClick={() => setLightbox(null)}>
             <button onClick={(e) => { e.stopPropagation(); setLightbox(null); }} style={closeBtn}>✕</button>
-            <button
-              onClick={(e) => { e.stopPropagation(); setLightbox((i) => Math.max(0, i - 1)); }}
-              style={{ ...navBtn, left: 16 }}
-              disabled={lightbox === 0}
-            >‹</button>
+            <button onClick={(e) => { e.stopPropagation(); setLightbox((i) => Math.max(0, i - 1)); }} style={{ ...navBtn, left: 16 }} disabled={lightbox === 0}>‹</button>
             <div onClick={(e) => e.stopPropagation()} style={lightboxInner}>
               {setItems[lightbox]?.media_type === 'video' ? (
-                <video
-                  src={setItems[lightbox].media_url}
-                  controls
-                  autoPlay
-                  style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8 }}
-                />
+                <video src={setItems[lightbox].media_url} controls autoPlay style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8 }} />
               ) : (
-                <img
-                  src={setItems[lightbox]?.media_url}
-                  alt=""
-                  style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8, objectFit: 'contain' }}
-                />
+                <img src={setItems[lightbox]?.media_url} alt="" style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8, objectFit: 'contain' }} />
               )}
               <div style={{ fontFamily: F.mono, fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center', marginTop: 10 }}>
                 {lightbox + 1} / {setItems.length}
               </div>
             </div>
-            <button
-              onClick={(e) => { e.stopPropagation(); setLightbox((i) => Math.min(setItems.length - 1, i + 1)); }}
-              style={{ ...navBtn, right: 16 }}
-              disabled={lightbox === setItems.length - 1}
-            >›</button>
+            <button onClick={(e) => { e.stopPropagation(); setLightbox((i) => Math.min(setItems.length - 1, i + 1)); }} style={{ ...navBtn, right: 16 }} disabled={lightbox === setItems.length - 1}>›</button>
           </div>
         )}
       </div>
@@ -171,6 +163,7 @@ function GalleryCard({ item, userTier, isGuest, discountPct, coinBalance, onErro
 
   const basePrice  = item.price_coins;
   const isFree     = basePrice === 0;
+  const meetsMin   = tierMeetsMin(userTier, item.min_tier);
 
   let displayPrice = basePrice;
   if (isGuest) {
@@ -183,6 +176,9 @@ function GalleryCard({ item, userTier, isGuest, discountPct, coinBalance, onErro
   const nudgePrice = isFree ? 0 : bestMemberPrice(basePrice);
   const canAfford  = coinBalance >= displayPrice;
 
+  // Blurred for ineligible members
+  const isBlurred = !unlocked && !meetsMin;
+
   const handleUnlock = async () => {
     onError('');
     setUnlocking(true);
@@ -190,7 +186,6 @@ function GalleryCard({ item, userTier, isGuest, discountPct, coinBalance, onErro
       await api.post('/api/gallery/unlock', { setId: item.id });
       setUnlocked(true);
       onUnlocked();
-      // Open immediately after unlock
       onOpen({ ...item, already_unlocked: true });
     } catch (err) {
       if (err.message === 'INSUFFICIENT_TOKENS') {
@@ -208,23 +203,38 @@ function GalleryCard({ item, userTier, isGuest, discountPct, coinBalance, onErro
 
   return (
     <div style={card}>
-      {item.cover_url ? (
-        <img
-          src={item.cover_url}
-          alt={item.title}
-          style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 6, marginBottom: 12, cursor: unlocked ? 'pointer' : 'default' }}
-          onClick={() => unlocked && onOpen(item)}
-        />
-      ) : (
-        <div
-          style={{ width: '100%', height: 120, background: 'rgba(255,255,255,0.03)', borderRadius: 6, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: unlocked ? 'pointer' : 'default' }}
-          onClick={() => unlocked && onOpen(item)}
-        >
-          <span style={{ fontFamily: F.mono, fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{item.type?.replace('_', ' ')}</span>
-        </div>
-      )}
+      {/* Cover image — blurred for ineligible */}
+      <div style={{ position: 'relative', marginBottom: 12 }}>
+        {item.cover_url ? (
+          <img
+            src={item.cover_url}
+            alt={item.title}
+            style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 6, cursor: unlocked ? 'pointer' : 'default', filter: isBlurred ? 'blur(12px)' : 'none', transition: 'filter 0.3s' }}
+            onClick={() => unlocked && onOpen(item)}
+          />
+        ) : (
+          <div
+            style={{ width: '100%', height: 120, background: 'rgba(255,255,255,0.03)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: unlocked ? 'pointer' : 'default' }}
+            onClick={() => unlocked && onOpen(item)}
+          >
+            <span style={{ fontFamily: F.mono, fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{item.type?.replace('_', ' ')}</span>
+          </div>
+        )}
+        {/* Lock overlay for blurred */}
+        {isBlurred && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'rgba(13,12,10,0.4)' }}>
+            <div style={{ fontSize: 24, marginBottom: 4 }}>🔒</div>
+            <div style={{ fontFamily: F.sans, fontSize: 11, color: 'white', textTransform: 'capitalize' }}>{item.min_tier}+ required</div>
+          </div>
+        )}
+      </div>
 
-      <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 6 }}>{item.title}</div>
+      <div style={{ fontFamily: F.display, fontSize: 20, color: C.text, marginBottom: 4 }}>{item.title}</div>
+
+      {/* Description */}
+      {item.description && (
+        <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>{item.description}</div>
+      )}
 
       {item.min_tier && item.min_tier !== 'none' && (
         <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 8, textTransform: 'capitalize' }}>
@@ -236,6 +246,11 @@ function GalleryCard({ item, userTier, isGuest, discountPct, coinBalance, onErro
         <button onClick={() => onOpen(item)} style={{ ...unlockBtn, background: 'rgba(100,160,100,0.15)', border: '1px solid rgba(100,160,100,0.3)', color: '#8FC88F', marginTop: 'auto' }}>
           ✓ View set
         </button>
+      ) : isBlurred ? (
+        // Tier not met — show upgrade message
+        <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, background: 'rgba(193,125,74,0.06)', border: `1px solid rgba(193,125,74,0.15)`, borderRadius: 6, padding: '8px 12px', marginTop: 'auto', textAlign: 'center' }}>
+          Upgrade to <span style={{ color: C.accent, textTransform: 'capitalize' }}>{item.min_tier}</span> to unlock
+        </div>
       ) : (
         <>
           <div style={{ marginBottom: 6 }}>
@@ -246,9 +261,7 @@ function GalleryCard({ item, userTier, isGuest, discountPct, coinBalance, onErro
           </div>
 
           {item.use_unlock_credit && !isGuest && !isFree && (
-            <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 4 }}>
-              Monthly unlock credit may apply
-            </div>
+            <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 4 }}>Monthly unlock credit may apply</div>
           )}
 
           {isGuest && !isFree && (
@@ -284,7 +297,7 @@ function GalleryCard({ item, userTier, isGuest, discountPct, coinBalance, onErro
 const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 12 };
 const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(28px,5vw,52px)', margin: '0 0 10px' };
 const text        = { fontFamily: F.sans, color: C.muted, fontSize: 15, lineHeight: 1.75, maxWidth: 720 };
-const grid        = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px,1fr))', gap: 18 };
+const grid        = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px,1fr))', gap: 18 };
 const card        = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 20, display: 'flex', flexDirection: 'column' };
 const nudge       = { fontFamily: F.sans, fontSize: 12, color: C.muted, background: 'rgba(193,125,74,0.06)', border: `1px solid rgba(193,125,74,0.15)`, borderRadius: 6, padding: '6px 10px', marginBottom: 4 };
 const unlockBtn   = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 13, fontWeight: 700, padding: '10px 0', borderRadius: 8, cursor: 'pointer', width: '100%' };
