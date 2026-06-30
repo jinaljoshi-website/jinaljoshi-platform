@@ -16,7 +16,6 @@ async function postSystemMessage(content) {
     console.error('postSystemMessage error:', err.message);
   }
 }
-module.exports.postSystemMessage = postSystemMessage;
 
 // ─────────────────────────────────────────────
 // GET /api/community/posts
@@ -49,10 +48,7 @@ router.post('/post', authMid, async (req, res) => {
   if (!content?.trim()) return res.status(400).json({ error: 'Content is required' });
   if (content.length > 1000) return res.status(400).json({ error: 'Post too long (max 1000 characters)' });
 
-  const artistId = process.env.ARTIST_USER_ID;
-
   try {
-    // Fair use check (non-artist users)
     if (!req.user.isArtist) {
       const { rows: userRows } = await pool.query(
         `SELECT tier, membership_expires_at, coin_balance FROM users WHERE id = $1`,
@@ -66,9 +62,8 @@ router.post('/post', authMid, async (req, res) => {
         return res.status(403).json({ error: 'A membership is required to post in the community.' });
       }
 
-      // Fair use limits per tier
       const fairUseLimits = { community: 5, insider: 10, premium: 20, supreme: 999 };
-      const limit = fairUseLimits[userTier] || 5;
+      const limit    = fairUseLimits[userTier] || 5;
       const monthKey = new Date().toISOString().slice(0, 7);
 
       const { rows: usageRows } = await pool.query(
@@ -106,5 +101,8 @@ router.post('/post', authMid, async (req, res) => {
   }
 });
 
+// Export router AND postSystemMessage together
+// IMPORTANT: must be at the bottom after router is fully defined
+router.postSystemMessage = postSystemMessage;
 module.exports = router;
 module.exports.postSystemMessage = postSystemMessage;
