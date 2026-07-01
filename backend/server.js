@@ -32,6 +32,7 @@ app.use('/api/calls',        require('./routes/calls'));
 app.use('/api/stream-calls', require('./routes/streamcalls'));
 app.use('/api/stream-chat',  require('./routes/streamchat'));
 app.use('/api/gallery',      require('./routes/gallery'));
+app.use('/api/landing',     require('./routes/landing'));
 app.use('/api/shop',         require('./routes/shop'));
 app.use('/api/push',         require('./routes/push'));
 app.use('/api/studio',       require('./routes/studio'));
