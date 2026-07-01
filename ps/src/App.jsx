@@ -2,6 +2,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Homepage from './pages/Homepage';
 import Auth     from './pages/Auth';
+import Landing  from './pages/Landing';
 import Platform from './pages/Platform';
 import Terms    from './pages/Terms';
 import Privacy  from './pages/Privacy';
@@ -30,6 +31,17 @@ export default function App() {
           <Route path="/refund"  element={<Refund />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/sitemap" element={<Sitemap />} />
+
+          {/* Landing is its own top-level route — no sidebar/topbar chrome */}
+          <Route
+            path="/platform/landing"
+            element={
+              <Private>
+                <Landing />
+              </Private>
+            }
+          />
+
           <Route
             path="/platform/*"
             element={
