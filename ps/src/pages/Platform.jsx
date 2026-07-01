@@ -14,6 +14,7 @@ import Calls      from './Calls';
 import Shop       from './Shop';
 import Extras     from './Extras';
 import Coins      from './Coins';
+import Profile    from './Profile';
 
 const navItems = [
   { to: '/platform/chat',       label: 'Chat'       },
@@ -24,6 +25,7 @@ const navItems = [
   { to: '/platform/extras',     label: 'Extras'     },
   { to: '/platform/membership', label: 'Membership' },
   { to: '/platform/coins',      label: 'Coins'      },
+  { to: '/platform/profile',    label: 'Profile'    },
 ];
 
 const FULLSCREEN_PAGES = ['/platform/chat', '/platform/community'];
@@ -55,10 +57,9 @@ export default function Platform() {
   const currentNav = navItems.find((n) => n.to === location.pathname);
 
   return (
-    // Outer wrapper — always full height, never clips
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: C.bg, color: C.text, overflow: 'hidden' }}>
 
-      {/* ── TOP BAR — always fixed at top, never scrolls away ── */}
+      {/* ── TOP BAR ── */}
       <div style={topBar}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           {isMobile ? (
@@ -115,7 +116,7 @@ export default function Platform() {
         </>
       )}
 
-      {/* ── CONTENT AREA — fills remaining height ── */}
+      {/* ── CONTENT AREA ── */}
       {isMobile ? (
         <div style={{
           flex: 1,
@@ -123,7 +124,6 @@ export default function Platform() {
           overflow: isFullscreen ? 'hidden' : 'auto',
           width: '100%',
           boxSizing: 'border-box',
-          // No padding for fullscreen pages — Chat/Community handle their own
           padding: isFullscreen ? 0 : '16px',
         }}>
           <Routes>
@@ -136,11 +136,11 @@ export default function Platform() {
             <Route path="shop"       element={<Shop />}       />
             <Route path="extras"     element={<Extras />}     />
             <Route path="coins"      element={<Coins />}      />
+            <Route path="profile"    element={<Profile />}    />
             <Route path="*"          element={<Navigate to="chat" replace />} />
           </Routes>
         </div>
       ) : (
-        // Desktop — sidebar + scrollable content
         <div style={{ flex: 1, overflow: 'auto' }}>
           <div style={desktopLayout}>
             <aside style={sidebar}>
@@ -169,6 +169,7 @@ export default function Platform() {
                 <Route path="shop"       element={<Shop />}       />
                 <Route path="extras"     element={<Extras />}     />
                 <Route path="coins"      element={<Coins />}      />
+                <Route path="profile"    element={<Profile />}    />
                 <Route path="*"          element={<Navigate to="chat" replace />} />
               </Routes>
             </main>

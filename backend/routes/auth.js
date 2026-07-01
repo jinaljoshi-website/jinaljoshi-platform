@@ -9,7 +9,7 @@ const authMid  = require('../middleware/auth');
 // ── SIGNUP ────────────────────────────────────
 
 router.post('/signup', async (req, res) => {
-  const { email, password, dob, consentTerms, consentNoRefund } = req.body;
+  const { email, password, dob, displayName, consentTerms, consentNoRefund } = req.body;
 
   if (!email || !password || !dob) {
     return res.status(400).json({ error: 'Email, password and date of birth are required' });
@@ -43,10 +43,10 @@ router.post('/signup', async (req, res) => {
 
   const { rows } = await pool.query(
     `INSERT INTO users
-       (email, password_hash, dob, consent_terms, consent_no_refund, consented_at)
-     VALUES ($1, $2, $3, $4, $5, NOW())
-     RETURNING id, email, tier, coin_balance`,
-    [normalizedEmail, hash, dob, true, true]
+       (email, password_hash, dob, display_name, consent_terms, consent_no_refund, consented_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW())
+     RETURNING id, email, tier, coin_balance, display_name`,
+    [normalizedEmail, hash, dob, displayName?.trim() || null, true, true]
   );
   const user = rows[0];
 
@@ -70,7 +70,13 @@ router.post('/signup', async (req, res) => {
 
   res.json({
     jwt: token,
-    user: { id: user.id, email: user.email, tier: user.tier, coinBalance: user.coin_balance },
+    user: {
+      id:          user.id,
+      email:       user.email,
+      tier:        user.tier,
+      coinBalance: user.coin_balance,
+      displayName: user.display_name,
+    },
   });
 });
 
@@ -128,6 +134,7 @@ router.post('/login', async (req, res) => {
       email:         user.email,
       tier:          user.tier,
       coinBalance:   user.coin_balance,
+      displayName:   user.display_name,
       phoneVerified: user.phone_verified,
       isArtist:      user.is_artist,
     },
@@ -258,6 +265,55 @@ router.post('/forgot/confirm', async (req, res) => {
   await pool.query('DELETE FROM active_sessions WHERE user_id = $1', [user.id]);
 
   res.json({ ok: true });
+});
+
+// ── GET PROFILE ────────────────────────────────────────
+
+router.get('/profile', authMid, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, email, display_name, dob, tier, coin_balance, membership_expires_at, created_at
+       FROM users WHERE id = $1`,
+      [req.user.userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'User not found' });
+    res.json({ user: rows[0] });
+  } catch (err) {
+    console.error('profile/get error:', err);
+    res.status(500).json({ error: 'Failed to load profile' });
+  }
+});
+
+// ── UPDATE PROFILE ─────────────────────────────────────
+
+router.patch('/profile', authMid, async (req, res) => {
+  const { displayName, dob } = req.body;
+
+  // Validate DOB if provided
+  if (dob) {
+    const birthDate = new Date(dob);
+    const today     = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+    if (age < 18) return res.status(400).json({ error: 'You must be 18 or older' });
+    if (isNaN(birthDate.getTime())) return res.status(400).json({ error: 'Invalid date of birth' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE users SET
+         display_name = COALESCE($1, display_name),
+         dob          = COALESCE($2::date, dob)
+       WHERE id = $3
+       RETURNING id, email, display_name, dob, tier, coin_balance`,
+      [displayName?.trim() || null, dob || null, req.user.userId]
+    );
+    res.json({ ok: true, user: rows[0] });
+  } catch (err) {
+    console.error('profile/update error:', err);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
 });
 
 module.exports = router;
