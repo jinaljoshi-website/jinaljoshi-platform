@@ -349,7 +349,7 @@ function MessageBubble({ msg }) {
 }
 
 const eyebrow      = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 8 };
-const title        = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(24px,4vw,42px)', margin: 0 };
+const title        = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(18px,2.4vw,26px)', margin: 0 };
 const stickyHeader = { position: 'sticky', top: 0, zIndex: 3, flexShrink: 0, background: 'rgba(13,12,10,0.9)', backdropFilter: 'blur(10px)', borderBottom: `1px solid ${C.border}` };
 const statusBar    = { padding: '8px 12px', background: 'rgba(22,20,16,0.85)', border: `1px solid ${C.border}`, borderRadius: 8, backdropFilter: 'blur(8px)' };
 const statItem     = { display: 'flex', flexDirection: 'column', gap: 2 };

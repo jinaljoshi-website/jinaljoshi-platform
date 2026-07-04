@@ -75,10 +75,13 @@ export default function Platform() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
           <NotificationBell />
           {isMobile ? (
-            <button onClick={() => setMenuOpen(!menuOpen)} style={hamburger} aria-label="Menu">
-              <span style={{ ...hamLine, transform: menuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none', transition: '0.2s' }} />
-              <span style={{ ...hamLine, opacity: menuOpen ? 0 : 1, transition: '0.2s' }} />
-              <span style={{ ...hamLine, transform: menuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none', transition: '0.2s' }} />
+            <button onClick={() => setMenuOpen(!menuOpen)} style={hamburgerBtn} aria-label="Menu">
+              <span style={hamburgerIconWrap}>
+                <span style={{ ...hamLine, transform: menuOpen ? 'rotate(45deg) translate(5px, 5px)' : 'none', transition: '0.2s' }} />
+                <span style={{ ...hamLine, opacity: menuOpen ? 0 : 1, transition: '0.2s' }} />
+                <span style={{ ...hamLine, transform: menuOpen ? 'rotate(-45deg) translate(5px, -5px)' : 'none', transition: '0.2s' }} />
+              </span>
+              <span style={{ fontFamily: F.sans, fontSize: 13, color: C.text }}>Menu</span>
             </button>
           ) : (
             <button onClick={handleLogout} style={ghostBtn}>Sign out</button>
@@ -182,14 +185,16 @@ export default function Platform() {
   );
 }
 
-const topBar      = { flexShrink: 0, height: TOP_BAR_H, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 16px', background: 'rgba(13,12,10,0.97)', borderBottom: `1px solid ${C.border}`, zIndex: 30, boxSizing: 'border-box' };
+const topBar      = { flexShrink: 0, minHeight: TOP_BAR_H, height: `calc(${TOP_BAR_H}px + env(safe-area-inset-top, 0px))`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `env(safe-area-inset-top, 0px) 16px 0`, background: 'rgba(13,12,10,0.97)', borderBottom: `1px solid ${C.border}`, zIndex: 30, boxSizing: 'border-box' };
 const hamburger   = { display: 'flex', flexDirection: 'column', gap: 5, background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 6, flexShrink: 0 };
+const hamburgerBtn = { display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: `1px solid ${C.border}`, cursor: 'pointer', padding: '7px 12px', borderRadius: 8, flexShrink: 0 };
+const hamburgerIconWrap = { display: 'flex', flexDirection: 'column', gap: 5 };
 const hamLine     = { display: 'block', width: 22, height: 2, background: C.text, borderRadius: 2 };
 const backButton  = { background: 'transparent', border: 'none', color: C.text, fontSize: 22, cursor: 'pointer', padding: '0 6px', lineHeight: 1, flexShrink: 0 };
 const ghostBtn    = { border: `1px solid ${C.border}`, background: 'transparent', color: C.text, borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontFamily: F.sans, fontSize: 13 };
 const backdrop    = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 40, backdropFilter: 'blur(4px)' };
-const drawer      = { position: 'fixed', top: 0, right: 0, width: 260, height: '100vh', background: C.surface, borderLeft: `1px solid ${C.border}`, zIndex: 50, padding: 24, display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' };
+const drawer      = { position: 'fixed', top: 0, right: 0, width: 260, height: '100vh', background: C.surface, borderLeft: `1px solid ${C.border}`, zIndex: 50, padding: '24px', paddingTop: 'calc(24px + env(safe-area-inset-top, 0px))', display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' };
 const drawerLink  = { textDecoration: 'none', fontFamily: F.sans, fontSize: 15, padding: '12px 14px', borderRadius: 8, display: 'block' };
-const desktopLayout = { display: 'grid', gridTemplateColumns: '200px 1fr', gap: 24, padding: '24px', maxWidth: 1200, margin: '0 auto' };
+const desktopLayout = { display: 'grid', gridTemplateColumns: '200px 1fr', gap: 24, padding: '24px', maxWidth: 1200, width: '100%', margin: '0 auto', boxSizing: 'border-box' };
 const sidebar     = { display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'start', position: 'sticky', top: 24, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 };
 const navLink     = { textDecoration: 'none', fontFamily: F.sans, fontSize: 14, padding: '10px 14px', borderRadius: 8, display: 'block' };
