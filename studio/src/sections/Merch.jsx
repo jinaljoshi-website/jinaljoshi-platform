@@ -60,7 +60,23 @@ export function Merch() {
     }
   };
 
+  const quickRestock = async (item, amount) => {
+    setError('');
+    try {
+      const data = await api.patch(`/api/studio/merch/${item.id}`, {
+        remaining: item.remaining + amount,
+      });
+      setItems((prev) => prev.map((i) => i.id === item.id ? data.item : i));
+      setSuccess(`Added ${amount} to "${item.title}".`);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   if (loading) return <T.muted>Loading merchandise…</T.muted>;
+
+  const inStock  = items.filter((i) => i.remaining > 0);
+  const soldOut  = items.filter((i) => i.remaining <= 0);
 
   return (
     <div>
@@ -101,58 +117,98 @@ export function Merch() {
         </div>
       </Card>
 
-      {/* Items list */}
-      <T.sectionTitle>All items ({items.length})</T.sectionTitle>
-      <div style={{ display: 'grid', gap: 12 }}>
-        {items.length === 0 && <T.muted>No merchandise yet.</T.muted>}
-        {items.map((item) => (
-          <div key={item.id} style={S.card}>
-            {editing === item.id ? (
-              // Edit mode
-              <div>
-                <div style={S.formGrid}>
-                  <Field label="Title">
-                    <input style={S.input} value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
-                  </Field>
-                  <Field label="Description">
-                    <input style={S.input} value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
-                  </Field>
-                  <TokenField label="Price (tokens)" value={editForm.price_coins} onChange={(v) => setEditForm({ ...editForm, price_coins: v })} tokenRateInr={TOKEN_RATE} />
-                  <Field label="Remaining stock">
-                    <input style={S.input} type="number" min={0} value={editForm.remaining} onChange={(e) => setEditForm({ ...editForm, remaining: e.target.value })} />
-                  </Field>
-                </div>
-                <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-                  <label style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: colors.muted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={editForm.visible} onChange={(e) => setEditForm({ ...editForm, visible: e.target.checked })} />
-                    Visible
-                  </label>
-                  <button onClick={() => handleUpdate(item.id)} style={S.btn}>Save</button>
-                  <button onClick={() => setEditing(null)} style={S.ghostBtn}>Cancel</button>
-                </div>
-              </div>
-            ) : (
-              // View mode
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={S.rowTitle}>{item.title}</div>
-                  {item.description && <div style={{ ...S.rowSub, marginBottom: 4 }}>{item.description}</div>}
-                  <div style={S.rowSub}>
-                    {item.price_coins} tokens (₹{(item.price_coins * TOKEN_RATE).toLocaleString('en-IN')}) ·{' '}
-                    {item.remaining}/{item.total_stock} remaining
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: item.visible ? colors.success : colors.muted }}>
-                    {item.visible ? 'Live' : 'Hidden'}
-                  </span>
-                  <button onClick={() => startEdit(item)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Edit</button>
-                </div>
-              </div>
-            )}
-          </div>
+      {/* In stock items */}
+      <T.sectionTitle>In stock ({inStock.length})</T.sectionTitle>
+      <div style={{ display: 'grid', gap: 12, marginBottom: 32 }}>
+        {inStock.length === 0 && <T.muted>Nothing currently in stock.</T.muted>}
+        {inStock.map((item) => (
+          <MerchRow
+            key={item.id}
+            item={item}
+            editing={editing === item.id}
+            editForm={editForm}
+            setEditForm={setEditForm}
+            onStartEdit={() => startEdit(item)}
+            onCancelEdit={() => setEditing(null)}
+            onUpdate={() => handleUpdate(item.id)}
+            onRestock={(amt) => quickRestock(item, amt)}
+          />
         ))}
       </div>
+
+      {/* Sold out items */}
+      <T.sectionTitle>Sold out ({soldOut.length})</T.sectionTitle>
+      <div style={{ display: 'grid', gap: 12 }}>
+        {soldOut.length === 0 && <T.muted>Nothing sold out right now.</T.muted>}
+        {soldOut.map((item) => (
+          <MerchRow
+            key={item.id}
+            item={item}
+            soldOut
+            editing={editing === item.id}
+            editForm={editForm}
+            setEditForm={setEditForm}
+            onStartEdit={() => startEdit(item)}
+            onCancelEdit={() => setEditing(null)}
+            onUpdate={() => handleUpdate(item.id)}
+            onRestock={(amt) => quickRestock(item, amt)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, onCancelEdit, onUpdate, onRestock }) {
+  return (
+    <div style={{ ...S.card, ...(soldOut ? { border: '1px solid rgba(156,90,90,0.3)' } : {}) }}>
+      {editing ? (
+        <div>
+          <div style={S.formGrid}>
+            <Field label="Title">
+              <input style={S.input} value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
+            </Field>
+            <Field label="Description">
+              <input style={S.input} value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+            </Field>
+            <TokenField label="Price (tokens)" value={editForm.price_coins} onChange={(v) => setEditForm({ ...editForm, price_coins: v })} tokenRateInr={TOKEN_RATE} />
+            <Field label="Remaining stock">
+              <input style={S.input} type="number" min={0} value={editForm.remaining} onChange={(e) => setEditForm({ ...editForm, remaining: e.target.value })} />
+            </Field>
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+            <label style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: colors.muted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input type="checkbox" checked={editForm.visible} onChange={(e) => setEditForm({ ...editForm, visible: e.target.checked })} />
+              Visible
+            </label>
+            <button onClick={onUpdate} style={S.btn}>Save</button>
+            <button onClick={onCancelEdit} style={S.ghostBtn}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1 }}>
+            <div style={S.rowTitle}>{item.title}</div>
+            {item.description && <div style={{ ...S.rowSub, marginBottom: 4 }}>{item.description}</div>}
+            <div style={S.rowSub}>
+              {item.price_coins} tokens (₹{(item.price_coins * TOKEN_RATE).toLocaleString('en-IN')}) ·{' '}
+              {soldOut ? <span style={{ color: '#D99A9A' }}>0/{item.total_stock} remaining</span> : `${item.remaining}/${item.total_stock} remaining`}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {soldOut && (
+              <>
+                <button onClick={() => onRestock(5)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>+5 stock</button>
+                <button onClick={() => onRestock(10)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>+10 stock</button>
+              </>
+            )}
+            <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: soldOut ? '#D99A9A' : (item.visible ? colors.success : colors.muted) }}>
+              {soldOut ? 'Sold out' : (item.visible ? 'Live' : 'Hidden')}
+            </span>
+            <button onClick={onStartEdit} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Edit</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

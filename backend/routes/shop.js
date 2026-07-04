@@ -27,7 +27,7 @@ router.get('/items', authMid, async (req, res) => {
 
     const { rows: items } = await pool.query(
       `SELECT id, title, description, price_coins, remaining, img_key
-       FROM merchandise WHERE visible = TRUE ORDER BY created_at DESC`
+       FROM merchandise WHERE visible = TRUE AND remaining > 0 ORDER BY created_at DESC`
     );
 
     res.json({

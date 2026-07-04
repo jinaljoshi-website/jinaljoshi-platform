@@ -5,6 +5,7 @@ import { getUser, logout } from '../api';
 import { StudioNotificationBell } from '../components/NotificationBell';
 
 import { Dashboard }     from '../sections/Dashboard';
+import { Analytics }     from '../sections/Analytics';
 import { Messages }      from '../sections/Messages';
 import { Content }       from '../sections/Content';
 import { Merch }         from '../sections/Merch';
@@ -19,6 +20,7 @@ import { Notifications } from '../sections/Notifications';
 
 const NAV = [
   { id: 'dashboard',     label: 'Dashboard'     },
+  { id: 'analytics',     label: 'Analytics'     },
   { id: 'messages',      label: 'Messages'      },
   { id: 'content',       label: 'Content'       },
   { id: 'merch',         label: 'Merchandise'   },
@@ -34,6 +36,7 @@ const NAV = [
 
 const SECTIONS = {
   dashboard:     Dashboard,
+  analytics:     Analytics,
   messages:      Messages,
   content:       Content,
   merch:         Merch,

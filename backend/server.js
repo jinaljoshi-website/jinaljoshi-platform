@@ -37,6 +37,7 @@ app.use('/api/landing',     require('./routes/landing'));
 app.use('/api/shop',         require('./routes/shop'));
 app.use('/api/extras',       require('./routes/extras'));
 app.use('/api/push',         require('./routes/push'));
+app.use('/api/studio/analytics', require('./routes/analytics'));
 app.use('/api/studio',       require('./routes/studio'));
 app.use('/api/upload',       require('./routes/upload'));
 
