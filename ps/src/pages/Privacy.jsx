@@ -23,14 +23,14 @@ export default function Privacy() {
         </div>
 
         <Section title="Who we are">
-          <p>Personal Space (ps.jinaljoshi.in) is a private digital platform personally operated by Jinal Joshi. It is not affiliated with any agency, network, or third-party creator platform. When this policy says "we" or "the platform," it refers to this service operated by Jinal Joshi directly.</p>
+          <p>Personal Space (ps.jinaljoshi.in) is an independent digital platform personally operated by Jinal Joshi. It is not affiliated with any agency, network, or third-party creator platform. When this policy says "we" or "the platform," it refers to this service operated by Jinal Joshi directly.</p>
           <p>If you have any questions about how your data is handled, write to <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a>.</p>
         </Section>
 
         <Section title="What information we collect">
           <p>We collect only what is necessary to operate the platform:</p>
           <ul>
-            <li><strong style={{ color: C.text }}>Account information</strong> — your email address, date of birth, and the password you set (stored as a secure hash — we never see it in plain text).</li>
+            <li><strong style={{ color: C.text }}>Account information</strong> — your email address, date of birth, and the password you set (stored as a secure hash, we never see it in plain text).</li>
             <li><strong style={{ color: C.text }}>Shipping address</strong> — only if you place a merchandise order and choose to save your address for future use.</li>
             <li><strong style={{ color: C.text }}>Usage data</strong> — token transactions, membership purchases, and content unlocks. This is necessary to maintain your balance and access history.</li>
             <li><strong style={{ color: C.text }}>Device information</strong> — browser type and approximate location, collected automatically when you log in, for security purposes.</li>

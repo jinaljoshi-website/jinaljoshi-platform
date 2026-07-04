@@ -25,9 +25,9 @@ export default function Terms() {
         </div>
 
         <Section title="What is Personal Space?">
-          <p>Personal Space (ps.jinaljoshi.in) is a private digital platform run and managed personally by Jinal Joshi. It is not a multi-artist platform or a fan aggregator. This is Jinal's own space — built for a select group of people who wish to experience her world more closely.</p>
-          <p>The platform offers exclusive content, direct messaging, virtual call sessions, official merchandise, community interaction, personalised video requests, behind-the-scenes access, and early access to upcoming work. Everything inside the platform is accessed using J Tokens — the platform's internal currency.</p>
-          <p>This platform is privately operated. It is not affiliated with any talent agency, management company, or third-party creator network.</p>
+          <p>Personal Space (ps.jinaljoshi.in) is an independent digital platform run and managed personally by Jinal Joshi. It is not a multi-artist platform or a fan aggregator. This is Jinal's own space, built for people who want to experience her journey more closely.</p>
+          <p>The platform offers exclusive content, direct messaging, virtual call sessions, official merchandise, community interaction, personalised video requests, behind-the-scenes access, and early access to upcoming work. Everything inside the platform is accessed using J Tokens, the platform's internal currency.</p>
+          <p>This platform is independently operated. It is not affiliated with any talent agency, management company, or third-party creator network.</p>
         </Section>
 
         <Section title="Who can join?">
@@ -36,15 +36,15 @@ export default function Terms() {
         </Section>
 
         <Section title="J Tokens — the platform currency">
-          <p>J Tokens are the internal currency of Personal Space. They are used to access everything on the platform — content unlocks, direct messages, call bookings, merchandise purchases, membership plans, personalised requests, and more.</p>
+          <p>J Tokens are the internal currency of Personal Space. They are used to access everything on the platform: content unlocks, direct messages, call bookings, merchandise purchases, membership plans, personalised requests, and more.</p>
           <p>The price of J Tokens in Indian Rupees (INR) is set by the platform and is displayed in real time on the platform's pricing page and at checkout. The rate includes all applicable taxes. No hidden charges apply.</p>
-          <p>Bulk discounts apply automatically when purchasing larger quantities of tokens — the exact thresholds and discount percentages are displayed at the time of purchase.</p>
+          <p>Bulk discounts apply automatically when purchasing larger quantities of tokens. The exact thresholds and discount percentages are displayed at the time of purchase.</p>
           <p><strong style={{ color: C.text }}>Tokens are strictly single-use digital utility instruments.</strong> They exist solely within the Personal Space platform and hold no real-world cash value. Tokens cannot be converted back to INR, transferred to another account, traded peer-to-peer, or redeemed for cash under any circumstances. Token balances do not expire.</p>
           <p>Tokens are purchased using Indian Rupees (INR) via Razorpay, a payment aggregator licensed by the Reserve Bank of India.</p>
         </Section>
 
         <Section title="Membership plans">
-          <p>Personal Space offers four paid membership tiers. Each tier is prepaid for a chosen duration — monthly, quarterly, or annual. There is no automatic renewal. Your membership ends when the chosen period expires unless you manually renew.</p>
+          <p>Personal Space offers four paid membership tiers. Each tier is prepaid for a chosen duration: monthly, quarterly, or annual. There is no automatic renewal. Your membership ends when the chosen period expires unless you manually renew.</p>
           <p>The four membership tiers, in ascending order of access and benefits, are:</p>
           <ul>
             <li><strong style={{ color: C.text }}>Community</strong> — Entry-level membership with community access, a monthly direct message quota, one content set unlock per month, and a site-wide purchase discount. Current pricing is displayed on the membership page.</li>
@@ -52,7 +52,7 @@ export default function Terms() {
             <li><strong style={{ color: C.text }}>Premium</strong> — Generous monthly allocations including a significantly higher message quota, more content unlocks, and a substantial site-wide discount. Current pricing is displayed on the membership page.</li>
             <li><strong style={{ color: C.text }}>Supreme</strong> — The highest access tier. Maximum monthly messages, the most content unlocks, and the highest site-wide discount available. Current pricing is displayed on the membership page.</li>
           </ul>
-          <p>All membership prices are denominated in J Tokens. The INR equivalent is calculated in real time based on the current token rate and displayed clearly before purchase. Prices may be updated by the platform operator from time to time — the price that applies is the one shown at the time of your purchase.</p>
+          <p>All membership prices are denominated in J Tokens. The INR equivalent is calculated in real time based on the current token rate and displayed clearly before purchase. Prices may be updated by the platform operator from time to time. The price that applies is the one shown at the time of your purchase.</p>
           <p>Memberships are purchased using J Tokens. Once purchased, a membership grants you the following benefits for the duration of the plan:</p>
           <ul>
             <li>Access to the Community Chat Centre</li>
@@ -65,15 +65,15 @@ export default function Terms() {
           <p>Jinal may, at her discretion, gift memberships to specific users. These gifted memberships carry the same benefits as paid plans for their duration.</p>
         </Section>
 
-        <Section title="Purchases — all sales are final">
-          <p>All purchases made on Personal Space — including J Token recharges, membership plans, content unlocks, merchandise orders, call bookings, and personalised requests — are <strong style={{ color: C.text }}>final and non-refundable.</strong></p>
+        <Section title="All sales are final">
+          <p>All purchases made on Personal Space, including J Token recharges, membership plans, content unlocks, merchandise orders, call bookings, and personalised requests, are <strong style={{ color: C.text }}>final and non-refundable.</strong></p>
           <p>Tokens cannot be refunded once purchased. Memberships cannot be cancelled for a refund once activated. Merchandise orders cannot be cancelled once placed.</p>
           <p><strong style={{ color: C.text }}>Technical issues:</strong> If a purchase fails due to a verifiable technical error on the platform's side, you may write to <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a>. Token credits may be issued at the platform's discretion. Cash refunds are not available under any circumstances.</p>
           <p>By making any purchase, you confirm that the transaction is voluntary and made of your own free will for your own benefit.</p>
         </Section>
 
         <Section title="Content and intellectual property">
-          <p>All content published on Personal Space — including photos, videos, messages, and any other media — is the intellectual property of Jinal Joshi. You may not download, screenshot, reproduce, share, or distribute any content from the platform without explicit written permission.</p>
+          <p>All content published on Personal Space, including photos, videos, messages, and any other media, is the intellectual property of Jinal Joshi. You may not download, screenshot, reproduce, share, or distribute any content from the platform without explicit written permission.</p>
           <p>Access to content is granted for personal viewing only. Sharing platform content on social media or any other channel is strictly prohibited and may result in immediate account termination without refund.</p>
         </Section>
 
@@ -85,11 +85,11 @@ export default function Terms() {
 
         <Section title="Merchandise and shipping">
           <p>Merchandise items are shipped to the address provided at the time of purchase. Delivery timelines are estimates and may vary. The platform is not responsible for delays caused by courier services.</p>
-          <p>Merchandise purchases are final. Exchanges may be considered for items received in a damaged or incorrect condition — write to <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a> with photographic evidence within 48 hours of delivery.</p>
+          <p>Merchandise purchases are final. Exchanges may be considered for items received in a damaged or incorrect condition. Write to <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a> with photographic evidence within 48 hours of delivery.</p>
         </Section>
 
         <Section title="Account and security">
-          <p>You are responsible for maintaining the security of your account credentials. Personal Space enforces single-device login — signing in on a new device will end your previous session.</p>
+          <p>You are responsible for maintaining the security of your account credentials. Personal Space enforces single-device login: signing in on a new device will end your previous session.</p>
           <p>You may not share your account with another person or allow anyone else to use your account. Accounts found to be shared may be terminated.</p>
           <p>Personal Space reserves the right to suspend or terminate any account that violates these terms, without prior notice and without refund of any token balance.</p>
         </Section>
@@ -114,7 +114,7 @@ export default function Terms() {
             <strong style={{ color: C.text }}>Response time:</strong> Within 7 business days<br />
             <strong style={{ color: C.text }}>Address:</strong> Mumbai, India
           </p>
-          <p>Personal Space is personally operated by Jinal Joshi and support is handled directly — not by a third-party team.</p>
+          <p>Personal Space is personally operated by Jinal Joshi and support is handled directly, not by a third-party team.</p>
         </Section>
 
         <div style={footerNote}>Personal Space · ps.jinaljoshi.in · Personally operated by Jinal Joshi</div>

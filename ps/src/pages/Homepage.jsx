@@ -18,7 +18,7 @@ const TIER_META = {
   community: { name: 'Community', color: '#C17D4A', description: 'Entry-level membership with community access and a monthly content unlock.' },
   insider:   { name: 'Insider',   color: '#B8860B', description: 'More messages, more unlocks, and a better discount on every purchase.' },
   premium:   { name: 'Premium',   color: '#9B8F83', description: 'Generous monthly allocations and a significant discount across the platform.' },
-  supreme:   { name: 'Supreme',   color: '#C17D4A', description: 'The highest access tier — maximum unlocks, best discount, full DM access.' },
+  supreme:   { name: 'Supreme',   color: '#C17D4A', description: 'The highest access tier: maximum unlocks, best discount, full DM access.' },
 };
 
 const TIER_PERKS = {
@@ -29,21 +29,21 @@ const TIER_PERKS = {
 };
 
 const OFFERINGS = [
-  { id: 'community',   title: 'Member Community',      text: "A live space where we are One! All of you and me in one community where we interact daily. In real time!" },
+  { id: 'community',   title: 'Member Community',      text: "A live space where we are one. All of you and me in one community where we interact daily, in real time." },
   { id: 'merchandise', title: 'Official Merchandise',  text: "You get the option to own select merchandise, handcrafted accessories and outfits. Regular drops!" },
-  { id: 'messages',    title: 'Direct Messaging',      text: "For those of you who wish to write to me directly. No AI, No Representative. You speak with me!" },
-  { id: 'calls',       title: 'Virtual Connect',       text: "Looking for direct access? Request a call — Audio or Video. Propose a time. Let's connect and allow me to know you better." },
+  { id: 'messages',    title: 'Direct Messaging',      text: "For those of you who wish to write to me directly. No AI, no representative. You speak with me." },
+  { id: 'calls',       title: 'Virtual Connect',       text: "Looking for direct access? Request a call, audio or video. Propose a time, and let's connect so I can get to know you better." },
   { id: 'extras',      title: 'Personalised Requests', text: "Special days! Get a video from me wishing you or your loved ones on special days." },
   { id: 'gallery',     title: 'Exclusive Content',     text: "There's only so much I can post on social media. Extended videos, alternate edits, more photos. Get all of them here. Only here!" },
   { id: 'bts',         title: 'Behind the Scenes',     text: "Experience my life behind the lens when I am shooting in a studio, beach, home or anywhere. Be with me at the shoots!" },
-  { id: 'earlyAccess', title: 'Early Access',          text: "Public posts are planned and go live at a pre-decided time. Here, you see what might take a week to come live on Social Media." },
+  { id: 'earlyAccess', title: 'Early Access',          text: "Public posts are planned and go live at a pre-decided time. Here, you see what might take a week to come live on social media." },
 ];
 
 const HOW_IT_WORKS = [
-  { title: 'J Token',                  text: "A wonderful currency that works inside the platform. Remember tokens from Play Zone? Same thing. One token works for everything — content, calls, messages, merchandise, memberships." },
+  { title: 'J Token',                  text: "A wonderful currency that works inside the platform. Remember tokens from Play Zone? Same thing. One token works for everything: content, calls, messages, merchandise, memberships." },
   { title: 'Membership',               text: "Each item has an associated token value. A membership offers a discounted token price for every item you access. Multiple tiers to choose from. Explore what works best for you." },
   { title: 'No Cash Reward or Refund', text: "Tokens can never be redeemed for cash or refund. In case of a technical issue, get token credits by writing to support. All purchases are voluntary and final." },
-  { title: 'Heavy Discounts',          text: "Memberships bring discounts on every purchase. Tokens can also be bought at a discounted price in bulk — 5% off on 500 tokens, 10% off on 1000. Save more, do more." },
+  { title: 'Heavy Discounts',          text: "Memberships bring discounts on every purchase. Tokens can also be bought at a discounted price in bulk: 5% off on 500 tokens, 10% off on 1000. Save more, do more." },
 ];
 
 export default function Homepage() {
@@ -101,12 +101,12 @@ export default function Homepage() {
           <WonderCoin size={64} />
           <h1 style={heroTitle}>Jinal's Personal Space</h1>
           <p style={heroTagline}>
-            A private platform; where I get to celebrate you !
+            An independent space to connect, created and run by Jinal Joshi.
             <br />
             <span style={{ fontFamily: F.mono, fontSize: 14, color: '#9B8F83', letterSpacing: '0.06em' }}>~ Jinal J</span>
           </p>
           <p style={heroSub}>
-            For the select few who wish to be a part of my journey and experience my world with a special lens. This is not a fan page. This is my space — and yours.
+            For those who want to be part of my journey beyond social media. Updates, conversations, and moments I only share here.
           </p>
           <div style={privateBadge}>
             Personally run &amp; managed by Jinal Joshi · Not a multi-artist platform
@@ -122,9 +122,9 @@ export default function Homepage() {
           </div>
 
           <p style={disclaimer}>
-            Personal Space is a private space with voluntary membership options. Creating an account confirms that you are an adult and accept the{' '}
+            Personal Space is an independent platform with optional membership tiers. By creating an account, you confirm that you are 18 years of age or older and agree to our{' '}
             <a href="/terms" target="_blank" rel="noopener noreferrer" style={termsLink}>Terms of Use</a>.
-            All purchases are final.
+            All purchases are voluntary and final.
           </p>
 
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
@@ -137,6 +137,17 @@ export default function Homepage() {
               Guest prices are higher. Membership always gets you more.
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* ── WHY PERSONAL SPACE ── */}
+      <section style={section}>
+        <div style={sectionHead}>
+          <div style={eyebrow}>Why Personal Space</div>
+          <h2 style={sectionTitle}>A Different Kind of Space</h2>
+          <p style={{ ...sectionSubtext, maxWidth: 700 }}>
+            Most platforms today push creators toward more explicit content and more exposure. Personal Space was built differently. This is personal: a space to share the parts of my journey that don't fit into a public feed, and to actually hear from the people who care to be here. My own world, built on my own terms. And yours, if you choose to be part of it.
+          </p>
         </div>
       </section>
 
@@ -237,7 +248,7 @@ export default function Homepage() {
               <span style={{ fontFamily: F.display, fontSize: 18, color: C.text }}>Personal Space</span>
             </div>
             <div style={{ fontFamily: F.sans, fontSize: 12, color: '#6B6560', lineHeight: 1.7 }}>
-              A private platform personally run<br />and managed by Jinal Joshi.<br />Mumbai, India.
+              An independently run platform,<br />personally managed by Jinal Joshi.<br />Mumbai, India.
             </div>
           </div>
           <div style={footerLinks}>
