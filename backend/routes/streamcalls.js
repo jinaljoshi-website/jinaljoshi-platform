@@ -74,7 +74,6 @@ router.post('/create', authMid, artistOnly, async (req, res) => {
     const callId  = `ps-call-${callRequestId}`;
     const client  = getStreamClient();
 
-    // Upsert both users first
     await client.upsertUsers([
       { id: req.user.userId,  name: 'Jinal Joshi', role: 'admin'  },
       { id: callReq.fan_id,   name: callReq.display_name || callReq.email, role: 'user' },
@@ -103,7 +102,6 @@ router.post('/create', authMid, artistOnly, async (req, res) => {
       [callReq.fan_id, JSON.stringify({ callId, callType: callReq.call_type })]
     );
 
-    // Distinct, urgent push to the fan: the call is happening now
     pushToUser(callReq.fan_id, {
       title: '📞 Jinal is calling you now!',
       body:  `Tap to join your ${callReq.call_type} call`,
@@ -122,11 +120,10 @@ router.post('/create', authMid, artistOnly, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // POST /api/stream-calls/:id/artist-respond  [ARTIST ONLY]
-// Jinal responds to a time the fan proposed: accept | counter | reject
 // ─────────────────────────────────────────────
 
 router.post('/:id/artist-respond', authMid, artistOnly, async (req, res) => {
-  const { action, proposedTime, reason } = req.body; // action: 'accept' | 'counter' | 'reject'
+  const { action, proposedTime, reason } = req.body;
   if (!['accept', 'counter', 'reject'].includes(action)) {
     return res.status(400).json({ error: 'Invalid action' });
   }
@@ -226,8 +223,6 @@ router.post('/:id/artist-respond', authMid, artistOnly, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // POST /api/stream-calls/:id/joined
-// Either side pings this the moment they successfully join the room.
-// When both sides have joined, the call officially "starts" for duration purposes.
 // ─────────────────────────────────────────────
 
 router.post('/:id/joined', authMid, async (req, res) => {
@@ -256,7 +251,6 @@ router.post('/:id/joined', authMid, async (req, res) => {
     );
     const updated = refreshed[0];
 
-    // If both sides have now joined and the call hasn't officially started yet, start it
     if (updated.fan_joined_at && updated.artist_joined_at && !updated.call_started_at) {
       await client.query(
         `UPDATE call_requests SET call_started_at = NOW(), status = 'in_progress' WHERE id = $1`,
@@ -278,35 +272,9 @@ router.post('/:id/joined', authMid, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// GET /api/stream-calls/:id
-// Lets either party poll the current state of a call (used to detect when the other side has joined)
-// ─────────────────────────────────────────────
-
-router.get('/:id', authMid, async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, user_id, call_type, status, stream_call_id, coins_charged, coins_per_min,
-              fan_joined_at, artist_joined_at, call_started_at
-       FROM call_requests WHERE id = $1`,
-      [req.params.id]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Call not found' });
-    const call = rows[0];
-
-    // Only the fan who owns it, or the artist, can check this
-    if (!req.user.isArtist && call.user_id !== req.user.userId) {
-      return res.status(403).json({ error: 'Not authorised' });
-    }
-
-    res.json({ call });
-  } catch (err) {
-    console.error('stream-calls/:id error:', err);
-    res.status(500).json({ error: 'Failed to load call status' });
-  }
-});
-
-// ─────────────────────────────────────────────
 // GET /api/stream-calls/my-calls
+// IMPORTANT: this literal route MUST be registered before the generic GET /:id
+// route below, or Express will match "/my-calls" as if "my-calls" were an :id
 // ─────────────────────────────────────────────
 
 router.get('/my-calls', authMid, async (req, res) => {
@@ -326,6 +294,34 @@ router.get('/my-calls', authMid, async (req, res) => {
   } catch (err) {
     console.error('stream-calls/my-calls error:', err);
     res.status(500).json({ error: 'Failed to load calls: ' + err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// GET /api/stream-calls/:id
+// Registered LAST — this generic pattern must never come before a literal route
+// like /my-calls, or it will swallow that request first.
+// ─────────────────────────────────────────────
+
+router.get('/:id', authMid, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, user_id, call_type, status, stream_call_id, coins_charged, coins_per_min,
+              fan_joined_at, artist_joined_at, call_started_at
+       FROM call_requests WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Call not found' });
+    const call = rows[0];
+
+    if (!req.user.isArtist && call.user_id !== req.user.userId) {
+      return res.status(403).json({ error: 'Not authorised' });
+    }
+
+    res.json({ call });
+  } catch (err) {
+    console.error('stream-calls/:id error:', err);
+    res.status(500).json({ error: 'Failed to load call status' });
   }
 });
 

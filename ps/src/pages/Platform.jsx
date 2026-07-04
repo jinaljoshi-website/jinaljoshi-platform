@@ -141,8 +141,8 @@ export default function Platform() {
           </Routes>
         </div>
       ) : (
-        <div style={{ flex: 1, overflow: 'auto' }}>
-          <div style={desktopLayout}>
+        <div style={{ flex: 1, minHeight: 0, overflow: isFullscreen ? 'hidden' : 'auto', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ ...desktopLayout, flex: 1, minHeight: 0, gridTemplateRows: isFullscreen ? '1fr' : 'auto' }}>
             <aside style={sidebar}>
               <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 12 }}>{user?.email}</div>
               {navItems.map((item) => {
@@ -158,7 +158,7 @@ export default function Platform() {
                 );
               })}
             </aside>
-            <main style={{ minHeight: '70vh' }}>
+            <main style={{ minHeight: isFullscreen ? 0 : '70vh', height: isFullscreen ? '100%' : 'auto', overflow: isFullscreen ? 'hidden' : 'visible', display: isFullscreen ? 'flex' : 'block', flexDirection: 'column' }}>
               <Routes>
                 <Route index element={<Navigate to="chat" replace />} />
                 <Route path="chat"       element={<Chat />}       />

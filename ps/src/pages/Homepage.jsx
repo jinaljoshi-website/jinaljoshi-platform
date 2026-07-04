@@ -102,8 +102,6 @@ export default function Homepage() {
           <h1 style={heroTitle}>Jinal's Personal Space</h1>
           <p style={heroTagline}>
             An independent space to connect, created and run by Jinal Joshi.
-            <br />
-            <span style={{ fontFamily: F.mono, fontSize: 14, color: '#9B8F83', letterSpacing: '0.06em' }}>~ Jinal J</span>
           </p>
           <p style={heroSub}>
             For those who want to be part of my journey beyond social media. Updates, conversations, and moments I only share here.
@@ -148,6 +146,7 @@ export default function Homepage() {
           <p style={{ ...sectionSubtext, maxWidth: 700 }}>
             Most platforms today push creators toward more explicit content and more exposure. Personal Space was built differently. This is personal: a space to share the parts of my journey that don't fit into a public feed, and to actually hear from the people who care to be here. My own world, built on my own terms. And yours, if you choose to be part of it.
           </p>
+          <p style={{ fontFamily: F.mono, fontSize: 14, color: '#9B8F83', letterSpacing: '0.06em', fontStyle: 'italic', marginTop: 14 }}>~ Jinal J</p>
         </div>
       </section>
 
