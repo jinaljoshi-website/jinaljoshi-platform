@@ -26,8 +26,10 @@ export function Members() {
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
 
+  const loadFans = () => api.get('/api/studio/fans').then((d) => setFans(d.fans || []));
+
   useEffect(() => {
-    api.get('/api/studio/fans').then((d) => setFans(d.fans || [])).finally(() => setLoading(false));
+    loadFans().finally(() => setLoading(false));
   }, []);
 
   const handleGift = async (action = 'gift') => {
@@ -40,6 +42,7 @@ export function Members() {
       const data = await api.post(endpoint, body);
       setSuccess(data.message || 'Done.');
       setEmail(''); setNote('');
+      loadFans();
     } catch (err) {
       if (err.message === 'ALREADY_MEMBER') setConflict({ email });
       else setError(err.message);
@@ -58,6 +61,7 @@ export function Members() {
       });
       setSuccess(data.message);
       setGrantEmail(''); setGrantAmt(''); setGrantReason('');
+      loadFans();
     } catch (err) {
       setError(err.message);
     } finally {

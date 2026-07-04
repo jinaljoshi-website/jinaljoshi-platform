@@ -55,7 +55,7 @@ export default function TopUpModal({ requiredTokens = 0, onClose, onSuccess }) {
     }
     setError(''); setProcessing(true);
     try {
-      const data = await api.post('/api/coins/recharge/razorpay', { amount: tokenAmount });
+      const data = await api.post('/api/coins/recharge/initiate', { tokens: tokenAmount });
 
       if (typeof window.Razorpay === 'undefined') {
         setError('Razorpay is not loaded. Please refresh and try again.');
@@ -64,22 +64,39 @@ export default function TopUpModal({ requiredTokens = 0, onClose, onSuccess }) {
       }
 
       const rzp = new window.Razorpay({
-        key:         data.key,
-        amount:      data.amountPaise,
+        key:         data.razorpayKey,
+        amount:      Math.round(data.amount * 100), // Razorpay needs paise, backend returns INR
         currency:    'INR',
         name:        'Personal Space',
         description: `${tokenAmount} J Tokens`,
         order_id:    data.orderId,
-        handler: () => {
-          onSuccess?.(tokenAmount);
-          onClose();
+        handler: async (response) => {
+          try {
+            const verifyData = await api.post('/api/coins/recharge/verify', {
+              razorpay_order_id:   response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature:  response.razorpay_signature,
+              tokens:              tokenAmount,
+            });
+            onSuccess?.(verifyData.newBalance);
+            onClose();
+          } catch (verifyErr) {
+            // Payment succeeded on Razorpay's side but our verification call failed —
+            // the webhook will catch this as a backup, but tell the user honestly
+            setError('Payment received, but we could not confirm it immediately. Your tokens will appear shortly, or contact support if not within a few minutes.');
+            setProcessing(false);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setProcessing(false);
+          },
         },
         theme: { color: '#C17D4A' },
       });
       rzp.open();
     } catch (err) {
       setError(err.message || 'Could not initiate recharge.');
-    } finally {
       setProcessing(false);
     }
   };
