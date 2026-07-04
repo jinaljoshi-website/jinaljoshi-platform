@@ -11,8 +11,9 @@ self.addEventListener('push', (event) => {
     icon:    data.icon  || '/wonder-coin-192.png',
     badge:   data.badge || '/wonder-coin-192.png',
     data:    { url: data.url || '/' },
-    vibrate: [200, 100, 200],
-    requireInteraction: true, // Keep notification visible until dismissed
+    vibrate: data.vibrate || [200, 100, 200],
+    requireInteraction: data.requireInteraction ?? true,
+    tag:     data.tag || undefined,
     actions: [
       { action: 'view', title: 'View' },
       { action: 'dismiss', title: 'Dismiss' },

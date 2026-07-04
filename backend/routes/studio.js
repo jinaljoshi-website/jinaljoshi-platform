@@ -155,7 +155,7 @@ router.post('/grant-tokens', async (req, res) => {
 router.get('/fans', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, email, display_name, tier, membership_expires_at, coin_balance, created_at, phone_verified
+      `SELECT id, email, display_name, tier, membership_expires_at, coin_balance, created_at
        FROM users WHERE is_artist = FALSE ORDER BY created_at DESC`
     );
     res.json({ fans: rows });
@@ -402,6 +402,55 @@ router.patch('/merch/:id', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// EXTRAS (personalised request catalog)
+// ─────────────────────────────────────────────
+
+router.get('/extras', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT * FROM extras_items ORDER BY created_at DESC`);
+    res.json({ items: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load extras' });
+  }
+});
+
+router.post('/extras', async (req, res) => {
+  const { title, price_coins, visible = false } = req.body;
+  if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
+  if (!price_coins)   return res.status(400).json({ error: 'Price is required' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO extras_items (title, price_coins, visible)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [title.trim(), price_coins, visible]
+    );
+    res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    console.error('studio/extras error:', err);
+    res.status(500).json({ error: 'Failed to create extra' });
+  }
+});
+
+router.patch('/extras/:id', async (req, res) => {
+  const { title, price_coins, visible } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE extras_items SET
+         title       = COALESCE($1, title),
+         price_coins = COALESCE($2, price_coins),
+         visible     = COALESCE($3, visible)
+       WHERE id = $4 RETURNING *`,
+      [title, price_coins, visible, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Item not found' });
+    res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    console.error('studio/extras patch error:', err);
+    res.status(500).json({ error: 'Failed to update extra' });
+  }
+});
+
+// ─────────────────────────────────────────────
 // CALL AVAILABILITY
 // ─────────────────────────────────────────────
 
@@ -453,14 +502,57 @@ router.get('/calls', async (req, res) => {
 });
 
 router.patch('/calls/:id', async (req, res) => {
-  const { status } = req.body;
-  if (!['pending','confirmed','completed','cancelled'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+  const { status, reason } = req.body;
+  if (!['pending','confirmed','completed','cancelled','rejected'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(`UPDATE call_requests SET status = $1 WHERE id = $2 RETURNING *`, [status, req.params.id]);
-    if (!rows.length) return res.status(404).json({ error: 'Call not found' });
-    res.json({ ok: true, call: rows[0] });
+    await client.query('BEGIN');
+
+    const { rows: currentRows } = await client.query(
+      `SELECT * FROM call_requests WHERE id = $1 FOR UPDATE`, [req.params.id]
+    );
+    if (!currentRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Call not found' });
+    }
+    const current = currentRows[0];
+
+    // Refund only happens once, when transitioning INTO rejected from a non-rejected state
+    const isNewRejection = status === 'rejected' && current.status !== 'rejected';
+
+    if (isNewRejection) {
+      await client.query(
+        `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
+        [current.coins_charged, current.user_id]
+      );
+      await client.query(
+        `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
+         VALUES ($1, 'call_refund', 'credit', $2, $3, $4)`,
+        [current.user_id, current.coins_charged, `Refund: ${current.call_type} call declined`, current.id]
+      );
+      await client.query(
+        `INSERT INTO artist_notifications (type, fan_id, payload)
+         VALUES ('call_rejected', $1, $2)`,
+        [current.user_id, JSON.stringify({ callType: current.call_type, reason: reason || null, refunded: current.coins_charged })]
+      );
+    }
+
+    const { rows } = await client.query(
+      `UPDATE call_requests SET status = $1, rejection_reason = $2 WHERE id = $3 RETURNING *`,
+      [status, status === 'rejected' ? (reason || null) : current.rejection_reason, req.params.id]
+    );
+
+    await client.query('COMMIT');
+    res.json({ ok: true, call: rows[0], refunded: isNewRejection ? current.coins_charged : 0 });
   } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('studio/calls patch error:', err);
     res.status(500).json({ error: 'Failed to update call' });
+  } finally {
+    client.release();
   }
 });
 
@@ -474,14 +566,57 @@ router.get('/requests', async (req, res) => {
 });
 
 router.patch('/requests/:id', async (req, res) => {
-  const { status } = req.body;
-  if (!['pending','confirmed','completed','cancelled'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+  const { status, reason } = req.body;
+  if (!['pending','confirmed','completed','cancelled','rejected'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(`UPDATE custom_requests SET status = $1 WHERE id = $2 RETURNING *`, [status, req.params.id]);
-    if (!rows.length) return res.status(404).json({ error: 'Request not found' });
-    res.json({ ok: true, request: rows[0] });
+    await client.query('BEGIN');
+
+    const { rows: currentRows } = await client.query(
+      `SELECT * FROM custom_requests WHERE id = $1 FOR UPDATE`, [req.params.id]
+    );
+    if (!currentRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    const current = currentRows[0];
+
+    // Refund only happens once, when transitioning INTO rejected from a non-rejected state
+    const isNewRejection = status === 'rejected' && current.status !== 'rejected';
+
+    if (isNewRejection) {
+      await client.query(
+        `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
+        [current.coins_charged, current.user_id]
+      );
+      await client.query(
+        `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
+         VALUES ($1, 'request_refund', 'credit', $2, $3, $4)`,
+        [current.user_id, current.coins_charged, `Refund: ${current.type} request declined`, current.id]
+      );
+      await client.query(
+        `INSERT INTO artist_notifications (type, fan_id, payload)
+         VALUES ('request_rejected', $1, $2)`,
+        [current.user_id, JSON.stringify({ type: current.type, reason: reason || null, refunded: current.coins_charged })]
+      );
+    }
+
+    const { rows } = await client.query(
+      `UPDATE custom_requests SET status = $1, rejection_reason = $2 WHERE id = $3 RETURNING *`,
+      [status, status === 'rejected' ? (reason || null) : current.rejection_reason, req.params.id]
+    );
+
+    await client.query('COMMIT');
+    res.json({ ok: true, request: rows[0], refunded: isNewRejection ? current.coins_charged : 0 });
   } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('studio/requests patch error:', err);
     res.status(500).json({ error: 'Failed to update request' });
+  } finally {
+    client.release();
   }
 });
 

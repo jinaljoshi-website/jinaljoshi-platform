@@ -1,16 +1,8 @@
 import { useEffect, useState } from 'react';
 import { C, F } from '../tokens';
-import { bestMemberPrice } from '../data';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
-
-const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
-
-function tierMeetsMin(userTier, minTier) {
-  if (!minTier || minTier === 'none') return true;
-  return TIER_ORDER.indexOf(userTier) >= TIER_ORDER.indexOf(minTier);
-}
 
 export default function Gallery() {
   const [data,      setData]      = useState(null);
@@ -117,8 +109,8 @@ export default function Gallery() {
         <div style={eyebrow}>Exclusive content</div>
         <h1 style={title}>Gallery</h1>
         <p style={text}>
-          Photo sets, videos and behind-the-scenes content.
-          {data?.isGuest && ' Join a membership for member pricing and unlock credits.'}
+          Photo sets, videos and behind-the-scenes content. Every set can be unlocked by anyone.
+          {data?.creditsMax > 0 && ` You have ${data.creditsRemaining} of ${data.creditsMax} free unlocks left this month.`}
         </p>
       </div>
 
@@ -138,9 +130,6 @@ export default function Gallery() {
           <GalleryCard
             key={item.id}
             item={item}
-            userTier={data.userTier}
-            isGuest={data.isGuest}
-            discountPct={data.discountPct}
             coinBalance={data.coinBalance}
             onError={setError}
             onTopUp={setTopUp}
@@ -157,27 +146,13 @@ export default function Gallery() {
   );
 }
 
-function GalleryCard({ item, userTier, isGuest, discountPct, coinBalance, onError, onTopUp, onUnlocked, onOpen }) {
+function GalleryCard({ item, coinBalance, onError, onTopUp, onUnlocked, onOpen }) {
   const [unlocking, setUnlocking] = useState(false);
   const [unlocked,  setUnlocked]  = useState(!!item.already_unlocked);
 
-  const basePrice  = item.price_coins;
-  const isFree     = basePrice === 0;
-  const meetsMin   = tierMeetsMin(userTier, item.min_tier);
-
-  let displayPrice = basePrice;
-  if (isGuest) {
-    displayPrice = isFree ? 5 : basePrice * 2;
-  } else if (discountPct && basePrice > 0) {
-    const raw = basePrice * (1 - discountPct / 100);
-    displayPrice = raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
-  }
-
-  const nudgePrice = isFree ? 0 : bestMemberPrice(basePrice);
-  const canAfford  = coinBalance >= displayPrice;
-
-  // Blurred for ineligible members
-  const isBlurred = !unlocked && !meetsMin;
+  const basePrice = item.price_coins;
+  const isFree    = basePrice === 0;
+  const canAfford = coinBalance >= basePrice;
 
   const handleUnlock = async () => {
     onError('');
@@ -189,7 +164,7 @@ function GalleryCard({ item, userTier, isGuest, discountPct, coinBalance, onErro
       onOpen({ ...item, already_unlocked: true });
     } catch (err) {
       if (err.message === 'INSUFFICIENT_TOKENS') {
-        onTopUp(displayPrice);
+        onTopUp(basePrice);
       } else if (err.message === 'Already unlocked') {
         setUnlocked(true);
         onOpen(item);
@@ -203,13 +178,12 @@ function GalleryCard({ item, userTier, isGuest, discountPct, coinBalance, onErro
 
   return (
     <div style={card}>
-      {/* Cover image — blurred for ineligible */}
       <div style={{ position: 'relative', marginBottom: 12 }}>
         {item.cover_url ? (
           <img
             src={item.cover_url}
             alt={item.title}
-            style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 6, cursor: unlocked ? 'pointer' : 'default', filter: isBlurred ? 'blur(12px)' : 'none', transition: 'filter 0.3s' }}
+            style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 6, cursor: unlocked ? 'pointer' : 'default' }}
             onClick={() => unlocked && onOpen(item)}
           />
         ) : (
@@ -220,25 +194,17 @@ function GalleryCard({ item, userTier, isGuest, discountPct, coinBalance, onErro
             <span style={{ fontFamily: F.mono, fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{item.type?.replace('_', ' ')}</span>
           </div>
         )}
-        {/* Lock overlay for blurred */}
-        {isBlurred && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'rgba(13,12,10,0.4)' }}>
-            <div style={{ fontSize: 24, marginBottom: 4 }}>🔒</div>
-            <div style={{ fontFamily: F.sans, fontSize: 11, color: 'white', textTransform: 'capitalize' }}>{item.min_tier}+ required</div>
-          </div>
-        )}
       </div>
 
       <div style={{ fontFamily: F.display, fontSize: 20, color: C.text, marginBottom: 4 }}>{item.title}</div>
 
-      {/* Description */}
       {item.description && (
         <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>{item.description}</div>
       )}
 
       {item.min_tier && item.min_tier !== 'none' && (
         <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 8, textTransform: 'capitalize' }}>
-          {item.min_tier}+ membership required
+          {item.min_tier} category
         </div>
       )}
 
@@ -246,47 +212,32 @@ function GalleryCard({ item, userTier, isGuest, discountPct, coinBalance, onErro
         <button onClick={() => onOpen(item)} style={{ ...unlockBtn, background: 'rgba(100,160,100,0.15)', border: '1px solid rgba(100,160,100,0.3)', color: '#8FC88F', marginTop: 'auto' }}>
           ✓ View set
         </button>
-      ) : isBlurred ? (
-        // Tier not met — show upgrade message
-        <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, background: 'rgba(193,125,74,0.06)', border: `1px solid rgba(193,125,74,0.15)`, borderRadius: 6, padding: '8px 12px', marginTop: 'auto', textAlign: 'center' }}>
-          Upgrade to <span style={{ color: C.accent, textTransform: 'capitalize' }}>{item.min_tier}</span> to unlock
-        </div>
       ) : (
         <>
           <div style={{ marginBottom: 6 }}>
-            {isFree && !isGuest
-              ? <span style={{ fontFamily: F.sans, fontSize: 13, color: '#8FC88F' }}>Free for members</span>
-              : <WonderCoinAmount amount={displayPrice} size={18} />
+            {isFree
+              ? <span style={{ fontFamily: F.sans, fontSize: 13, color: '#8FC88F' }}>Free</span>
+              : <WonderCoinAmount amount={basePrice} size={18} />
             }
           </div>
 
-          {item.use_unlock_credit && !isGuest && !isFree && (
-            <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 4 }}>Monthly unlock credit may apply</div>
+          {item.creditEligible && (
+            <div style={{ fontFamily: F.sans, fontSize: 11, color: '#8FC88F', marginBottom: 4 }}>Unlocks free with your monthly credit</div>
           )}
 
-          {isGuest && !isFree && (
-            <div style={nudge}>
-              Members get this for <strong style={{ color: C.accent }}>{nudgePrice}</strong> tokens with Supreme
-            </div>
-          )}
-
-          {!isGuest && discountPct > 0 && !isFree && (
-            <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 4 }}>{discountPct}% member discount applied</div>
-          )}
-
-          {!canAfford && displayPrice > 0 && (
+          {!canAfford && basePrice > 0 && !item.creditEligible && (
             <div style={{ fontFamily: F.sans, fontSize: 11, color: '#D99A9A', marginBottom: 6 }}>
-              Need {displayPrice - coinBalance} more tokens ·{' '}
-              <button onClick={() => onTopUp(displayPrice)} style={{ background: 'none', border: 'none', color: C.accent, fontFamily: F.sans, fontSize: 11, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>Top up</button>
+              Need {basePrice - coinBalance} more tokens ·{' '}
+              <button onClick={() => onTopUp(basePrice)} style={{ background: 'none', border: 'none', color: C.accent, fontFamily: F.sans, fontSize: 11, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>Top up</button>
             </div>
           )}
 
           <button
             onClick={handleUnlock}
-            disabled={unlocking || (!canAfford && displayPrice > 0)}
-            style={{ ...unlockBtn, opacity: (unlocking || (!canAfford && displayPrice > 0)) ? 0.5 : 1, marginTop: 8 }}
+            disabled={unlocking || (!canAfford && basePrice > 0 && !item.creditEligible)}
+            style={{ ...unlockBtn, opacity: (unlocking || (!canAfford && basePrice > 0 && !item.creditEligible)) ? 0.5 : 1, marginTop: 8 }}
           >
-            {unlocking ? 'Unlocking…' : isFree && !isGuest ? 'View' : 'Unlock'}
+            {unlocking ? 'Unlocking…' : isFree ? 'View' : 'Unlock'}
           </button>
         </>
       )}
@@ -299,7 +250,6 @@ const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(2
 const text        = { fontFamily: F.sans, color: C.muted, fontSize: 15, lineHeight: 1.75, maxWidth: 720 };
 const grid        = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px,1fr))', gap: 18 };
 const card        = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 20, display: 'flex', flexDirection: 'column' };
-const nudge       = { fontFamily: F.sans, fontSize: 12, color: C.muted, background: 'rgba(193,125,74,0.06)', border: `1px solid rgba(193,125,74,0.15)`, borderRadius: 6, padding: '6px 10px', marginBottom: 4 };
 const unlockBtn   = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 13, fontWeight: 700, padding: '10px 0', borderRadius: 8, cursor: 'pointer', width: '100%' };
 const errorBox    = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
 const inlineTopUp = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '6px 12px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };

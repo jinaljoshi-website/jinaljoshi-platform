@@ -12,8 +12,9 @@ self.addEventListener('push', (event) => {
     icon:             data.icon  || '/wonder-coin-192.png',
     badge:            data.badge || '/wonder-coin-192.png',
     data:             { url: data.url || '/' },
-    vibrate:          [200, 100, 200],
-    requireInteraction: false,
+    vibrate:          data.vibrate || [200, 100, 200],
+    requireInteraction: data.requireInteraction ?? false,
+    tag:              data.tag || undefined,
   };
 
   event.waitUntil(

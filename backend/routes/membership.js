@@ -319,7 +319,7 @@ router.post('/extend', authMid, async (req, res) => {
 // ─────────────────────────────────────────────
 
 router.post('/gift', authMid, async (req, res) => {
-  const { email, tier, term = 'monthly' } = req.body;
+  const { email, tier, term = 'monthly', note } = req.body;
 
   if (!email) return res.status(400).json({ error: 'Email is required' });
   if (!TIER_PRICES[tier]) return res.status(400).json({ error: 'Invalid tier' });
@@ -329,7 +329,7 @@ router.post('/gift', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: fanRows } = await client.query(
-      `SELECT id, email FROM users WHERE email = $1`,
+      `SELECT id, email, membership_expires_at FROM users WHERE email = $1`,
       [email.toLowerCase().trim()]
     );
     if (!fanRows.length) {
@@ -337,9 +337,15 @@ router.post('/gift', authMid, async (req, res) => {
       return res.status(404).json({ error: 'No account found for this email' });
     }
     const fan = fanRows[0];
+    const now = new Date();
+    const isActive = fan.membership_expires_at && new Date(fan.membership_expires_at) > now;
+
+    if (isActive) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'ALREADY_MEMBER', message: 'This fan already has an active membership. Use extend or change tier instead.' });
+    }
 
     const months    = termMonths(term);
-    const now       = new Date();
     const expiresAt = new Date(now);
     expiresAt.setMonth(expiresAt.getMonth() + months);
 
@@ -349,9 +355,9 @@ router.post('/gift', authMid, async (req, res) => {
     );
 
     await client.query(
-      `INSERT INTO membership_gifts (gifter_id, recipient_id, tier, term, expires_at)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [req.user.userId, fan.id, tier, term, expiresAt]
+      `INSERT INTO membership_gifts (granted_by, recipient_email, recipient_id, tier, term, expires_at, note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [req.user.userId, fan.email, fan.id, tier, term, expiresAt, note || null]
     );
 
     await client.query('COMMIT');
@@ -363,6 +369,131 @@ router.post('/gift', authMid, async (req, res) => {
     await client.query('ROLLBACK');
     console.error('membership/gift error:', err);
     res.status(500).json({ error: 'Failed to gift membership' });
+  } finally {
+    client.release();
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/membership/gift/extend
+// Extends an already-active membership by the given term, keeping the same tier
+// ─────────────────────────────────────────────
+
+router.post('/gift/extend', authMid, async (req, res) => {
+  const { email, term = 'monthly' } = req.body;
+
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+  if (!['monthly', 'quarterly', 'annual'].includes(term)) {
+    return res.status(400).json({ error: 'Invalid term' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: fanRows } = await client.query(
+      `SELECT id, email, tier, membership_expires_at FROM users WHERE email = $1`,
+      [email.toLowerCase().trim()]
+    );
+    if (!fanRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No account found for this email' });
+    }
+    const fan = fanRows[0];
+    const now = new Date();
+    const isActive = fan.membership_expires_at && new Date(fan.membership_expires_at) > now;
+
+    if (!isActive) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'This fan has no active membership to extend' });
+    }
+
+    const months    = termMonths(term);
+    const expiresAt = new Date(fan.membership_expires_at);
+    expiresAt.setMonth(expiresAt.getMonth() + months);
+
+    await client.query(
+      `UPDATE users SET membership_expires_at = $1 WHERE id = $2`,
+      [expiresAt, fan.id]
+    );
+
+    await client.query(
+      `INSERT INTO membership_gifts (granted_by, recipient_email, recipient_id, tier, term, expires_at, note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [req.user.userId, fan.email, fan.id, fan.tier, term, expiresAt, 'Extension of existing membership']
+    );
+
+    await client.query('COMMIT');
+
+    res.json({ ok: true, message: `${fan.email}'s ${fan.tier} membership extended to ${expiresAt.toLocaleDateString()}` });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('membership/gift/extend error:', err);
+    res.status(500).json({ error: 'Failed to extend membership' });
+  } finally {
+    client.release();
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/membership/gift/change
+// Changes the tier of an already-active membership and extends by the given term
+// ─────────────────────────────────────────────
+
+router.post('/gift/change', authMid, async (req, res) => {
+  const { email, tier, term = 'monthly', note } = req.body;
+
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+  if (!TIER_PRICES[tier]) return res.status(400).json({ error: 'Invalid tier' });
+  if (!['monthly', 'quarterly', 'annual'].includes(term)) {
+    return res.status(400).json({ error: 'Invalid term' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: fanRows } = await client.query(
+      `SELECT id, email, membership_expires_at FROM users WHERE email = $1`,
+      [email.toLowerCase().trim()]
+    );
+    if (!fanRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No account found for this email' });
+    }
+    const fan = fanRows[0];
+    const now = new Date();
+    const isActive = fan.membership_expires_at && new Date(fan.membership_expires_at) > now;
+
+    if (!isActive) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'This fan has no active membership to change' });
+    }
+
+    const months    = termMonths(term);
+    const expiresAt = new Date(fan.membership_expires_at);
+    expiresAt.setMonth(expiresAt.getMonth() + months);
+
+    await client.query(
+      `UPDATE users SET tier = $1, membership_expires_at = $2 WHERE id = $3`,
+      [tier, expiresAt, fan.id]
+    );
+
+    await client.query(
+      `INSERT INTO membership_gifts (granted_by, recipient_email, recipient_id, tier, term, expires_at, note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [req.user.userId, fan.email, fan.id, tier, term, expiresAt, note || 'Tier change on existing membership']
+    );
+
+    await client.query('COMMIT');
+
+    postSystemMessage(`⬆️ A member's tier was just updated to ${tier.charAt(0).toUpperCase() + tier.slice(1)}!`);
+
+    res.json({ ok: true, message: `${fan.email} changed to ${tier}, now expires ${expiresAt.toLocaleDateString()}` });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('membership/gift/change error:', err);
+    res.status(500).json({ error: 'Failed to change membership tier' });
   } finally {
     client.release();
   }

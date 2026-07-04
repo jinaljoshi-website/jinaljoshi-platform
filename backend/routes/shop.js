@@ -3,6 +3,7 @@ const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
+const { postSystemMessage } = require('./community');
 
 // ─────────────────────────────────────────────
 // GET /api/shop/items
@@ -168,6 +169,9 @@ router.post('/buy', authMid, async (req, res) => {
       body:  `${item.title} purchased · ${price} tokens · Ship to ${shipping.city}`,
       url:   '/merch',
     });
+
+    // Post to community (best-effort, after commit)
+    postSystemMessage(`🛍️ Someone just ordered "${item.title}" from the shop!`);
 
     res.json({
       ok:         true,

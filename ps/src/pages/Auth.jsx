@@ -73,7 +73,7 @@ export default function Auth() {
         </div>
         <div style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, marginBottom: 26 }}>
           {mode === 'signup'
-            ? "Create your account to enter Jinal's private space."
+            ? "Create your account to join Jinal's space."
             : 'Sign in to continue to your member space.'}
         </div>
 
@@ -110,7 +110,7 @@ export default function Auth() {
                 <span>
                   I have read and agree to the{' '}
                   <a href="/terms" target="_blank" rel="noopener noreferrer" style={termsLink}>Terms of Use</a>.
-                  This is a voluntary registration on a private platform run and managed personally by Jinal Joshi.
+                  This is a voluntary registration on an independent platform run and managed personally by Jinal Joshi.
                 </span>
               </label>
 

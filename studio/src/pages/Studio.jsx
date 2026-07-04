@@ -8,6 +8,7 @@ import { Dashboard }     from '../sections/Dashboard';
 import { Messages }      from '../sections/Messages';
 import { Content }       from '../sections/Content';
 import { Merch }         from '../sections/Merch';
+import { Extras }        from '../sections/Extras';
 import { Members }       from '../sections/Members';
 import { Calls }         from '../sections/Calls';
 import { Availability }  from '../sections/Availability';
@@ -21,6 +22,7 @@ const NAV = [
   { id: 'messages',      label: 'Messages'      },
   { id: 'content',       label: 'Content'       },
   { id: 'merch',         label: 'Merchandise'   },
+  { id: 'extras',        label: 'Extras'        },
   { id: 'members',       label: 'Members'       },
   { id: 'calls',         label: 'Calls'         },
   { id: 'availability',  label: 'Availability'  },
@@ -35,6 +37,7 @@ const SECTIONS = {
   messages:      Messages,
   content:       Content,
   merch:         Merch,
+  extras:        Extras,
   members:       Members,
   calls:         Calls,
   availability:  Availability,

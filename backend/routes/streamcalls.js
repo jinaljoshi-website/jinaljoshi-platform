@@ -4,6 +4,10 @@ const router     = require('express').Router();
 const pool       = require('../db/pool');
 const authMid    = require('../middleware/auth');
 const artistOnly = require('../middleware/artistOnly');
+const { notifyArtist } = require('../lib/notify');
+const { pushToUser } = require('./push');
+
+const MAX_NEGOTIATION_ROUND = 4;
 
 function getStreamClient() {
   const { StreamClient } = require('@stream-io/node-sdk');
@@ -99,10 +103,205 @@ router.post('/create', authMid, artistOnly, async (req, res) => {
       [callReq.fan_id, JSON.stringify({ callId, callType: callReq.call_type })]
     );
 
+    // Distinct, urgent push to the fan: the call is happening now
+    pushToUser(callReq.fan_id, {
+      title: '📞 Jinal is calling you now!',
+      body:  `Tap to join your ${callReq.call_type} call`,
+      url:   '/platform/calls',
+      vibrate: [150, 80, 150, 80, 150, 80, 400],
+      requireInteraction: true,
+      tag: `call-live-${callRequestId}`,
+    });
+
     res.json({ ok: true, callId, callType: callReq.call_type });
   } catch (err) {
     console.error('stream-calls/create error:', err);
     res.status(500).json({ error: 'Failed to create call: ' + err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/stream-calls/:id/artist-respond  [ARTIST ONLY]
+// Jinal responds to a time the fan proposed: accept | counter | reject
+// ─────────────────────────────────────────────
+
+router.post('/:id/artist-respond', authMid, artistOnly, async (req, res) => {
+  const { action, proposedTime, reason } = req.body; // action: 'accept' | 'counter' | 'reject'
+  if (!['accept', 'counter', 'reject'].includes(action)) {
+    return res.status(400).json({ error: 'Invalid action' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
+      `SELECT * FROM call_requests WHERE id = $1 FOR UPDATE`,
+      [req.params.id]
+    );
+    if (!rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Call not found' });
+    }
+    const call = rows[0];
+
+    if (call.proposed_by !== 'fan') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'You are not awaiting a response on this call' });
+    }
+
+    if (action === 'accept') {
+      await client.query(
+        `UPDATE call_requests SET status = 'scheduled', scheduled_at = $1 WHERE id = $2`,
+        [call.proposed_time, call.id]
+      );
+      await client.query('COMMIT');
+      pushToUser(call.user_id, {
+        title: 'Call confirmed ✓',
+        body:  `Your call is scheduled for ${new Date(call.proposed_time).toLocaleString()}`,
+        url:   '/platform/calls',
+      });
+      return res.json({ ok: true, message: 'Call time confirmed!' });
+    }
+
+    if (action === 'reject') {
+      await client.query(
+        `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
+        [call.coins_charged, call.user_id]
+      );
+      await client.query(
+        `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
+         VALUES ($1, 'call_refund', 'credit', $2, $3, $4)`,
+        [call.user_id, call.coins_charged, `Refund: call declined`, call.id]
+      );
+      await client.query(
+        `UPDATE call_requests SET status = 'rejected', rejection_reason = $1 WHERE id = $2`,
+        [reason || 'Declined by Jinal.', call.id]
+      );
+      await client.query('COMMIT');
+      pushToUser(call.user_id, {
+        title: 'Call request declined',
+        body:  reason || 'Your tokens have been refunded.',
+        url:   '/platform/calls',
+      });
+      return res.json({ ok: true, message: 'Call declined and the fan has been refunded.' });
+    }
+
+    // action === 'counter'
+    if (call.negotiation_round >= MAX_NEGOTIATION_ROUND) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No more counter-proposals are available. Please accept or decline.' });
+    }
+    if (!proposedTime) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Please propose a new time' });
+    }
+    const newDate = new Date(proposedTime);
+    if (isNaN(newDate.getTime()) || newDate <= new Date()) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Proposed time must be a valid time in the future' });
+    }
+
+    await client.query(
+      `UPDATE call_requests SET proposed_time = $1, proposed_by = 'jinal', negotiation_round = negotiation_round + 1 WHERE id = $2`,
+      [newDate, call.id]
+    );
+    await client.query('COMMIT');
+
+    pushToUser(call.user_id, {
+      title: 'New time proposed',
+      body:  `Jinal proposed a different time: ${newDate.toLocaleString()}`,
+      url:   '/platform/calls',
+    });
+
+    res.json({ ok: true, message: 'Your proposed time has been sent to the fan.' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('stream-calls/artist-respond error:', err);
+    res.status(500).json({ error: 'Failed to respond' });
+  } finally {
+    client.release();
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/stream-calls/:id/joined
+// Either side pings this the moment they successfully join the room.
+// When both sides have joined, the call officially "starts" for duration purposes.
+// ─────────────────────────────────────────────
+
+router.post('/:id/joined', authMid, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
+      `SELECT * FROM call_requests WHERE id = $1 FOR UPDATE`,
+      [req.params.id]
+    );
+    if (!rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Call not found' });
+    }
+    const call = rows[0];
+    const field = req.user.isArtist ? 'artist_joined_at' : 'fan_joined_at';
+
+    await client.query(
+      `UPDATE call_requests SET ${field} = COALESCE(${field}, NOW()) WHERE id = $1`,
+      [call.id]
+    );
+
+    const { rows: refreshed } = await client.query(
+      `SELECT * FROM call_requests WHERE id = $1`, [call.id]
+    );
+    const updated = refreshed[0];
+
+    // If both sides have now joined and the call hasn't officially started yet, start it
+    if (updated.fan_joined_at && updated.artist_joined_at && !updated.call_started_at) {
+      await client.query(
+        `UPDATE call_requests SET call_started_at = NOW(), status = 'in_progress' WHERE id = $1`,
+        [call.id]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    const { rows: finalRows } = await pool.query(`SELECT * FROM call_requests WHERE id = $1`, [call.id]);
+    res.json({ ok: true, call: finalRows[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('stream-calls/joined error:', err);
+    res.status(500).json({ error: 'Failed to register join' });
+  } finally {
+    client.release();
+  }
+});
+
+// ─────────────────────────────────────────────
+// GET /api/stream-calls/:id
+// Lets either party poll the current state of a call (used to detect when the other side has joined)
+// ─────────────────────────────────────────────
+
+router.get('/:id', authMid, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, user_id, call_type, status, stream_call_id, coins_charged, coins_per_min,
+              fan_joined_at, artist_joined_at, call_started_at
+       FROM call_requests WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Call not found' });
+    const call = rows[0];
+
+    // Only the fan who owns it, or the artist, can check this
+    if (!req.user.isArtist && call.user_id !== req.user.userId) {
+      return res.status(403).json({ error: 'Not authorised' });
+    }
+
+    res.json({ call });
+  } catch (err) {
+    console.error('stream-calls/:id error:', err);
+    res.status(500).json({ error: 'Failed to load call status' });
   }
 });
 
@@ -113,10 +312,12 @@ router.post('/create', authMid, artistOnly, async (req, res) => {
 router.get('/my-calls', authMid, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, call_type, status, stream_call_id, coins_charged, coins_per_min, created_at
+      `SELECT id, call_type, status, stream_call_id, coins_charged, coins_per_min,
+              rejection_reason, proposed_time, proposed_by, negotiation_round,
+              scheduled_at, call_started_at, created_at
        FROM call_requests
        WHERE user_id = $1
-       AND status IN ('confirmed', 'completed', 'pending')
+       AND status IN ('confirmed', 'completed', 'pending', 'rejected', 'scheduled', 'in_progress')
        ORDER BY created_at DESC
        LIMIT 10`,
       [req.user.userId]

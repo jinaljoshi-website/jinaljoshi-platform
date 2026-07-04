@@ -5,11 +5,18 @@ const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
 
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
+const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
+const TIER_UNLOCKS_PER_MONTH = { community: 1, insider: 4, premium: 7, supreme: 10 };
 
 function toUrl(key) {
   if (!key) return null;
   if (key.startsWith('http')) return key;
   return `${R2_PUBLIC_URL}/${key}`;
+}
+
+function meetsCategory(userTier, minTier) {
+  if (!minTier || minTier === 'none') return true;
+  return TIER_ORDER.indexOf(userTier) >= TIER_ORDER.indexOf(minTier);
 }
 
 // ─────────────────────────────────────────────
@@ -26,11 +33,22 @@ router.get('/sets', authMid, async (req, res) => {
     const now       = new Date();
     const isActive  = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier  = isActive ? user.tier : 'guest';
-    const discountMap = { community: 5, insider: 10, premium: 15, supreme: 20 };
-    const discountPct = discountMap[userTier] || 0;
+
+    // How many free credit-unlocks this user has left this month
+    const monthKey    = now.toISOString().slice(0, 7);
+    const maxUnlocks  = TIER_UNLOCKS_PER_MONTH[userTier] || 0;
+    let creditsUsed   = 0;
+    if (maxUnlocks > 0) {
+      const { rows: allotRows } = await pool.query(
+        `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2`,
+        [req.user.userId, monthKey]
+      );
+      creditsUsed = allotRows[0]?.unlocks_used || 0;
+    }
+    const creditsRemaining = Math.max(0, maxUnlocks - creditsUsed);
 
     const { rows: sets } = await pool.query(
-      `SELECT s.id, s.title, s.type, s.price_coins, s.min_tier, s.use_unlock_credit, s.cover_key,
+      `SELECT s.id, s.title, s.description, s.type, s.price_coins, s.min_tier, s.use_unlock_credit, s.cover_key,
               ag.id AS already_unlocked
        FROM sets s
        LEFT JOIN access_grants ag ON ag.set_id = s.id AND ag.user_id = $1
@@ -39,17 +57,27 @@ router.get('/sets', authMid, async (req, res) => {
       [req.user.userId]
     );
 
-    const setsWithUrls = sets.map((s) => ({
-      ...s,
-      cover_url: toUrl(s.cover_key),
-    }));
+    const setsWithUrls = sets.map((s) => {
+      const qualifiesForCategory = meetsCategory(userTier, s.min_tier);
+      const creditEligible = !s.already_unlocked
+        && s.price_coins > 0
+        && s.use_unlock_credit
+        && qualifiesForCategory
+        && creditsRemaining > 0;
+      return {
+        ...s,
+        cover_url: toUrl(s.cover_key),
+        creditEligible,
+      };
+    });
 
     res.json({
       sets: setsWithUrls,
       userTier,
-      discountPct,
-      isGuest:     userTier === 'guest',
-      coinBalance: user.coin_balance,
+      isGuest:         userTier === 'guest',
+      coinBalance:     user.coin_balance,
+      creditsRemaining,
+      creditsMax:      maxUnlocks,
     });
   } catch (err) {
     console.error('gallery/sets error:', err);
@@ -64,8 +92,6 @@ router.get('/sets', authMid, async (req, res) => {
 router.post('/unlock', authMid, async (req, res) => {
   const { setId } = req.body;
   if (!setId) return res.status(400).json({ error: 'setId is required' });
-
-  const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
 
   const client = await pool.connect();
   try {
@@ -99,18 +125,8 @@ router.post('/unlock', authMid, async (req, res) => {
       return res.status(409).json({ error: 'Already unlocked' });
     }
 
-    const minTierIdx  = TIER_ORDER.indexOf(set.min_tier === 'none' ? 'guest' : set.min_tier);
-    const userTierIdx = TIER_ORDER.indexOf(userTier);
-    if (userTierIdx < minTierIdx) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({
-        error:   'TIER_REQUIRED',
-        message: `This content requires a ${set.min_tier} membership or higher.`,
-      });
-    }
-
-    // Free for members or free for all
-    if (set.price_coins === 0 && (userTier !== 'guest' || set.min_tier === 'none')) {
+    // Free for everyone, or free for members depending on category
+    if (set.price_coins === 0 && (set.min_tier === 'none' || meetsCategory(userTier, set.min_tier))) {
       await client.query(
         `INSERT INTO access_grants (user_id, set_id, grant_type, coins_paid)
          VALUES ($1, $2, 'membership_free', 0)`,
@@ -121,20 +137,10 @@ router.post('/unlock', authMid, async (req, res) => {
       return res.json({ ok: true, coinsSpent: 0, grantType: 'membership_free' });
     }
 
-    const discountMap = { community: 5, insider: 10, premium: 15, supreme: 20 };
-    const discountPct = discountMap[userTier] || 0;
-    let price = set.price_coins;
-
-    if (userTier === 'guest') {
-      price = price === 0 ? 5 : price * 2;
-    } else if (discountPct && price > 0) {
-      const raw = price * (1 - discountPct / 100);
-      price = raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
-    }
-
+    // Try a free credit-based unlock: only available to fans whose tier meets the set's category
     let useUnlockCredit = false;
-    if (userTier !== 'guest' && set.use_unlock_credit && price > 0) {
-      const monthKey = now.toISOString().slice(0, 7);
+    if (set.price_coins > 0 && set.use_unlock_credit && meetsCategory(userTier, set.min_tier)) {
+      const monthKey    = now.toISOString().slice(0, 7);
       const tierUnlocks = { community: 1, insider: 4, premium: 7, supreme: 10 };
       const maxUnlocks  = tierUnlocks[userTier] || 0;
       const { rows: allotRows } = await client.query(
@@ -151,9 +157,11 @@ router.post('/unlock', authMid, async (req, res) => {
            DO UPDATE SET unlocks_used = monthly_allotments.unlocks_used + 1`,
           [req.user.userId, monthKey]
         );
-        price = 0;
       }
     }
+
+    // Everyone else, regardless of tier or guest status, pays the flat base price
+    const price = useUnlockCredit ? 0 : set.price_coins;
 
     if (price > 0 && user.coin_balance < price) {
       await client.query('ROLLBACK');
@@ -217,27 +225,7 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
     );
 
     if (!accessRows.length) {
-      const { rows: setRows } = await pool.query(
-        `SELECT price_coins, min_tier FROM sets WHERE id = $1 AND visible = TRUE`,
-        [setId]
-      );
-      if (!setRows.length) return res.status(404).json({ error: 'Set not found' });
-
-      const set = setRows[0];
-      const { rows: userRows } = await pool.query(
-        `SELECT tier, membership_expires_at FROM users WHERE id = $1`,
-        [req.user.userId]
-      );
-      const user     = userRows[0];
-      const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > new Date();
-      const userTier = isActive ? user.tier : 'guest';
-
-      const isFreeForAll    = set.price_coins === 0 && set.min_tier === 'none';
-      const isFreeForMember = set.price_coins === 0 && userTier !== 'guest';
-
-      if (!isFreeForAll && !isFreeForMember) {
-        return res.status(403).json({ error: 'Access not granted' });
-      }
+      return res.status(403).json({ error: 'Access not granted' });
     }
 
     const { rows: items } = await pool.query(
