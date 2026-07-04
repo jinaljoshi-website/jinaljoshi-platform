@@ -22,7 +22,7 @@ async function postSystemMessage(content) {
 }
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+  return new Date().toISOString().slice(0, 10);
 }
 
 // ─────────────────────────────────────────────
@@ -49,13 +49,18 @@ router.get('/posts', authMid, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // GET /api/community/status
-// Tells the fan how many free/paid messages they have left today
+// Tells the fan how many free/paid messages they have left today, plus background
 // ─────────────────────────────────────────────
 
 router.get('/status', authMid, async (req, res) => {
   try {
+    const { rows: bgRows } = await pool.query(
+      `SELECT value FROM platform_config WHERE key = 'community_chat_bg'`
+    );
+    const communityBg = bgRows[0]?.value || '';
+
     if (req.user.isArtist) {
-      return res.json({ isArtist: true, unlimited: true });
+      return res.json({ isArtist: true, unlimited: true, communityBg });
     }
 
     const { rows: userRows } = await pool.query(
@@ -80,6 +85,7 @@ router.get('/status', authMid, async (req, res) => {
       freeDailyLimit: FREE_DAILY_MESSAGES,
       messageCredits: user.community_message_credits,
       messagesPerTokenBlock: MESSAGES_PER_BLOCK,
+      communityBg,
     });
   } catch (err) {
     console.error('community/status error:', err);
@@ -110,7 +116,6 @@ router.post('/post', authMid, async (req, res) => {
       const usedToday = usageRows[0]?.posts_used || 0;
 
       if (usedToday < FREE_DAILY_MESSAGES) {
-        // Free daily message available, use it
         await client.query(
           `INSERT INTO community_daily_usage (user_id, day_key, posts_used)
            VALUES ($1, $2, 1)
@@ -119,7 +124,6 @@ router.post('/post', authMid, async (req, res) => {
           [req.user.userId, day]
         );
       } else {
-        // No free message left today, try to spend a purchased credit
         const { rows: userRows } = await client.query(
           `SELECT community_message_credits FROM users WHERE id = $1 FOR UPDATE`,
           [req.user.userId]
@@ -231,8 +235,5 @@ router.post('/buy-credits', authMid, async (req, res) => {
   }
 });
 
-// Export router AND postSystemMessage together
-// IMPORTANT: must be at the bottom after router is fully defined
-router.postSystemMessage = postSystemMessage;
 module.exports = router;
 module.exports.postSystemMessage = postSystemMessage;

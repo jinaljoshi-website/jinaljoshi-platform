@@ -33,8 +33,8 @@ router.get('/sets', authMid, async (req, res) => {
     const now       = new Date();
     const isActive  = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier  = isActive ? user.tier : 'guest';
+    const isGuest   = userTier === 'guest';
 
-    // How many free credit-unlocks this user has left this month
     const monthKey    = now.toISOString().slice(0, 7);
     const maxUnlocks  = TIER_UNLOCKS_PER_MONTH[userTier] || 0;
     let creditsUsed   = 0;
@@ -64,17 +64,24 @@ router.get('/sets', authMid, async (req, res) => {
         && s.use_unlock_credit
         && qualifiesForCategory
         && creditsRemaining > 0;
+
+      // Flat price for members, doubled for guests
+      const displayPrice = isGuest ? s.price_coins * 2 : s.price_coins;
+
       return {
         ...s,
         cover_url: toUrl(s.cover_key),
         creditEligible,
+        displayPrice,
+        // Cover stays blurred for anyone who hasn't unlocked it and doesn't meet the set's category — visual nudge only, never blocks paying to unlock
+        coverBlurred: !s.already_unlocked && !qualifiesForCategory,
       };
     });
 
     res.json({
       sets: setsWithUrls,
       userTier,
-      isGuest:         userTier === 'guest',
+      isGuest,
       coinBalance:     user.coin_balance,
       creditsRemaining,
       creditsMax:      maxUnlocks,
@@ -105,6 +112,7 @@ router.post('/unlock', authMid, async (req, res) => {
     const now       = new Date();
     const isActive  = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier  = isActive ? user.tier : 'guest';
+    const isGuest   = userTier === 'guest';
 
     const { rows: setRows } = await client.query(
       `SELECT * FROM sets WHERE id = $1 AND visible = TRUE`,
@@ -160,8 +168,9 @@ router.post('/unlock', authMid, async (req, res) => {
       }
     }
 
-    // Everyone else, regardless of tier or guest status, pays the flat base price
-    const price = useUnlockCredit ? 0 : set.price_coins;
+    // Everyone else pays: flat base price for members, doubled for guests
+    const basePrice = isGuest ? set.price_coins * 2 : set.price_coins;
+    const price = useUnlockCredit ? 0 : basePrice;
 
     if (price > 0 && user.coin_balance < price) {
       await client.query('ROLLBACK');
