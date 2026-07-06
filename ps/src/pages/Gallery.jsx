@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { C, F } from '../tokens';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
+import { TIERS } from '../data';
 import TopUpModal from '../components/TopUpModal';
 
 export default function Gallery() {
@@ -80,7 +81,6 @@ export default function Gallery() {
           ))}
         </div>
 
-        {/* Lightbox */}
         {lightbox !== null && (
           <div style={lightboxOverlay} onClick={() => setLightbox(null)}>
             <button onClick={(e) => { e.stopPropagation(); setLightbox(null); }} style={closeBtn}>✕</button>
@@ -103,6 +103,8 @@ export default function Gallery() {
   }
 
   // ── Grid view ───────────────────────────────────────────────────────────────
+  const bestTierName = TIERS.supreme?.name || 'Supreme';
+
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
@@ -111,7 +113,6 @@ export default function Gallery() {
         <p style={text}>
           Photo sets, videos and behind-the-scenes content. Every set can be unlocked by anyone.
           {data?.creditsMax > 0 && ` You have ${data.creditsRemaining} of ${data.creditsMax} free unlocks left this month.`}
-          {data?.isGuest && ' Join a membership for member pricing and unlock credits.'}
         </p>
       </div>
 
@@ -122,23 +123,51 @@ export default function Gallery() {
         </div>
       )}
 
-      {(!data?.sets || data.sets.length === 0) && (
-        <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14 }}>No content published yet. Check back soon.</div>
+      {/* Free for All */}
+      {data?.freeForAll?.length > 0 && (
+        <div style={{ marginBottom: 40 }}>
+          <div style={sectionLabel}>Free for All</div>
+          <div style={grid}>
+            {data.freeForAll.map((item) => (
+              <GalleryCard
+                key={item.id}
+                item={item}
+                isGuest={data.isGuest}
+                userTier={data.userTier}
+                coinBalance={data.coinBalance}
+                bestTierName={bestTierName}
+                onError={setError}
+                onTopUp={setTopUp}
+                onUnlocked={load}
+                onOpen={openViewer}
+              />
+            ))}
+          </div>
+        </div>
       )}
 
-      <div style={grid}>
-        {data?.sets?.map((item) => (
-          <GalleryCard
-            key={item.id}
-            item={item}
-            isGuest={data.isGuest}
-            coinBalance={data.coinBalance}
-            onError={setError}
-            onTopUp={setTopUp}
-            onUnlocked={load}
-            onOpen={openViewer}
-          />
-        ))}
+      {/* Unlockable Content */}
+      <div>
+        <div style={sectionLabel}>Unlockable Content</div>
+        {(!data?.unlockable || data.unlockable.length === 0) && (
+          <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14 }}>No unlockable content published yet.</div>
+        )}
+        <div style={grid}>
+          {data?.unlockable?.map((item) => (
+            <GalleryCard
+              key={item.id}
+              item={item}
+              isGuest={data.isGuest}
+              userTier={data.userTier}
+              coinBalance={data.coinBalance}
+              bestTierName={bestTierName}
+              onError={setError}
+              onTopUp={setTopUp}
+              onUnlocked={load}
+              onOpen={openViewer}
+            />
+          ))}
+        </div>
       </div>
 
       {topUp !== null && (
@@ -148,7 +177,7 @@ export default function Gallery() {
   );
 }
 
-function GalleryCard({ item, isGuest, coinBalance, onError, onTopUp, onUnlocked, onOpen }) {
+function GalleryCard({ item, isGuest, userTier, coinBalance, bestTierName, onError, onTopUp, onUnlocked, onOpen }) {
   const [unlocking, setUnlocking] = useState(false);
   const [unlocked,  setUnlocked]  = useState(!!item.already_unlocked);
 
@@ -156,6 +185,11 @@ function GalleryCard({ item, isGuest, coinBalance, onError, onTopUp, onUnlocked,
   const isFree        = item.price_coins === 0;
   const canAfford      = coinBalance >= displayPrice;
   const isBlurred      = !unlocked && item.coverBlurred;
+
+  const countLabel = [
+    item.photoCount > 0 ? `${item.photoCount} photo${item.photoCount === 1 ? '' : 's'}` : null,
+    item.videoCount > 0 ? `${item.videoCount} video${item.videoCount === 1 ? '' : 's'}` : null,
+  ].filter(Boolean).join(' · ');
 
   const handleUnlock = async () => {
     onError('');
@@ -209,6 +243,10 @@ function GalleryCard({ item, isGuest, coinBalance, onError, onTopUp, onUnlocked,
 
       <div style={{ fontFamily: F.display, fontSize: 20, color: C.text, marginBottom: 4 }}>{item.title}</div>
 
+      {countLabel && (
+        <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 6 }}>{countLabel}</div>
+      )}
+
       {item.description && (
         <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>{item.description}</div>
       )}
@@ -237,7 +275,11 @@ function GalleryCard({ item, isGuest, coinBalance, onError, onTopUp, onUnlocked,
           )}
 
           {isGuest && !isFree && (
-            <div style={nudge}>Members pay less — join a plan for lower pricing</div>
+            <div style={nudge}>Members get this for as low as {item.price_coins} tokens. Explore Membership.</div>
+          )}
+
+          {!isGuest && item.unlocksFreeAtHigherTier && (
+            <div style={nudge}>{bestTierName} members unlock this free with their monthly credit. Upgrade for more free unlocks.</div>
           )}
 
           {!canAfford && displayPrice > 0 && (
@@ -263,6 +305,7 @@ function GalleryCard({ item, isGuest, coinBalance, onError, onTopUp, onUnlocked,
 const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 12 };
 const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(28px,5vw,52px)', margin: '0 0 10px' };
 const text        = { fontFamily: F.sans, color: C.muted, fontSize: 15, lineHeight: 1.75, maxWidth: 720 };
+const sectionLabel = { fontFamily: F.mono, fontSize: 12, color: C.accent, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 16, paddingBottom: 10, borderBottom: `1px solid ${C.border}` };
 const grid        = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px,1fr))', gap: 18 };
 const card        = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 20, display: 'flex', flexDirection: 'column' };
 const nudge       = { fontFamily: F.sans, fontSize: 12, color: C.muted, background: 'rgba(193,125,74,0.06)', border: `1px solid rgba(193,125,74,0.15)`, borderRadius: 6, padding: '6px 10px', marginBottom: 4 };

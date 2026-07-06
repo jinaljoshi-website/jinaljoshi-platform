@@ -1,286 +1,323 @@
-// backend/routes/gallery.js
-const router  = require('express').Router();
-const pool    = require('../db/pool');
-const authMid = require('../middleware/auth');
-const { postSystemMessage } = require('./community');
-const { getGalleryUnlocksForTier, getGuestMultiplier } = require('../lib/config');
+import { useEffect, useState } from 'react';
+import { C, F } from '../tokens';
+import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
+import { api } from '../api';
+import { TIERS } from '../data';
+import TopUpModal from '../components/TopUpModal';
 
-const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
-const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
+export default function Gallery() {
+  const [data,      setData]      = useState(null);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState('');
+  const [topUp,     setTopUp]     = useState(null);
+  const [openSet,   setOpenSet]   = useState(null);
+  const [setItems,  setSetItems]  = useState([]);
+  const [itemsLoad, setItemsLoad] = useState(false);
+  const [lightbox,  setLightbox]  = useState(null);
 
-function toUrl(key) {
-  if (!key) return null;
-  if (key.startsWith('http')) return key;
-  return `${R2_PUBLIC_URL}/${key}`;
-}
+  const load = () => api.get('/api/gallery/sets')
+    .then(setData)
+    .catch((err) => setError(err.message))
+    .finally(() => setLoading(false));
 
-function meetsCategory(userTier, minTier) {
-  if (!minTier || minTier === 'none') return true;
-  return TIER_ORDER.indexOf(userTier) >= TIER_ORDER.indexOf(minTier);
-}
+  useEffect(() => { load(); }, []);
 
-// ─────────────────────────────────────────────
-// GET /api/gallery/sets
-// ─────────────────────────────────────────────
-
-router.get('/sets', authMid, async (req, res) => {
-  try {
-    const { rows: userRows } = await pool.query(
-      `SELECT tier, membership_expires_at, coin_balance FROM users WHERE id = $1`,
-      [req.user.userId]
-    );
-    const user      = userRows[0];
-    const now       = new Date();
-    const isActive  = user.membership_expires_at && new Date(user.membership_expires_at) > now;
-    const userTier  = isActive ? user.tier : 'guest';
-    const isGuest   = userTier === 'guest';
-    const guestMultiplier = isGuest ? await getGuestMultiplier() : 1;
-
-    const monthKey    = now.toISOString().slice(0, 7);
-    const maxUnlocks  = await getGalleryUnlocksForTier(userTier);
-    let creditsUsed   = 0;
-    if (maxUnlocks > 0) {
-      const { rows: allotRows } = await pool.query(
-        `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2`,
-        [req.user.userId, monthKey]
-      );
-      creditsUsed = allotRows[0]?.unlocks_used || 0;
+  const openViewer = async (set) => {
+    setOpenSet(set);
+    setSetItems([]);
+    setItemsLoad(true);
+    try {
+      const data = await api.get(`/api/gallery/sets/${set.id}/items`);
+      setSetItems(data.items || []);
+    } catch (err) {
+      setError('Failed to load set contents');
+    } finally {
+      setItemsLoad(false);
     }
-    const creditsRemaining = Math.max(0, maxUnlocks - creditsUsed);
+  };
 
-    const { rows: sets } = await pool.query(
-      `SELECT s.id, s.title, s.description, s.type, s.price_coins, s.min_tier, s.use_unlock_credit, s.cover_key,
-              ag.id AS already_unlocked
-       FROM sets s
-       LEFT JOIN access_grants ag ON ag.set_id = s.id AND ag.user_id = $1
-       WHERE s.visible = TRUE
-       ORDER BY s.created_at DESC`,
-      [req.user.userId]
+  const closeViewer = () => {
+    setOpenSet(null);
+    setSetItems([]);
+    setLightbox(null);
+  };
+
+  if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading gallery…</div>;
+
+  // ── Set viewer ──────────────────────────────────────────────────────────────
+  if (openSet) {
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <button onClick={closeViewer} style={backBtn}>← Back</button>
+          <div>
+            <div style={eyebrow}>Gallery</div>
+            <h1 style={{ ...title, fontSize: 'clamp(20px,4vw,34px)', margin: 0 }}>{openSet.title}</h1>
+          </div>
+        </div>
+
+        {openSet.description && (
+          <p style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.7, marginBottom: 16, maxWidth: 600 }}>
+            {openSet.description}
+          </p>
+        )}
+
+        {itemsLoad && <div style={{ color: C.muted, fontFamily: F.sans }}>Loading…</div>}
+
+        {!itemsLoad && setItems.length === 0 && (
+          <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14 }}>No items in this set yet.</div>
+        )}
+
+        <div style={viewerGrid}>
+          {setItems.map((item, idx) => (
+            <div key={item.id} onClick={() => setLightbox(idx)} style={thumbWrap}>
+              {item.media_type === 'video' ? (
+                <video src={item.media_url} style={thumb} muted />
+              ) : (
+                <img src={item.media_url} alt="" style={thumb} />
+              )}
+              {item.media_type === 'video' && <div style={playBadge}>▶</div>}
+            </div>
+          ))}
+        </div>
+
+        {lightbox !== null && (
+          <div style={lightboxOverlay} onClick={() => setLightbox(null)}>
+            <button onClick={(e) => { e.stopPropagation(); setLightbox(null); }} style={closeBtn}>✕</button>
+            <button onClick={(e) => { e.stopPropagation(); setLightbox((i) => Math.max(0, i - 1)); }} style={{ ...navBtn, left: 16 }} disabled={lightbox === 0}>‹</button>
+            <div onClick={(e) => e.stopPropagation()} style={lightboxInner}>
+              {setItems[lightbox]?.media_type === 'video' ? (
+                <video src={setItems[lightbox].media_url} controls autoPlay style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8 }} />
+              ) : (
+                <img src={setItems[lightbox]?.media_url} alt="" style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8, objectFit: 'contain' }} />
+              )}
+              <div style={{ fontFamily: F.mono, fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center', marginTop: 10 }}>
+                {lightbox + 1} / {setItems.length}
+              </div>
+            </div>
+            <button onClick={(e) => { e.stopPropagation(); setLightbox((i) => Math.min(setItems.length - 1, i + 1)); }} style={{ ...navBtn, right: 16 }} disabled={lightbox === setItems.length - 1}>›</button>
+          </div>
+        )}
+      </div>
     );
-
-    const setsWithUrls = sets.map((s) => {
-      const qualifiesForCategory = meetsCategory(userTier, s.min_tier);
-      const creditEligible = !s.already_unlocked
-        && s.price_coins > 0
-        && s.use_unlock_credit
-        && qualifiesForCategory
-        && creditsRemaining > 0;
-
-      const displayPrice = isGuest ? Math.round(s.price_coins * guestMultiplier) : s.price_coins;
-
-      return {
-        ...s,
-        cover_url: toUrl(s.cover_key),
-        creditEligible,
-        displayPrice,
-        coverBlurred: !s.already_unlocked && !qualifiesForCategory,
-      };
-    });
-
-    res.json({
-      sets: setsWithUrls,
-      userTier,
-      isGuest,
-      coinBalance:     user.coin_balance,
-      creditsRemaining,
-      creditsMax:      maxUnlocks,
-    });
-  } catch (err) {
-    console.error('gallery/sets error:', err);
-    res.status(500).json({ error: 'Failed to load gallery' });
   }
-});
 
-// ─────────────────────────────────────────────
-// POST /api/gallery/unlock
-// ─────────────────────────────────────────────
+  // ── Grid view ───────────────────────────────────────────────────────────────
+  const bestTierName = TIERS.supreme?.name || 'Supreme';
 
-router.post('/unlock', authMid, async (req, res) => {
-  const { setId } = req.body;
-  if (!setId) return res.status(400).json({ error: 'setId is required' });
+  return (
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <div style={eyebrow}>Exclusive content</div>
+        <h1 style={title}>Gallery</h1>
+        <p style={text}>
+          Photo sets, videos and behind-the-scenes content. Every set can be unlocked by anyone.
+          {data?.creditsMax > 0 && ` You have ${data.creditsRemaining} of ${data.creditsMax} free unlocks left this month.`}
+        </p>
+      </div>
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+      {error && (
+        <div style={{ ...errorBox, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <span>{error}</span>
+          <button onClick={() => setTopUp(0)} style={inlineTopUp}>Top up now</button>
+        </div>
+      )}
 
-    const { rows: userRows } = await client.query(
-      `SELECT tier, membership_expires_at, coin_balance, display_name FROM users WHERE id = $1 FOR UPDATE`,
-      [req.user.userId]
-    );
-    const user      = userRows[0];
-    const now       = new Date();
-    const isActive  = user.membership_expires_at && new Date(user.membership_expires_at) > now;
-    const userTier  = isActive ? user.tier : 'guest';
-    const isGuest   = userTier === 'guest';
-    const fanLabel  = user.display_name || 'A member';
-    const guestMultiplier = isGuest ? await getGuestMultiplier() : 1;
+      {/* Free for All */}
+      {data?.freeForAll?.length > 0 && (
+        <div style={{ marginBottom: 40 }}>
+          <div style={sectionLabel}>Free for All</div>
+          <div style={grid}>
+            {data.freeForAll.map((item) => (
+              <GalleryCard
+                key={item.id}
+                item={item}
+                isGuest={data.isGuest}
+                userTier={data.userTier}
+                coinBalance={data.coinBalance}
+                bestTierName={bestTierName}
+                onError={setError}
+                onTopUp={setTopUp}
+                onUnlocked={load}
+                onOpen={openViewer}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
-    const { rows: setRows } = await client.query(
-      `SELECT * FROM sets WHERE id = $1 AND visible = TRUE`,
-      [setId]
-    );
-    if (!setRows.length) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Content not found' });
-    }
-    const set = setRows[0];
+      {/* Unlockable Content */}
+      <div>
+        <div style={sectionLabel}>Unlockable Content</div>
+        {(!data?.unlockable || data.unlockable.length === 0) && (
+          <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14 }}>No unlockable content published yet.</div>
+        )}
+        <div style={grid}>
+          {data?.unlockable?.map((item) => (
+            <GalleryCard
+              key={item.id}
+              item={item}
+              isGuest={data.isGuest}
+              userTier={data.userTier}
+              coinBalance={data.coinBalance}
+              bestTierName={bestTierName}
+              onError={setError}
+              onTopUp={setTopUp}
+              onUnlocked={load}
+              onOpen={openViewer}
+            />
+          ))}
+        </div>
+      </div>
 
-    const { rows: existing } = await client.query(
-      `SELECT id FROM access_grants WHERE user_id = $1 AND set_id = $2`,
-      [req.user.userId, setId]
-    );
-    if (existing.length) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'Already unlocked' });
-    }
+      {topUp !== null && (
+        <TopUpModal requiredTokens={topUp} onClose={() => setTopUp(null)} onSuccess={() => { setTopUp(null); load(); }} />
+      )}
+    </div>
+  );
+}
 
-    if (set.price_coins === 0 && (set.min_tier === 'none' || meetsCategory(userTier, set.min_tier))) {
-      await client.query(
-        `INSERT INTO access_grants (user_id, set_id, grant_type, coins_paid)
-         VALUES ($1, $2, 'membership_free', 0)`,
-        [req.user.userId, setId]
-      );
-      await client.query('COMMIT');
-      postSystemMessage(`🔓 ${fanLabel} unlocked "${set.title}"!`);
-      return res.json({ ok: true, coinsSpent: 0, grantType: 'membership_free' });
-    }
+function GalleryCard({ item, isGuest, userTier, coinBalance, bestTierName, onError, onTopUp, onUnlocked, onOpen }) {
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlocked,  setUnlocked]  = useState(!!item.already_unlocked);
 
-    let useUnlockCredit = false;
-    if (set.price_coins > 0 && set.use_unlock_credit && meetsCategory(userTier, set.min_tier)) {
-      const monthKey   = now.toISOString().slice(0, 7);
-      const maxUnlocks = await getGalleryUnlocksForTier(userTier);
-      const { rows: allotRows } = await client.query(
-        `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2`,
-        [req.user.userId, monthKey]
-      );
-      const used = allotRows[0]?.unlocks_used || 0;
-      if (used < maxUnlocks) {
-        useUnlockCredit = true;
-        await client.query(
-          `INSERT INTO monthly_allotments (user_id, month_key, unlocks_used)
-           VALUES ($1, $2, 1)
-           ON CONFLICT (user_id, month_key)
-           DO UPDATE SET unlocks_used = monthly_allotments.unlocks_used + 1`,
-          [req.user.userId, monthKey]
-        );
+  const displayPrice = item.displayPrice;
+  const isFree        = item.price_coins === 0;
+  const canAfford      = coinBalance >= displayPrice;
+  const isBlurred      = !unlocked && item.coverBlurred;
+
+  const countLabel = [
+    item.photoCount > 0 ? `${item.photoCount} photo${item.photoCount === 1 ? '' : 's'}` : null,
+    item.videoCount > 0 ? `${item.videoCount} video${item.videoCount === 1 ? '' : 's'}` : null,
+  ].filter(Boolean).join(' · ');
+
+  const handleUnlock = async () => {
+    onError('');
+    setUnlocking(true);
+    try {
+      await api.post('/api/gallery/unlock', { setId: item.id });
+      setUnlocked(true);
+      onUnlocked();
+      onOpen({ ...item, already_unlocked: true });
+    } catch (err) {
+      if (err.message === 'INSUFFICIENT_TOKENS') {
+        onTopUp(displayPrice);
+      } else if (err.message === 'Already unlocked') {
+        setUnlocked(true);
+        onOpen(item);
+      } else {
+        onError(err.message);
       }
+    } finally {
+      setUnlocking(false);
     }
+  };
 
-    const basePrice = isGuest ? Math.round(set.price_coins * guestMultiplier) : set.price_coins;
-    const price = useUnlockCredit ? 0 : basePrice;
+  return (
+    <div style={card}>
+      <div style={{ position: 'relative', marginBottom: 12 }}>
+        {item.cover_url ? (
+          <img
+            src={item.cover_url}
+            alt={item.title}
+            style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 6, cursor: unlocked ? 'pointer' : 'default', filter: isBlurred ? 'blur(14px)' : 'none', transition: 'filter 0.3s' }}
+            onClick={() => unlocked && onOpen(item)}
+          />
+        ) : (
+          <div
+            style={{ width: '100%', height: 120, background: 'rgba(255,255,255,0.03)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: unlocked ? 'pointer' : 'default' }}
+            onClick={() => unlocked && onOpen(item)}
+          >
+            <span style={{ fontFamily: F.mono, fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{item.type?.replace('_', ' ')}</span>
+          </div>
+        )}
+        {isBlurred && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'rgba(13,12,10,0.35)' }}>
+            <div style={{ fontSize: 22, marginBottom: 4 }}>🔒</div>
+            {item.min_tier && item.min_tier !== 'none' && (
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: 'white', textTransform: 'capitalize' }}>{item.min_tier}+ preview</div>
+            )}
+          </div>
+        )}
+      </div>
 
-    if (price > 0 && user.coin_balance < price) {
-      await client.query('ROLLBACK');
-      return res.status(402).json({
-        error:     'INSUFFICIENT_TOKENS',
-        message:   `Unlocking this costs ${price} tokens. You have ${user.coin_balance}.`,
-        required:  price,
-        available: user.coin_balance,
-        shortBy:   price - user.coin_balance,
-      });
-    }
+      <div style={{ fontFamily: F.display, fontSize: 20, color: C.text, marginBottom: 4 }}>{item.title}</div>
 
-    if (price > 0) {
-      await client.query(
-        `UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`,
-        [price, req.user.userId]
-      );
-      await client.query(
-        `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-         VALUES ($1, 'content_unlock', 'debit', $2, $3, $4)`,
-        [req.user.userId, price, `Content unlock: ${set.title}`, setId]
-      );
-    }
+      {countLabel && (
+        <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 6 }}>{countLabel}</div>
+      )}
 
-    await client.query(
-      `INSERT INTO access_grants (user_id, set_id, grant_type, coins_paid)
-       VALUES ($1, $2, $3, $4)`,
-      [req.user.userId, setId, useUnlockCredit ? 'unlock_credit' : 'token_purchase', price]
-    );
+      {item.description && (
+        <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>{item.description}</div>
+      )}
 
-    await client.query('COMMIT');
+      {item.min_tier && item.min_tier !== 'none' && (
+        <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 8, textTransform: 'capitalize' }}>
+          {item.min_tier} category
+        </div>
+      )}
 
-    postSystemMessage(`🔓 ${fanLabel} unlocked "${set.title}"!`);
+      {unlocked ? (
+        <button onClick={() => onOpen(item)} style={{ ...unlockBtn, background: 'rgba(100,160,100,0.15)', border: '1px solid rgba(100,160,100,0.3)', color: '#8FC88F', marginTop: 'auto' }}>
+          ✓ View set
+        </button>
+      ) : (
+        <>
+          <div style={{ marginBottom: 6 }}>
+            {isFree
+              ? <span style={{ fontFamily: F.sans, fontSize: 13, color: '#8FC88F' }}>Free</span>
+              : <WonderCoinAmount amount={displayPrice} size={18} />
+            }
+          </div>
 
-    res.json({
-      ok:         true,
-      coinsSpent: price,
-      usedCredit: useUnlockCredit,
-      newBalance: user.coin_balance - price,
-      grantType:  useUnlockCredit ? 'unlock_credit' : price === 0 ? 'membership_free' : 'token_purchase',
-    });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('gallery/unlock error:', err);
-    res.status(500).json({ error: 'Unlock failed' });
-  } finally {
-    client.release();
-  }
-});
+          {item.creditEligible && (
+            <div style={{ fontFamily: F.sans, fontSize: 11, color: '#8FC88F', marginBottom: 4 }}>Unlocks free with your monthly credit</div>
+          )}
 
-// ─────────────────────────────────────────────
-// GET /api/gallery/sets/:setId/items
-// ─────────────────────────────────────────────
+          {isGuest && !isFree && (
+            <div style={nudge}>Members get this for as low as {item.price_coins} tokens. Explore Membership.</div>
+          )}
 
-router.get('/sets/:setId/items', authMid, async (req, res) => {
-  const { setId } = req.params;
-  try {
-    const { rows: accessRows } = await pool.query(
-      `SELECT id FROM access_grants WHERE user_id = $1 AND set_id = $2`,
-      [req.user.userId, setId]
-    );
+          {!isGuest && item.unlocksFreeAtHigherTier && (
+            <div style={nudge}>{bestTierName} members unlock this free with their monthly credit. Upgrade for more free unlocks.</div>
+          )}
 
-    if (!accessRows.length) {
-      return res.status(403).json({ error: 'Access not granted' });
-    }
+          {!canAfford && displayPrice > 0 && (
+            <div style={{ fontFamily: F.sans, fontSize: 11, color: '#D99A9A', marginBottom: 6 }}>
+              Need {displayPrice - coinBalance} more tokens ·{' '}
+              <button onClick={() => onTopUp(displayPrice)} style={{ background: 'none', border: 'none', color: C.accent, fontFamily: F.sans, fontSize: 11, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>Top up</button>
+            </div>
+          )}
 
-    const { rows: items } = await pool.query(
-      `SELECT id, r2_key, media_type, position
-       FROM set_items WHERE set_id = $1
-       ORDER BY position ASC, created_at ASC`,
-      [setId]
-    );
+          <button
+            onClick={handleUnlock}
+            disabled={unlocking || (!canAfford && displayPrice > 0 && !item.creditEligible)}
+            style={{ ...unlockBtn, opacity: (unlocking || (!canAfford && displayPrice > 0 && !item.creditEligible)) ? 0.5 : 1, marginTop: 8 }}
+          >
+            {unlocking ? 'Unlocking…' : isFree ? 'View' : 'Unlock'}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
 
-    const itemsWithUrls = items.map((item) => ({
-      ...item,
-      media_url: toUrl(item.r2_key),
-    }));
-
-    res.json({ items: itemsWithUrls });
-  } catch (err) {
-    console.error('gallery/items error:', err);
-    res.status(500).json({ error: 'Failed to load set items' });
-  }
-});
-
-// ─────────────────────────────────────────────
-// DELETE /api/gallery/sets/:setId
-// ─────────────────────────────────────────────
-
-router.delete('/sets/:setId', authMid, async (req, res) => {
-  if (req.user.email !== process.env.ARTIST_EMAIL) {
-    return res.status(403).json({ error: 'Not authorised' });
-  }
-
-  const { setId } = req.params;
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const { rows: items } = await client.query(
-      `SELECT r2_key FROM set_items WHERE set_id = $1`, [setId]
-    );
-    await client.query(`DELETE FROM set_items WHERE set_id = $1`, [setId]);
-    await client.query(`DELETE FROM access_grants WHERE set_id = $1`, [setId]);
-    await client.query(`DELETE FROM sets WHERE id = $1`, [setId]);
-    await client.query('COMMIT');
-    res.json({ ok: true, deletedItems: items.length, r2Keys: items.map((i) => i.r2_key) });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('gallery/delete error:', err);
-    res.status(500).json({ error: 'Failed to delete set' });
-  } finally {
-    client.release();
-  }
-});
-
-module.exports = router;
+const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 12 };
+const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(28px,5vw,52px)', margin: '0 0 10px' };
+const text        = { fontFamily: F.sans, color: C.muted, fontSize: 15, lineHeight: 1.75, maxWidth: 720 };
+const sectionLabel = { fontFamily: F.mono, fontSize: 12, color: C.accent, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 16, paddingBottom: 10, borderBottom: `1px solid ${C.border}` };
+const grid        = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px,1fr))', gap: 18 };
+const card        = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 20, display: 'flex', flexDirection: 'column' };
+const nudge       = { fontFamily: F.sans, fontSize: 12, color: C.muted, background: 'rgba(193,125,74,0.06)', border: `1px solid rgba(193,125,74,0.15)`, borderRadius: 6, padding: '6px 10px', marginBottom: 4 };
+const unlockBtn   = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 13, fontWeight: 700, padding: '10px 0', borderRadius: 8, cursor: 'pointer', width: '100%' };
+const errorBox    = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
+const inlineTopUp = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '6px 12px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
+const backBtn     = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 8, cursor: 'pointer' };
+const viewerGrid  = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 };
+const thumbWrap   = { position: 'relative', cursor: 'pointer', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: C.surface };
+const thumb       = { width: '100%', height: '100%', objectFit: 'cover', display: 'block' };
+const playBadge   = { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', fontSize: 28, color: 'white', textShadow: '0 2px 8px rgba(0,0,0,0.8)', pointerEvents: 'none' };
+const lightboxOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' };
+const lightboxInner   = { display: 'flex', flexDirection: 'column', alignItems: 'center' };
+const closeBtn    = { position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', fontSize: 20, width: 40, height: 40, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
+const navBtn      = { position: 'absolute', top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', fontSize: 36, width: 48, height: 48, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
