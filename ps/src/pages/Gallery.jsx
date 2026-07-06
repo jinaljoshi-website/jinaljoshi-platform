@@ -14,6 +14,7 @@ export default function Gallery() {
   const [setItems,  setSetItems]  = useState([]);
   const [itemsLoad, setItemsLoad] = useState(false);
   const [lightbox,  setLightbox]  = useState(null);
+  const [activeTab, setActiveTab] = useState('unlockable'); // default to revenue-driving tab
 
   const load = () => api.get('/api/gallery/sets')
     .then(setData)
@@ -104,10 +105,11 @@ export default function Gallery() {
 
   // ── Grid view ───────────────────────────────────────────────────────────────
   const bestTierName = TIERS.supreme?.name || 'Supreme';
+  const activeItems = activeTab === 'unlockable' ? (data?.unlockable || []) : (data?.freeForAll || []);
 
   return (
     <div>
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 20 }}>
         <div style={eyebrow}>Exclusive content</div>
         <h1 style={title}>Gallery</h1>
         <p style={text}>
@@ -123,37 +125,32 @@ export default function Gallery() {
         </div>
       )}
 
-      {/* Free for All */}
-      {data?.freeForAll?.length > 0 && (
-        <div style={{ marginBottom: 40 }}>
-          <div style={sectionLabel}>Free for All</div>
-          <div style={grid}>
-            {data.freeForAll.map((item) => (
-              <GalleryCard
-                key={item.id}
-                item={item}
-                isGuest={data.isGuest}
-                userTier={data.userTier}
-                coinBalance={data.coinBalance}
-                bestTierName={bestTierName}
-                onError={setError}
-                onTopUp={setTopUp}
-                onUnlocked={load}
-                onOpen={openViewer}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Tabs */}
+      <div style={tabRow}>
+        <button
+          onClick={() => setActiveTab('unlockable')}
+          style={activeTab === 'unlockable' ? tabUnlockableActive : tabUnlockableInactive}
+        >
+          <span style={{ marginRight: 6 }}>✨</span>Unlockable Content
+          {data?.unlockable?.length > 0 && <span style={tabCount}>{data.unlockable.length}</span>}
+        </button>
+        <button
+          onClick={() => setActiveTab('free')}
+          style={activeTab === 'free' ? tabFreeActive : tabFreeInactive}
+        >
+          Free for All
+          {data?.freeForAll?.length > 0 && <span style={tabCountMuted}>{data.freeForAll.length}</span>}
+        </button>
+      </div>
 
-      {/* Unlockable Content */}
-      <div>
-        <div style={sectionLabel}>Unlockable Content</div>
-        {(!data?.unlockable || data.unlockable.length === 0) && (
-          <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14 }}>No unlockable content published yet.</div>
-        )}
+      {/* Content */}
+      {activeItems.length === 0 ? (
+        <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14 }}>
+          {activeTab === 'unlockable' ? 'No unlockable content published yet.' : 'No free content published yet.'}
+        </div>
+      ) : (
         <div style={grid}>
-          {data?.unlockable?.map((item) => (
+          {activeItems.map((item) => (
             <GalleryCard
               key={item.id}
               item={item}
@@ -168,7 +165,7 @@ export default function Gallery() {
             />
           ))}
         </div>
-      </div>
+      )}
 
       {topUp !== null && (
         <TopUpModal requiredTokens={topUp} onClose={() => setTopUp(null)} onSuccess={() => { setTopUp(null); load(); }} />
@@ -305,7 +302,6 @@ function GalleryCard({ item, isGuest, userTier, coinBalance, bestTierName, onErr
 const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 12 };
 const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(28px,5vw,52px)', margin: '0 0 10px' };
 const text        = { fontFamily: F.sans, color: C.muted, fontSize: 15, lineHeight: 1.75, maxWidth: 720 };
-const sectionLabel = { fontFamily: F.mono, fontSize: 12, color: C.accent, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 16, paddingBottom: 10, borderBottom: `1px solid ${C.border}` };
 const grid        = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px,1fr))', gap: 18 };
 const card        = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 20, display: 'flex', flexDirection: 'column' };
 const nudge       = { fontFamily: F.sans, fontSize: 12, color: C.muted, background: 'rgba(193,125,74,0.06)', border: `1px solid rgba(193,125,74,0.15)`, borderRadius: 6, padding: '6px 10px', marginBottom: 4 };
@@ -313,6 +309,34 @@ const unlockBtn   = { background: C.accent, border: 'none', color: '#1A1714', fo
 const errorBox    = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
 const inlineTopUp = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '6px 12px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
 const backBtn     = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 8, cursor: 'pointer' };
+
+// Tabs — Unlockable is styled distinctly more premium/desirable than Free
+const tabRow = { display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' };
+const tabUnlockableActive = {
+  fontFamily: F.display, fontSize: 17, fontWeight: 500, letterSpacing: '0.01em',
+  background: 'linear-gradient(135deg, rgba(193,125,74,0.18), rgba(193,125,74,0.06))',
+  border: `1px solid ${C.accent}`, color: C.text,
+  padding: '14px 26px', borderRadius: 10, cursor: 'pointer',
+  boxShadow: '0 0 24px rgba(193,125,74,0.15)',
+  display: 'flex', alignItems: 'center',
+};
+const tabUnlockableInactive = {
+  ...tabUnlockableActive,
+  background: 'transparent', boxShadow: 'none',
+  border: `1px solid rgba(193,125,74,0.3)`, color: C.muted,
+};
+const tabFreeActive = {
+  fontFamily: F.sans, fontSize: 14, fontWeight: 600,
+  background: C.surface, border: `1px solid ${C.border}`, color: C.text,
+  padding: '14px 22px', borderRadius: 10, cursor: 'pointer',
+  display: 'flex', alignItems: 'center',
+};
+const tabFreeInactive = {
+  ...tabFreeActive,
+  background: 'transparent', color: C.muted,
+};
+const tabCount = { fontFamily: F.mono, fontSize: 11, color: C.accent, background: 'rgba(193,125,74,0.15)', borderRadius: 999, padding: '2px 8px', marginLeft: 8 };
+const tabCountMuted = { fontFamily: F.mono, fontSize: 11, color: C.muted, background: 'rgba(255,255,255,0.06)', borderRadius: 999, padding: '2px 8px', marginLeft: 8 };
 const viewerGrid  = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 };
 const thumbWrap   = { position: 'relative', cursor: 'pointer', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: C.surface };
 const thumb       = { width: '100%', height: '100%', objectFit: 'cover', display: 'block' };
