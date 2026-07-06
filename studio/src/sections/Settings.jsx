@@ -11,8 +11,10 @@ const SUBSECTIONS = [
   { id: 'community',   label: 'Community'           },
   { id: 'gallery',     label: 'Gallery'              },
   { id: 'calls',       label: 'Call Rates'           },
+  { id: 'messages',    label: 'Direct Messages'     },
   { id: 'backgrounds', label: 'Backgrounds'          },
 ];
+
 
 async function uploadToR2(file, context, apiInstance) {
   const { uploadUrl, publicUrl } = await apiInstance.post('/api/upload/presign', {
@@ -71,6 +73,7 @@ export function Settings() {
       {active === 'community'   && <CommunitySection    draft={draft} set={set} config={config} setConfig={setConfig} />}
       {active === 'gallery'     && <GallerySection       draft={draft} set={set} config={config} setConfig={setConfig} />}
       {active === 'calls'       && <CallsSection         draft={draft} set={set} config={config} setConfig={setConfig} tokenRate={tokenRate} />}
+      {active === 'messages'    && <MessagesSection      draft={draft} set={set} config={config} setConfig={setConfig} tokenRate={tokenRate} />}
       {active === 'backgrounds' && <BackgroundsSection />}
     </div>
   );
@@ -113,7 +116,7 @@ function SectionSave({ keys, draft, config, setConfig }) {
 // ── Pricing & Discounts ───────────────────────────────────────────────────────
 function PricingSection({ draft, set, config, setConfig, tokenRate }) {
   const keys = [
-    'token_rate_inr',
+    'token_rate_inr', 'guest_price_multiplier',
     'community_monthly_cost', 'insider_monthly_cost', 'premium_monthly_cost', 'supreme_monthly_cost',
     'community_discount_pct', 'insider_discount_pct', 'premium_discount_pct', 'supreme_discount_pct',
   ];
@@ -126,6 +129,19 @@ function PricingSection({ draft, set, config, setConfig, tokenRate }) {
           This is the base INR value of 1 J Token, used everywhere on the platform to convert tokens to rupees.
         </p>
         <TokenField label="1 J Token = (INR)" value={draft.token_rate_inr || 66} onChange={(v) => set('token_rate_inr', v)} tokenRateInr={1} />
+      </Card>
+
+      <Card style={{ marginBottom: 20 }}>
+        <T.sectionTitle>Non-member (guest) pricing</T.sectionTitle>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>
+          Applied everywhere a non-member pays: Calls, Gallery unlocks, Merchandise, and Extras. Direct message guest pricing is derived from this multiplied by the Community tier's message rate.
+        </p>
+        <Field label="Guest price multiplier">
+          <input style={S.input} type="number" min={1} step={0.1} value={draft.guest_price_multiplier ?? 2} onChange={(e) => set('guest_price_multiplier', e.target.value)} />
+        </Field>
+        <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 8, fontStyle: 'italic' }}>
+          e.g. 2 means guests pay double what a member would pay before any membership discount.
+        </p>
       </Card>
 
       <Card style={{ marginBottom: 20 }}>
@@ -230,7 +246,38 @@ function CallsSection({ draft, set, config, setConfig, tokenRate }) {
     </div>
   );
 }
+// ── Direct Messages ───────────────────────────────────────────────────────────
+function MessagesSection({ draft, set, config, setConfig, tokenRate }) {
+  const TIERS_LOCAL = ['community', 'insider', 'premium', 'supreme'];
+  const keys = TIERS_LOCAL.flatMap((t) => [`dm_free_per_month_${t}`, `dm_daily_cap_${t}`, `dm_overage_cost_${t}`]);
 
+  return (
+    <div>
+      <Card style={{ marginBottom: 20 }}>
+        <T.sectionTitle>Direct message quotas & pricing per tier</T.sectionTitle>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>
+          Free messages reset monthly, with a daily cap. Once both are used up, each additional message costs the overage rate shown. Guests have no free allowance, they pay the Community overage rate multiplied by the guest multiplier (set in Pricing & Discounts).
+        </p>
+        {TIERS_LOCAL.map((tier) => (
+          <div key={tier} style={{ marginBottom: 20, paddingBottom: 18, borderBottom: `1px solid ${colors.border}` }}>
+            <div style={{ fontFamily: sans, fontSize: 13, color: colors.accent, textTransform: 'capitalize', fontWeight: 600, marginBottom: 10 }}>{tier}</div>
+            <div style={S.formGrid}>
+              <Field label="Free messages / month">
+                <input style={S.input} type="number" min={0} value={draft[`dm_free_per_month_${tier}`] ?? 0} onChange={(e) => set(`dm_free_per_month_${tier}`, e.target.value)} />
+              </Field>
+              <Field label="Daily cap">
+                <input style={S.input} type="number" min={0} value={draft[`dm_daily_cap_${tier}`] ?? 0} onChange={(e) => set(`dm_daily_cap_${tier}`, e.target.value)} />
+              </Field>
+              <TokenField label="Overage cost" value={draft[`dm_overage_cost_${tier}`] ?? 1} onChange={(v) => set(`dm_overage_cost_${tier}`, v)} tokenRateInr={tokenRate} />
+            </div>
+          </div>
+        ))}
+      </Card>
+
+      <SectionSave keys={keys} draft={draft} config={config} setConfig={setConfig} />
+    </div>
+  );
+}
 // ── Backgrounds ───────────────────────────────────────────────────────────────
 function BackgroundsSection() {
   const [bgType,      setBgType]      = useState('community');

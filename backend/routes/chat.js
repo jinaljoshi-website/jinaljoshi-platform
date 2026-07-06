@@ -3,23 +3,14 @@ const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
-
-const TIER_CONFIG = {
-  guest:     { freeDMsPerMonth: 0,   dailyDMCap: 0,  overageCost: 4 },
-  community: { freeDMsPerMonth: 5,   dailyDMCap: 2,  overageCost: 2 },
-  insider:   { freeDMsPerMonth: 30,  dailyDMCap: 3,  overageCost: 1 },
-  premium:   { freeDMsPerMonth: 100, dailyDMCap: 5,  overageCost: 1 },
-  supreme:   { freeDMsPerMonth: 250, dailyDMCap: 10, overageCost: 1 },
-};
+const { getDmConfigForTier } = require('../lib/config');
 
 function currentMonthKey() { return new Date().toISOString().slice(0, 7); }
 function currentDayStr()   { return new Date().toISOString().slice(0, 10); }
 
-// Convert a Postgres date value to YYYY-MM-DD string safely (UTC)
 function toDateStr(val) {
   if (!val) return null;
   if (typeof val === 'string') return val.slice(0, 10);
-  // JS Date from pg — use UTC methods to avoid timezone shift
   if (val instanceof Date) {
     const y = val.getUTCFullYear();
     const m = String(val.getUTCMonth() + 1).padStart(2, '0');
@@ -72,7 +63,7 @@ router.get('/status', authMid, async (req, res) => {
     const now      = new Date();
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier = isActive ? user.tier : 'guest';
-    const config   = TIER_CONFIG[userTier];
+    const config   = await getDmConfigForTier(userTier);
     const monthKey = currentMonthKey();
     const dayStr   = currentDayStr();
 
@@ -151,7 +142,7 @@ router.post('/send', authMid, async (req, res) => {
     const now      = new Date();
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier = isActive ? user.tier : 'guest';
-    const config   = TIER_CONFIG[userTier];
+    const config   = await getDmConfigForTier(userTier);
     const monthKey = currentMonthKey();
     const dayStr   = currentDayStr();
 
@@ -167,7 +158,6 @@ router.post('/send', authMid, async (req, res) => {
     if (userTier === 'guest') {
       tokensCharged = overageCost;
     } else {
-      // Ensure allotment row exists
       await client.query(
         `INSERT INTO monthly_allotments (user_id, month_key)
          VALUES ($1, $2)
@@ -175,7 +165,6 @@ router.post('/send', authMid, async (req, res) => {
         [req.user.userId, monthKey]
       );
 
-      // Read current values
       const { rows: allotRows } = await client.query(
         `SELECT free_dms_used, free_dms_today, dms_date
          FROM monthly_allotments
@@ -190,7 +179,6 @@ router.post('/send', authMid, async (req, res) => {
       useFreeDM        = freeRem > 0 && dailyRem > 0;
       tokensCharged    = useFreeDM ? 0 : overageCost;
 
-      // Update counters
       await client.query(
         `UPDATE monthly_allotments
          SET free_dms_used  = free_dms_used + $1,
@@ -201,7 +189,6 @@ router.post('/send', authMid, async (req, res) => {
       );
     }
 
-    // Block if insufficient balance
     if (tokensCharged > 0 && user.coin_balance < tokensCharged) {
       await client.query('ROLLBACK');
       return res.status(402).json({

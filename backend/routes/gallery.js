@@ -3,7 +3,7 @@ const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
-const { getGalleryUnlocksForTier } = require('../lib/config');
+const { getGalleryUnlocksForTier, getGuestMultiplier } = require('../lib/config');
 
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
 const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
@@ -34,6 +34,7 @@ router.get('/sets', authMid, async (req, res) => {
     const isActive  = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier  = isActive ? user.tier : 'guest';
     const isGuest   = userTier === 'guest';
+    const guestMultiplier = isGuest ? await getGuestMultiplier() : 1;
 
     const monthKey    = now.toISOString().slice(0, 7);
     const maxUnlocks  = await getGalleryUnlocksForTier(userTier);
@@ -65,7 +66,7 @@ router.get('/sets', authMid, async (req, res) => {
         && qualifiesForCategory
         && creditsRemaining > 0;
 
-      const displayPrice = isGuest ? s.price_coins * 2 : s.price_coins;
+      const displayPrice = isGuest ? Math.round(s.price_coins * guestMultiplier) : s.price_coins;
 
       return {
         ...s,
@@ -112,6 +113,7 @@ router.post('/unlock', authMid, async (req, res) => {
     const userTier  = isActive ? user.tier : 'guest';
     const isGuest   = userTier === 'guest';
     const fanLabel  = user.display_name || 'A member';
+    const guestMultiplier = isGuest ? await getGuestMultiplier() : 1;
 
     const { rows: setRows } = await client.query(
       `SELECT * FROM sets WHERE id = $1 AND visible = TRUE`,
@@ -164,7 +166,7 @@ router.post('/unlock', authMid, async (req, res) => {
       }
     }
 
-    const basePrice = isGuest ? set.price_coins * 2 : set.price_coins;
+    const basePrice = isGuest ? Math.round(set.price_coins * guestMultiplier) : set.price_coins;
     const price = useUnlockCredit ? 0 : basePrice;
 
     if (price > 0 && user.coin_balance < price) {

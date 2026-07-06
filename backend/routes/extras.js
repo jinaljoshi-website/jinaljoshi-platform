@@ -4,10 +4,13 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
 const { postSystemMessage } = require('./community');
-const { getDiscountForTier } = require('../lib/config');
+const { getDiscountForTier, getGuestMultiplier } = require('../lib/config');
 
 async function pricingFor(basePrice, userTier) {
-  if (userTier === 'guest') return Math.round(basePrice * 2);
+  if (userTier === 'guest') {
+    const multiplier = await getGuestMultiplier();
+    return Math.round(basePrice * multiplier);
+  }
   const discountPct = await getDiscountForTier(userTier);
   if (!discountPct) return Math.round(basePrice);
   const raw = basePrice * (1 - discountPct / 100);

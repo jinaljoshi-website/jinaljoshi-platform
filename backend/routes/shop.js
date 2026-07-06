@@ -4,7 +4,7 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
 const { postSystemMessage } = require('./community');
-const { getDiscountForTier } = require('../lib/config');
+const { getDiscountForTier, getGuestMultiplier } = require('../lib/config');
 
 // ─────────────────────────────────────────────
 // GET /api/shop/items
@@ -23,7 +23,7 @@ router.get('/items', authMid, async (req, res) => {
     const now       = new Date();
     const isActive  = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier  = isActive ? user.tier : 'guest';
-    const discountPct = await getDiscountForTier(userTier);
+    const discountPct = isActive ? await getDiscountForTier(userTier) : 0;
 
     const { rows: items } = await pool.query(
       `SELECT id, title, description, price_coins, remaining, img_key
@@ -75,7 +75,11 @@ router.post('/buy', authMid, async (req, res) => {
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier = isActive ? user.tier : 'guest';
     const fanLabel = user.display_name || 'A member';
-    const discountPct = await getDiscountForTier(userTier);
+    const isGuest  = userTier === 'guest';
+    const [discountPct, guestMultiplier] = await Promise.all([
+      isGuest ? 0 : getDiscountForTier(userTier),
+      isGuest ? getGuestMultiplier() : 1,
+    ]);
 
     const { rows: itemRows } = await client.query(
       `SELECT * FROM merchandise WHERE id = $1 FOR UPDATE`,
@@ -97,8 +101,8 @@ router.post('/buy', authMid, async (req, res) => {
     }
 
     let price = item.price_coins;
-    if (userTier === 'guest') {
-      price = price * 2;
+    if (isGuest) {
+      price = Math.round(price * guestMultiplier);
     } else if (discountPct) {
       const raw = price * (1 - discountPct / 100);
       price = raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);

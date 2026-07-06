@@ -4,7 +4,7 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
 const { postSystemMessage } = require('./community');
-const { getConfigNumber, getDiscountForTier } = require('../lib/config');
+const { getConfigNumber, getDiscountForTier, getGuestMultiplier } = require('../lib/config');
 
 const MAX_NEGOTIATION_ROUND = 4;
 
@@ -38,10 +38,13 @@ router.get('/options', authMid, async (req, res) => {
     const user     = userRows[0];
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > new Date();
     const isGuest  = !isActive;
-    const discountPct = isGuest ? 0 : await getDiscountForTier(user.tier);
+    const [discountPct, guestMultiplier] = await Promise.all([
+      isGuest ? 0 : getDiscountForTier(user.tier),
+      isGuest ? getGuestMultiplier() : 1,
+    ]);
 
     const applyPricing = (base) => {
-      if (isGuest) return base * 2;
+      if (isGuest) return base * guestMultiplier;
       if (!discountPct) return base;
       const raw = base * (1 - discountPct / 100);
       return raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
@@ -124,9 +127,12 @@ router.post('/book', authMid, async (req, res) => {
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > new Date();
     const isGuest  = !isActive;
     const fanLabel = user.display_name || 'A member';
-    const discountPct = isGuest ? 0 : await getDiscountForTier(user.tier);
+    const [discountPct, guestMultiplier] = await Promise.all([
+      isGuest ? 0 : getDiscountForTier(user.tier),
+      isGuest ? getGuestMultiplier() : 1,
+    ]);
 
-    let perMin = isGuest ? baseRate * 2 : (discountPct ? (() => {
+    let perMin = isGuest ? baseRate * guestMultiplier : (discountPct ? (() => {
       const raw = baseRate * (1 - discountPct / 100);
       return raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
     })() : baseRate);

@@ -28,6 +28,24 @@ const DEFAULTS = {
   call_audio_per_min:    8,
   call_video_per_min:    15,
   call_priority_per_min: 22,
+
+  // Add these to the DEFAULTS object:
+  guest_price_multiplier: 2,
+
+  dm_free_per_month_community: 5,
+  dm_free_per_month_insider:   30,
+  dm_free_per_month_premium:   100,
+  dm_free_per_month_supreme:   250,
+
+  dm_daily_cap_community: 2,
+  dm_daily_cap_insider:   3,
+  dm_daily_cap_premium:   5,
+  dm_daily_cap_supreme:   10,
+
+  dm_overage_cost_community: 2,
+  dm_overage_cost_insider:   1,
+  dm_overage_cost_premium:   1,
+  dm_overage_cost_supreme:   1,
 };
 
 async function getConfigValue(key) {
@@ -114,7 +132,42 @@ async function getGalleryUnlocksForTier(tier) {
   if (!GALLERY_UNLOCK_KEYS[tier]) return 0;
   return getConfigNumber(GALLERY_UNLOCK_KEYS[tier]);
 }
+// Add these functions, before module.exports:
 
+async function getGuestMultiplier() {
+  return getConfigNumber('guest_price_multiplier');
+}
+
+const DM_TIER_KEYS = ['community', 'insider', 'premium', 'supreme'];
+
+async function getDmConfigForTier(tier) {
+  if (tier === 'guest') {
+    const [communityOverage, guestMultiplier] = await Promise.all([
+      getConfigNumber('dm_overage_cost_community'),
+      getGuestMultiplier(),
+    ]);
+    return {
+      freeDMsPerMonth: 0,
+      dailyDMCap: 0,
+      overageCost: communityOverage * guestMultiplier,
+    };
+  }
+  if (!DM_TIER_KEYS.includes(tier)) {
+    return { freeDMsPerMonth: 0, dailyDMCap: 0, overageCost: DEFAULTS.dm_overage_cost_community };
+  }
+  const vals = await getConfigNumbers([
+    `dm_free_per_month_${tier}`,
+    `dm_daily_cap_${tier}`,
+    `dm_overage_cost_${tier}`,
+  ]);
+  return {
+    freeDMsPerMonth: vals[`dm_free_per_month_${tier}`],
+    dailyDMCap:      vals[`dm_daily_cap_${tier}`],
+    overageCost:     vals[`dm_overage_cost_${tier}`],
+  };
+}
+
+// Update module.exports to include the new functions:
 module.exports = {
   DEFAULTS,
   getConfigValue,
@@ -124,4 +177,6 @@ module.exports = {
   getTierPrice,
   getAllTierPrices,
   getGalleryUnlocksForTier,
+  getGuestMultiplier,
+  getDmConfigForTier,
 };
