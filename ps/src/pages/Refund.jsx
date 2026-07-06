@@ -49,7 +49,7 @@ export default function Refund() {
 
         <Section title="Cancellations">
           <p>Membership plans do not auto-renew. There is nothing to cancel — your membership simply expires at the end of the chosen period (monthly, quarterly, or annual). You choose when and if to renew.</p>
-          <p>Merchandise orders cannot be cancelled once placed. If you placed an order in error, contact us immediately at <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a> — we will do our best to help if the order has not yet been processed, but cannot guarantee cancellation.</p>
+          <p>Merchandise orders cannot be cancelled once placed. If you placed an order in error, contact us immediately at <a href="mailto:orders@jinaljoshi.in" style={link}>orders@jinaljoshi.in</a> — we will do our best to help if the order has not yet been processed, but cannot guarantee cancellation.</p>
         </Section>
 
         <Section title="Technical issues — token credits">
@@ -59,12 +59,12 @@ export default function Refund() {
             <li>A call session failed to connect due to a platform fault</li>
             <li>A content unlock was charged but access was not granted</li>
           </ul>
-          <p>…you may write to <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a> with the details of the transaction. We will investigate and, where the fault is ours, issue <strong style={{ color: C.text }}>token credits</strong> to your account within 7 business days.</p>
+          <p>…you may write to <a href="mailto:billing@jinaljoshi.in" style={link}>billing@jinaljoshi.in</a> with the details of the transaction. We will investigate and, where the fault is ours, issue <strong style={{ color: C.text }}>token credits</strong> to your account within 7 business days.</p>
           <p><strong style={{ color: C.text }}>Cash refunds are not available under any circumstances,</strong> including technical issues. Token credits are the only form of remedy available.</p>
         </Section>
 
         <Section title="Merchandise — damaged or incorrect items">
-          <p>If you receive a merchandise item that is damaged or incorrect, write to <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a> with photographic evidence within 48 hours of delivery. We will review the case and arrange a replacement or issue token credits at our discretion.</p>
+          <p>If you receive a merchandise item that is damaged or incorrect, write to <a href="mailto:orders@jinaljoshi.in" style={link}>orders@jinaljoshi.in</a> with photographic evidence within 48 hours of delivery. We will review the case and arrange a replacement or issue token credits at our discretion.</p>
         </Section>
 
         <Section title="Chargebacks">
@@ -74,9 +74,9 @@ export default function Refund() {
         <Section title="How to raise a grievance">
           <p>If you have a concern about a transaction, contact us at:</p>
           <p>
-            <strong style={{ color: C.text }}>Email:</strong> <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a><br />
+            <strong style={{ color: C.text }}>Email:</strong> <a href="mailto:grievance@jinaljoshi.in" style={link}>grievance@jinaljoshi.in</a><br />
             <strong style={{ color: C.text }}>Response time:</strong> Within 5 business days<br />
-            <strong style={{ color: C.text }}>Address:</strong> Mumbai, India
+            <strong style={{ color: C.text }}>Regd. Office:</strong> Jinal Joshi, 1B, 1st Floor, Parinee Crescenzo, G Block, BKC, Bandra East, Mumbai - 400 051
           </p>
           <p>Please include your registered email address, the date of the transaction, the amount, and a description of the issue. We take every grievance seriously and will respond promptly.</p>
         </Section>

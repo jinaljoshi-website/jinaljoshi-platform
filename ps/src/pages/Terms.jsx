@@ -40,7 +40,7 @@ export default function Terms() {
           <p>The price of J Tokens in Indian Rupees (INR) is set by the platform and is displayed in real time on the platform's pricing page and at checkout. The rate includes all applicable taxes. No hidden charges apply.</p>
           <p>Bulk discounts apply automatically when purchasing larger quantities of tokens. The exact thresholds and discount percentages are displayed at the time of purchase.</p>
           <p><strong style={{ color: C.text }}>Tokens are strictly single-use digital utility instruments.</strong> They exist solely within the Personal Space platform and hold no real-world cash value. Tokens cannot be converted back to INR, transferred to another account, traded peer-to-peer, or redeemed for cash under any circumstances. Token balances do not expire.</p>
-          <p>Tokens are purchased using Indian Rupees (INR) via Razorpay, a payment aggregator licensed by the Reserve Bank of India.</p>
+          <p>Tokens are purchased using Indian Rupees (INR) via To Be Updated, our payment processing partner.</p>
         </Section>
 
         <Section title="Membership plans">
@@ -68,7 +68,7 @@ export default function Terms() {
         <Section title="All sales are final">
           <p>All purchases made on Personal Space, including J Token recharges, membership plans, content unlocks, merchandise orders, call bookings, and personalised requests, are <strong style={{ color: C.text }}>final and non-refundable.</strong></p>
           <p>Tokens cannot be refunded once purchased. Memberships cannot be cancelled for a refund once activated. Merchandise orders cannot be cancelled once placed.</p>
-          <p><strong style={{ color: C.text }}>Technical issues:</strong> If a purchase fails due to a verifiable technical error on the platform's side, you may write to <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a>. Token credits may be issued at the platform's discretion. Cash refunds are not available under any circumstances.</p>
+          <p><strong style={{ color: C.text }}>Technical issues:</strong> If a purchase fails due to a verifiable technical error on the platform's side, you may write to <a href="mailto:billing@jinaljoshi.in" style={link}>billing@jinaljoshi.in</a>. Token credits may be issued at the platform's discretion. Cash refunds are not available under any circumstances.</p>
           <p>By making any purchase, you confirm that the transaction is voluntary and made of your own free will for your own benefit.</p>
         </Section>
 
@@ -85,7 +85,7 @@ export default function Terms() {
 
         <Section title="Merchandise and shipping">
           <p>Merchandise items are shipped to the address provided at the time of purchase. Delivery timelines are estimates and may vary. The platform is not responsible for delays caused by courier services.</p>
-          <p>Merchandise purchases are final. Exchanges may be considered for items received in a damaged or incorrect condition. Write to <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a> with photographic evidence within 48 hours of delivery.</p>
+          <p>Merchandise purchases are final. Exchanges may be considered for items received in a damaged or incorrect condition. Write to <a href="mailto:orders@jinaljoshi.in" style={link}>orders@jinaljoshi.in</a> with photographic evidence within 48 hours of delivery.</p>
         </Section>
 
         <Section title="Account and security">
@@ -96,7 +96,7 @@ export default function Terms() {
 
         <Section title="Privacy">
           <p>Personal Space collects the minimum information required to operate the platform: your email address, date of birth, and any shipping address you choose to provide. Your data is not sold to third parties.</p>
-          <p>Payment processing is handled by Razorpay. Personal Space does not store your card or bank details. Please refer to our <a href="/privacy" style={link}>Privacy Policy</a> for full details.</p>
+          <p>Payment processing is handled by To Be Updated. Personal Space does not store your card or bank details. Please refer to our <a href="/privacy" style={link}>Privacy Policy</a> for full details.</p>
         </Section>
 
         <Section title="Governing law">
@@ -110,9 +110,9 @@ export default function Terms() {
         <Section title="Contact & grievance officer">
           <p>For support, questions, or disputes:</p>
           <p>
-            <strong style={{ color: C.text }}>Email:</strong> <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a><br />
+            <strong style={{ color: C.text }}>Email:</strong> <a href="mailto:grievance@jinaljoshi.in" style={link}>grievance@jinaljoshi.in</a><br />
             <strong style={{ color: C.text }}>Response time:</strong> Within 7 business days<br />
-            <strong style={{ color: C.text }}>Address:</strong> Mumbai, India
+            <strong style={{ color: C.text }}>Regd. Office:</strong> Jinal Joshi, 1B, 1st Floor, Parinee Crescenzo, G Block, BKC, Bandra East, Mumbai - 400 051
           </p>
           <p>Personal Space is personally operated by Jinal Joshi and support is handled directly, not by a third-party team.</p>
         </Section>

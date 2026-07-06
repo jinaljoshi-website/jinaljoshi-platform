@@ -53,7 +53,6 @@ export default function Homepage() {
   const [loading,    setLoading]    = useState(true);
 
   useEffect(() => {
-    // Fetch live pricing from backend config
     fetch(`${API}/api/public/config`)
       .then((r) => r.json())
       .then((data) => {
@@ -66,9 +65,7 @@ export default function Homepage() {
           supreme:   parseInt(c.supreme_monthly_cost   || DEFAULT_TIER_PRICES.supreme),
         });
       })
-      .catch(() => {
-        // Silently fall back to defaults
-      })
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
@@ -247,7 +244,8 @@ export default function Homepage() {
               <span style={{ fontFamily: F.display, fontSize: 18, color: C.text }}>Personal Space</span>
             </div>
             <div style={{ fontFamily: F.sans, fontSize: 12, color: '#6B6560', lineHeight: 1.7 }}>
-              An independently run platform,<br />personally managed by Jinal Joshi.<br />Mumbai, India.
+              An independently run platform,<br />personally managed by Jinal Joshi.<br />
+              Regd. Office: 1B, 1st Floor, Parinee Crescenzo,<br />G Block, BKC, Bandra East, Mumbai - 400 051
             </div>
           </div>
           <div style={footerLinks}>
@@ -277,7 +275,7 @@ export default function Homepage() {
             © {new Date().getFullYear()} Personal Space · ps.jinaljoshi.in · Personally operated by Jinal Joshi
           </span>
           <span style={{ fontFamily: F.sans, fontSize: 12, color: '#6B6560' }}>
-            Payments secured by Razorpay · RBI-licensed payment aggregator
+            Payments secured by To Be Updated
           </span>
         </div>
       </footer>
@@ -320,7 +318,7 @@ const ghostBtn      = { background: 'transparent', border: `1px solid rgba(242,2
 const ghostBtnLg    = { ...ghostBtn, padding: '13px 24px', fontSize: 15 };
 const footerWrap    = { background: '#0A0908', borderTop: `1px solid rgba(242,235,224,0.08)`, padding: '48px 28px 32px' };
 const footerTop     = { maxWidth: 1100, margin: '0 auto', display: 'flex', justifyContent: 'space-between', gap: 40, flexWrap: 'wrap', marginBottom: 40, paddingBottom: 40, borderBottom: `1px solid rgba(242,235,224,0.06)` };
-const footerBrand   = { maxWidth: 220 };
+const footerBrand   = { maxWidth: 260 };
 const footerLinks   = { display: 'flex', gap: 48, flexWrap: 'wrap' };
 const footerCol     = { display: 'flex', flexDirection: 'column', gap: 10 };
 const footerColTitle = { fontFamily: F.mono, fontSize: 10, color: C.accent, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 4 };

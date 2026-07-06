@@ -34,7 +34,7 @@ export default function Contact() {
             <div style={cardIcon}>🔒</div>
             <div style={cardTitle}>Payment & billing</div>
             <div style={cardDesc}>For issues with token purchases, payment failures, or transaction queries.</div>
-            <a href="mailto:support@jinaljoshi.in" style={emailLink}>support@jinaljoshi.in</a>
+            <a href="mailto:billing@jinaljoshi.in" style={emailLink}>billing@jinaljoshi.in</a>
             <div style={responseTime}>Response within 5 business days</div>
           </div>
 
@@ -42,7 +42,7 @@ export default function Contact() {
             <div style={cardIcon}>📦</div>
             <div style={cardTitle}>Merchandise & orders</div>
             <div style={cardDesc}>For shipping queries, damaged items, or order status. Please include your order details and photos if relevant.</div>
-            <a href="mailto:support@jinaljoshi.in" style={emailLink}>support@jinaljoshi.in</a>
+            <a href="mailto:orders@jinaljoshi.in" style={emailLink}>orders@jinaljoshi.in</a>
             <div style={responseTime}>Response within 48 hours for urgent order issues</div>
           </div>
 
@@ -50,7 +50,7 @@ export default function Contact() {
             <div style={cardIcon}>⚖️</div>
             <div style={cardTitle}>Grievance officer</div>
             <div style={cardDesc}>For formal grievances under the Information Technology Act or consumer protection matters.</div>
-            <a href="mailto:support@jinaljoshi.in" style={emailLink}>support@jinaljoshi.in</a>
+            <a href="mailto:grievance@jinaljoshi.in" style={emailLink}>grievance@jinaljoshi.in</a>
             <div style={responseTime}>Response within 7 business days as required by law</div>
           </div>
         </div>
@@ -75,12 +75,12 @@ export default function Contact() {
               <span style={infoVal}><a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a></span>
             </div>
             <div style={infoRow}>
-              <span style={infoLabel}>Business address</span>
-              <span style={infoVal}>Mumbai, India</span>
+              <span style={infoLabel}>Regd. Office:</span>
+              <span style={{ ...infoVal, textAlign: 'right' }}>Jinal Joshi<br />1B, 1st Floor, Parinee Crescenzo,<br />G Block, BKC, Bandra East, Mumbai - 400 051</span>
             </div>
             <div style={infoRow}>
               <span style={infoLabel}>Payment processor</span>
-              <span style={infoVal}>Razorpay (RBI-licensed payment aggregator)</span>
+              <span style={infoVal}>To Be Updated</span>
             </div>
           </div>
         </div>

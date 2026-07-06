@@ -36,7 +36,7 @@ export default function Privacy() {
             <li><strong style={{ color: C.text }}>Device information</strong> — browser type and approximate location, collected automatically when you log in, for security purposes.</li>
             <li><strong style={{ color: C.text }}>Communications</strong> — messages sent through the platform's direct messaging feature are stored to maintain conversation history.</li>
           </ul>
-          <p>We do not collect payment card details. All payment processing is handled directly by Razorpay.</p>
+          <p>We do not collect payment card details. All payment processing is handled directly by To Be Updated.</p>
         </Section>
 
         <Section title="How we use your information">
@@ -54,8 +54,8 @@ export default function Privacy() {
         </Section>
 
         <Section title="Payment processing">
-          <p>All payments are processed by Razorpay, a PCI-DSS compliant payment gateway licensed by the Reserve Bank of India. Personal Space does not store, process, or transmit your card or bank account details at any point.</p>
-          <p>When you make a payment, your financial details are entered directly into Razorpay's secure interface. Please refer to <a href="https://razorpay.com/privacy/" target="_blank" rel="noopener noreferrer" style={link}>Razorpay's Privacy Policy</a> for information on how payment data is handled on their end.</p>
+          <p>All payments are processed by To Be Updated. Personal Space does not store, process, or transmit your card or bank account details at any point.</p>
+          <p>When you make a payment, your financial details are entered directly into our payment processor's secure interface, not stored on our own servers at any point.</p>
         </Section>
 
         <Section title="Data storage and security">
@@ -94,9 +94,9 @@ export default function Privacy() {
 
         <Section title="Contact & grievance officer">
           <p>For privacy-related queries or to raise a grievance:</p>
-          <p><strong style={{ color: C.text }}>Email:</strong> <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a><br />
+          <p><strong style={{ color: C.text }}>Email:</strong> <a href="mailto:grievance@jinaljoshi.in" style={link}>grievance@jinaljoshi.in</a><br />
           <strong style={{ color: C.text }}>Response time:</strong> Within 7 business days<br />
-          <strong style={{ color: C.text }}>Address:</strong> Mumbai, India</p>
+          <strong style={{ color: C.text }}>Regd. Office:</strong> Jinal Joshi, 1B, 1st Floor, Parinee Crescenzo, G Block, BKC, Bandra East, Mumbai - 400 051</p>
         </Section>
 
         <div style={footerNote}>Personal Space · ps.jinaljoshi.in · Personally operated by Jinal Joshi</div>
