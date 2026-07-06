@@ -36,6 +36,14 @@ export function Calls() {
 
   useEffect(() => { load(); }, []);
 
+  // Poll for live updates — catches a fan proposing a new time or accepting, without manual refresh
+  useEffect(() => {
+    const listPollInterval = setInterval(() => {
+      if (!activeCall) load();
+    }, 5000);
+    return () => clearInterval(listPollInterval);
+  }, [activeCall]);
+
   const startReject  = (id) => { setRejecting(id); setReason(''); };
   const cancelReject = () => { setRejecting(null); setReason(''); };
 

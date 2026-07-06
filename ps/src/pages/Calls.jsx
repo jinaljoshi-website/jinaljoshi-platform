@@ -59,6 +59,33 @@ export default function Calls() {
 
   useEffect(() => { load().finally(() => setLoading(false)); }, []);
 
+  // Poll for live updates — catches Jinal starting the call, confirming, or countering a time,
+  // without requiring the fan to manually refresh the page
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!activeCall) load();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [activeCall]);
+
+  // Poll for live updates — catches Jinal starting the call, confirming, or countering a time,
+  // without requiring the fan to manually refresh the page
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!activeCall) load();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [activeCall]);
+
+  // Poll for live updates — catches Jinal starting the call, confirming, or countering a time,
+  // without requiring the fan to manually refresh the page
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!activeCall) load();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [activeCall]);
+
   const handleSelect = async (option) => {
     if (selected?.id === option.id) { setSelected(null); setPermStatus(null); return; }
     setSelected(option);
