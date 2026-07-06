@@ -4,9 +4,11 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
 const { postSystemMessage } = require('./community');
+const { getDiscountForTier } = require('../lib/config');
 
-function pricingFor(basePrice, userTier, discountPct) {
+async function pricingFor(basePrice, userTier) {
   if (userTier === 'guest') return Math.round(basePrice * 2);
+  const discountPct = await getDiscountForTier(userTier);
   if (!discountPct) return Math.round(basePrice);
   const raw = basePrice * (1 - discountPct / 100);
   return raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
@@ -26,18 +28,17 @@ router.get('/options', authMid, async (req, res) => {
     const now      = new Date();
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier = isActive ? user.tier : 'guest';
-    const discountMap = { community: 5, insider: 10, premium: 15, supreme: 20 };
-    const discountPct = discountMap[userTier] || 0;
+    const discountPct = isActive ? await getDiscountForTier(userTier) : 0;
 
     const { rows: items } = await pool.query(
       `SELECT id, title, price_coins FROM extras_items WHERE visible = TRUE ORDER BY created_at ASC`
     );
 
-    const options = items.map((item) => ({
+    const options = await Promise.all(items.map(async (item) => ({
       id: item.id,
       title: item.title,
-      coinsPerRequest: pricingFor(item.price_coins, userTier, discountPct),
-    }));
+      coinsPerRequest: await pricingFor(item.price_coins, userTier),
+    })));
 
     res.json({
       options,
@@ -95,8 +96,6 @@ router.post('/request', authMid, async (req, res) => {
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier = isActive ? user.tier : 'guest';
     const fanLabel = user.display_name || 'A member';
-    const discountMap = { community: 5, insider: 10, premium: 15, supreme: 20 };
-    const discountPct = discountMap[userTier] || 0;
 
     const { rows: itemRows } = await client.query(
       `SELECT * FROM extras_items WHERE id = $1 AND visible = TRUE FOR UPDATE`,
@@ -107,7 +106,7 @@ router.post('/request', authMid, async (req, res) => {
       return res.status(404).json({ error: 'This request type is not available' });
     }
     const item = itemRows[0];
-    const price = pricingFor(item.price_coins, userTier, discountPct);
+    const price = await pricingFor(item.price_coins, userTier);
 
     if (user.coin_balance < price) {
       await client.query('ROLLBACK');

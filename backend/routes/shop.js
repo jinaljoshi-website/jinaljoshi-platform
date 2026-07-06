@@ -4,6 +4,7 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
 const { postSystemMessage } = require('./community');
+const { getDiscountForTier } = require('../lib/config');
 
 // ─────────────────────────────────────────────
 // GET /api/shop/items
@@ -22,8 +23,7 @@ router.get('/items', authMid, async (req, res) => {
     const now       = new Date();
     const isActive  = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier  = isActive ? user.tier : 'guest';
-    const discountMap = { community: 5, insider: 10, premium: 15, supreme: 20 };
-    const discountPct = discountMap[userTier] || 0;
+    const discountPct = await getDiscountForTier(userTier);
 
     const { rows: items } = await pool.query(
       `SELECT id, title, description, price_coins, remaining, img_key
@@ -75,8 +75,7 @@ router.post('/buy', authMid, async (req, res) => {
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier = isActive ? user.tier : 'guest';
     const fanLabel = user.display_name || 'A member';
-    const discountMap = { community: 5, insider: 10, premium: 15, supreme: 20 };
-    const discountPct = discountMap[userTier] || 0;
+    const discountPct = await getDiscountForTier(userTier);
 
     const { rows: itemRows } = await client.query(
       `SELECT * FROM merchandise WHERE id = $1 FOR UPDATE`,

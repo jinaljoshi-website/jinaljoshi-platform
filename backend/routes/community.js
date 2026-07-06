@@ -2,10 +2,7 @@
 const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
-
-const TOKENS_PER_MESSAGE_BLOCK = 1; // 1 token buys 3 extra community messages
-const MESSAGES_PER_BLOCK       = 3;
-const FREE_DAILY_MESSAGES      = 1; // every fan gets 1 free community message per day
+const { getConfigNumber } = require('../lib/config');
 
 // ── Helper: post a system message ────────────────────────────────────────────
 async function postSystemMessage(content) {
@@ -49,7 +46,6 @@ router.get('/posts', authMid, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // GET /api/community/status
-// Tells the fan how many free/paid messages they have left today, plus background
 // ─────────────────────────────────────────────
 
 router.get('/status', authMid, async (req, res) => {
@@ -58,6 +54,11 @@ router.get('/status', authMid, async (req, res) => {
       `SELECT value FROM platform_config WHERE key = 'community_chat_bg'`
     );
     const communityBg = bgRows[0]?.value || '';
+
+    const [freeDailyLimit, messagesPerBlock] = await Promise.all([
+      getConfigNumber('community_daily_free_messages'),
+      getConfigNumber('community_messages_per_credit_block'),
+    ]);
 
     if (req.user.isArtist) {
       return res.json({ isArtist: true, unlimited: true, communityBg });
@@ -76,15 +77,15 @@ router.get('/status', authMid, async (req, res) => {
       [req.user.userId, todayKey()]
     );
     const usedToday = usageRows[0]?.posts_used || 0;
-    const freeRemaining = Math.max(0, FREE_DAILY_MESSAGES - usedToday);
+    const freeRemaining = Math.max(0, freeDailyLimit - usedToday);
 
     res.json({
       isArtist:       false,
       isMember:       isActive,
       freeRemaining,
-      freeDailyLimit: FREE_DAILY_MESSAGES,
+      freeDailyLimit,
       messageCredits: user.community_message_credits,
-      messagesPerTokenBlock: MESSAGES_PER_BLOCK,
+      messagesPerTokenBlock: messagesPerBlock,
       communityBg,
     });
   } catch (err) {
@@ -107,6 +108,7 @@ router.post('/post', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     if (!req.user.isArtist) {
+      const freeDailyLimit = await getConfigNumber('community_daily_free_messages');
       const day = todayKey();
 
       const { rows: usageRows } = await client.query(
@@ -115,7 +117,7 @@ router.post('/post', authMid, async (req, res) => {
       );
       const usedToday = usageRows[0]?.posts_used || 0;
 
-      if (usedToday < FREE_DAILY_MESSAGES) {
+      if (usedToday < freeDailyLimit) {
         await client.query(
           `INSERT INTO community_daily_usage (user_id, day_key, posts_used)
            VALUES ($1, $2, 1)
@@ -172,7 +174,6 @@ router.post('/post', authMid, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // POST /api/community/buy-credits
-// 1 token = 3 extra community messages, credits never expire
 // ─────────────────────────────────────────────
 
 router.post('/buy-credits', authMid, async (req, res) => {
@@ -184,6 +185,8 @@ router.post('/buy-credits', authMid, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    const messagesPerBlock = await getConfigNumber('community_messages_per_credit_block');
 
     const { rows: userRows } = await client.query(
       `SELECT coin_balance FROM users WHERE id = $1 FOR UPDATE`,
@@ -202,7 +205,7 @@ router.post('/buy-credits', authMid, async (req, res) => {
       });
     }
 
-    const creditsToAdd = amount * MESSAGES_PER_BLOCK;
+    const creditsToAdd = amount * messagesPerBlock;
 
     await client.query(
       `UPDATE users SET

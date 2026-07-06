@@ -4,8 +4,8 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
 const { postSystemMessage } = require('./community');
+const { getConfigNumber, getDiscountForTier } = require('../lib/config');
 
-const DEFAULT_RATES = { audio: 8, video: 15, 'priority-video': 22 };
 const MAX_NEGOTIATION_ROUND = 4;
 
 async function getCallRate(type) {
@@ -15,23 +15,8 @@ async function getCallRate(type) {
     'priority-video': 'call_priority_per_min',
   };
   const key = keyMap[type];
-  if (!key) return DEFAULT_RATES[type] || 8;
-  try {
-    const { rows } = await pool.query(`SELECT value FROM platform_config WHERE key = $1`, [key]);
-    return rows[0] ? parseInt(rows[0].value) : (DEFAULT_RATES[type] || 8);
-  } catch { return DEFAULT_RATES[type] || 8; }
-}
-
-async function getMemberDiscount(userId) {
-  try {
-    const { rows } = await pool.query(
-      `SELECT tier, membership_expires_at FROM users WHERE id = $1`, [userId]
-    );
-    const user = rows[0];
-    if (!user || !user.membership_expires_at || new Date(user.membership_expires_at) <= new Date()) return 0;
-    const discounts = { community: 5, insider: 10, premium: 15, supreme: 20 };
-    return discounts[user.tier] || 0;
-  } catch { return 0; }
+  if (!key) return 8;
+  return getConfigNumber(key);
 }
 
 // ─────────────────────────────────────────────
@@ -46,7 +31,6 @@ router.get('/options', authMid, async (req, res) => {
       getCallRate('priority-video'),
     ]);
 
-    const discountPct = await getMemberDiscount(req.user.userId);
     const { rows: userRows } = await pool.query(
       `SELECT coin_balance, tier, membership_expires_at FROM users WHERE id = $1`,
       [req.user.userId]
@@ -54,6 +38,7 @@ router.get('/options', authMid, async (req, res) => {
     const user     = userRows[0];
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > new Date();
     const isGuest  = !isActive;
+    const discountPct = isGuest ? 0 : await getDiscountForTier(user.tier);
 
     const applyPricing = (base) => {
       if (isGuest) return base * 2;
@@ -129,8 +114,7 @@ router.post('/book', authMid, async (req, res) => {
     const primetime  = slots.find((s) => s.type === 'primetime');
     const multiplier = primetime ? parseFloat(primetime.multiplier) : 1;
 
-    const baseRate    = await getCallRate(callType);
-    const discountPct = await getMemberDiscount(req.user.userId);
+    const baseRate = await getCallRate(callType);
 
     const { rows: userRows } = await client.query(
       `SELECT coin_balance, tier, membership_expires_at, display_name FROM users WHERE id = $1 FOR UPDATE`,
@@ -140,6 +124,7 @@ router.post('/book', authMid, async (req, res) => {
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > new Date();
     const isGuest  = !isActive;
     const fanLabel = user.display_name || 'A member';
+    const discountPct = isGuest ? 0 : await getDiscountForTier(user.tier);
 
     let perMin = isGuest ? baseRate * 2 : (discountPct ? (() => {
       const raw = baseRate * (1 - discountPct / 100);

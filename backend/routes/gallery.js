@@ -3,10 +3,10 @@ const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
+const { getGalleryUnlocksForTier } = require('../lib/config');
 
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
 const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
-const TIER_UNLOCKS_PER_MONTH = { community: 1, insider: 4, premium: 7, supreme: 10 };
 
 function toUrl(key) {
   if (!key) return null;
@@ -36,7 +36,7 @@ router.get('/sets', authMid, async (req, res) => {
     const isGuest   = userTier === 'guest';
 
     const monthKey    = now.toISOString().slice(0, 7);
-    const maxUnlocks  = TIER_UNLOCKS_PER_MONTH[userTier] || 0;
+    const maxUnlocks  = await getGalleryUnlocksForTier(userTier);
     let creditsUsed   = 0;
     if (maxUnlocks > 0) {
       const { rows: allotRows } = await pool.query(
@@ -103,7 +103,7 @@ router.post('/unlock', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: userRows } = await client.query(
-      `SELECT tier, membership_expires_at, coin_balance, display_name, email FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT tier, membership_expires_at, coin_balance, display_name FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user      = userRows[0];
@@ -132,7 +132,6 @@ router.post('/unlock', authMid, async (req, res) => {
       return res.status(409).json({ error: 'Already unlocked' });
     }
 
-    // Free for everyone, or free for members depending on category
     if (set.price_coins === 0 && (set.min_tier === 'none' || meetsCategory(userTier, set.min_tier))) {
       await client.query(
         `INSERT INTO access_grants (user_id, set_id, grant_type, coins_paid)
@@ -144,12 +143,10 @@ router.post('/unlock', authMid, async (req, res) => {
       return res.json({ ok: true, coinsSpent: 0, grantType: 'membership_free' });
     }
 
-    // Try a free credit-based unlock: only available to fans whose tier meets the set's category
     let useUnlockCredit = false;
     if (set.price_coins > 0 && set.use_unlock_credit && meetsCategory(userTier, set.min_tier)) {
-      const monthKey    = now.toISOString().slice(0, 7);
-      const tierUnlocks = { community: 1, insider: 4, premium: 7, supreme: 10 };
-      const maxUnlocks  = tierUnlocks[userTier] || 0;
+      const monthKey   = now.toISOString().slice(0, 7);
+      const maxUnlocks = await getGalleryUnlocksForTier(userTier);
       const { rows: allotRows } = await client.query(
         `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2`,
         [req.user.userId, monthKey]

@@ -3,13 +3,7 @@ const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
-
-const TIER_PRICES = {
-  community: 10,
-  insider:   30,
-  premium:   75,
-  supreme:   150,
-};
+const { getTierPrice, getAllTierPrices } = require('../lib/config');
 
 const TIER_ORDER = ['community', 'insider', 'premium', 'supreme'];
 
@@ -63,6 +57,7 @@ router.get('/status', authMid, async (req, res) => {
 router.post('/purchase', authMid, async (req, res) => {
   const { tier, term = 'monthly' } = req.body;
 
+  const TIER_PRICES = await getAllTierPrices();
   if (!TIER_PRICES[tier]) return res.status(400).json({ error: 'Invalid membership tier' });
   if (!['monthly', 'quarterly', 'annual'].includes(term)) {
     return res.status(400).json({ error: 'Invalid term' });
@@ -149,6 +144,7 @@ router.post('/purchase', authMid, async (req, res) => {
 router.post('/upgrade', authMid, async (req, res) => {
   const { newTier } = req.body;
 
+  const TIER_PRICES = await getAllTierPrices();
   if (!TIER_PRICES[newTier]) return res.status(400).json({ error: 'Invalid tier' });
 
   const client = await pool.connect();
@@ -261,7 +257,7 @@ router.post('/extend', authMid, async (req, res) => {
       return res.status(400).json({ error: 'No active membership to extend' });
     }
 
-    const basePrice = TIER_PRICES[user.tier];
+    const basePrice = await getTierPrice(user.tier);
     const mult      = termMultiplier(term);
     const months    = termMonths(term);
     const totalCost = Math.round(basePrice * mult);
@@ -321,6 +317,7 @@ router.post('/extend', authMid, async (req, res) => {
 router.post('/gift', authMid, async (req, res) => {
   const { email, tier, term = 'monthly', note } = req.body;
 
+  const TIER_PRICES = await getAllTierPrices();
   if (!email) return res.status(400).json({ error: 'Email is required' });
   if (!TIER_PRICES[tier]) return res.status(400).json({ error: 'Invalid tier' });
 
@@ -442,6 +439,7 @@ router.post('/gift/extend', authMid, async (req, res) => {
 router.post('/gift/change', authMid, async (req, res) => {
   const { email, tier, term = 'monthly', note } = req.body;
 
+  const TIER_PRICES = await getAllTierPrices();
   if (!email) return res.status(400).json({ error: 'Email is required' });
   if (!TIER_PRICES[tier]) return res.status(400).json({ error: 'Invalid tier' });
   if (!['monthly', 'quarterly', 'annual'].includes(term)) {
