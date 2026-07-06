@@ -84,8 +84,8 @@ router.post('/create', authMid, artistOnly, async (req, res) => {
       data: {
         created_by_id: req.user.userId,
         members: [
-          { user_id: req.user.userId, role: 'admin'  },
-          { user_id: callReq.fan_id,  role: 'member' },
+          { user_id: req.user.userId, role: 'admin' },
+          { user_id: callReq.fan_id,  role: 'user'  },
         ],
         custom: { callRequestId, callType: callReq.call_type },
       },
