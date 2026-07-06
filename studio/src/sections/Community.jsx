@@ -47,8 +47,8 @@ export function Community() {
 
   return (
     <div>
-      <Eyebrow>Community</Eyebrow>
-      <T.title>Community feed</T.title>
+      <Eyebrow>Updates</Eyebrow>
+      <T.title>The Happening Place</T.title>
 
       {/* Post composer */}
       <Card style={{ marginBottom: 24 }}>

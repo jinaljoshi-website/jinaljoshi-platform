@@ -2,7 +2,7 @@
 const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
-const { getConfigNumber } = require('../lib/config');
+const { getConfigNumber, getGuestMultiplier } = require('../lib/config');
 
 // ── Helper: post a system message ────────────────────────────────────────────
 async function postSystemMessage(content) {
@@ -186,7 +186,16 @@ router.post('/buy-credits', authMid, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const messagesPerBlock = await getConfigNumber('community_messages_per_credit_block');
+    const { rows: statusRows } = await client.query(
+      `SELECT membership_expires_at FROM users WHERE id = $1`,
+      [req.user.userId]
+    );
+    const isGuest = !statusRows[0]?.membership_expires_at || new Date(statusRows[0].membership_expires_at) <= new Date();
+
+    const [messagesPerBlock, guestMultiplier] = await Promise.all([
+      getConfigNumber('community_messages_per_credit_block'),
+      isGuest ? getGuestMultiplier() : 1,
+    ]);
 
     const { rows: userRows } = await client.query(
       `SELECT coin_balance FROM users WHERE id = $1 FOR UPDATE`,
@@ -194,14 +203,16 @@ router.post('/buy-credits', authMid, async (req, res) => {
     );
     const user = userRows[0];
 
-    if (user.coin_balance < amount) {
+    const actualCost = isGuest ? Math.round(amount * guestMultiplier) : amount;
+
+    if (user.coin_balance < actualCost) {
       await client.query('ROLLBACK');
       return res.status(402).json({
         error:     'INSUFFICIENT_TOKENS',
-        message:   `This costs ${amount} tokens. You have ${user.coin_balance}.`,
-        required:  amount,
+        message:   `This costs ${actualCost} tokens. You have ${user.coin_balance}.`,
+        required:  actualCost,
         available: user.coin_balance,
-        shortBy:   amount - user.coin_balance,
+        shortBy:   actualCost - user.coin_balance,
       });
     }
 
@@ -212,13 +223,13 @@ router.post('/buy-credits', authMid, async (req, res) => {
          coin_balance               = coin_balance - $1,
          community_message_credits  = community_message_credits + $2
        WHERE id = $3`,
-      [amount, creditsToAdd, req.user.userId]
+      [actualCost, creditsToAdd, req.user.userId]
     );
 
     await client.query(
       `INSERT INTO coin_ledger (user_id, type, direction, amount, label)
        VALUES ($1, 'community_credits', 'debit', $2, $3)`,
-      [req.user.userId, amount, `Bought ${creditsToAdd} community messages`]
+      [req.user.userId, actualCost, `Bought ${creditsToAdd} community messages${isGuest ? ' (guest rate)' : ''}`]
     );
 
     await client.query('COMMIT');
@@ -226,7 +237,7 @@ router.post('/buy-credits', authMid, async (req, res) => {
     res.json({
       ok:            true,
       creditsAdded:  creditsToAdd,
-      tokensSpent:   amount,
+      tokensSpent:   actualCost,
       message:       `${creditsToAdd} community messages added to your account.`,
     });
   } catch (err) {

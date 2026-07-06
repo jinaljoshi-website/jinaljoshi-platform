@@ -18,7 +18,7 @@ import Profile    from './Profile';
 
 const navItems = [
   { to: '/platform/chat',       label: 'Chat'       },
-  { to: '/platform/community',  label: 'Community'  },
+  { to: '/platform/community',  label: 'The Happening Place'  },
   { to: '/platform/gallery',    label: 'Gallery'    },
   { to: '/platform/calls',      label: 'Calls'      },
   { to: '/platform/shop',       label: 'Shop'       },

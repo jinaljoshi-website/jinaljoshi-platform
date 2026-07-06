@@ -3,7 +3,7 @@ const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
-const { getGalleryUnlocksForTier, getGuestMultiplier } = require('../lib/config');
+const { getGalleryUnlocksForTier, getGuestMultiplier, getDiscountForTier } = require('../lib/config');
 
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
 const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
@@ -17,6 +17,12 @@ function toUrl(key) {
 function meetsCategory(userTier, minTier) {
   if (!minTier || minTier === 'none') return true;
   return TIER_ORDER.indexOf(userTier) >= TIER_ORDER.indexOf(minTier);
+}
+
+function applyDiscount(price, discountPct) {
+  if (!discountPct) return Math.round(price);
+  const raw = price * (1 - discountPct / 100);
+  return raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
 }
 
 // ─────────────────────────────────────────────
@@ -34,7 +40,11 @@ router.get('/sets', authMid, async (req, res) => {
     const isActive  = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier  = isActive ? user.tier : 'guest';
     const isGuest   = userTier === 'guest';
-    const guestMultiplier = isGuest ? await getGuestMultiplier() : 1;
+    const [guestMultiplier, discountPct, supremeDiscountPct] = await Promise.all([
+      isGuest ? getGuestMultiplier() : 1,
+      isGuest ? 0 : getDiscountForTier(userTier),
+      getDiscountForTier('supreme'),
+    ]);
 
     const monthKey    = now.toISOString().slice(0, 7);
     const maxUnlocks  = await getGalleryUnlocksForTier(userTier);
@@ -58,7 +68,6 @@ router.get('/sets', authMid, async (req, res) => {
       [req.user.userId]
     );
 
-    // Item counts per set, broken down by media type
     const { rows: itemCounts } = await pool.query(
       `SELECT set_id, media_type, COUNT(*) AS count
        FROM set_items
@@ -73,7 +82,6 @@ router.get('/sets', authMid, async (req, res) => {
 
     const setsWithUrls = sets.map((s) => {
       const qualifiesForCategory = meetsCategory(userTier, s.min_tier);
-      // "Purchase-only" sets never offer a free credit path, regardless of tier — always blurred until bought
       const isPurchaseOnly = !s.use_unlock_credit && s.price_coins > 0;
       const creditEligible = !s.already_unlocked
         && s.price_coins > 0
@@ -81,7 +89,11 @@ router.get('/sets', authMid, async (req, res) => {
         && qualifiesForCategory
         && creditsRemaining > 0;
 
-      const displayPrice = isGuest ? Math.round(s.price_coins * guestMultiplier) : s.price_coins;
+      const displayPrice = isGuest
+        ? Math.round(s.price_coins * guestMultiplier)
+        : applyDiscount(s.price_coins, discountPct);
+      const bestMemberPrice = applyDiscount(s.price_coins, supremeDiscountPct);
+
       const counts = countsBySet[s.id] || { photos: 0, videos: 0 };
 
       return {
@@ -89,23 +101,24 @@ router.get('/sets', authMid, async (req, res) => {
         cover_url: toUrl(s.cover_key),
         creditEligible,
         displayPrice,
+        bestMemberPrice,
         photoCount: counts.photos,
         videoCount: counts.videos,
         isFreeForAll: s.price_coins === 0 && (s.min_tier === 'none' || s.min_tier === null),
         coverBlurred: !s.already_unlocked && (!qualifiesForCategory || isPurchaseOnly),
-        // Whether a member of a lower tier would unlock this free at a higher tier — drives the upgrade nudge
         unlocksFreeAtHigherTier: !isPurchaseOnly && !qualifiesForCategory && s.min_tier && s.min_tier !== 'none',
       };
     });
 
-    const freeForAll    = setsWithUrls.filter((s) => s.isFreeForAll);
-    const unlockable     = setsWithUrls.filter((s) => !s.isFreeForAll);
+    const freeForAll = setsWithUrls.filter((s) => s.isFreeForAll);
+    const unlockable  = setsWithUrls.filter((s) => !s.isFreeForAll);
 
     res.json({
       freeForAll,
       unlockable,
       userTier,
       isGuest,
+      discountPct,
       coinBalance:     user.coin_balance,
       creditsRemaining,
       creditsMax:      maxUnlocks,
@@ -138,7 +151,10 @@ router.post('/unlock', authMid, async (req, res) => {
     const userTier  = isActive ? user.tier : 'guest';
     const isGuest   = userTier === 'guest';
     const fanLabel  = user.display_name || 'A member';
-    const guestMultiplier = isGuest ? await getGuestMultiplier() : 1;
+    const [guestMultiplier, discountPct] = await Promise.all([
+      isGuest ? getGuestMultiplier() : 1,
+      isGuest ? 0 : getDiscountForTier(userTier),
+    ]);
 
     const { rows: setRows } = await client.query(
       `SELECT * FROM sets WHERE id = $1 AND visible = TRUE`,
@@ -191,7 +207,9 @@ router.post('/unlock', authMid, async (req, res) => {
       }
     }
 
-    const basePrice = isGuest ? Math.round(set.price_coins * guestMultiplier) : set.price_coins;
+    const basePrice = isGuest
+      ? Math.round(set.price_coins * guestMultiplier)
+      : applyDiscount(set.price_coins, discountPct);
     const price = useUnlockCredit ? 0 : basePrice;
 
     if (price > 0 && user.coin_balance < price) {

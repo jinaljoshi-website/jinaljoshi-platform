@@ -272,7 +272,7 @@ function GalleryCard({ item, isGuest, userTier, coinBalance, bestTierName, onErr
           )}
 
           {isGuest && !isFree && (
-            <div style={nudge}>Members get this for as low as {item.price_coins} tokens. Explore Membership.</div>
+            <div style={nudge}>Members get this for as low as {item.bestMemberPrice} tokens. Explore Membership.</div>
           )}
 
           {!isGuest && item.unlocksFreeAtHigherTier && (

@@ -20,6 +20,19 @@ function toDateStr(val) {
   return String(val).slice(0, 10);
 }
 
+// Determines the effective per-message pricing mode for this fan right now.
+// Priority: messages-per-token block mode > explicit flat override (including zero) > tier default.
+function resolveCustomPricing(fanSettings, tierOverageCost) {
+  const perTokenBlock = fanSettings.custom_messages_per_token;
+  if (perTokenBlock !== null && perTokenBlock !== undefined && perTokenBlock > 0) {
+    return { mode: 'per_token_block', blockSize: perTokenBlock };
+  }
+  if (fanSettings.custom_chat_price !== null && fanSettings.custom_chat_price !== undefined) {
+    return { mode: 'flat', flatCost: fanSettings.custom_chat_price };
+  }
+  return { mode: 'tier_default', flatCost: tierOverageCost };
+}
+
 // ─────────────────────────────────────────────
 // GET /api/chat/messages
 // ─────────────────────────────────────────────
@@ -50,7 +63,7 @@ router.get('/status', authMid, async (req, res) => {
   try {
     const { rows: userRows } = await pool.query(
       `SELECT u.tier, u.membership_expires_at, u.coin_balance,
-              COALESCE(fs.custom_chat_price, 0) AS custom_price,
+              fs.custom_chat_price, fs.custom_messages_per_token, fs.messages_since_charge,
               COALESCE(fs.can_send_media, FALSE) AS can_send_media,
               COALESCE(fs.personal_chat_bg, pc.value, '') AS chat_bg
        FROM users u
@@ -67,13 +80,25 @@ router.get('/status', authMid, async (req, res) => {
     const monthKey = currentMonthKey();
     const dayStr   = currentDayStr();
 
+    const pricing     = resolveCustomPricing(user, config.overageCost);
+    const sinceCharge  = user.messages_since_charge || 0;
+
+    const nextCostUnderCustomPricing = () => {
+      if (pricing.mode === 'per_token_block') {
+        const wouldReachBlock = (sinceCharge + 1) >= pricing.blockSize;
+        return wouldReachBlock ? 1 : 0;
+      }
+      return pricing.flatCost;
+    };
+
     if (userTier === 'guest') {
+      const overageCost = nextCostUnderCustomPricing();
       return res.json({
         tier: 'guest', coinBalance: user.coin_balance,
         freeDMsPerMonth: 0, dailyDMCap: 0,
-        overageCost: user.custom_price || config.overageCost,
+        overageCost,
         monthUsed: 0, freeRemaining: 0, todayUsed: 0, dailyRemaining: 0,
-        nextIsFree: false, nextCost: user.custom_price || config.overageCost,
+        nextIsFree: overageCost === 0, nextCost: overageCost,
         canSendMedia: user.can_send_media,
         chatBg: user.chat_bg,
       });
@@ -90,13 +115,18 @@ router.get('/status', authMid, async (req, res) => {
     const monthUsed  = allot.free_dms_used || 0;
     const freeRem    = Math.max(0, config.freeDMsPerMonth - monthUsed);
     const dailyRem   = Math.max(0, config.dailyDMCap - todayUsed);
-    const nextIsFree = freeRem > 0 && dailyRem > 0;
-    const overageCost = user.custom_price || config.overageCost;
+    const nextIsFreeAllotment = freeRem > 0 && dailyRem > 0;
+
+    // A custom override (flat or per-token) replaces the normal free-allotment system entirely for this fan
+    const hasCustomOverride = pricing.mode !== 'tier_default';
+    const overageCost = nextCostUnderCustomPricing();
+    const nextIsFree  = hasCustomOverride ? overageCost === 0 : nextIsFreeAllotment;
 
     res.json({
       tier: userTier, coinBalance: user.coin_balance,
       freeDMsPerMonth: config.freeDMsPerMonth, dailyDMCap: config.dailyDMCap,
-      overageCost, monthUsed, freeRemaining: freeRem,
+      overageCost: hasCustomOverride ? overageCost : (user.coin_balance !== undefined ? overageCost : overageCost),
+      monthUsed, freeRemaining: freeRem,
       todayUsed, dailyRemaining: dailyRem,
       nextIsFree, nextCost: nextIsFree ? 0 : overageCost,
       canSendMedia: user.can_send_media,
@@ -131,7 +161,7 @@ router.post('/send', authMid, async (req, res) => {
 
     const { rows: userRows } = await client.query(
       `SELECT u.tier, u.membership_expires_at, u.coin_balance,
-              COALESCE(fs.custom_chat_price, 0) AS custom_price,
+              fs.custom_chat_price, fs.custom_messages_per_token, fs.messages_since_charge,
               COALESCE(fs.can_send_media, FALSE) AS can_send_media
        FROM users u
        LEFT JOIN fan_settings fs ON fs.user_id = u.id
@@ -151,13 +181,40 @@ router.post('/send', authMid, async (req, res) => {
       return res.status(403).json({ error: 'Media sending is not enabled for your account' });
     }
 
+    const pricing = resolveCustomPricing(user, config.overageCost);
     let tokensCharged = 0;
     let useFreeDM     = false;
-    const overageCost = user.custom_price || config.overageCost;
 
-    if (userTier === 'guest') {
-      tokensCharged = overageCost;
+    if (pricing.mode === 'per_token_block') {
+      // Ensure a fan_settings row exists so the counter can be tracked
+      await client.query(
+        `INSERT INTO fan_settings (user_id, messages_since_charge)
+         VALUES ($1, 0)
+         ON CONFLICT (user_id) DO NOTHING`,
+        [req.user.userId]
+      );
+
+      const sinceCharge = (user.messages_since_charge || 0) + 1;
+      if (sinceCharge >= pricing.blockSize) {
+        tokensCharged = 1;
+        await client.query(
+          `UPDATE fan_settings SET messages_since_charge = 0 WHERE user_id = $1`,
+          [req.user.userId]
+        );
+      } else {
+        tokensCharged = 0;
+        await client.query(
+          `UPDATE fan_settings SET messages_since_charge = $1 WHERE user_id = $2`,
+          [sinceCharge, req.user.userId]
+        );
+      }
+    } else if (pricing.mode === 'flat') {
+      // Explicit override for this fan, including zero — bypasses the free-allotment system entirely
+      tokensCharged = pricing.flatCost;
+    } else if (userTier === 'guest') {
+      tokensCharged = pricing.flatCost;
     } else {
+      // Normal tier-based free allotment system
       await client.query(
         `INSERT INTO monthly_allotments (user_id, month_key)
          VALUES ($1, $2)
@@ -177,7 +234,7 @@ router.post('/send', authMid, async (req, res) => {
       const freeRem    = Math.max(0, config.freeDMsPerMonth - (allot.free_dms_used || 0));
       const dailyRem   = Math.max(0, config.dailyDMCap - todayUsed);
       useFreeDM        = freeRem > 0 && dailyRem > 0;
-      tokensCharged    = useFreeDM ? 0 : overageCost;
+      tokensCharged    = useFreeDM ? 0 : pricing.flatCost;
 
       await client.query(
         `UPDATE monthly_allotments

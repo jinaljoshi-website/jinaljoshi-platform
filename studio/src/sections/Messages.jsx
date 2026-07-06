@@ -29,6 +29,13 @@ function useIsMobile() {
   return isMobile;
 }
 
+// Pricing mode derived from what's currently saved for this fan
+function derivePricingMode(fan) {
+  if (fan?.custom_messages_per_token) return 'per_token';
+  if (fan?.custom_chat_price !== null && fan?.custom_chat_price !== undefined) return 'flat';
+  return 'default';
+}
+
 export function Messages() {
   const [convos,   setConvos]   = useState([]);
   const [selected, setSelected] = useState(null);
@@ -46,11 +53,12 @@ export function Messages() {
   const [granting,  setGranting]  = useState(false);
   const [grantMsg,  setGrantMsg]  = useState('');
 
-  // Fan settings — bgPreview is the raw override (for editing), effectiveBg is what the fan actually sees right now
   const [bgUploading,   setBgUploading]   = useState(false);
   const [bgPreview,     setBgPreview]     = useState('');
   const [effectiveBg,   setEffectiveBg]   = useState('');
-  const [customCost,    setCustomCost]    = useState('');
+  const [pricingMode,   setPricingMode]   = useState('default'); // 'default' | 'flat' | 'per_token'
+  const [flatPrice,     setFlatPrice]     = useState('');
+  const [perTokenBlock, setPerTokenBlock] = useState('');
   const [mediaEnabled,  setMediaEnabled]  = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
 
@@ -118,8 +126,12 @@ export function Messages() {
     setFan(data.fan || null);
     setBgPreview(data.fan?.personal_chat_bg || '');
     setEffectiveBg(data.fan?.effective_chat_bg || '');
-    setCustomCost(data.fan?.custom_chat_price || '');
     setMediaEnabled(data.fan?.can_send_media || false);
+
+    const mode = derivePricingMode(data.fan);
+    setPricingMode(mode);
+    setFlatPrice(mode === 'flat' ? String(data.fan?.custom_chat_price ?? '') : '');
+    setPerTokenBlock(mode === 'per_token' ? String(data.fan?.custom_messages_per_token ?? '') : '');
 
     try {
       if (!scClientRef.current?.userID) await initArtistStream();
@@ -239,7 +251,7 @@ export function Messages() {
       const publicUrl = await uploadToR2(file, 'background');
       await api.post('/api/upload/confirm-background', { publicUrl, type: 'fan', fanId: fan.id });
       setBgPreview(publicUrl);
-      setEffectiveBg(publicUrl); // reflect immediately, this is now the effective background too
+      setEffectiveBg(publicUrl);
     } catch (err) { alert(err.message); }
     finally { setBgUploading(false); }
   };
@@ -249,10 +261,14 @@ export function Messages() {
     setSettingsSaving(true);
     try {
       await api.post('/api/studio/chat-bg', { type: 'fan', value: bgPreview, fanId: fan.id });
-      await api.patch(`/api/studio/fan-settings/${fan.id}`, {
-        custom_chat_price: customCost ? parseInt(customCost) : null,
-        can_send_media:    mediaEnabled,
-      });
+
+      // Only one pricing mode is ever active — clear the other field explicitly
+      const payload = {
+        can_send_media: mediaEnabled,
+        custom_chat_price: pricingMode === 'flat' ? (flatPrice === '' ? null : parseInt(flatPrice)) : null,
+        custom_messages_per_token: pricingMode === 'per_token' ? (perTokenBlock === '' ? null : parseInt(perTokenBlock)) : null,
+      };
+      await api.patch(`/api/studio/fan-settings/${fan.id}`, payload);
       setEffectiveBg(bgPreview);
     } catch (err) { alert(err.message); }
     finally { setSettingsSaving(false); }
@@ -289,7 +305,6 @@ export function Messages() {
 
       {showThread && (
         <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 0, flex: isMobile ? 1 : undefined, borderRadius: effectiveBg ? 10 : 0, overflow: 'hidden' }}>
-          {/* Live background preview — exactly what this fan sees right now */}
           {selected && effectiveBg && (
             <>
               <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${effectiveBg})`, backgroundSize: 'cover', backgroundPosition: 'center', zIndex: 0 }} />
@@ -308,9 +323,9 @@ export function Messages() {
                     <div style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20, color: colors.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fan?.display_name || fan?.email}</div>
                     {fan && <Badge tier={fan.tier} />}
                     {fan && !isMobile && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: colors.muted }}>{fan.coin_balance} tokens</span>}
-                    {effectiveBg && (
+                    {pricingMode !== 'default' && (
                       <span style={{ fontFamily: sans, fontSize: 10, color: colors.accent, background: 'rgba(193,125,74,0.1)', border: '1px solid rgba(193,125,74,0.25)', borderRadius: 999, padding: '3px 8px' }}>
-                        {bgPreview ? 'Custom background' : 'Default background'}
+                        Custom pricing active
                       </span>
                     )}
                   </div>
@@ -337,7 +352,7 @@ export function Messages() {
 
                 {panel === 'settings' && (
                   <Card style={{ marginBottom: 10 }}>
-                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div style={{ marginBottom: 18 }}>
                       <Field label="Chat background photo (leave empty to use the default)">
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                           <input ref={bgFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleBgUpload} />
@@ -350,7 +365,46 @@ export function Messages() {
                           )}
                         </div>
                       </Field>
-                      <TokenField label="Custom DM cost (overrides tier default)" value={customCost} onChange={setCustomCost} tokenRateInr={TOKEN_RATE} />
+                    </div>
+
+                    <div style={{ marginBottom: 14, paddingTop: 14, borderTop: `1px solid ${colors.border}` }}>
+                      <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, fontWeight: 600, marginBottom: 10 }}>Message pricing for this fan</div>
+                      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: sans, fontSize: 13, color: colors.muted, cursor: 'pointer' }}>
+                          <input type="radio" checked={pricingMode === 'default'} onChange={() => setPricingMode('default')} />
+                          Use tier default
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: sans, fontSize: 13, color: colors.muted, cursor: 'pointer' }}>
+                          <input type="radio" checked={pricingMode === 'flat'} onChange={() => setPricingMode('flat')} />
+                          Flat price per message
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: sans, fontSize: 13, color: colors.muted, cursor: 'pointer' }}>
+                          <input type="radio" checked={pricingMode === 'per_token'} onChange={() => setPricingMode('per_token')} />
+                          Messages per token
+                        </label>
+                      </div>
+
+                      {pricingMode === 'flat' && (
+                        <div>
+                          <Field label="Tokens per message (0 = free for this fan)">
+                            <input style={{ ...S.input, width: 160 }} type="number" min={0} value={flatPrice} onChange={(e) => setFlatPrice(e.target.value)} placeholder="e.g. 0" />
+                          </Field>
+                        </div>
+                      )}
+
+                      {pricingMode === 'per_token' && (
+                        <div>
+                          <Field label="Messages per 1 token">
+                            <input style={{ ...S.input, width: 160 }} type="number" min={1} value={perTokenBlock} onChange={(e) => setPerTokenBlock(e.target.value)} placeholder="e.g. 3" />
+                          </Field>
+                          <p style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 6 }}>
+                            e.g. 3 means this fan is only charged 1 token on their 3rd message, then the counter resets.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', paddingTop: 14, borderTop: `1px solid ${colors.border}` }}>
                       <Field label="Allow fan to send media">
                         <label style={{ fontFamily: sans, fontSize: 13, color: colors.muted, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 6 }}>
                           <input type="checkbox" checked={mediaEnabled} onChange={(e) => setMediaEnabled(e.target.checked)} />

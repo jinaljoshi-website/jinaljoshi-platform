@@ -76,8 +76,8 @@ export default function Community() {
       <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, boxSizing: 'border-box' }}>
         {/* Sticky header — stays pinned regardless of scroll */}
         <div style={{ ...stickyHeader, padding: '12px 16px' }}>
-          <div style={eyebrow}>Live space</div>
-          <h1 style={title}>Community</h1>
+          <div style={eyebrow}>Updates</div>
+          <h1 style={title}>The Happening Place</h1>
           {error && <div style={{ ...errorBox, marginTop: 10 }}>{error}</div>}
         </div>
 

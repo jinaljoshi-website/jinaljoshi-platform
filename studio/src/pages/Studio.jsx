@@ -29,7 +29,7 @@ const NAV = [
   { id: 'calls',         label: 'Calls'         },
   { id: 'availability',  label: 'Availability'  },
   { id: 'requests',      label: 'Requests'      },
-  { id: 'community',     label: 'Community'     },
+  { id: 'community',     label: 'The Happening Place'     },
   { id: 'notifications', label: 'Notifications' },
   { id: 'settings',      label: 'Settings'      },
 ];

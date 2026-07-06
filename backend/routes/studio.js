@@ -202,7 +202,7 @@ router.get('/dms/:fanId', async (req, res) => {
     );
     const { rows: fanRows } = await pool.query(
       `SELECT u.id, u.email, u.display_name, u.tier, u.coin_balance, fs.personal_chat_bg,
-              fs.custom_chat_price, fs.can_send_media,
+              fs.custom_chat_price, fs.custom_messages_per_token, fs.can_send_media,
               COALESCE(fs.personal_chat_bg, pc.value, '') AS effective_chat_bg
        FROM users u
        LEFT JOIN fan_settings fs ON fs.user_id = u.id
@@ -657,14 +657,18 @@ router.patch('/community/:id', async (req, res) => {
 // ─────────────────────────────────────────────
 
 router.patch('/fan-settings/:userId', async (req, res) => {
-  const { custom_chat_price, can_send_media } = req.body;
+  const { custom_chat_price, custom_messages_per_token, can_send_media } = req.body;
   try {
+    // custom_chat_price can legitimately be 0 (free messaging for this fan) — only treat undefined as "clear it"
+    const priceValue = custom_chat_price === undefined || custom_chat_price === '' ? null : custom_chat_price;
+    const perTokenValue = custom_messages_per_token === undefined || custom_messages_per_token === '' ? null : custom_messages_per_token;
+
     await pool.query(
-      `INSERT INTO fan_settings (user_id, custom_chat_price, can_send_media)
-       VALUES ($1, $2, $3)
+      `INSERT INTO fan_settings (user_id, custom_chat_price, custom_messages_per_token, can_send_media)
+       VALUES ($1, $2, $3, $4)
        ON CONFLICT (user_id) DO UPDATE
-       SET custom_chat_price = $2, can_send_media = $3, updated_at = NOW()`,
-      [req.params.userId, custom_chat_price || null, can_send_media ?? false]
+       SET custom_chat_price = $2, custom_messages_per_token = $3, can_send_media = $4, updated_at = NOW()`,
+      [req.params.userId, priceValue, perTokenValue, can_send_media ?? false]
     );
     res.json({ ok: true });
   } catch (err) {
