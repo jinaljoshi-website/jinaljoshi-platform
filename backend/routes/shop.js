@@ -67,13 +67,14 @@ router.post('/buy', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: userRows } = await client.query(
-      `SELECT tier, membership_expires_at, coin_balance FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT tier, membership_expires_at, coin_balance, display_name FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user     = userRows[0];
     const now      = new Date();
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier = isActive ? user.tier : 'guest';
+    const fanLabel = user.display_name || 'A member';
     const discountMap = { community: 5, insider: 10, premium: 15, supreme: 20 };
     const discountPct = discountMap[userTier] || 0;
 
@@ -96,7 +97,6 @@ router.post('/buy', authMid, async (req, res) => {
       return res.status(409).json({ error: 'This item is out of stock' });
     }
 
-    // Calculate price
     let price = item.price_coins;
     if (userTier === 'guest') {
       price = price * 2;
@@ -116,19 +116,16 @@ router.post('/buy', authMid, async (req, res) => {
       });
     }
 
-    // Deduct tokens
     await client.query(
       `UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`,
       [price, req.user.userId]
     );
 
-    // Reduce stock
     await client.query(
       `UPDATE merchandise SET remaining = remaining - 1 WHERE id = $1`,
       [merchId]
     );
 
-    // Save address if requested
     if (saveAddress) {
       await client.query(
         `UPDATE users SET
@@ -140,21 +137,18 @@ router.post('/buy', authMid, async (req, res) => {
       );
     }
 
-    // Create order
     const { rows: orderRows } = await client.query(
       `INSERT INTO orders (user_id, merch_id, coins_charged, shipping_address)
        VALUES ($1, $2, $3, $4) RETURNING id`,
       [req.user.userId, merchId, price, JSON.stringify(shipping)]
     );
 
-    // Log ledger
     await client.query(
       `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
        VALUES ($1, 'merch_purchase', 'debit', $2, $3, $4)`,
       [req.user.userId, price, `Merchandise: ${item.title}`, orderRows[0].id]
     );
 
-    // Notify artist (DB record)
     await client.query(
       `INSERT INTO artist_notifications (type, fan_id, payload)
        VALUES ('merch_order', $1, $2)`,
@@ -163,15 +157,13 @@ router.post('/buy', authMid, async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Notify Jinal via push (best-effort, after commit)
     notifyArtist({
       title: 'New order 🛍️',
       body:  `${item.title} purchased · ${price} tokens · Ship to ${shipping.city}`,
       url:   '/merch',
     });
 
-    // Post to community (best-effort, after commit)
-    postSystemMessage(`🛍️ Someone just ordered "${item.title}" from the shop!`);
+    postSystemMessage(`🛍️ ${fanLabel} just ordered "${item.title}"!`);
 
     res.json({
       ok:         true,

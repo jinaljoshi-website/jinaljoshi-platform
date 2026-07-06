@@ -3,11 +3,10 @@ const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
-const { pushToUser } = require('./push');
 const { postSystemMessage } = require('./community');
 
 const DEFAULT_RATES = { audio: 8, video: 15, 'priority-video': 22 };
-const MAX_NEGOTIATION_ROUND = 4; // fan(1) -> jinal(2) -> fan(3) -> jinal(4), then fan must accept or reject
+const MAX_NEGOTIATION_ROUND = 4;
 
 async function getCallRate(type) {
   const keyMap = {
@@ -94,7 +93,6 @@ router.get('/options', authMid, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // POST /api/calls/book
-// Now requires a proposedTime from the fan
 // ─────────────────────────────────────────────
 
 router.post('/book', authMid, async (req, res) => {
@@ -118,7 +116,6 @@ router.post('/book', authMid, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Check availability
     const today = new Date().toISOString().slice(0, 10);
     const { rows: slots } = await client.query(
       `SELECT type, multiplier FROM call_availability WHERE start_date <= $1 AND end_date >= $1`,
@@ -136,12 +133,13 @@ router.post('/book', authMid, async (req, res) => {
     const discountPct = await getMemberDiscount(req.user.userId);
 
     const { rows: userRows } = await client.query(
-      `SELECT coin_balance, tier, membership_expires_at, display_name, email FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT coin_balance, tier, membership_expires_at, display_name FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user     = userRows[0];
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > new Date();
     const isGuest  = !isActive;
+    const fanLabel = user.display_name || 'A member';
 
     let perMin = isGuest ? baseRate * 2 : (discountPct ? (() => {
       const raw = baseRate * (1 - discountPct / 100);
@@ -186,10 +184,7 @@ router.post('/book', authMid, async (req, res) => {
 
     await client.query('COMMIT');
 
-    const fanLabel = user.display_name || user.email;
-
     if (callType === 'priority-video') {
-      // Distinct, urgent notification for priority bookings
       notifyArtist({
         title: '🔴 PRIORITY call request!',
         body:  `${fanLabel} wants a priority call — proposed ${proposedDate.toLocaleString()}`,
@@ -206,7 +201,7 @@ router.post('/book', authMid, async (req, res) => {
       });
     }
 
-    postSystemMessage(`📞 A call was just booked!`);
+    postSystemMessage(`📞 ${fanLabel} just booked a call with Jinal!`);
 
     res.json({
       ok:         true,
@@ -226,11 +221,10 @@ router.post('/book', authMid, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // POST /api/calls/:id/respond  [FAN]
-// Fan responds to a time Jinal proposed: accept | counter | reject
 // ─────────────────────────────────────────────
 
 router.post('/:id/respond', authMid, async (req, res) => {
-  const { action, proposedTime, reason } = req.body; // action: 'accept' | 'counter' | 'reject'
+  const { action, proposedTime, reason } = req.body;
   if (!['accept', 'counter', 'reject'].includes(action)) {
     return res.status(400).json({ error: 'Invalid action' });
   }
@@ -283,7 +277,6 @@ router.post('/:id/respond', authMid, async (req, res) => {
       return res.json({ ok: true, message: 'Call declined and your tokens have been refunded.' });
     }
 
-    // action === 'counter'
     if (call.negotiation_round >= MAX_NEGOTIATION_ROUND) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'No more counter-proposals are available. Please accept or decline.' });

@@ -65,7 +65,8 @@ router.post('/signup', async (req, res) => {
   // System message to community (fire and forget)
   try {
     const { postSystemMessage } = require('./community');
-    postSystemMessage('🎉 A new member just joined Personal Space. Welcome!');
+    const welcomeName = user.display_name || 'A new member';
+    postSystemMessage(`🎉 ${welcomeName} just joined Personal Space. Welcome!`);
   } catch {}
 
   res.json({

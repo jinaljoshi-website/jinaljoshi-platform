@@ -87,13 +87,14 @@ router.post('/request', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: userRows } = await client.query(
-      `SELECT tier, membership_expires_at, coin_balance FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT tier, membership_expires_at, coin_balance, display_name FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user     = userRows[0];
     const now      = new Date();
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier = isActive ? user.tier : 'guest';
+    const fanLabel = user.display_name || 'A member';
     const discountMap = { community: 5, insider: 10, premium: 15, supreme: 20 };
     const discountPct = discountMap[userTier] || 0;
 
@@ -150,7 +151,7 @@ router.post('/request', authMid, async (req, res) => {
       url:   '/requests',
     });
 
-    postSystemMessage(`🌟 A personalised request was just placed!`);
+    postSystemMessage(`🌟 ${fanLabel} just requested a ${item.title}!`);
 
     res.json({
       ok:         true,

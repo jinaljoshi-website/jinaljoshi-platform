@@ -65,7 +65,6 @@ router.get('/sets', authMid, async (req, res) => {
         && qualifiesForCategory
         && creditsRemaining > 0;
 
-      // Flat price for members, doubled for guests
       const displayPrice = isGuest ? s.price_coins * 2 : s.price_coins;
 
       return {
@@ -73,7 +72,6 @@ router.get('/sets', authMid, async (req, res) => {
         cover_url: toUrl(s.cover_key),
         creditEligible,
         displayPrice,
-        // Cover stays blurred for anyone who hasn't unlocked it and doesn't meet the set's category — visual nudge only, never blocks paying to unlock
         coverBlurred: !s.already_unlocked && !qualifiesForCategory,
       };
     });
@@ -105,7 +103,7 @@ router.post('/unlock', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: userRows } = await client.query(
-      `SELECT tier, membership_expires_at, coin_balance FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT tier, membership_expires_at, coin_balance, display_name, email FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user      = userRows[0];
@@ -113,6 +111,7 @@ router.post('/unlock', authMid, async (req, res) => {
     const isActive  = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier  = isActive ? user.tier : 'guest';
     const isGuest   = userTier === 'guest';
+    const fanLabel  = user.display_name || 'A member';
 
     const { rows: setRows } = await client.query(
       `SELECT * FROM sets WHERE id = $1 AND visible = TRUE`,
@@ -141,7 +140,7 @@ router.post('/unlock', authMid, async (req, res) => {
         [req.user.userId, setId]
       );
       await client.query('COMMIT');
-      postSystemMessage(`🔓 A member just unlocked new content!`);
+      postSystemMessage(`🔓 ${fanLabel} unlocked "${set.title}"!`);
       return res.json({ ok: true, coinsSpent: 0, grantType: 'membership_free' });
     }
 
@@ -168,7 +167,6 @@ router.post('/unlock', authMid, async (req, res) => {
       }
     }
 
-    // Everyone else pays: flat base price for members, doubled for guests
     const basePrice = isGuest ? set.price_coins * 2 : set.price_coins;
     const price = useUnlockCredit ? 0 : basePrice;
 
@@ -203,7 +201,7 @@ router.post('/unlock', authMid, async (req, res) => {
 
     await client.query('COMMIT');
 
-    postSystemMessage(`🔓 A member just unlocked new content!`);
+    postSystemMessage(`🔓 ${fanLabel} unlocked "${set.title}"!`);
 
     res.json({
       ok:         true,

@@ -252,7 +252,7 @@ router.post('/content', async (req, res) => {
       [title.trim(), description || null, type, price_coins, min_tier, use_unlock_credit, visible]
     );
     if (visible) {
-      postSystemMessage(`📸 New content just dropped: "${title.trim()}". Check the Gallery!`);
+      postSystemMessage(`📸 Jinal just dropped "${title.trim()}"! Check the Gallery!`);
     }
     res.json({ ok: true, set: rows[0] });
   } catch (err) {
@@ -305,7 +305,7 @@ router.patch('/content/:id', async (req, res) => {
     if (!rows.length) return res.status(404).json({ error: 'Set not found' });
 
     if (wasHidden && becomingVisible) {
-      postSystemMessage(`📸 New content just dropped: "${rows[0].title}". Check the Gallery!`);
+      postSystemMessage(`📸 Jinal just dropped "${rows[0].title}"! Check the Gallery!`);
     }
 
     res.json({ ok: true, set: rows[0] });
@@ -362,7 +362,7 @@ router.post('/merch', async (req, res) => {
       [title.trim(), description || '', price_coins, total_stock, visible]
     );
     if (visible) {
-      postSystemMessage(`🛍️ New merchandise just dropped: "${title.trim()}". Check the Shop!`);
+      postSystemMessage(`🛍️ Jinal just dropped "${title.trim()}"! Check the Shop!`);
     }
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
@@ -392,7 +392,7 @@ router.patch('/merch/:id', async (req, res) => {
     if (!rows.length) return res.status(404).json({ error: 'Item not found' });
 
     if (wasHidden && becomingVisible) {
-      postSystemMessage(`🛍️ New merchandise just dropped: "${rows[0].title}". Check the Shop!`);
+      postSystemMessage(`🛍️ Jinal just dropped new merch: "${rows[0].title}"! Check the Shop!`);
     }
 
     res.json({ ok: true, item: rows[0] });

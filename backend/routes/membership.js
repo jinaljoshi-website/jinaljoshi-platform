@@ -73,12 +73,13 @@ router.post('/purchase', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: userRows } = await client.query(
-      `SELECT tier, membership_expires_at, coin_balance FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT tier, membership_expires_at, coin_balance, display_name FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user     = userRows[0];
     const now      = new Date();
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
+    const fanLabel = user.display_name || 'A member';
 
     if (isActive) {
       await client.query('ROLLBACK');
@@ -121,8 +122,7 @@ router.post('/purchase', authMid, async (req, res) => {
 
     await client.query('COMMIT');
 
-    // System message to community
-    postSystemMessage(`✨ A new ${tier.charAt(0).toUpperCase() + tier.slice(1)} member just joined the space!`);
+    postSystemMessage(`✨ ${fanLabel} just joined as a ${tier.charAt(0).toUpperCase() + tier.slice(1)} member!`);
 
     res.json({
       ok:        true,
@@ -156,12 +156,13 @@ router.post('/upgrade', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: userRows } = await client.query(
-      `SELECT tier, membership_expires_at, coin_balance FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT tier, membership_expires_at, coin_balance, display_name FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user     = userRows[0];
     const now      = new Date();
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
+    const fanLabel = user.display_name || 'A member';
 
     if (!isActive) {
       await client.query('ROLLBACK');
@@ -176,7 +177,6 @@ router.post('/upgrade', authMid, async (req, res) => {
       return res.status(400).json({ error: 'New tier must be higher than current tier' });
     }
 
-    // Pro-rate: charge difference for remaining days
     const daysRemaining   = Math.ceil((new Date(user.membership_expires_at) - now) / (1000 * 60 * 60 * 24));
     const daysInMonth     = 30;
     const currentPerDay   = TIER_PRICES[user.tier]  / daysInMonth;
@@ -214,7 +214,7 @@ router.post('/upgrade', authMid, async (req, res) => {
 
     await client.query('COMMIT');
 
-    postSystemMessage(`⬆️ A member just upgraded to ${newTier.charAt(0).toUpperCase() + newTier.slice(1)}!`);
+    postSystemMessage(`⬆️ ${fanLabel} just upgraded to ${newTier.charAt(0).toUpperCase() + newTier.slice(1)}!`);
 
     res.json({
       ok:         true,
@@ -329,7 +329,7 @@ router.post('/gift', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: fanRows } = await client.query(
-      `SELECT id, email, membership_expires_at FROM users WHERE email = $1`,
+      `SELECT id, email, display_name, membership_expires_at FROM users WHERE email = $1`,
       [email.toLowerCase().trim()]
     );
     if (!fanRows.length) {
@@ -339,6 +339,7 @@ router.post('/gift', authMid, async (req, res) => {
     const fan = fanRows[0];
     const now = new Date();
     const isActive = fan.membership_expires_at && new Date(fan.membership_expires_at) > now;
+    const fanLabel = fan.display_name || 'A member';
 
     if (isActive) {
       await client.query('ROLLBACK');
@@ -362,7 +363,7 @@ router.post('/gift', authMid, async (req, res) => {
 
     await client.query('COMMIT');
 
-    postSystemMessage(`🎁 Someone just gifted a ${tier} membership!`);
+    postSystemMessage(`🎁 ${fanLabel} just received a ${tier} membership gift!`);
 
     res.json({ ok: true, message: `${tier} membership gifted to ${fan.email}` });
   } catch (err) {
@@ -376,7 +377,6 @@ router.post('/gift', authMid, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // POST /api/membership/gift/extend
-// Extends an already-active membership by the given term, keeping the same tier
 // ─────────────────────────────────────────────
 
 router.post('/gift/extend', authMid, async (req, res) => {
@@ -437,7 +437,6 @@ router.post('/gift/extend', authMid, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // POST /api/membership/gift/change
-// Changes the tier of an already-active membership and extends by the given term
 // ─────────────────────────────────────────────
 
 router.post('/gift/change', authMid, async (req, res) => {
@@ -486,8 +485,6 @@ router.post('/gift/change', authMid, async (req, res) => {
     );
 
     await client.query('COMMIT');
-
-    postSystemMessage(`⬆️ A member's tier was just updated to ${tier.charAt(0).toUpperCase() + tier.slice(1)}!`);
 
     res.json({ ok: true, message: `${fan.email} changed to ${tier}, now expires ${expiresAt.toLocaleDateString()}` });
   } catch (err) {
