@@ -202,8 +202,12 @@ router.get('/dms/:fanId', async (req, res) => {
     );
     const { rows: fanRows } = await pool.query(
       `SELECT u.id, u.email, u.display_name, u.tier, u.coin_balance, fs.personal_chat_bg,
-              fs.custom_chat_price, fs.can_send_media
-       FROM users u LEFT JOIN fan_settings fs ON fs.user_id = u.id WHERE u.id = $1`,
+              fs.custom_chat_price, fs.can_send_media,
+              COALESCE(fs.personal_chat_bg, pc.value, '') AS effective_chat_bg
+       FROM users u
+       LEFT JOIN fan_settings fs ON fs.user_id = u.id
+       LEFT JOIN platform_config pc ON pc.key = 'personal_chat_bg'
+       WHERE u.id = $1`,
       [req.params.fanId]
     );
     res.json({ messages: rows, fan: fanRows[0] || null });
@@ -627,7 +631,8 @@ router.patch('/requests/:id', async (req, res) => {
 router.get('/community', async (req, res) => {
   try {
     const { rows } = await pool.query(`SELECT cp.*, u.display_name, u.is_artist FROM community_posts cp JOIN users u ON u.id = cp.user_id ORDER BY cp.pinned DESC, cp.created_at DESC LIMIT 100`);
-    res.json({ posts: rows });
+    const { rows: bgRows } = await pool.query(`SELECT value FROM platform_config WHERE key = 'community_chat_bg'`);
+    res.json({ posts: rows, communityBg: bgRows[0]?.value || '' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load posts' });
   }
