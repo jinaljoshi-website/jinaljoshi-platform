@@ -6,6 +6,8 @@ const pool = require('../db/pool');
 const DEFAULTS = {
   token_rate_inr: 66,
 
+  guest_price_multiplier: 2,
+
   community_monthly_cost: 10,
   insider_monthly_cost:   30,
   premium_monthly_cost:   75,
@@ -28,9 +30,8 @@ const DEFAULTS = {
   call_audio_per_min:    8,
   call_video_per_min:    15,
   call_priority_per_min: 22,
-
-  // Add these to the DEFAULTS object:
-  guest_price_multiplier: 2,
+  call_ring_window_seconds: 60,
+  call_min_lead_hours: 6,
 
   dm_free_per_month_community: 5,
   dm_free_per_month_insider:   30,
@@ -64,7 +65,6 @@ async function getConfigNumber(key) {
   return isNaN(num) ? DEFAULTS[key] : num;
 }
 
-// Fetch multiple values in a single query, each falling back independently
 async function getConfigNumbers(keys) {
   try {
     const { rows } = await pool.query(
@@ -132,7 +132,6 @@ async function getGalleryUnlocksForTier(tier) {
   if (!GALLERY_UNLOCK_KEYS[tier]) return 0;
   return getConfigNumber(GALLERY_UNLOCK_KEYS[tier]);
 }
-// Add these functions, before module.exports:
 
 async function getGuestMultiplier() {
   return getConfigNumber('guest_price_multiplier');
@@ -167,7 +166,14 @@ async function getDmConfigForTier(tier) {
   };
 }
 
-// Update module.exports to include the new functions:
+async function getCallRingWindowSeconds() {
+  return getConfigNumber('call_ring_window_seconds');
+}
+
+async function getCallMinLeadHours() {
+  return getConfigNumber('call_min_lead_hours');
+}
+
 module.exports = {
   DEFAULTS,
   getConfigValue,
@@ -179,4 +185,6 @@ module.exports = {
   getGalleryUnlocksForTier,
   getGuestMultiplier,
   getDmConfigForTier,
+  getCallRingWindowSeconds,
+  getCallMinLeadHours,
 };

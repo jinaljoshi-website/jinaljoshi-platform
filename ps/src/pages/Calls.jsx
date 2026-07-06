@@ -4,6 +4,8 @@ import { WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
 import CallTimer from '../components/CallTimer';
+import IncomingCallOverlay from '../components/IncomingCallOverlay';
+import NotificationNudge from '../components/NotificationNudge';
 
 import {
   StreamVideo, StreamVideoClient, StreamCall,
@@ -11,7 +13,6 @@ import {
 } from '@stream-io/video-react-sdk';
 import '@stream-io/video-react-sdk/dist/css/styles.css';
 
-// Request camera/mic permissions early — before the call starts
 async function requestMediaPermissions(callType) {
   const needsVideo = callType !== 'audio';
   try {
@@ -42,10 +43,13 @@ export default function Calls() {
   const [activeCall,  setActiveCall]  = useState(null);
   const [activeCallRecord, setActiveCallRecord] = useState(null);
   const [joining,     setJoining]     = useState(null);
+  const [answering,   setAnswering]   = useState(false);
+  const [declining,   setDeclining]   = useState(false);
   const [topUp,       setTopUp]       = useState(null);
-  const [counterFor,  setCounterFor]  = useState(null); // id of call being countered
+  const [counterFor,  setCounterFor]  = useState(null);
   const [counterTime, setCounterTime] = useState('');
   const [permStatus,  setPermStatus]  = useState(null);
+  const [justBookedPriority, setJustBookedPriority] = useState(false);
 
   const pollRef = useRef(null);
 
@@ -59,26 +63,8 @@ export default function Calls() {
 
   useEffect(() => { load().finally(() => setLoading(false)); }, []);
 
-  // Poll for live updates — catches Jinal starting the call, confirming, or countering a time,
-  // without requiring the fan to manually refresh the page
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!activeCall) load();
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [activeCall]);
-
-  // Poll for live updates — catches Jinal starting the call, confirming, or countering a time,
-  // without requiring the fan to manually refresh the page
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!activeCall) load();
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [activeCall]);
-
-  // Poll for live updates — catches Jinal starting the call, confirming, or countering a time,
-  // without requiring the fan to manually refresh the page
+  // Poll for live updates — catches Jinal answering a priority call, starting a scheduled one,
+  // confirming, or countering a time, without requiring the fan to manually refresh
   useEffect(() => {
     const interval = setInterval(() => {
       if (!activeCall) load();
@@ -94,29 +80,34 @@ export default function Calls() {
     setPermStatus(result);
   };
 
+  const isPriority = selected?.id === 'priority-video';
+
   const handleBook = async () => {
-    if (!selected || !proposedTime) return;
+    if (!selected) return;
+    if (!isPriority && !proposedTime) return;
     if (permStatus?.denied) {
       setError('Camera/microphone access was denied. Please allow access in your browser settings and try again.');
       return;
     }
     setError(''); setBooking(true);
     try {
-      const result = await api.post('/api/calls/book', {
-        callType:        selected.id,
-        durationMinutes: duration,
-        proposedTime:    new Date(proposedTime).toISOString(),
-      });
+      const payload = { callType: selected.id, durationMinutes: duration };
+      if (!isPriority) payload.proposedTime = new Date(proposedTime).toISOString();
+
+      const result = await api.post('/api/calls/book', payload);
       setBooked(result);
       setSelected(null);
       setPermStatus(null);
       setProposedTime('');
+      if (isPriority) setJustBookedPriority(true);
       load();
     } catch (err) {
       if (err.message === 'INSUFFICIENT_TOKENS') {
         setTopUp(selected.coinsPerMin * duration);
       } else if (err.message === 'UNAVAILABLE') {
         setError('Jinal is unavailable for calls on this date.');
+      } else if (err.message === 'TOO_SOON') {
+        setError(err.message === 'TOO_SOON' ? (result?.message || 'That time is too soon — try Priority Video instead, or pick a later time.') : err.message);
       } else {
         setError(err.message);
       }
@@ -148,7 +139,9 @@ export default function Calls() {
   }, []);
 
   const joinCall = useCallback(async (callRecord) => {
-    setJoining(callRecord.stream_call_id); setError('');
+    setJoining(callRecord.stream_call_id);
+    setAnswering(true);
+    setError('');
     try {
       const tokenData = await api.post('/api/stream-calls/token', {});
       const client = new StreamVideoClient({
@@ -164,8 +157,20 @@ export default function Calls() {
       startPolling(callRecord.id);
     } catch (err) {
       setError('Could not join the call. Please try again.');
-    } finally { setJoining(null); }
+    } finally { setJoining(null); setAnswering(false); }
   }, [startPolling]);
+
+  const declineRinging = useCallback(async (callId) => {
+    setDeclining(true);
+    try {
+      await api.post(`/api/stream-calls/${callId}/decline`, {});
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDeclining(false);
+    }
+  }, []);
 
   const leaveCall = useCallback(async () => {
     if (!activeCall) return;
@@ -179,6 +184,19 @@ export default function Calls() {
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading…</div>;
+
+  // ── Ringing overlay takes over the whole screen, highest priority ──────────
+  const ringingCall = myCalls.find((c) => c.status === 'ringing');
+  if (ringingCall && !activeCall) {
+    return (
+      <IncomingCallOverlay
+        call={ringingCall}
+        answering={answering}
+        onAnswer={() => joinCall(ringingCall)}
+        onDecline={() => declineRinging(ringingCall.id)}
+      />
+    );
+  }
 
   // ── Active call UI ──────────────────────────────────────────────────────────
   if (activeCall) {
@@ -211,11 +229,16 @@ export default function Calls() {
 
   const totalCost = selected ? selected.coinsPerMin * duration : 0;
   const canAfford = (data?.coinBalance || 0) >= totalCost;
-  const pastCalls = myCalls.filter((c) => ['completed', 'rejected'].includes(c.status));
+  const pastCalls = myCalls.filter((c) => ['completed', 'rejected', 'missed'].includes(c.status));
   const awaitingJinal = myCalls.filter((c) => c.status === 'pending' && c.proposed_by === 'fan');
   const needsMyResponse = myCalls.filter((c) => c.status === 'pending' && c.proposed_by === 'jinal');
   const scheduledCalls = myCalls.filter((c) => c.status === 'scheduled');
-  const readyCalls = myCalls.filter((c) => c.status === 'confirmed' && c.stream_call_id);
+
+  const statusColor = (status) => {
+    if (status === 'completed') return '#8FC88F';
+    if (status === 'missed') return '#D9A45C';
+    return '#D99A9A';
+  };
 
   return (
     <div>
@@ -223,10 +246,12 @@ export default function Calls() {
         <div style={eyebrow}>Bookings</div>
         <h1 style={title}>Virtual sessions</h1>
         <p style={text}>
-          Book a private audio or video call with Jinal. Tokens are charged at booking, and the exact time is confirmed together.
+          Book a private audio or video call with Jinal, or connect right now with Priority Video.
           {data?.isPrimetime && <strong style={{ color: C.accent }}> Primetime rates active ({data.multiplier}×).</strong>}
         </p>
       </div>
+
+      {justBookedPriority && <NotificationNudge forceShow />}
 
       <div style={balanceBar}>
         <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>Your balance</span>
@@ -239,7 +264,6 @@ export default function Calls() {
       {booked && <div style={successBox}>✓ {booked.message}</div>}
       {error  && <div style={errorBox}>{error}</div>}
 
-      {/* Calls needing my response */}
       {needsMyResponse.length > 0 && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 12 }}>Jinal proposed a time</div>
@@ -283,27 +307,6 @@ export default function Calls() {
         </div>
       )}
 
-      {/* Ready to join */}
-      {readyCalls.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 12 }}>Ready to join</div>
-          {readyCalls.map((c) => (
-            <div key={c.id} style={{ ...card, border: `1px solid rgba(193,125,74,0.4)`, marginBottom: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                <div>
-                  <div style={{ fontFamily: F.display, fontSize: 20, color: C.text }}>{c.call_type} call</div>
-                  <div style={{ fontFamily: F.sans, fontSize: 12, color: C.accent, marginTop: 4 }}>Jinal is ready — tap to join</div>
-                </div>
-                <button onClick={() => joinCall(c)} disabled={joining === c.stream_call_id} style={{ background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '12px 24px', borderRadius: 8, cursor: 'pointer', opacity: joining === c.stream_call_id ? 0.6 : 1 }}>
-                  {joining === c.stream_call_id ? 'Connecting…' : 'Join now'}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Scheduled, waiting for Jinal to start */}
       {scheduledCalls.length > 0 && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 12 }}>Scheduled</div>
@@ -311,14 +314,13 @@ export default function Calls() {
             <div key={c.id} style={{ ...card, marginBottom: 10 }}>
               <div style={{ fontFamily: F.display, fontSize: 18, color: C.text }}>{c.call_type} call</div>
               <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginTop: 4 }}>
-                {new Date(c.scheduled_at).toLocaleString()} · Jinal will start the room at this time
+                {new Date(c.scheduled_at).toLocaleString()} · Jinal will call you at this time
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Awaiting Jinal's first response */}
       {awaitingJinal.length > 0 && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 12 }}>Awaiting confirmation</div>
@@ -337,18 +339,19 @@ export default function Calls() {
         <div style={unavailableBanner}>🗓 {data.unavailableMessage}</div>
       )}
 
-      {/* Call options */}
       {!data?.isUnavailable && (
         <div style={grid}>
           {data?.options.map((option) => {
-            const isSelected = selected?.id === option.id;
+            const isSelectedOption = selected?.id === option.id;
             return (
               <div
                 key={option.id}
                 onClick={() => handleSelect(option)}
-                style={{ ...card, border: isSelected ? `1px solid ${C.accent}` : `1px solid ${C.border}`, cursor: 'pointer' }}
+                style={{ ...card, border: isSelectedOption ? `1px solid ${C.accent}` : (option.id === 'priority-video' ? '1px solid rgba(217,164,92,0.4)' : `1px solid ${C.border}`), cursor: 'pointer' }}
               >
-                <div style={{ fontFamily: F.display, fontSize: 24, color: C.text, marginBottom: 6 }}>{option.title}</div>
+                <div style={{ fontFamily: F.display, fontSize: 24, color: C.text, marginBottom: 6 }}>
+                  {option.id === 'priority-video' && '🔴 '}{option.title}
+                </div>
                 <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, marginBottom: 14, lineHeight: 1.6 }}>{option.description}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                   <WonderCoinAmount amount={option.coinsPerMin} size={16} />
@@ -356,14 +359,13 @@ export default function Calls() {
                 </div>
                 {data.discountPct > 0 && <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent }}>{data.discountPct}% member discount</div>}
                 {data.isGuest && <div style={nudge}>Members pay less — join a plan</div>}
-                {isSelected && <div style={{ fontFamily: F.sans, fontSize: 12, color: C.accent, marginTop: 10 }}>✓ Selected</div>}
+                {isSelectedOption && <div style={{ fontFamily: F.sans, fontSize: 12, color: C.accent, marginTop: 10 }}>✓ Selected</div>}
               </div>
             );
           })}
         </div>
       )}
 
-      {/* Permission status */}
       {selected && permStatus && (
         <div style={{
           ...permBox,
@@ -403,10 +405,11 @@ export default function Calls() {
         </div>
       )}
 
-      {/* Booking panel */}
       {selected && !data?.isUnavailable && (
         <div style={bookingPanel}>
-          <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 16 }}>Book {selected.title}</div>
+          <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 16 }}>
+            {isPriority ? `Call Jinal now` : `Book ${selected.title}`}
+          </div>
           <div style={{ marginBottom: 20 }}>
             <div style={fieldLabel}>Duration</div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -417,15 +420,25 @@ export default function Calls() {
               ))}
             </div>
           </div>
-          <div style={{ marginBottom: 20 }}>
-            <div style={fieldLabel}>Propose a time</div>
-            <input
-              type="datetime-local"
-              value={proposedTime}
-              onChange={(e) => setProposedTime(e.target.value)}
-              style={dateInput}
-            />
-          </div>
+
+          {!isPriority && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={fieldLabel}>Propose a time (at least {data?.minLeadHours || 6} hours from now)</div>
+              <input
+                type="datetime-local"
+                value={proposedTime}
+                onChange={(e) => setProposedTime(e.target.value)}
+                style={dateInput}
+              />
+            </div>
+          )}
+
+          {isPriority && (
+            <div style={{ ...nudge, marginBottom: 20 }}>
+              This connects instantly. Jinal will get an urgent alert and has about a minute to answer. If she can't, you're refunded automatically.
+            </div>
+          )}
+
           <div style={totalRow}>
             <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>{duration} min × {selected.coinsPerMin} tokens/min</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -441,18 +454,19 @@ export default function Calls() {
           )}
           <button
             onClick={handleBook}
-            disabled={booking || !canAfford || !proposedTime || permStatus?.denied || permStatus?.checking}
-            style={{ ...bookBtn, opacity: (booking || !canAfford || !proposedTime || permStatus?.denied || permStatus?.checking) ? 0.5 : 1, cursor: (booking || !canAfford || !proposedTime || permStatus?.denied || permStatus?.checking) ? 'default' : 'pointer' }}
+            disabled={booking || !canAfford || (!isPriority && !proposedTime) || permStatus?.denied || permStatus?.checking}
+            style={{ ...bookBtn, opacity: (booking || !canAfford || (!isPriority && !proposedTime) || permStatus?.denied || permStatus?.checking) ? 0.5 : 1, cursor: (booking || !canAfford) ? 'default' : 'pointer' }}
           >
-            {booking ? 'Booking…' : permStatus?.denied ? 'Allow camera/mic access first' : !proposedTime ? 'Propose a time first' : `Book & pay ${totalCost} tokens`}
+            {booking ? (isPriority ? 'Calling…' : 'Booking…') : permStatus?.denied ? 'Allow camera/mic access first' : (!isPriority && !proposedTime) ? 'Propose a time first' : isPriority ? `Call now & pay ${totalCost} tokens` : `Book & pay ${totalCost} tokens`}
           </button>
           <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 8 }}>
-            Tokens charged immediately. Jinal will confirm your proposed time, suggest another, or decline. If declined, your tokens are refunded automatically.
+            {isPriority
+              ? 'Tokens charged immediately. If Jinal cannot answer in time, you are refunded automatically.'
+              : 'Tokens charged immediately. Jinal will confirm your proposed time, suggest another, or decline. If declined, your tokens are refunded automatically.'}
           </div>
         </div>
       )}
 
-      {/* History */}
       {pastCalls.length > 0 && (
         <div style={{ marginTop: 40 }}>
           <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 14 }}>Call history</div>
@@ -466,10 +480,10 @@ export default function Calls() {
                       {c.coins_charged} tokens · {new Date(c.created_at).toLocaleDateString()}
                     </div>
                   </div>
-                  <span style={{ fontFamily: F.sans, fontSize: 12, color: c.status === 'completed' ? '#8FC88F' : '#D99A9A', textTransform: 'capitalize' }}>{c.status}</span>
+                  <span style={{ fontFamily: F.sans, fontSize: 12, color: statusColor(c.status), textTransform: 'capitalize' }}>{c.status}</span>
                 </div>
-                {c.status === 'rejected' && c.rejection_reason && (
-                  <div style={{ fontFamily: F.sans, fontSize: 13, color: '#D99A9A', background: 'rgba(156,90,90,0.08)', border: '1px solid rgba(156,90,90,0.25)', borderRadius: 8, padding: '8px 12px', marginTop: 10 }}>
+                {(c.status === 'rejected' || c.status === 'missed') && c.rejection_reason && (
+                  <div style={{ fontFamily: F.sans, fontSize: 13, color: statusColor(c.status), background: 'rgba(156,90,90,0.08)', border: '1px solid rgba(156,90,90,0.25)', borderRadius: 8, padding: '8px 12px', marginTop: 10 }}>
                     {c.rejection_reason}
                   </div>
                 )}
@@ -503,7 +517,7 @@ const permBox         = { border: '1px solid', borderRadius: 8, padding: '12px 1
 const bookingPanel    = { background: C.surface, border: `1px solid ${C.accent}`, borderRadius: 10, padding: 24 };
 const fieldLabel      = { fontFamily: F.sans, fontSize: 12, color: C.muted, marginBottom: 10 };
 const durationBtn     = { fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 7, cursor: 'pointer' };
-const dateInput       = { width: '100%', boxSizing: 'border-box', background: '#100F0C', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 14, padding: '10px 12px', borderRadius: 8, outline: 'none' };
+const dateInput       = { width: '100%', boxSizing: 'border-box', background: '#100F0C', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 16, padding: '10px 12px', borderRadius: 8, outline: 'none' };
 const totalRow        = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, marginBottom: 16 };
 const bookBtn         = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '13px 0', borderRadius: 8, width: '100%' };
 const smallBtn        = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '8px 14px', borderRadius: 7, cursor: 'pointer' };

@@ -4,7 +4,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 
-// Convert VAPID public key from base64url to Uint8Array
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64  = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -16,12 +15,13 @@ export function usePush() {
   const [supported,   setSupported]   = useState(false);
   const [subscribed,  setSubscribed]  = useState(false);
   const [subscribing, setSubscribing] = useState(false);
+  const [permission,  setPermission]  = useState('default'); // 'default' | 'granted' | 'denied'
 
   useEffect(() => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
     setSupported(true);
+    setPermission(Notification.permission);
 
-    // Register service worker
     navigator.serviceWorker.register('/sw.js').then((reg) => {
       reg.pushManager.getSubscription().then((sub) => {
         setSubscribed(!!sub);
@@ -33,7 +33,6 @@ export function usePush() {
     if (!supported || subscribing) return;
     setSubscribing(true);
     try {
-      // Get VAPID public key
       const { publicKey } = await api.get('/api/push/vapid-public');
 
       const reg = await navigator.serviceWorker.ready;
@@ -42,11 +41,12 @@ export function usePush() {
         applicationServerKey: urlBase64ToUint8Array(publicKey),
       });
 
-      // Send subscription to backend
       await api.post('/api/push/subscribe', sub.toJSON());
       setSubscribed(true);
+      setPermission('granted');
     } catch (err) {
       console.error('Push subscribe error:', err);
+      if ('Notification' in window) setPermission(Notification.permission);
     } finally {
       setSubscribing(false);
     }
@@ -66,5 +66,5 @@ export function usePush() {
     }
   };
 
-  return { supported, subscribed, subscribing, subscribe, unsubscribe };
+  return { supported, subscribed, subscribing, permission, subscribe, unsubscribe };
 }

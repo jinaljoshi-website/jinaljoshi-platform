@@ -54,7 +54,7 @@ router.post('/signup', async (req, res) => {
   const token     = jwt.sign(
     { userId: user.id, sessionId, isArtist: false },
     process.env.JWT_SECRET,
-    { expiresIn: '24h' }
+    { expiresIn: '365d' }
   );
 
   await pool.query(
@@ -115,7 +115,7 @@ router.post('/login', async (req, res) => {
   const token     = jwt.sign(
     { userId: user.id, sessionId, isArtist: user.is_artist },
     process.env.JWT_SECRET,
-    { expiresIn: '24h' }
+    { expiresIn: '365d' }
   );
 
   await pool.query(

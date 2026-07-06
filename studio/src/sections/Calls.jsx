@@ -3,8 +3,8 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../api';
 import { T, S, Eyebrow, Badge, colors } from '../ui';
 import { CallTimer } from '../components/CallTimer';
+import { IncomingCallOverlay } from '../components/IncomingCallOverlay';
 
-// Stream Video
 import {
   StreamVideo,
   StreamVideoClient,
@@ -22,6 +22,8 @@ export function Calls() {
   const [activeCall, setActiveCall] = useState(null);
   const [activeCallRecord, setActiveCallRecord] = useState(null);
   const [joining,    setJoining]    = useState(null);
+  const [answering,  setAnswering]  = useState(false);
+  const [declining,  setDeclining]  = useState(false);
   const [error,      setError]      = useState('');
   const [rejecting,  setRejecting]  = useState(null);
   const [reason,     setReason]     = useState('');
@@ -36,7 +38,7 @@ export function Calls() {
 
   useEffect(() => { load(); }, []);
 
-  // Poll for live updates — catches a fan proposing a new time or accepting, without manual refresh
+  // Poll for live updates — catches a fan proposing a new time, accepting, or a priority call starting to ring
   useEffect(() => {
     const listPollInterval = setInterval(() => {
       if (!activeCall) load();
@@ -82,7 +84,9 @@ export function Calls() {
   }, []);
 
   const joinCall = useCallback(async (streamCallId, callRequestId) => {
-    setJoining(streamCallId); setError('');
+    setJoining(streamCallId);
+    setAnswering(true);
+    setError('');
     try {
       const tokenData = await api.post('/api/stream-calls/token', {});
       const client = new StreamVideoClient({
@@ -102,8 +106,21 @@ export function Calls() {
     } finally {
       setJoining(null);
       setCreating(null);
+      setAnswering(false);
     }
   }, [startPolling]);
+
+  const declineRinging = useCallback(async (callId) => {
+    setDeclining(true);
+    try {
+      await api.post(`/api/stream-calls/${callId}/decline`, {});
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDeclining(false);
+    }
+  }, []);
 
   const leaveCall = useCallback(async () => {
     if (!activeCall) return;
@@ -120,6 +137,19 @@ export function Calls() {
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   if (loading) return <T.muted>Loading calls…</T.muted>;
+
+  // ── Priority call ringing Jinal takes over the whole screen ──
+  const ringingForMe = calls.find((c) => c.status === 'ringing' && !c.artist_joined_at);
+  if (ringingForMe && !activeCall) {
+    return (
+      <IncomingCallOverlay
+        call={ringingForMe}
+        answering={answering}
+        onAnswer={() => joinCall(ringingForMe.stream_call_id, ringingForMe.id)}
+        onDecline={() => declineRinging(ringingForMe.id)}
+      />
+    );
+  }
 
   // ── Active call UI ──
   if (activeCall) {
@@ -153,10 +183,16 @@ export function Calls() {
   const needsResponse = calls.filter((c) => c.status === 'pending' && c.proposed_by === 'fan');
   const waitingOnFan  = calls.filter((c) => c.status === 'pending' && c.proposed_by === 'jinal');
   const scheduled     = calls.filter((c) => c.status === 'scheduled');
-  const confirmed     = calls.filter((c) => c.status === 'confirmed');
-  const others        = calls.filter((c) => ['completed', 'rejected'].includes(c.status));
+  const ringingFan    = calls.filter((c) => c.status === 'ringing' && c.artist_joined_at); // she already started it, fan hasn't answered yet
+  const others        = calls.filter((c) => ['completed', 'rejected', 'missed'].includes(c.status));
 
   const sans = "'DM Sans', system-ui, sans-serif";
+
+  const statusColor = (status) => {
+    if (status === 'completed') return colors.success;
+    if (status === 'missed') return '#D9A45C';
+    return '#D99A9A';
+  };
 
   return (
     <div>
@@ -175,10 +211,7 @@ export function Calls() {
               <div key={c.id} style={S.card}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
                   <div>
-                    <div style={S.rowTitle}>
-                      {c.display_name || c.email} — {c.call_type}
-                      {c.call_type === 'priority-video' && <span style={{ marginLeft: 8, fontSize: 11, color: '#D99A9A' }}>🔴 PRIORITY</span>}
-                    </div>
+                    <div style={S.rowTitle}>{c.display_name || c.email} — {c.call_type}</div>
                     <div style={{ ...S.rowSub, display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
                       {c.coins_charged} tokens · <Badge tier={c.tier} />
                     </div>
@@ -255,7 +288,7 @@ export function Calls() {
         </div>
       )}
 
-      {/* Scheduled — start when the time comes */}
+      {/* Scheduled — start when the time comes, this rings the fan */}
       {scheduled.length > 0 && (
         <div style={{ marginBottom: 28 }}>
           <T.sectionTitle>Scheduled ({scheduled.length})</T.sectionTitle>
@@ -274,7 +307,7 @@ export function Calls() {
                     disabled={creating === c.id}
                     style={{ background: colors.accent, border: 'none', color: '#1A1714', fontFamily: sans, fontSize: 13, fontWeight: 700, padding: '9px 16px', borderRadius: 8, cursor: 'pointer', opacity: creating === c.id ? 0.6 : 1 }}
                   >
-                    {creating === c.id ? 'Starting…' : '▶ Start call'}
+                    {creating === c.id ? 'Starting…' : '▶ Start call — rings the fan'}
                   </button>
                 </div>
               </div>
@@ -283,17 +316,17 @@ export function Calls() {
         </div>
       )}
 
-      {/* Confirmed — rejoin */}
-      {confirmed.length > 0 && (
+      {/* Ringing the fan — she already started it, waiting for their answer */}
+      {ringingFan.length > 0 && (
         <div style={{ marginBottom: 28 }}>
-          <T.sectionTitle>Room ready ({confirmed.length})</T.sectionTitle>
+          <T.sectionTitle>Ringing fan ({ringingFan.length})</T.sectionTitle>
           <div style={{ display: 'grid', gap: 10 }}>
-            {confirmed.map((c) => (
+            {ringingFan.map((c) => (
               <div key={c.id} style={{ ...S.card, border: `1px solid rgba(193,125,74,0.3)` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                   <div>
                     <div style={S.rowTitle}>{c.display_name || c.email} — {c.call_type}</div>
-                    <div style={{ fontFamily: sans, fontSize: 12, color: colors.accent, marginTop: 4 }}>Room ready · fan notified</div>
+                    <div style={{ fontFamily: sans, fontSize: 12, color: colors.accent, marginTop: 4 }}>Waiting for the fan to answer…</div>
                   </div>
                   {c.stream_call_id && (
                     <button
@@ -325,12 +358,12 @@ export function Calls() {
                       {c.coins_charged} tokens · {new Date(c.created_at).toLocaleDateString()}
                     </div>
                   </div>
-                  <span style={{ fontFamily: sans, fontSize: 12, color: c.status === 'completed' ? colors.success : '#D99A9A', textTransform: 'capitalize' }}>
+                  <span style={{ fontFamily: sans, fontSize: 12, color: statusColor(c.status), textTransform: 'capitalize' }}>
                     {c.status}
                   </span>
                 </div>
-                {c.status === 'rejected' && c.rejection_reason && (
-                  <div style={{ fontFamily: sans, fontSize: 13, color: '#D99A9A', background: 'rgba(156,90,90,0.08)', border: '1px solid rgba(156,90,90,0.25)', borderRadius: 8, padding: '8px 12px', marginTop: 10 }}>
+                {(c.status === 'rejected' || c.status === 'missed') && c.rejection_reason && (
+                  <div style={{ fontFamily: sans, fontSize: 13, color: statusColor(c.status), background: 'rgba(156,90,90,0.08)', border: '1px solid rgba(156,90,90,0.25)', borderRadius: 8, padding: '8px 12px', marginTop: 10 }}>
                     {c.rejection_reason}
                   </div>
                 )}

@@ -3,8 +3,9 @@ const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
+const { pushToUser } = require('./push');
 const { postSystemMessage } = require('./community');
-const { getConfigNumber, getDiscountForTier, getGuestMultiplier } = require('../lib/config');
+const { getConfigNumber, getDiscountForTier, getGuestMultiplier, getCallMinLeadHours, getCallRingWindowSeconds } = require('../lib/config');
 
 const MAX_NEGOTIATION_ROUND = 4;
 
@@ -17,6 +18,14 @@ async function getCallRate(type) {
   const key = keyMap[type];
   if (!key) return 8;
   return getConfigNumber(key);
+}
+
+function getStreamClient() {
+  const { StreamClient } = require('@stream-io/node-sdk');
+  return new StreamClient(
+    process.env.STREAM_API_KEY,
+    process.env.STREAM_API_SECRET
+  );
 }
 
 // ─────────────────────────────────────────────
@@ -38,9 +47,10 @@ router.get('/options', authMid, async (req, res) => {
     const user     = userRows[0];
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > new Date();
     const isGuest  = !isActive;
-    const [discountPct, guestMultiplier] = await Promise.all([
+    const [discountPct, guestMultiplier, minLeadHours] = await Promise.all([
       isGuest ? 0 : getDiscountForTier(user.tier),
       isGuest ? getGuestMultiplier() : 1,
+      getCallMinLeadHours(),
     ]);
 
     const applyPricing = (base) => {
@@ -67,10 +77,11 @@ router.get('/options', authMid, async (req, res) => {
       coinBalance:  user.coin_balance,
       discountPct,
       isGuest,
+      minLeadHours,
       options: [
-        { id: 'audio',          title: 'Audio Call',     description: 'A private audio session.',                          coinsPerMin: Math.round(applyPricing(audioRate)    * multiplier) },
-        { id: 'video',          title: 'Video Call',     description: 'A private face-to-face video session.',              coinsPerMin: Math.round(applyPricing(videoRate)    * multiplier) },
-        { id: 'priority-video', title: 'Priority Video', description: 'Longer-form video with scheduling priority.',        coinsPerMin: Math.round(applyPricing(priorityRate) * multiplier) },
+        { id: 'audio',          title: 'Audio Call',     description: 'A private audio session. Schedule at least a few hours ahead.',    coinsPerMin: Math.round(applyPricing(audioRate)    * multiplier) },
+        { id: 'video',          title: 'Video Call',     description: 'A private face-to-face video session. Schedule at least a few hours ahead.', coinsPerMin: Math.round(applyPricing(videoRate)    * multiplier) },
+        { id: 'priority-video', title: 'Priority Video', description: 'Calls Jinal right now — no scheduling, connects immediately if she answers.', coinsPerMin: Math.round(applyPricing(priorityRate) * multiplier) },
       ],
     });
   } catch (err) {
@@ -81,6 +92,8 @@ router.get('/options', authMid, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // POST /api/calls/book
+// Priority calls: create the room instantly and ring Jinal — no proposed time needed
+// Audio/Video calls: standard scheduling negotiation, minimum lead time enforced
 // ─────────────────────────────────────────────
 
 router.post('/book', authMid, async (req, res) => {
@@ -92,12 +105,26 @@ router.post('/book', authMid, async (req, res) => {
   if (!['audio', 'video', 'priority-video'].includes(callType)) {
     return res.status(400).json({ error: 'Invalid call type' });
   }
-  if (!proposedTime) {
-    return res.status(400).json({ error: 'Please propose a time for the call' });
-  }
-  const proposedDate = new Date(proposedTime);
-  if (isNaN(proposedDate.getTime()) || proposedDate <= new Date()) {
-    return res.status(400).json({ error: 'Proposed time must be a valid time in the future' });
+
+  const isPriority = callType === 'priority-video';
+
+  let proposedDate = null;
+  if (!isPriority) {
+    if (!proposedTime) {
+      return res.status(400).json({ error: 'Please propose a time for the call' });
+    }
+    proposedDate = new Date(proposedTime);
+    if (isNaN(proposedDate.getTime())) {
+      return res.status(400).json({ error: 'Proposed time must be a valid date' });
+    }
+    const minLeadHours = await getCallMinLeadHours();
+    const earliestAllowed = new Date(Date.now() + minLeadHours * 60 * 60 * 1000);
+    if (proposedDate < earliestAllowed) {
+      return res.status(400).json({
+        error: 'TOO_SOON',
+        message: `Scheduled calls need at least ${minLeadHours} hours' notice. For anything sooner, book a Priority Video call instead.`,
+      });
+    }
   }
 
   const client = await pool.connect();
@@ -120,7 +147,7 @@ router.post('/book', authMid, async (req, res) => {
     const baseRate = await getCallRate(callType);
 
     const { rows: userRows } = await client.query(
-      `SELECT coin_balance, tier, membership_expires_at, display_name FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT coin_balance, tier, membership_expires_at, display_name, email FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user     = userRows[0];
@@ -161,45 +188,84 @@ router.post('/book', authMid, async (req, res) => {
       [req.user.userId, totalCost, `${callType} call — ${durationMinutes} min`]
     );
 
-    const { rows: callRows } = await client.query(
-      `INSERT INTO call_requests (user_id, call_type, coins_per_min, coins_charged, proposed_time, proposed_by, negotiation_round)
-       VALUES ($1, $2, $3, $4, $5, 'fan', 1) RETURNING *`,
-      [req.user.userId, callType, perMin, totalCost, proposedDate]
-    );
+    let callRow;
+
+    if (isPriority) {
+      // Create the Stream room right now — this call rings Jinal immediately, no scheduling step
+      const ringWindowSeconds = await getCallRingWindowSeconds();
+      const ringExpiresAt = new Date(Date.now() + ringWindowSeconds * 1000);
+      const callId = `ps-call-${req.user.userId}-${Date.now()}`;
+
+      const streamClient = getStreamClient();
+      await streamClient.upsertUsers([
+        { id: process.env.ARTIST_USER_ID, name: 'Jinal Joshi', role: 'admin' },
+        { id: req.user.userId, name: fanLabel, role: 'user' },
+      ]);
+      const call = streamClient.video.call('default', callId);
+      await call.getOrCreate({
+        data: {
+          created_by_id: req.user.userId,
+          members: [
+            { user_id: process.env.ARTIST_USER_ID, role: 'admin' },
+            { user_id: req.user.userId, role: 'user' },
+          ],
+          custom: { callType },
+        },
+      });
+
+      const { rows } = await client.query(
+        `INSERT INTO call_requests
+           (user_id, call_type, coins_per_min, coins_charged, status, stream_call_id, ring_expires_at, proposed_by, negotiation_round)
+         VALUES ($1, $2, $3, $4, 'ringing', $5, $6, 'fan', 1) RETURNING *`,
+        [req.user.userId, callType, perMin, totalCost, callId, ringExpiresAt]
+      );
+      callRow = rows[0];
+    } else {
+      const { rows } = await client.query(
+        `INSERT INTO call_requests (user_id, call_type, coins_per_min, coins_charged, proposed_time, proposed_by, negotiation_round)
+         VALUES ($1, $2, $3, $4, $5, 'fan', 1) RETURNING *`,
+        [req.user.userId, callType, perMin, totalCost, proposedDate]
+      );
+      callRow = rows[0];
+    }
 
     await client.query(
       `INSERT INTO artist_notifications (type, fan_id, payload)
-       VALUES ('call_request', $1, $2)`,
-      [req.user.userId, JSON.stringify({ callType, durationMinutes, totalCost, proposedTime: proposedDate })]
+       VALUES ($1, $2, $3)`,
+      [isPriority ? 'priority_call_ringing' : 'call_request', req.user.userId,
+       JSON.stringify({ callType, durationMinutes, totalCost, proposedTime: proposedDate })]
     );
 
     await client.query('COMMIT');
 
-    if (callType === 'priority-video') {
+    if (isPriority) {
       notifyArtist({
-        title: '🔴 PRIORITY call request!',
-        body:  `${fanLabel} wants a priority call — proposed ${proposedDate.toLocaleString()}`,
+        title: '🔴 Priority call — ringing now!',
+        body:  `${fanLabel} is calling you right now. Answer within a minute.`,
         url:   '/calls',
-        vibrate: [100, 50, 100, 50, 100, 50, 300],
+        vibrate: [200, 100, 200, 100, 200, 100, 400],
         requireInteraction: true,
-        tag: `priority-call-${callRows[0].id}`,
+        tag: `priority-ring-${callRow.id}`,
       });
+      postSystemMessage(`🔴 ${fanLabel} just started a priority call with Jinal!`);
     } else {
       notifyArtist({
         title: 'New call request 📞',
         body:  `${callType} call requested for ${durationMinutes} min · proposed ${proposedDate.toLocaleString()}`,
         url:   '/calls',
       });
+      postSystemMessage(`📞 ${fanLabel} just booked a call with Jinal!`);
     }
-
-    postSystemMessage(`📞 ${fanLabel} just booked a call with Jinal!`);
 
     res.json({
       ok:         true,
-      call:       callRows[0],
+      call:       callRow,
       totalCost,
       newBalance: user.coin_balance - totalCost,
-      message:    `Your call request has been sent to Jinal for confirmation.`,
+      isPriority,
+      message: isPriority
+        ? 'Calling Jinal now — hang tight.'
+        : 'Your call request has been sent to Jinal for confirmation.',
     });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -212,6 +278,7 @@ router.post('/book', authMid, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // POST /api/calls/:id/respond  [FAN]
+// Minimum lead time enforced on counter-proposals too
 // ─────────────────────────────────────────────
 
 router.post('/:id/respond', authMid, async (req, res) => {
@@ -277,9 +344,15 @@ router.post('/:id/respond', authMid, async (req, res) => {
       return res.status(400).json({ error: 'Please propose a new time' });
     }
     const newDate = new Date(proposedTime);
-    if (isNaN(newDate.getTime()) || newDate <= new Date()) {
+    if (isNaN(newDate.getTime())) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Proposed time must be a valid time in the future' });
+      return res.status(400).json({ error: 'Proposed time must be a valid date' });
+    }
+    const minLeadHours = await getCallMinLeadHours();
+    const earliestAllowed = new Date(Date.now() + minLeadHours * 60 * 60 * 1000);
+    if (newDate < earliestAllowed) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `Proposed time must be at least ${minLeadHours} hours from now` });
     }
 
     await client.query(
