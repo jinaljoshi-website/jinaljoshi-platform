@@ -19,6 +19,16 @@ function makeChannelId(id1, id2) {
   return 'dm' + ids[0].replace(/-/g, '').slice(0, 12) + ids[1].replace(/-/g, '').slice(0, 12);
 }
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+  return isMobile;
+}
+
 export function Messages() {
   const [convos,   setConvos]   = useState([]);
   const [selected, setSelected] = useState(null); // fan id
@@ -29,6 +39,7 @@ export function Messages() {
   const [loading,  setLoading]  = useState(true);
   const [typing,   setTyping]   = useState(false);
   const [panel,    setPanel]    = useState(null);
+  const isMobile = useIsMobile();
 
   // Token grant
   const [grantAmt,  setGrantAmt]  = useState('');
@@ -54,13 +65,11 @@ export function Messages() {
   const channelRef   = useRef(null);
   const artistIdRef  = useRef(null);
 
-  // Load conversation list
   useEffect(() => {
     api.get('/api/studio/dms')
       .then((d) => setConvos(d.conversations || []))
       .finally(() => setLoading(false));
 
-    // Connect artist to Stream
     initArtistStream();
 
     return () => {
@@ -93,7 +102,6 @@ export function Messages() {
   }, [thread, typing]);
 
   const openConvo = async (fanId) => {
-    // Stop watching previous channel
     if (channelRef.current) {
       channelRef.current.off('message.new');
       channelRef.current.off('typing.start');
@@ -107,7 +115,6 @@ export function Messages() {
     setGrantMsg('');
     setTyping(false);
 
-    // Load from backend
     const data = await api.get(`/api/studio/dms/${fanId}`);
     setThread(data.messages || []);
     setFan(data.fan || null);
@@ -115,7 +122,6 @@ export function Messages() {
     setCustomCost(data.fan?.custom_chat_price || '');
     setMediaEnabled(data.fan?.can_send_media || false);
 
-    // Connect Stream channel for real-time
     try {
       if (!scClientRef.current?.userID) await initArtistStream();
       const artistId = artistIdRef.current;
@@ -126,11 +132,10 @@ export function Messages() {
         members: [artistId, fanId],
       });
 
-      // Set listeners before watch
       channel.on('message.new', (event) => {
         const msg = event.message;
         const isFromFan = msg.user?.id === fanId;
-        if (!isFromFan) return; // we sent it, already in state
+        if (!isFromFan) return;
 
         setThread((prev) => {
           if (prev.find((m) => m.id === msg.id || m.stream_id === msg.id)) return prev;
@@ -146,7 +151,6 @@ export function Messages() {
           }];
         });
 
-        // Refresh convo list unread count
         api.get('/api/studio/dms').then((d) => setConvos(d.conversations || [])).catch(() => {});
         channel.markRead().catch(() => {});
       });
@@ -167,6 +171,13 @@ export function Messages() {
     }
   };
 
+  const closeConvo = () => {
+    setSelected(null);
+    setThread([]);
+    setFan(null);
+    setPanel(null);
+  };
+
   const sendReply = async (mediaUrl = null, mediaType = null) => {
     if (!reply.trim() && !mediaUrl) return;
     setSending(true);
@@ -177,11 +188,9 @@ export function Messages() {
         mediaType: mediaType || undefined,
       });
 
-      // Add to local state
       setThread((prev) => [...prev, data.message]);
       setReply('');
 
-      // Send via Stream so fan sees it in real-time
       if (channelRef.current) {
         const streamMsg = {};
         if (reply.trim()) streamMsg.text = reply.trim();
@@ -256,137 +265,150 @@ export function Messages() {
 
   const sans = "'DM Sans', system-ui, sans-serif";
 
+  // On mobile: show ONLY the list, or ONLY the open thread, never both at once
+  const showList   = !isMobile || !selected;
+  const showThread = !isMobile || !!selected;
+
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 20, height: '85vh' }}>
+    <div style={isMobile
+      ? { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }
+      : { display: 'grid', gridTemplateColumns: '240px 1fr', gap: 20, height: '85vh' }
+    }>
       {/* Convo list */}
-      <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <Eyebrow>Conversations</Eyebrow>
-        {convos.length === 0 && <T.muted>No messages yet.</T.muted>}
-        {convos.map((c) => (
-          <button key={c.fan_id} onClick={() => openConvo(c.fan_id)} style={{ background: selected === c.fan_id ? 'rgba(193,125,74,0.1)' : '#161410', border: selected === c.fan_id ? '1px solid rgba(193,125,74,0.3)' : `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 12px', textAlign: 'left', cursor: 'pointer', color: colors.text }}>
-            <div style={{ fontFamily: sans, fontSize: 13, marginBottom: 3 }}>{c.display_name || c.email}</div>
-            <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.content?.slice(0, 40)}…</div>
-            {!c.is_mine && !c.read && <div style={{ width: 6, height: 6, borderRadius: '50%', background: colors.accent, marginTop: 5 }} />}
-          </button>
-        ))}
-      </div>
+      {showList && (
+        <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, flex: isMobile ? 1 : undefined, minHeight: 0 }}>
+          <Eyebrow>Conversations</Eyebrow>
+          {convos.length === 0 && <T.muted>No messages yet.</T.muted>}
+          {convos.map((c) => (
+            <button key={c.fan_id} onClick={() => openConvo(c.fan_id)} style={{ background: selected === c.fan_id ? 'rgba(193,125,74,0.1)' : '#161410', border: selected === c.fan_id ? '1px solid rgba(193,125,74,0.3)' : `1px solid ${colors.border}`, borderRadius: 8, padding: '12px 14px', textAlign: 'left', cursor: 'pointer', color: colors.text }}>
+              <div style={{ fontFamily: sans, fontSize: 14, marginBottom: 3 }}>{c.display_name || c.email}</div>
+              <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.content?.slice(0, 40)}…</div>
+              {!c.is_mine && !c.read && <div style={{ width: 6, height: 6, borderRadius: '50%', background: colors.accent, marginTop: 5 }} />}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Thread */}
-      <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {selected ? (
-          <>
-            {/* Fan header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20, color: colors.text }}>{fan?.display_name || fan?.email}</div>
-                {fan && <Badge tier={fan.tier} />}
-                {fan && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: colors.muted }}>{fan.coin_balance} tokens</span>}
-              </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => setPanel(panel === 'grant' ? null : 'grant')} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 10px', color: panel === 'grant' ? colors.accent : colors.muted }}>Send tokens</button>
-                <button onClick={() => setPanel(panel === 'settings' ? null : 'settings')} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 10px', color: panel === 'settings' ? colors.accent : colors.muted }}>Chat settings</button>
-              </div>
-            </div>
-
-            {/* Grant panel */}
-            {panel === 'grant' && (
-              <Card style={{ marginBottom: 10 }}>
-                {grantMsg && <div style={grantMsg.startsWith('✓') ? S.success : S.error}>{grantMsg}</div>}
-                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                  <TokenField label="Tokens to send" value={grantAmt} onChange={setGrantAmt} tokenRateInr={TOKEN_RATE} />
-                  <Field label="Reason">
-                    <input style={{ ...S.input, width: 180 }} value={grantNote} onChange={(e) => setGrantNote(e.target.value)} placeholder="e.g. Call refund" />
-                  </Field>
-                  <button onClick={handleGrant} disabled={granting || !grantAmt} style={{ ...S.btn, opacity: (granting || !grantAmt) ? 0.5 : 1, alignSelf: 'flex-end' }}>
-                    {granting ? '…' : 'Send'}
-                  </button>
-                </div>
-              </Card>
-            )}
-
-            {/* Settings panel */}
-            {panel === 'settings' && (
-              <Card style={{ marginBottom: 10 }}>
-                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                  <Field label="Chat background photo">
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <input ref={bgFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleBgUpload} />
-                      <button onClick={() => bgFileRef.current?.click()} disabled={bgUploading} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 12px', opacity: bgUploading ? 0.5 : 1 }}>
-                        {bgUploading ? 'Uploading…' : 'Browse photo'}
-                      </button>
-                      {bgPreview && <img src={bgPreview} alt="bg" style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 4, border: `1px solid ${colors.border}` }} />}
-                    </div>
-                  </Field>
-                  <TokenField label="Custom DM cost (overrides tier default)" value={customCost} onChange={setCustomCost} tokenRateInr={TOKEN_RATE} />
-                  <Field label="Allow fan to send media">
-                    <label style={{ fontFamily: sans, fontSize: 13, color: colors.muted, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 6 }}>
-                      <input type="checkbox" checked={mediaEnabled} onChange={(e) => setMediaEnabled(e.target.checked)} />
-                      {mediaEnabled ? 'Enabled' : 'Disabled'}
-                    </label>
-                  </Field>
-                  <button onClick={saveSettings} disabled={settingsSaving} style={{ ...S.btn, opacity: settingsSaving ? 0.5 : 1, alignSelf: 'flex-end' }}>
-                    {settingsSaving ? 'Saving…' : 'Save settings'}
-                  </button>
-                </div>
-              </Card>
-            )}
-
-            {/* Message thread */}
-            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, padding: '4px 0' }}>
-              {thread.map((msg) => (
-                <div key={msg.id || msg.stream_id} style={{ alignSelf: msg.is_mine ? 'flex-end' : 'flex-start', maxWidth: '75%' }}>
-                  {!msg.is_mine && (
-                    <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 3 }}>
-                      {fan?.display_name || fan?.email}
-                    </div>
+      {showThread && (
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: isMobile ? 1 : undefined }}>
+          {selected ? (
+            <>
+              {/* Fan header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  {isMobile && (
+                    <button onClick={closeConvo} style={{ background: 'transparent', border: 'none', color: colors.muted, fontSize: 20, cursor: 'pointer', padding: '0 4px 0 0', flexShrink: 0 }}>←</button>
                   )}
-                  <div style={{ fontFamily: sans, fontSize: 14, color: colors.text, lineHeight: 1.6, padding: msg.media_url ? 6 : '10px 14px', borderRadius: 10, wordBreak: 'break-word', overflow: 'hidden', background: msg.is_mine ? 'rgba(193,125,74,0.1)' : '#161410', border: msg.is_mine ? '1px solid rgba(193,125,74,0.25)' : `1px solid ${colors.border}` }}>
-                    {msg.media_url && msg.media_type === 'image' && <img src={msg.media_url} alt="" style={{ width: '100%', maxWidth: 260, borderRadius: 6, display: 'block', marginBottom: msg.content ? 6 : 0 }} />}
-                    {msg.media_url && msg.media_type === 'video' && <video src={msg.media_url} controls style={{ width: '100%', maxWidth: 260, borderRadius: 6, display: 'block', marginBottom: msg.content ? 6 : 0 }} />}
-                    {msg.content && <div style={{ padding: msg.media_url ? '0 8px 8px' : 0 }}>{msg.content}</div>}
-                  </div>
-                  <div style={{ fontFamily: sans, fontSize: 10, color: colors.muted, marginTop: 3, textAlign: msg.is_mine ? 'right' : 'left' }}>
-                    {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </div>
+                  <div style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20, color: colors.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fan?.display_name || fan?.email}</div>
+                  {fan && <Badge tier={fan.tier} />}
+                  {fan && !isMobile && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: colors.muted }}>{fan.coin_balance} tokens</span>}
                 </div>
-              ))}
-
-              {/* Fan typing indicator */}
-              {typing && (
-                <div style={{ alignSelf: 'flex-start' }}>
-                  <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 3 }}>
-                    {fan?.display_name || 'Fan'} is typing…
-                  </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => setPanel(panel === 'grant' ? null : 'grant')} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 10px', color: panel === 'grant' ? colors.accent : colors.muted }}>Send tokens</button>
+                  <button onClick={() => setPanel(panel === 'settings' ? null : 'settings')} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 10px', color: panel === 'settings' ? colors.accent : colors.muted }}>Chat settings</button>
                 </div>
-              )}
-              <div ref={bottomRef} />
-            </div>
-
-            {/* Reply composer */}
-            <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 10 }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-                <input ref={mediaFileRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleMediaFile} />
-                <button onClick={() => mediaFileRef.current?.click()} disabled={mediaSending || sending} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', opacity: (mediaSending || sending) ? 0.5 : 1 }} title="Attach image or video">
-                  {mediaSending ? '…' : '📎'}
-                </button>
-                <textarea
-                  value={reply}
-                  onChange={(e) => { setReply(e.target.value); handleTyping(); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
-                  placeholder="Reply… (Enter to send)"
-                  rows={2}
-                  style={{ flex: 1, background: '#161410', border: `1px solid ${colors.border}`, color: colors.text, fontFamily: sans, fontSize: 14, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none' }}
-                />
-                <button onClick={() => sendReply()} disabled={sending || !reply.trim()} style={{ ...S.btn, opacity: (sending || !reply.trim()) ? 0.5 : 1 }}>
-                  {sending ? '…' : 'Send'}
-                </button>
               </div>
-            </div>
-          </>
-        ) : (
-          <T.muted>Select a conversation to read and reply.</T.muted>
-        )}
-      </div>
+
+              {/* Grant panel */}
+              {panel === 'grant' && (
+                <Card style={{ marginBottom: 10 }}>
+                  {grantMsg && <div style={grantMsg.startsWith('✓') ? S.success : S.error}>{grantMsg}</div>}
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <TokenField label="Tokens to send" value={grantAmt} onChange={setGrantAmt} tokenRateInr={TOKEN_RATE} />
+                    <Field label="Reason">
+                      <input style={{ ...S.input, width: 180 }} value={grantNote} onChange={(e) => setGrantNote(e.target.value)} placeholder="e.g. Call refund" />
+                    </Field>
+                    <button onClick={handleGrant} disabled={granting || !grantAmt} style={{ ...S.btn, opacity: (granting || !grantAmt) ? 0.5 : 1, alignSelf: 'flex-end' }}>
+                      {granting ? '…' : 'Send'}
+                    </button>
+                  </div>
+                </Card>
+              )}
+
+              {/* Settings panel */}
+              {panel === 'settings' && (
+                <Card style={{ marginBottom: 10 }}>
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <Field label="Chat background photo">
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input ref={bgFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleBgUpload} />
+                        <button onClick={() => bgFileRef.current?.click()} disabled={bgUploading} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 12px', opacity: bgUploading ? 0.5 : 1 }}>
+                          {bgUploading ? 'Uploading…' : 'Browse photo'}
+                        </button>
+                        {bgPreview && <img src={bgPreview} alt="bg" style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 4, border: `1px solid ${colors.border}` }} />}
+                      </div>
+                    </Field>
+                    <TokenField label="Custom DM cost (overrides tier default)" value={customCost} onChange={setCustomCost} tokenRateInr={TOKEN_RATE} />
+                    <Field label="Allow fan to send media">
+                      <label style={{ fontFamily: sans, fontSize: 13, color: colors.muted, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 6 }}>
+                        <input type="checkbox" checked={mediaEnabled} onChange={(e) => setMediaEnabled(e.target.checked)} />
+                        {mediaEnabled ? 'Enabled' : 'Disabled'}
+                      </label>
+                    </Field>
+                    <button onClick={saveSettings} disabled={settingsSaving} style={{ ...S.btn, opacity: settingsSaving ? 0.5 : 1, alignSelf: 'flex-end' }}>
+                      {settingsSaving ? 'Saving…' : 'Save settings'}
+                    </button>
+                  </div>
+                </Card>
+              )}
+
+              {/* Message thread */}
+              <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, padding: '4px 0', minHeight: 0 }}>
+                {thread.map((msg) => (
+                  <div key={msg.id || msg.stream_id} style={{ alignSelf: msg.is_mine ? 'flex-end' : 'flex-start', maxWidth: '75%' }}>
+                    {!msg.is_mine && (
+                      <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 3 }}>
+                        {fan?.display_name || fan?.email}
+                      </div>
+                    )}
+                    <div style={{ fontFamily: sans, fontSize: 14, color: colors.text, lineHeight: 1.6, padding: msg.media_url ? 6 : '10px 14px', borderRadius: 10, wordBreak: 'break-word', overflow: 'hidden', background: msg.is_mine ? 'rgba(193,125,74,0.1)' : '#161410', border: msg.is_mine ? '1px solid rgba(193,125,74,0.25)' : `1px solid ${colors.border}` }}>
+                      {msg.media_url && msg.media_type === 'image' && <img src={msg.media_url} alt="" style={{ width: '100%', maxWidth: 260, borderRadius: 6, display: 'block', marginBottom: msg.content ? 6 : 0 }} />}
+                      {msg.media_url && msg.media_type === 'video' && <video src={msg.media_url} controls style={{ width: '100%', maxWidth: 260, borderRadius: 6, display: 'block', marginBottom: msg.content ? 6 : 0 }} />}
+                      {msg.content && <div style={{ padding: msg.media_url ? '0 8px 8px' : 0 }}>{msg.content}</div>}
+                    </div>
+                    <div style={{ fontFamily: sans, fontSize: 10, color: colors.muted, marginTop: 3, textAlign: msg.is_mine ? 'right' : 'left' }}>
+                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                ))}
+
+                {typing && (
+                  <div style={{ alignSelf: 'flex-start' }}>
+                    <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 3 }}>
+                      {fan?.display_name || 'Fan'} is typing…
+                    </div>
+                  </div>
+                )}
+                <div ref={bottomRef} />
+              </div>
+
+              {/* Reply composer */}
+              <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 10, flexShrink: 0 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                  <input ref={mediaFileRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleMediaFile} />
+                  <button onClick={() => mediaFileRef.current?.click()} disabled={mediaSending || sending} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', opacity: (mediaSending || sending) ? 0.5 : 1 }} title="Attach image or video">
+                    {mediaSending ? '…' : '📎'}
+                  </button>
+                  <textarea
+                    value={reply}
+                    onChange={(e) => { setReply(e.target.value); handleTyping(); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
+                    placeholder="Reply… (Enter to send)"
+                    rows={2}
+                    style={{ flex: 1, background: '#161410', border: `1px solid ${colors.border}`, color: colors.text, fontFamily: sans, fontSize: 14, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none' }}
+                  />
+                  <button onClick={() => sendReply()} disabled={sending || !reply.trim()} style={{ ...S.btn, opacity: (sending || !reply.trim()) ? 0.5 : 1 }}>
+                    {sending ? '…' : 'Send'}
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <T.muted>Select a conversation to read and reply.</T.muted>
+          )}
+        </div>
+      )}
     </div>
   );
 }
