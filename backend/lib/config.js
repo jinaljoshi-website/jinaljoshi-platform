@@ -33,6 +33,9 @@ const DEFAULTS = {
   call_ring_window_seconds: 60,
   call_min_lead_hours: 6,
 
+  domestic_gst_rate_pct: 18,
+  fx_buffer_pct: 3,
+
   dm_free_per_month_community: 5,
   dm_free_per_month_insider:   30,
   dm_free_per_month_premium:   100,
