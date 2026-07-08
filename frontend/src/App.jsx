@@ -297,7 +297,7 @@ function WorkMeta({ label, value }) {
   )
 }
 
-function CarouselControls({ current, total, onPrev, onNext, compact = false }) {
+function CarouselControls({ current, total, onPrev, onNext, isPaused, onTogglePause, compact = false }) {
   return (
     <div className={`carousel-controls ${compact ? 'carousel-controls--compact' : ''}`}>
       <button
@@ -321,13 +321,32 @@ function CarouselControls({ current, total, onPrev, onNext, compact = false }) {
       >
         →
       </button>
+
+      <button
+        type="button"
+        className="carousel-pause"
+        onClick={onTogglePause}
+        aria-label={isPaused ? 'Resume autoplay' : 'Pause autoplay'}
+        title={isPaused ? 'Resume' : 'Pause'}
+      >
+        {isPaused ? '▶' : '❙❙'}
+      </button>
     </div>
   )
 }
 
 function useConstantCarousel(itemsLength, interval = CAROUSEL_INTERVAL) {
   const [index, setIndex] = useState(0)
+  const [isHovering, setIsHovering] = useState(false)
+  const [isManuallyPaused, setIsManuallyPaused] = useState(false)
   const intervalRef = useRef(null)
+  const pausedRef = useRef(false)
+
+  const isPaused = isHovering || isManuallyPaused
+
+  useEffect(() => {
+    pausedRef.current = isPaused
+  }, [isPaused])
 
   const clearTimer = () => {
     if (intervalRef.current) clearInterval(intervalRef.current)
@@ -337,7 +356,9 @@ function useConstantCarousel(itemsLength, interval = CAROUSEL_INTERVAL) {
     clearTimer()
     if (itemsLength <= 1) return
     intervalRef.current = setInterval(() => {
-      setIndex((prev) => (prev + 1) % itemsLength)
+      if (!pausedRef.current) {
+        setIndex((prev) => (prev + 1) % itemsLength)
+      }
     }, interval)
   }
 
@@ -345,25 +366,37 @@ function useConstantCarousel(itemsLength, interval = CAROUSEL_INTERVAL) {
     setIndex(0)
     startTimer()
     return clearTimer
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemsLength, interval])
 
   const goTo = (nextIndex) => {
     setIndex((nextIndex + itemsLength) % itemsLength)
-    startTimer()
   }
 
   const next = () => goTo(index + 1)
   const prev = () => goTo(index - 1)
+  const togglePause = () => setIsManuallyPaused((p) => !p)
 
-  return { index, goTo, next, prev }
+  return {
+    index,
+    goTo,
+    next,
+    prev,
+    isPaused,
+    togglePause,
+    hoverHandlers: {
+      onMouseEnter: () => setIsHovering(true),
+      onMouseLeave: () => setIsHovering(false),
+    },
+  }
 }
 
 function WorksCarouselSection({ title, items }) {
-  const { index, next, prev } = useConstantCarousel(items.length)
+  const { index, next, prev, isPaused, togglePause, hoverHandlers } = useConstantCarousel(items.length)
   const activeItem = items[index]
 
   return (
-    <section className="works-section">
+    <section className="works-section" {...hoverHandlers}>
       <div className="works-section__header">
         <h2 className="works-section__title">{title}</h2>
         <CarouselControls
@@ -371,6 +404,8 @@ function WorksCarouselSection({ title, items }) {
           total={items.length}
           onPrev={prev}
           onNext={next}
+          isPaused={isPaused}
+          onTogglePause={togglePause}
         />
       </div>
 
@@ -421,12 +456,12 @@ function WorksCarouselSection({ title, items }) {
 }
 
 function AutoVideoPanel({ title, items }) {
-  const { index, next, prev } = useConstantCarousel(items.length)
+  const { index, next, prev, isPaused, togglePause, hoverHandlers } = useConstantCarousel(items.length)
   const activeItem = items[index]
   const embed = getEmbedInfo(activeItem.watchNow)
 
   return (
-    <div className="split-video__panel">
+    <div className="split-video__panel" {...hoverHandlers}>
       <div className="split-video__panel-header">
         <h2 className="split-video__title">{title}</h2>
         <CarouselControls
@@ -434,6 +469,8 @@ function AutoVideoPanel({ title, items }) {
           total={items.length}
           onPrev={prev}
           onNext={next}
+          isPaused={isPaused}
+          onTogglePause={togglePause}
           compact
         />
       </div>
@@ -502,7 +539,7 @@ function ContactSection() {
         <p className="contact-cta__eyebrow">Contact</p>
 
         <h2 className="contact-cta__title">
-          
+          Let's work together
         </h2>
 
         <p className="contact-cta__note">
@@ -511,20 +548,29 @@ function ContactSection() {
         </p>
 
         <div className="contact-cta__grid">
-          <a href="mailto:hello@jinaljj.com" className="contact-cta__item">
+          <div className="contact-cta__item">
             <span className="contact-cta__label">Email</span>
             <span className="contact-cta__value">hello@jinaljj.com</span>
-          </a>
+            <a
+              href="mailto:hello@jinaljj.com"
+              className="works-feature__button contact-cta__action"
+            >
+              Send Email
+            </a>
+          </div>
 
-          <a
-            href="https://wa.me/918689888658"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="contact-cta__item"
-          >
+          <div className="contact-cta__item">
             <span className="contact-cta__label">WhatsApp (Team Managed)</span>
             <span className="contact-cta__value">+91 86898 88658</span>
-          </a>
+            <a
+              href="https://wa.me/918689888658"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="works-feature__button contact-cta__action"
+            >
+              Send Message
+            </a>
+          </div>
         </div>
       </div>
     </section>
@@ -533,14 +579,23 @@ function ContactSection() {
 
 export default function App() {
   const [current, setCurrent] = useState(0)
+  const [heroPaused, setHeroPaused] = useState(false)
+  const [heroHovering, setHeroHovering] = useState(false)
   const heroTimerRef = useRef(null)
+  const heroPausedRef = useRef(false)
+
+  useEffect(() => {
+    heroPausedRef.current = heroPaused || heroHovering
+  }, [heroPaused, heroHovering])
 
   const restartHeroTimer = () => {
     if (heroTimerRef.current) clearInterval(heroTimerRef.current)
     if (SLIDES.length <= 1) return
 
     heroTimerRef.current = setInterval(() => {
-      setCurrent((prev) => (prev + 1) % SLIDES.length)
+      if (!heroPausedRef.current) {
+        setCurrent((prev) => (prev + 1) % SLIDES.length)
+      }
     }, HERO_INTERVAL)
   }
 
@@ -551,23 +606,25 @@ export default function App() {
     return () => {
       if (heroTimerRef.current) clearInterval(heroTimerRef.current)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const goToHero = (index) => {
     setCurrent(index)
-    restartHeroTimer()
   }
 
   const nextHero = () => {
     setCurrent((prev) => (prev + 1) % SLIDES.length)
-    restartHeroTimer()
   }
 
   return (
     <div className="site-shell">
-      
       <main>
-        <section className="hero">
+        <section
+          className="hero"
+          onMouseEnter={() => setHeroHovering(true)}
+          onMouseLeave={() => setHeroHovering(false)}
+        >
           <div
             className="hero__tap-target"
             onClick={nextHero}
@@ -616,6 +673,16 @@ export default function App() {
                   />
                 ))}
               </div>
+
+              <button
+                type="button"
+                className="hero__pause"
+                onClick={(e) => { e.stopPropagation(); setHeroPaused((p) => !p) }}
+                aria-label={heroPaused ? 'Resume slideshow' : 'Pause slideshow'}
+                title={heroPaused ? 'Resume' : 'Pause'}
+              >
+                {heroPaused ? '▶' : '❙❙'}
+              </button>
             </div>
           )}
         </section>
