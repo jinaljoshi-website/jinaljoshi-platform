@@ -231,6 +231,41 @@ router.post('/dms/:fanId/reply', async (req, res) => {
   }
 });
 
+router.post('/dms/:fanId/send-locked-media', async (req, res) => {
+  const { mediaItems, priceCoins, content } = req.body;
+
+  if (!Array.isArray(mediaItems) || mediaItems.length === 0) {
+    return res.status(400).json({ error: 'At least one media item is required' });
+  }
+  if (!priceCoins || priceCoins < 1) {
+    return res.status(400).json({ error: 'A token price is required' });
+  }
+  // Basic shape check — each item needs a url and a type
+  const isValidShape = mediaItems.every((item) => item.url && (item.type === 'image' || item.type === 'video'));
+  if (!isValidShape) {
+    return res.status(400).json({ error: 'Each media item needs a url and a valid type' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO direct_messages (sender_id, recipient_id, content, locked_media_urls, unlock_price_coins, tokens_charged)
+       VALUES ($1, $2, $3, $4, $5, 0) RETURNING *`,
+      [req.user.userId, req.params.fanId, content?.trim() || null, JSON.stringify(mediaItems), priceCoins]
+    );
+
+    await pool.query(
+      `INSERT INTO artist_notifications (type, fan_id, payload)
+       VALUES ('locked_media_sent', $1, $2)`,
+      [req.params.fanId, JSON.stringify({ itemCount: mediaItems.length, priceCoins })]
+    );
+
+    res.json({ ok: true, message: { ...rows[0], is_mine: true } });
+  } catch (err) {
+    console.error('studio/dms/send-locked-media error:', err);
+    res.status(500).json({ error: 'Failed to send locked media' });
+  }
+});
+
 // ─────────────────────────────────────────────
 // CONTENT
 // ─────────────────────────────────────────────

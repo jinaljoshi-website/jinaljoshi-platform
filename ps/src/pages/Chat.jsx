@@ -16,13 +16,14 @@ export default function Chat() {
   const [typing,     setTyping]     = useState(false);
   const [error,      setError]      = useState('');
   const [topUp,      setTopUp]      = useState(null);
+  const [unlocking,  setUnlocking]  = useState(null); // db_message_id currently being unlocked
   const bottomRef   = useRef(null);
   const fileRef     = useRef(null);
   const channelRef  = useRef(null);
   const scClientRef = useRef(null);
   const myIdRef     = useRef(null);
   const typingTimer = useRef(null);
-  const statusRef   = useRef(null); // keep a ref so catch block sees current status
+  const statusRef   = useRef(null);
   const { upload, uploading } = useUpload();
 
   const loadStatus = () => api.get('/api/chat/status').then((d) => {
@@ -30,18 +31,36 @@ export default function Chat() {
     statusRef.current = d;
   }).catch(() => {});
 
-  const msgToLocal = (m, myId) => ({
-    id:             m.id,
-    stream_id:      m.id,
-    sender_id:      m.user?.id,
-    content:        m.text || null,
-    media_url:      m.attachments?.[0]?.image_url || m.attachments?.[0]?.asset_url || null,
-    media_type:     m.attachments?.[0]?.type === 'video' ? 'video' : m.attachments?.[0]?.image_url ? 'image' : null,
-    tokens_charged: m.tokens_charged || 0,
-    created_at:     m.created_at,
-    is_mine:        m.user?.id === myId,
-    status:         'delivered',
-  });
+  const msgToLocal = (m, myId) => {
+    // Locked media message — Jinal sent a paid unlockable bundle, never carries real URLs over Stream
+    if (m.locked_media) {
+      return {
+        id:                m.db_message_id || m.id,
+        stream_id:         m.id,
+        sender_id:         m.user?.id,
+        content:           m.text || null,
+        is_locked_media:   true,
+        locked_price:      m.locked_price,
+        locked_item_count: m.locked_item_count,
+        unlocked_media:    null, // filled in after a successful unlock
+        created_at:        m.created_at,
+        is_mine:           m.user?.id === myId,
+        status:            'delivered',
+      };
+    }
+    return {
+      id:             m.id,
+      stream_id:      m.id,
+      sender_id:      m.user?.id,
+      content:        m.text || null,
+      media_url:      m.attachments?.[0]?.image_url || m.attachments?.[0]?.asset_url || null,
+      media_type:     m.attachments?.[0]?.type === 'video' ? 'video' : m.attachments?.[0]?.image_url ? 'image' : null,
+      tokens_charged: m.tokens_charged || 0,
+      created_at:     m.created_at,
+      is_mine:        m.user?.id === myId,
+      status:         'delivered',
+    };
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -107,7 +126,15 @@ export default function Chat() {
         if (!mounted) return;
         try {
           const msgData = await api.get('/api/chat/messages');
-          if (mounted) setMessages(msgData.messages || []);
+          if (mounted) {
+            setMessages((msgData.messages || []).map((m) => ({
+              ...m,
+              is_locked_media: !!m.is_locked && m.unlock_price_coins != null,
+              locked_price: m.unlock_price_coins,
+              locked_item_count: m.locked_item_count,
+              unlocked_media: m.locked_media_urls || null,
+            })));
+          }
         } catch {}
         if (mounted) setError('Live updates unavailable — messages load on refresh.');
       } finally {
@@ -136,14 +163,36 @@ export default function Chat() {
     }, 2000);
   };
 
+  const unlockMedia = async (dbMessageId) => {
+    setUnlocking(dbMessageId);
+    setError('');
+    try {
+      const data = await api.post(`/api/chat/messages/${dbMessageId}/unlock`, {});
+      setMessages((prev) => prev.map((m) =>
+        m.id === dbMessageId ? { ...m, unlocked_media: data.lockedMediaUrls } : m
+      ));
+      if (data.newBalance !== undefined) {
+        setStatus((prev) => ({ ...prev, coinBalance: data.newBalance }));
+        statusRef.current = { ...statusRef.current, coinBalance: data.newBalance };
+      }
+    } catch (err) {
+      if (err.message === 'INSUFFICIENT_TOKENS') {
+        const msg = messages.find((m) => m.id === dbMessageId);
+        setTopUp(msg?.locked_price || 0);
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      setUnlocking(null);
+    }
+  };
+
   const sendMessage = async (content = null, mediaUrl = null, mediaType = null) => {
     setError('');
 
-    // Snapshot current status before any changes
     const snap = statusRef.current;
     if (!snap) return;
 
-    // Block send if not free and no balance
     const willBeFree = snap.freeRemaining > 0 && snap.dailyRemaining > 0;
     const cost = willBeFree ? 0 : (snap.overageCost || 1);
     if (!willBeFree && snap.coinBalance < cost) {
@@ -153,7 +202,6 @@ export default function Chat() {
 
     setSending(true);
 
-    // Optimistic update — decrement counters and balance immediately
     const newFreeRem  = willBeFree ? Math.max(0, snap.freeRemaining - 1) : snap.freeRemaining;
     const newDailyRem = Math.max(0, snap.dailyRemaining - 1);
     const newIsFree   = newFreeRem > 0 && newDailyRem > 0;
@@ -177,7 +225,6 @@ export default function Chat() {
       });
       setMessage('');
 
-      // Update balance from real server response
       if (data.newBalance !== undefined) {
         setStatus((prev) => ({ ...prev, coinBalance: data.newBalance }));
         statusRef.current = { ...statusRef.current, coinBalance: data.newBalance };
@@ -197,7 +244,6 @@ export default function Chat() {
         setMessages((prev) => [...prev, { ...data.message, status: 'sent' }]);
       }
     } catch (err) {
-      // Revert to snapshot on error
       setStatus(snap);
       statusRef.current = snap;
       if (err.message === 'INSUFFICIENT_TOKENS') {
@@ -237,18 +283,14 @@ export default function Chat() {
 
   return (
     <div style={{ position: 'relative', height: '100%', minHeight: 0, borderRadius: chatBg ? 10 : 0, overflow: 'hidden' }}>
-      {/* Background layer */}
       {chatBg && (
         <>
           <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center', zIndex: 0 }} />
-          {/* Auto-contrast overlay — always applied over any uploaded background so text stays legible */}
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
         </>
       )}
 
-      {/* Content layer */}
       <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, boxSizing: 'border-box' }}>
-        {/* Sticky header + status bar — stays pinned regardless of scroll */}
         <div style={{ ...stickyHeader, padding: '12px 16px' }}>
           <div style={{ marginBottom: 10 }}>
             <div style={eyebrow}>Direct messages</div>
@@ -288,7 +330,14 @@ export default function Chat() {
           {messages.length === 0 && (
             <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>No messages yet. Say hello!</div>
           )}
-          {messages.map((msg) => <MessageBubble key={msg.stream_id || msg.id} msg={msg} />)}
+          {messages.map((msg) => (
+            <MessageBubble
+              key={msg.stream_id || msg.id}
+              msg={msg}
+              onUnlock={() => unlockMedia(msg.id)}
+              unlocking={unlocking === msg.id}
+            />
+          ))}
           {typing && (
             <div style={{ alignSelf: 'flex-start' }}>
               <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 3 }}>★ Jinal Joshi</div>
@@ -329,8 +378,49 @@ export default function Chat() {
   );
 }
 
-function MessageBubble({ msg }) {
+function MessageBubble({ msg, onUnlock, unlocking }) {
   const isMe = msg.is_mine;
+
+  if (msg.is_locked_media) {
+    const isUnlocked = !!msg.unlocked_media;
+    return (
+      <div style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '75%', display: 'flex', flexDirection: 'column' }}>
+        {!isMe && <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 3 }}>★ Jinal Joshi</div>}
+        <div style={{ ...bubble, background: isMe ? 'rgba(193,125,74,0.1)' : C.surface, border: isMe ? `1px solid rgba(193,125,74,0.25)` : `1px solid ${C.border}`, padding: 10, overflow: 'hidden' }}>
+          {isUnlocked ? (
+            <div style={{ display: 'grid', gridTemplateColumns: msg.unlocked_media.length > 1 ? '1fr 1fr' : '1fr', gap: 6 }}>
+              {msg.unlocked_media.map((item, i) => (
+                item.type === 'video'
+                  ? <video key={i} src={item.url} controls style={{ width: '100%', borderRadius: 6, display: 'block' }} />
+                  : <img key={i} src={item.url} alt="" style={{ width: '100%', borderRadius: 6, display: 'block' }} />
+              ))}
+            </div>
+          ) : (
+            <div style={{ position: 'relative', width: 220, height: 160, borderRadius: 8, background: 'rgba(0,0,0,0.4)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <div style={{ fontSize: 28 }}>🔒</div>
+              <div style={{ fontFamily: F.sans, fontSize: 12, color: C.text }}>
+                {msg.locked_item_count} item{msg.locked_item_count === 1 ? '' : 's'}
+              </div>
+              {!isMe && (
+                <button onClick={onUnlock} disabled={unlocking} style={{ ...sendBtn, padding: '8px 16px', fontSize: 12, opacity: unlocking ? 0.6 : 1 }}>
+                  {unlocking ? 'Unlocking…' : (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      Unlock for <WonderCoinAmount amount={msg.locked_price} size={12} fontSize={12} textColor="#1A1714" />
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
+          {msg.content && <div style={{ marginTop: 8 }}>{msg.content}</div>}
+        </div>
+        <div style={{ fontFamily: F.sans, fontSize: 10, color: C.muted, marginTop: 3, alignSelf: isMe ? 'flex-end' : 'flex-start' }}>
+          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '75%', display: 'flex', flexDirection: 'column' }}>
       {!isMe && <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 3 }}>★ Jinal Joshi</div>}

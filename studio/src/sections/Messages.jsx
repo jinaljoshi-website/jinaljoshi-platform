@@ -29,7 +29,6 @@ function useIsMobile() {
   return isMobile;
 }
 
-// Pricing mode derived from what's currently saved for this fan
 function derivePricingMode(fan) {
   if (fan?.custom_messages_per_token) return 'per_token';
   if (fan?.custom_chat_price !== null && fan?.custom_chat_price !== undefined) return 'flat';
@@ -56,16 +55,24 @@ export function Messages() {
   const [bgUploading,   setBgUploading]   = useState(false);
   const [bgPreview,     setBgPreview]     = useState('');
   const [effectiveBg,   setEffectiveBg]   = useState('');
-  const [pricingMode,   setPricingMode]   = useState('default'); // 'default' | 'flat' | 'per_token'
+  const [pricingMode,   setPricingMode]   = useState('default');
   const [flatPrice,     setFlatPrice]     = useState('');
   const [perTokenBlock, setPerTokenBlock] = useState('');
   const [mediaEnabled,  setMediaEnabled]  = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   const [mediaSending, setMediaSending] = useState(false);
-  const mediaFileRef = useRef(null);
-  const bgFileRef    = useRef(null);
-  const bottomRef    = useRef(null);
+
+  // Locked media bundle composer
+  const [lockedFiles,   setLockedFiles]   = useState([]);
+  const [lockedPrice,   setLockedPrice]   = useState('');
+  const [lockedCaption, setLockedCaption] = useState('');
+  const [sendingLocked, setSendingLocked] = useState(false);
+
+  const mediaFileRef  = useRef(null);
+  const lockedFileRef = useRef(null);
+  const bgFileRef     = useRef(null);
+  const bottomRef     = useRef(null);
 
   const scClientRef  = useRef(null);
   const channelRef   = useRef(null);
@@ -120,6 +127,9 @@ export function Messages() {
     setPanel(null);
     setGrantMsg('');
     setTyping(false);
+    setLockedFiles([]);
+    setLockedPrice('');
+    setLockedCaption('');
 
     const data = await api.get(`/api/studio/dms/${fanId}`);
     setThread(data.messages || []);
@@ -231,6 +241,56 @@ export function Messages() {
     finally { setMediaSending(false); }
   };
 
+  const handleLockedFilesChange = (e) => {
+    const files = Array.from(e.target.files || []);
+    setLockedFiles(files);
+    e.target.value = '';
+  };
+
+  // Sends a bundle of media as a paid, unlockable message. The real files upload to R2 as usual,
+  // but the Stream message we broadcast to the fan carries ONLY a placeholder (price + count),
+  // never the real URLs — those only ever come from our own backend, after payment.
+  const handleSendLockedMedia = async () => {
+    if (!selected || lockedFiles.length === 0 || !lockedPrice) return;
+    setSendingLocked(true);
+    try {
+      const mediaItems = [];
+      for (const file of lockedFiles) {
+        const publicUrl = await uploadToR2(file, 'chat_media');
+        const mediaType = file.type.startsWith('video/') ? 'video' : 'image';
+        mediaItems.push({ url: publicUrl, type: mediaType });
+      }
+
+      const data = await api.post(`/api/studio/dms/${selected}/send-locked-media`, {
+        mediaItems,
+        priceCoins: parseInt(lockedPrice),
+        content: lockedCaption.trim() || undefined,
+      });
+
+      setThread((prev) => [...prev, data.message]);
+
+      if (channelRef.current) {
+        await channelRef.current.sendMessage({
+          id: data.message.id,
+          text: lockedCaption.trim() || undefined,
+          locked_media: true,
+          db_message_id: data.message.id,
+          locked_price: parseInt(lockedPrice),
+          locked_item_count: mediaItems.length,
+        }).catch(() => {});
+      }
+
+      setLockedFiles([]);
+      setLockedPrice('');
+      setLockedCaption('');
+      setPanel(null);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSendingLocked(false);
+    }
+  };
+
   const handleGrant = async () => {
     if (!fan || !grantAmt) return;
     setGranting(true);
@@ -262,7 +322,6 @@ export function Messages() {
     try {
       await api.post('/api/studio/chat-bg', { type: 'fan', value: bgPreview, fanId: fan.id });
 
-      // Only one pricing mode is ever active — clear the other field explicitly
       const payload = {
         can_send_media: mediaEnabled,
         custom_chat_price: pricingMode === 'flat' ? (flatPrice === '' ? null : parseInt(flatPrice)) : null,
@@ -418,24 +477,70 @@ export function Messages() {
                   </Card>
                 )}
 
-                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, padding: '4px 0', minHeight: 0 }}>
-                  {thread.map((msg) => (
-                    <div key={msg.id || msg.stream_id} style={{ alignSelf: msg.is_mine ? 'flex-end' : 'flex-start', maxWidth: '75%' }}>
-                      {!msg.is_mine && (
-                        <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 3 }}>
-                          {fan?.display_name || fan?.email}
-                        </div>
-                      )}
-                      <div style={{ fontFamily: sans, fontSize: 14, color: colors.text, lineHeight: 1.6, padding: msg.media_url ? 6 : '10px 14px', borderRadius: 10, wordBreak: 'break-word', overflow: 'hidden', background: msg.is_mine ? 'rgba(193,125,74,0.15)' : 'rgba(22,20,16,0.9)', border: msg.is_mine ? '1px solid rgba(193,125,74,0.25)' : `1px solid ${colors.border}` }}>
-                        {msg.media_url && msg.media_type === 'image' && <img src={msg.media_url} alt="" style={{ width: '100%', maxWidth: 260, borderRadius: 6, display: 'block', marginBottom: msg.content ? 6 : 0 }} />}
-                        {msg.media_url && msg.media_type === 'video' && <video src={msg.media_url} controls style={{ width: '100%', maxWidth: 260, borderRadius: 6, display: 'block', marginBottom: msg.content ? 6 : 0 }} />}
-                        {msg.content && <div style={{ padding: msg.media_url ? '0 8px 8px' : 0 }}>{msg.content}</div>}
-                      </div>
-                      <div style={{ fontFamily: sans, fontSize: 10, color: colors.muted, marginTop: 3, textAlign: msg.is_mine ? 'right' : 'left' }}>
-                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </div>
+                {panel === 'locked-media' && (
+                  <Card style={{ marginBottom: 10 }}>
+                    <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, fontWeight: 600, marginBottom: 10 }}>Send unlockable media</div>
+                    <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 14, lineHeight: 1.6 }}>
+                      Select one or more photos/videos, set one token price for the whole bundle. The fan sees a locked placeholder until they pay, real files are never sent until then.
+                    </p>
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
+                      <input ref={lockedFileRef} type="file" accept="image/*,video/*" multiple style={{ display: 'none' }} onChange={handleLockedFilesChange} />
+                      <button onClick={() => lockedFileRef.current?.click()} style={{ ...S.ghostBtn, fontSize: 12, padding: '8px 14px' }}>
+                        {lockedFiles.length > 0 ? `${lockedFiles.length} file${lockedFiles.length === 1 ? '' : 's'} selected` : 'Choose photos/videos'}
+                      </button>
+                      <TokenField label="Bundle price" value={lockedPrice} onChange={setLockedPrice} tokenRateInr={TOKEN_RATE} />
+                      <Field label="Caption (optional)">
+                        <input style={{ ...S.input, width: 200 }} value={lockedCaption} onChange={(e) => setLockedCaption(e.target.value)} placeholder="e.g. From today's shoot 📸" />
+                      </Field>
+                      <button
+                        onClick={handleSendLockedMedia}
+                        disabled={sendingLocked || lockedFiles.length === 0 || !lockedPrice}
+                        style={{ ...S.btn, opacity: (sendingLocked || lockedFiles.length === 0 || !lockedPrice) ? 0.5 : 1 }}
+                      >
+                        {sendingLocked ? 'Sending…' : 'Send locked bundle'}
+                      </button>
                     </div>
-                  ))}
+                  </Card>
+                )}
+
+                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, padding: '4px 0', minHeight: 0 }}>
+                  {thread.map((msg) => {
+                    const isLockedBundle = msg.unlock_price_coins !== null && msg.unlock_price_coins !== undefined;
+                    return (
+                      <div key={msg.id || msg.stream_id} style={{ alignSelf: msg.is_mine ? 'flex-end' : 'flex-start', maxWidth: '75%' }}>
+                        {!msg.is_mine && (
+                          <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 3 }}>
+                            {fan?.display_name || fan?.email}
+                          </div>
+                        )}
+                        <div style={{ fontFamily: sans, fontSize: 14, color: colors.text, lineHeight: 1.6, padding: (msg.media_url || isLockedBundle) ? 6 : '10px 14px', borderRadius: 10, wordBreak: 'break-word', overflow: 'hidden', background: msg.is_mine ? 'rgba(193,125,74,0.15)' : 'rgba(22,20,16,0.9)', border: msg.is_mine ? '1px solid rgba(193,125,74,0.25)' : `1px solid ${colors.border}` }}>
+                          {isLockedBundle ? (
+                            <>
+                              <div style={{ display: 'grid', gridTemplateColumns: msg.locked_media_urls?.length > 1 ? '1fr 1fr' : '1fr', gap: 4 }}>
+                                {(msg.locked_media_urls || []).map((item, i) => (
+                                  item.type === 'video'
+                                    ? <video key={i} src={item.url} controls style={{ width: '100%', borderRadius: 6, display: 'block' }} />
+                                    : <img key={i} src={item.url} alt="" style={{ width: '100%', borderRadius: 6, display: 'block' }} />
+                                ))}
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 4px 2px', fontFamily: sans, fontSize: 11, color: colors.accent }}>
+                                🔒 Priced at {msg.unlock_price_coins} tokens · {msg.unlocked_at ? <span style={{ color: '#8FC88F' }}>Unlocked by fan</span> : 'Awaiting unlock'}
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              {msg.media_url && msg.media_type === 'image' && <img src={msg.media_url} alt="" style={{ width: '100%', maxWidth: 260, borderRadius: 6, display: 'block', marginBottom: msg.content ? 6 : 0 }} />}
+                              {msg.media_url && msg.media_type === 'video' && <video src={msg.media_url} controls style={{ width: '100%', maxWidth: 260, borderRadius: 6, display: 'block', marginBottom: msg.content ? 6 : 0 }} />}
+                            </>
+                          )}
+                          {msg.content && <div style={{ padding: (msg.media_url || isLockedBundle) ? '0 8px 8px' : 0 }}>{msg.content}</div>}
+                        </div>
+                        <div style={{ fontFamily: sans, fontSize: 10, color: colors.muted, marginTop: 3, textAlign: msg.is_mine ? 'right' : 'left' }}>
+                          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                    );
+                  })}
 
                   {typing && (
                     <div style={{ alignSelf: 'flex-start' }}>
@@ -450,8 +555,11 @@ export function Messages() {
                 <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 10, flexShrink: 0 }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                     <input ref={mediaFileRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleMediaFile} />
-                    <button onClick={() => mediaFileRef.current?.click()} disabled={mediaSending || sending} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', opacity: (mediaSending || sending) ? 0.5 : 1 }} title="Attach image or video">
+                    <button onClick={() => mediaFileRef.current?.click()} disabled={mediaSending || sending} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', opacity: (mediaSending || sending) ? 0.5 : 1 }} title="Attach image or video (free)">
                       {mediaSending ? '…' : '📎'}
+                    </button>
+                    <button onClick={() => setPanel(panel === 'locked-media' ? null : 'locked-media')} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', color: panel === 'locked-media' ? colors.accent : colors.muted }} title="Send unlockable media bundle">
+                      🔒
                     </button>
                     <textarea
                       value={reply}

@@ -20,8 +20,6 @@ function toDateStr(val) {
   return String(val).slice(0, 10);
 }
 
-// Determines the effective per-message pricing mode for this fan right now.
-// Priority: messages-per-token block mode > explicit flat override (including zero) > tier default.
 function resolveCustomPricing(fanSettings, tierOverageCost) {
   const perTokenBlock = fanSettings.custom_messages_per_token;
   if (perTokenBlock !== null && perTokenBlock !== undefined && perTokenBlock > 0) {
@@ -33,6 +31,21 @@ function resolveCustomPricing(fanSettings, tierOverageCost) {
   return { mode: 'tier_default', flatCost: tierOverageCost };
 }
 
+// Strips real media from a locked message that hasn't been paid for yet,
+// replacing it with just enough info to render an "Unlock for X tokens" placeholder
+function toFanSafeMessage(row) {
+  const isLocked = row.unlock_price_coins !== null && row.unlock_price_coins !== undefined && !row.unlocked_at;
+  if (!isLocked) return row;
+
+  const itemCount = Array.isArray(row.locked_media_urls) ? row.locked_media_urls.length : 0;
+  return {
+    ...row,
+    locked_media_urls: null, // never send the real URLs before payment
+    is_locked: true,
+    locked_item_count: itemCount,
+  };
+}
+
 // ─────────────────────────────────────────────
 // GET /api/chat/messages
 // ─────────────────────────────────────────────
@@ -41,6 +54,7 @@ router.get('/messages', authMid, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, sender_id, recipient_id, content, media_url, media_type,
+              locked_media_urls, unlock_price_coins, unlocked_at,
               tokens_charged, created_at, (sender_id = $1) AS is_mine
        FROM direct_messages
        WHERE (sender_id = $1 AND recipient_id = $2)
@@ -48,10 +62,82 @@ router.get('/messages', authMid, async (req, res) => {
        ORDER BY created_at ASC LIMIT 50`,
       [req.user.userId, process.env.ARTIST_USER_ID]
     );
-    res.json({ messages: rows });
+    res.json({ messages: rows.map(toFanSafeMessage) });
   } catch (err) {
     console.error('chat/messages error:', err);
     res.status(500).json({ error: 'Failed to load messages' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/chat/messages/:id/unlock
+// Fan pays to unlock a locked media message Jinal sent
+// ─────────────────────────────────────────────
+
+router.post('/messages/:id/unlock', authMid, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
+      `SELECT * FROM direct_messages WHERE id = $1 AND recipient_id = $2 FOR UPDATE`,
+      [req.params.id, req.user.userId]
+    );
+    if (!rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Message not found' });
+    }
+    const message = rows[0];
+
+    if (message.unlock_price_coins === null || message.unlock_price_coins === undefined) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'This message is not locked media' });
+    }
+    if (message.unlocked_at) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Already unlocked', lockedMediaUrls: message.locked_media_urls });
+    }
+
+    const { rows: userRows } = await client.query(
+      `SELECT coin_balance FROM users WHERE id = $1 FOR UPDATE`,
+      [req.user.userId]
+    );
+    const user = userRows[0];
+    const price = message.unlock_price_coins;
+
+    if (user.coin_balance < price) {
+      await client.query('ROLLBACK');
+      return res.status(402).json({
+        error: 'INSUFFICIENT_TOKENS',
+        message: `Unlocking this costs ${price} tokens. You have ${user.coin_balance}.`,
+        required: price, available: user.coin_balance,
+      });
+    }
+
+    await client.query(`UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`, [price, req.user.userId]);
+    await client.query(
+      `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
+       VALUES ($1, 'chat_media_unlock', 'debit', $2, $3, $4)`,
+      [req.user.userId, price, 'Unlocked media in chat', message.id]
+    );
+    const { rows: updated } = await client.query(
+      `UPDATE direct_messages SET unlocked_at = NOW() WHERE id = $1 RETURNING locked_media_urls`,
+      [message.id]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      ok: true,
+      lockedMediaUrls: updated[0].locked_media_urls,
+      newBalance: user.coin_balance - price,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('chat/messages/unlock error:', err);
+    res.status(500).json({ error: 'Failed to unlock media' });
+  } finally {
+    client.release();
   }
 });
 
@@ -117,7 +203,6 @@ router.get('/status', authMid, async (req, res) => {
     const dailyRem   = Math.max(0, config.dailyDMCap - todayUsed);
     const nextIsFreeAllotment = freeRem > 0 && dailyRem > 0;
 
-    // A custom override (flat or per-token) replaces the normal free-allotment system entirely for this fan
     const hasCustomOverride = pricing.mode !== 'tier_default';
     const overageCost = nextCostUnderCustomPricing();
     const nextIsFree  = hasCustomOverride ? overageCost === 0 : nextIsFreeAllotment;
@@ -125,7 +210,7 @@ router.get('/status', authMid, async (req, res) => {
     res.json({
       tier: userTier, coinBalance: user.coin_balance,
       freeDMsPerMonth: config.freeDMsPerMonth, dailyDMCap: config.dailyDMCap,
-      overageCost: hasCustomOverride ? overageCost : (user.coin_balance !== undefined ? overageCost : overageCost),
+      overageCost: hasCustomOverride ? overageCost : overageCost,
       monthUsed, freeRemaining: freeRem,
       todayUsed, dailyRemaining: dailyRem,
       nextIsFree, nextCost: nextIsFree ? 0 : overageCost,
@@ -186,7 +271,6 @@ router.post('/send', authMid, async (req, res) => {
     let useFreeDM     = false;
 
     if (pricing.mode === 'per_token_block') {
-      // Ensure a fan_settings row exists so the counter can be tracked
       await client.query(
         `INSERT INTO fan_settings (user_id, messages_since_charge)
          VALUES ($1, 0)
@@ -197,24 +281,16 @@ router.post('/send', authMid, async (req, res) => {
       const sinceCharge = (user.messages_since_charge || 0) + 1;
       if (sinceCharge >= pricing.blockSize) {
         tokensCharged = 1;
-        await client.query(
-          `UPDATE fan_settings SET messages_since_charge = 0 WHERE user_id = $1`,
-          [req.user.userId]
-        );
+        await client.query(`UPDATE fan_settings SET messages_since_charge = 0 WHERE user_id = $1`, [req.user.userId]);
       } else {
         tokensCharged = 0;
-        await client.query(
-          `UPDATE fan_settings SET messages_since_charge = $1 WHERE user_id = $2`,
-          [sinceCharge, req.user.userId]
-        );
+        await client.query(`UPDATE fan_settings SET messages_since_charge = $1 WHERE user_id = $2`, [sinceCharge, req.user.userId]);
       }
     } else if (pricing.mode === 'flat') {
-      // Explicit override for this fan, including zero — bypasses the free-allotment system entirely
       tokensCharged = pricing.flatCost;
     } else if (userTier === 'guest') {
       tokensCharged = pricing.flatCost;
     } else {
-      // Normal tier-based free allotment system
       await client.query(
         `INSERT INTO monthly_allotments (user_id, month_key)
          VALUES ($1, $2)
@@ -257,10 +333,7 @@ router.post('/send', authMid, async (req, res) => {
 
     let newBalance = user.coin_balance;
     if (tokensCharged > 0) {
-      await client.query(
-        `UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`,
-        [tokensCharged, req.user.userId]
-      );
+      await client.query(`UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`, [tokensCharged, req.user.userId]);
       await client.query(
         `INSERT INTO coin_ledger (user_id, type, direction, amount, label)
          VALUES ($1, 'dm_charge', 'debit', $2, $3)`,
