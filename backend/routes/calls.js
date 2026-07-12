@@ -5,7 +5,7 @@ const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
 const { pushToUser } = require('./push');
 const { postSystemMessage } = require('./community');
-const { getConfigNumber, getDiscountForTier, getGuestMultiplier, getCallMinLeadHours, getCallRingWindowSeconds } = require('../lib/config');
+const { getConfigNumber, getDiscountForTier, getGuestMultiplier, getCallMinLeadHours, getCallRingWindowSeconds, getDndEnabled } = require('../lib/config');
 
 const MAX_NEGOTIATION_ROUND = 4;
 
@@ -69,6 +69,8 @@ router.get('/options', authMid, async (req, res) => {
     const primetime     = slots.find((s) => s.type === 'primetime');
     const multiplier    = primetime ? parseFloat(primetime.multiplier) : 1;
 
+    const dndActive = await getDndEnabled();
+
     res.json({
       isUnavailable,
       unavailableMessage: isUnavailable ? 'Jinal is unavailable for calls on this date.' : null,
@@ -78,6 +80,7 @@ router.get('/options', authMid, async (req, res) => {
       discountPct,
       isGuest,
       minLeadHours,
+      dndActive,
       options: [
         { id: 'audio',          title: 'Audio Call',     description: 'A private audio session. Schedule at least a few hours ahead.',    coinsPerMin: Math.round(applyPricing(audioRate)    * multiplier) },
         { id: 'video',          title: 'Video Call',     description: 'A private face-to-face video session. Schedule at least a few hours ahead.', coinsPerMin: Math.round(applyPricing(videoRate)    * multiplier) },
@@ -107,6 +110,16 @@ router.post('/book', authMid, async (req, res) => {
   }
 
   const isPriority = callType === 'priority-video';
+
+  if (isPriority) {
+    const dndActive = await getDndEnabled();
+    if (dndActive) {
+      return res.status(409).json({
+        error: 'DND_ACTIVE',
+        message: "Jinal isn't available for instant calls right now. Try scheduling a call instead — she'll get back to you.",
+      });
+    }
+  }
 
   let proposedDate = null;
   if (!isPriority) {

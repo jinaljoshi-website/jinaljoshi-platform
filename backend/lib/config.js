@@ -177,6 +177,24 @@ async function getCallMinLeadHours() {
   return getConfigNumber('call_min_lead_hours');
 }
 
+async function getDndEnabled() {
+  try {
+    const { rows } = await pool.query(`SELECT value FROM platform_config WHERE key = 'artist_dnd_enabled'`);
+    return rows[0]?.value === 'true';
+  } catch (err) {
+    console.error('config/getDndEnabled error:', err.message);
+    return false;
+  }
+}
+
+async function setDndEnabled(enabled) {
+  await pool.query(
+    `INSERT INTO platform_config (key, value) VALUES ('artist_dnd_enabled', $1)
+     ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+    [enabled ? 'true' : 'false']
+  );
+}
+
 module.exports = {
   DEFAULTS,
   getConfigValue,
@@ -190,4 +208,6 @@ module.exports = {
   getDmConfigForTier,
   getCallRingWindowSeconds,
   getCallMinLeadHours,
+  getDndEnabled,
+  setDndEnabled,
 };

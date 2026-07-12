@@ -106,8 +106,10 @@ export default function Calls() {
         setTopUp(selected.coinsPerMin * duration);
       } else if (err.message === 'UNAVAILABLE') {
         setError('Jinal is unavailable for calls on this date.');
+      } else if (err.message === 'DND_ACTIVE') {
+        setError("Jinal isn't available for instant calls right now. Try scheduling a call instead — she'll get back to you.");
       } else if (err.message === 'TOO_SOON') {
-        setError(err.message === 'TOO_SOON' ? (result?.message || 'That time is too soon — try Priority Video instead, or pick a later time.') : err.message);
+        setError('That time is too soon — try Priority Video instead, or pick a later time at least a few hours ahead.');
       } else {
         setError(err.message);
       }
@@ -345,14 +347,27 @@ export default function Calls() {
             const isSelectedOption = selected?.id === option.id;
             return (
               <div
-                key={option.id}
-                onClick={() => handleSelect(option)}
-                style={{ ...card, border: isSelectedOption ? `1px solid ${C.accent}` : (option.id === 'priority-video' ? '1px solid rgba(217,164,92,0.4)' : `1px solid ${C.border}`), cursor: 'pointer' }}
-              >
-                <div style={{ fontFamily: F.display, fontSize: 24, color: C.text, marginBottom: 6 }}>
-                  {option.id === 'priority-video' && '🔴 '}{option.title}
-                </div>
-                <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, marginBottom: 14, lineHeight: 1.6 }}>{option.description}</div>
+                  key={option.id}
+                  onClick={() => {
+                    if (option.id === 'priority-video' && data?.dndActive) return;
+                    handleSelect(option);
+                  }}
+                  style={{
+                    ...card,
+                    border: isSelectedOption ? `1px solid ${C.accent}` : (option.id === 'priority-video' ? '1px solid rgba(217,164,92,0.4)' : `1px solid ${C.border}`),
+                    cursor: (option.id === 'priority-video' && data?.dndActive) ? 'not-allowed' : 'pointer',
+                    opacity: (option.id === 'priority-video' && data?.dndActive) ? 0.5 : 1,
+                  }}
+                >
+                  <div style={{ fontFamily: F.display, fontSize: 24, color: C.text, marginBottom: 6 }}>
+                    {option.id === 'priority-video' && '🔴 '}{option.title}
+                  </div>
+                  <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, marginBottom: 14, lineHeight: 1.6 }}>{option.description}</div>
+                  {option.id === 'priority-video' && data?.dndActive && (
+                    <div style={{ ...nudge, color: '#D9A45C', borderColor: 'rgba(217,164,92,0.25)' }}>
+                      Not available right now — try scheduling instead
+                    </div>
+                  )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                   <WonderCoinAmount amount={option.coinsPerMin} size={16} />
                   <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>/ min</span>
