@@ -4,6 +4,7 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { getConfigNumber, getGuestMultiplier } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
+const { getLocalDateStr } = require('../lib/time');
 
 // ── Helper: post a system message ────────────────────────────────────────────
 async function postSystemMessage(content) {
@@ -19,9 +20,6 @@ async function postSystemMessage(content) {
   }
 }
 
-function todayKey() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 // ─────────────────────────────────────────────
 // GET /api/community/posts
@@ -66,7 +64,7 @@ router.get('/status', authMid, async (req, res) => {
     }
 
     const { rows: userRows } = await pool.query(
-      `SELECT community_message_credits, tier, membership_expires_at FROM users WHERE id = $1`,
+      `SELECT community_message_credits, tier, membership_expires_at, timezone FROM users WHERE id = $1`,
       [req.user.userId]
     );
     const user = userRows[0];
@@ -75,7 +73,7 @@ router.get('/status', authMid, async (req, res) => {
 
     const { rows: usageRows } = await pool.query(
       `SELECT posts_used FROM community_daily_usage WHERE user_id = $1 AND day_key = $2`,
-      [req.user.userId, todayKey()]
+      [req.user.userId, getLocalDateStr(user.timezone)]
     );
     const usedToday = usageRows[0]?.posts_used || 0;
     const freeRemaining = Math.max(0, freeDailyLimit - usedToday);
@@ -115,8 +113,9 @@ router.post('/post', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     if (!req.user.isArtist) {
+      const { rows: tzRows } = await client.query(`SELECT timezone FROM users WHERE id = $1`, [req.user.userId]);
       const freeDailyLimit = await getConfigNumber('community_daily_free_messages');
-      const day = todayKey();
+      const day = getLocalDateStr(tzRows[0]?.timezone);
 
       const { rows: usageRows } = await client.query(
         `SELECT posts_used FROM community_daily_usage WHERE user_id = $1 AND day_key = $2 FOR UPDATE`,

@@ -6,8 +6,25 @@ const { v4: uuidv4 } = require('uuid');
 const pool     = require('../db/pool');
 const authMid  = require('../middleware/auth');
 const { sendSignupVerificationEmail, sendPasswordResetEmail, consumeToken } = require('../lib/email');
+const { lookupIpCountry, getClientIp } = require('../lib/geoip');
 
-async function createSessionAndRespond(user, req, res) {
+async function logAccessEvent(userId, req, eventType) {
+  try {
+    const ip = getClientIp(req);
+    const { country, countryCode } = await lookupIpCountry(ip);
+    await pool.query(
+      `INSERT INTO user_access_log (user_id, ip_address, country, country_code, event_type)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [userId, ip, country, countryCode, eventType]
+    );
+    return { country, countryCode };
+  } catch (err) {
+    console.error('logAccessEvent error:', err.message);
+    return { country: null, countryCode: null };
+  }
+}
+
+async function createSessionAndRespond(user, req, res, timezone) {
   let streamToken = null;
   try {
     const { StreamClient } = require('@stream-io/node-sdk');
@@ -31,6 +48,11 @@ async function createSessionAndRespond(user, req, res) {
   );
 
   await pool.query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
+  if (timezone) {
+    await pool.query('UPDATE users SET timezone = $1 WHERE id = $2', [timezone, user.id]);
+  }
+
+  await logAccessEvent(user.id, req, 'login');
 
   res.json({
     jwt: token,
@@ -50,7 +72,7 @@ async function createSessionAndRespond(user, req, res) {
 // ── SIGNUP ────────────────────────────────────
 
 router.post('/signup', async (req, res) => {
-  const { email, password, dob, displayName, consentTerms, consentNoRefund } = req.body;
+  const { email, password, dob, displayName, consentTerms, consentNoRefund, timezone } = req.body;
 
   if (!email || !password || !dob) {
     return res.status(400).json({ error: 'Email, password and date of birth are required' });
@@ -82,12 +104,20 @@ router.post('/signup', async (req, res) => {
 
   const { rows } = await pool.query(
     `INSERT INTO users
-       (email, password_hash, dob, display_name, consent_terms, consent_no_refund, consented_at, email_verified)
-     VALUES ($1, $2, $3, $4, $5, $6, NOW(), FALSE)
+       (email, password_hash, dob, display_name, consent_terms, consent_no_refund, consented_at, email_verified, timezone)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW(), FALSE, $7)
      RETURNING id, email, tier, coin_balance, display_name`,
-    [normalizedEmail, hash, dob, displayName?.trim() || null, true, true]
+    [normalizedEmail, hash, dob, displayName?.trim() || null, true, true, timezone || null]
   );
   const user = rows[0];
+
+  const { country, countryCode } = await logAccessEvent(user.id, req, 'signup');
+  if (country) {
+    await pool.query(
+      'UPDATE users SET signup_country = $1, signup_country_code = $2 WHERE id = $3',
+      [country, countryCode, user.id]
+    );
+  }
 
   try {
     await sendSignupVerificationEmail(user);
@@ -105,7 +135,7 @@ router.post('/signup', async (req, res) => {
 // ── VERIFY EMAIL (signup) ─────────────────────
 
 router.post('/verify-email', async (req, res) => {
-  const { token } = req.body;
+  const { token, timezone } = req.body;
   if (!token) return res.status(400).json({ error: 'Token is required' });
 
   try {
@@ -122,7 +152,7 @@ router.post('/verify-email', async (req, res) => {
       postSystemMessage(`🎉 ${welcomeName} just joined Personal Space. Welcome!`);
     } catch {}
 
-    await createSessionAndRespond(rows[0], req, res);
+    await createSessionAndRespond(rows[0], req, res, timezone);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -150,7 +180,7 @@ router.post('/resend-verification', async (req, res) => {
 // ── LOGIN ─────────────────────────────────────
 
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, timezone } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
@@ -176,7 +206,7 @@ router.post('/login', async (req, res) => {
     });
   }
 
-  await createSessionAndRespond(user, req, res);
+  await createSessionAndRespond(user, req, res, timezone);
 });
 
 // ── LOGOUT ────────────────────────────────────
@@ -186,7 +216,7 @@ router.post('/logout', authMid, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ── PHONE VERIFY (post-first-payment; unrelated to password reset now) ──────
+// ── PHONE VERIFY (post-first-payment) ──────────
 
 router.post('/verify-phone/send', authMid, async (req, res) => {
   const { phone } = req.body;
@@ -224,7 +254,7 @@ router.post('/verify-phone/confirm', authMid, async (req, res) => {
   res.json({ verified: true });
 });
 
-// ── FORGOT PASSWORD (email link, no fee, no phone requirement) ─────────────
+// ── FORGOT PASSWORD (email link) ────────────────
 
 router.post('/forgot/request', async (req, res) => {
   const { email } = req.body;
@@ -233,8 +263,6 @@ router.post('/forgot/request', async (req, res) => {
   const normalizedEmail = email.toLowerCase().trim();
   const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
 
-  // Deliberately generic response either way, so this endpoint can't be used
-  // to check which emails have accounts on the platform.
   const genericMessage = 'If an account exists for that email, a reset link has been sent.';
 
   if (!rows.length) {
@@ -268,7 +296,7 @@ router.post('/forgot/confirm', async (req, res) => {
   }
 });
 
-// ── GET PROFILE ────────────────────────────────────────
+// ── GET PROFILE ────────────────────────────────
 
 router.get('/profile', authMid, async (req, res) => {
   try {
@@ -285,7 +313,7 @@ router.get('/profile', authMid, async (req, res) => {
   }
 });
 
-// ── UPDATE PROFILE ─────────────────────────────────────
+// ── UPDATE PROFILE ──────────────────────────────
 
 router.patch('/profile', authMid, async (req, res) => {
   const { displayName, dob } = req.body;

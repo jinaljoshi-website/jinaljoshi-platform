@@ -4,6 +4,14 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { api, saveAuth, saveStreamToken } from '../api';
 
+function getBrowserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
 export default function Auth() {
   const navigate  = useNavigate();
   const [params]  = useSearchParams();
@@ -46,7 +54,7 @@ export default function Auth() {
     if (n) setNotice(decodeURIComponent(n));
 
     if (urlMode === 'verify-email' && resetToken) {
-      api.post('/api/auth/verify-email', { token: resetToken })
+      api.post('/api/auth/verify-email', { token: resetToken, timezone: getBrowserTimezone() })
         .then((data) => {
           saveAuth(data.jwt, data.user);
           if (data.streamToken) saveStreamToken(data.streamToken);
@@ -84,11 +92,12 @@ export default function Auth() {
           displayName:     displayName.trim() || null,
           consentTerms:    consent1,
           consentNoRefund: consent2,
+          timezone:        getBrowserTimezone(),
         });
         setSignupDone(true);
         setSignupMsg(data.message);
       } else {
-        const data = await api.post('/api/auth/login', { email, password });
+        const data = await api.post('/api/auth/login', { email, password, timezone: getBrowserTimezone() });
         saveAuth(data.jwt, data.user);
         if (data.streamToken) saveStreamToken(data.streamToken);
         navigate('/platform/landing');

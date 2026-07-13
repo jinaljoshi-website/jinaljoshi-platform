@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
-import { getUser, logout } from '../api';
+import { api, getUser, logout } from '../api';
+import { TIERS } from '../data';
 import InstallPrompt    from '../components/InstallPrompt';
 import NotificationBell from '../components/NotificationBell';
 
@@ -30,6 +31,7 @@ const navItems = [
 
 const FULLSCREEN_PAGES = ['/platform/chat', '/platform/community'];
 const TOP_BAR_H = 56;
+const PROFILE_POLL_MS = 20000;
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
@@ -39,6 +41,42 @@ function useIsMobile() {
     return () => window.removeEventListener('resize', handler);
   }, []);
   return isMobile;
+}
+
+// Persistent tier + token balance, visible on every page — refreshes periodically
+// and whenever the route changes, so it stays accurate right after a purchase/unlock.
+function StatusBadge({ isMobile }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [profile, setProfile] = useState(null);
+
+  const load = () => api.get('/api/auth/profile').then((d) => setProfile(d.user)).catch(() => {});
+
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, PROFILE_POLL_MS);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => { load(); }, [location.pathname]);
+
+  if (!profile) return null;
+
+  const isActive = profile.membership_expires_at && new Date(profile.membership_expires_at) > new Date();
+  const tierName = isActive ? (TIERS[profile.tier]?.name || profile.tier) : 'Guest';
+
+  return (
+    <div style={statusBadge}>
+      <span style={{ fontFamily: F.sans, fontSize: isMobile ? 11 : 12, color: isActive ? C.accent : C.muted, fontWeight: 600 }}>
+        {tierName}
+      </span>
+      <span style={{ color: C.border }}>·</span>
+      <span style={{ fontFamily: F.mono, fontSize: isMobile ? 11 : 12, color: C.text }}>
+        🪙 {profile.coin_balance}
+      </span>
+      <button onClick={() => navigate('/platform/coins')} style={topUpMiniBtn}>+</button>
+    </div>
+  );
 }
 
 export default function Platform() {
@@ -72,7 +110,8 @@ export default function Platform() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
+          <StatusBadge isMobile={isMobile} />
           <NotificationBell />
           {isMobile ? (
             <button onClick={() => setMenuOpen(!menuOpen)} style={hamburgerBtn} aria-label="Menu">
@@ -186,6 +225,8 @@ export default function Platform() {
 }
 
 const topBar      = { flexShrink: 0, minHeight: TOP_BAR_H, height: `calc(${TOP_BAR_H}px + env(safe-area-inset-top, 0px))`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `env(safe-area-inset-top, 0px) 16px 0`, background: 'rgba(13,12,10,0.97)', borderBottom: `1px solid ${C.border}`, zIndex: 30, boxSizing: 'border-box' };
+const statusBadge = { display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}`, borderRadius: 999, padding: '5px 10px' };
+const topUpMiniBtn = { background: C.accent, border: 'none', color: '#1A1714', fontWeight: 700, width: 18, height: 18, borderRadius: '50%', fontSize: 12, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 };
 const hamburger   = { display: 'flex', flexDirection: 'column', gap: 5, background: 'transparent', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 6, flexShrink: 0 };
 const hamburgerBtn = { display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: `1px solid ${C.border}`, cursor: 'pointer', padding: '7px 12px', borderRadius: 8, flexShrink: 0 };
 const hamburgerIconWrap = { display: 'flex', flexDirection: 'column', gap: 5 };
