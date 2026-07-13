@@ -3,7 +3,6 @@ import { C, F } from '../tokens';
 import { api } from '../api';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import { TIERS } from '../data';
-import { useUpload } from '../hooks/useUpload';
 import TopUpModal from '../components/TopUpModal';
 import { StreamChat } from 'stream-chat';
 
@@ -18,7 +17,6 @@ export default function Chat() {
   const [topUp,      setTopUp]      = useState(null);
   const [unlocking,  setUnlocking]  = useState(null); // db_message_id currently being unlocked
   const bottomRef   = useRef(null);
-  const fileRef     = useRef(null);
   const channelRef  = useRef(null);
   const scClientRef = useRef(null);
   const myIdRef     = useRef(null);
@@ -315,13 +313,7 @@ export default function Chat() {
     }
   };
 
-  const handleFileChange = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = '';
-    const result = await upload(file, 'chat_media');
-    if (result) await sendMessage(null, result.publicUrl, result.mediaType);
-  };
+
 
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Connecting to chat…</div>;
 
@@ -407,14 +399,7 @@ export default function Chat() {
             </div>
           )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-            {canSendMedia && (
-              <>
-                <input ref={fileRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleFileChange} />
-                <button onClick={() => fileRef.current?.click()} disabled={uploading || sending} style={{ ...attachBtn, opacity: (uploading || sending) ? 0.5 : 1 }}>
-                  {uploading ? '…' : '📎'}
-                </button>
-              </>
-            )}
+
             <textarea value={message} onChange={(e) => { setMessage(e.target.value); handleTyping(); }} onKeyDown={handleKeyDown} placeholder={nextIsFree ? `Message Jinal… (${freeRemaining} free remaining)` : isGuest ? `Message Jinal… (${nextCost} tokens each)` : `Message Jinal… (${nextCost} token${nextCost > 1 ? 's' : ''} each)`} style={composerInput} rows={2} />
             <button onClick={() => { if (message.trim()) sendMessage(message.trim()); }} disabled={sending || uploading || !message.trim()} style={{ ...sendBtn, opacity: (sending || uploading || !message.trim()) ? 0.5 : 1 }}>
               {sending ? '…' : 'Send'}
@@ -449,18 +434,18 @@ function MessageBubble({ msg, onUnlock, unlocking }) {
             </div>
           ) : (
             <div style={{ position: 'relative', width: 220, height: 160, borderRadius: 8, background: 'rgba(0,0,0,0.4)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-              <div style={{ fontSize: 28 }}>🔒</div>
+              <div style={{ fontSize: 28 }}>{msg.locked_price > 0 ? '🔒' : '🎁'}</div>
               <div style={{ fontFamily: F.sans, fontSize: 12, color: C.text }}>
                 {msg.locked_item_count} item{msg.locked_item_count === 1 ? '' : 's'}
               </div>
               {!isMe && (
                 <>
                   <button onClick={onUnlock} disabled={unlocking} style={{ ...sendBtn, padding: '8px 16px', fontSize: 12, opacity: unlocking ? 0.6 : 1 }}>
-                    {unlocking ? 'Unlocking…' : (
+                    {unlocking ? '…' : msg.locked_price > 0 ? (
                       <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         Unlock for <WonderCoinAmount amount={msg.locked_price} size={12} fontSize={12} textColor="#1A1714" />
                       </span>
-                    )}
+                    ) : 'View'}
                   </button>
                   <div style={{ fontFamily: F.sans, fontSize: 9, color: C.muted, textAlign: 'center' }}>Chat messages, including unlocked media, are removed after 30 days</div>
                 </>

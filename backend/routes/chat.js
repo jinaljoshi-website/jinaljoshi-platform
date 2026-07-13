@@ -105,7 +105,7 @@ router.post('/messages/:id/unlock', authMid, async (req, res) => {
     const user = userRows[0];
     const price = message.unlock_price_coins;
 
-    if (user.coin_balance < price) {
+    if (price > 0 && user.coin_balance < price) {
       await client.query('ROLLBACK');
       return res.status(402).json({
         error: 'INSUFFICIENT_TOKENS',
@@ -114,12 +114,14 @@ router.post('/messages/:id/unlock', authMid, async (req, res) => {
       });
     }
 
-    await client.query(`UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`, [price, req.user.userId]);
-    await client.query(
-      `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-       VALUES ($1, 'chat_media_unlock', 'debit', $2, $3, $4)`,
-      [req.user.userId, price, 'Unlocked media in chat', message.id]
-    );
+    if (price > 0) {
+      await client.query(`UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`, [price, req.user.userId]);
+      await client.query(
+        `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
+         VALUES ($1, 'chat_media_unlock', 'debit', $2, $3, $4)`,
+        [req.user.userId, price, 'Unlocked media in chat', message.id]
+      );
+    }
     const { rows: updated } = await client.query(
       `UPDATE direct_messages SET unlocked_at = NOW() WHERE id = $1 RETURNING locked_media_urls`,
       [message.id]

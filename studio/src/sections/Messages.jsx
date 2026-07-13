@@ -61,7 +61,6 @@ export function Messages() {
   const [mediaEnabled,  setMediaEnabled]  = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
 
-  const [mediaSending, setMediaSending] = useState(false);
 
   // Locked media bundle composer
   const [lockedFiles,   setLockedFiles]   = useState([]);
@@ -69,7 +68,6 @@ export function Messages() {
   const [lockedCaption, setLockedCaption] = useState('');
   const [sendingLocked, setSendingLocked] = useState(false);
 
-  const mediaFileRef  = useRef(null);
   const lockedFileRef = useRef(null);
   const bgFileRef     = useRef(null);
   const bottomRef     = useRef(null);
@@ -228,18 +226,7 @@ export function Messages() {
     finally { setSending(false); }
   };
 
-  const handleMediaFile = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = '';
-    setMediaSending(true);
-    try {
-      const publicUrl = await uploadToR2(file, 'chat_media');
-      const mediaType = file.type.startsWith('video/') ? 'video' : 'image';
-      await sendReply(publicUrl, mediaType);
-    } catch (err) { alert(err.message); }
-    finally { setMediaSending(false); }
-  };
+
 
   const handleLockedFilesChange = (e) => {
     const files = Array.from(e.target.files || []);
@@ -251,7 +238,7 @@ export function Messages() {
   // but the Stream message we broadcast to the fan carries ONLY a placeholder (price + count),
   // never the real URLs — those only ever come from our own backend, after payment.
   const handleSendLockedMedia = async () => {
-    if (!selected || lockedFiles.length === 0 || !lockedPrice) return;
+    if (!selected || lockedFiles.length === 0 || lockedPrice === '') return;
     setSendingLocked(true);
     try {
       const mediaItems = [];
@@ -481,7 +468,7 @@ export function Messages() {
                   <Card style={{ marginBottom: 10 }}>
                     <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, fontWeight: 600, marginBottom: 10 }}>Send unlockable media</div>
                     <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 14, lineHeight: 1.6 }}>
-                      Select one or more photos/videos, set one token price for the whole bundle. The fan sees a locked placeholder until they pay, real files are never sent until then. Note: all chat messages, including paid unlocks, are automatically removed after 30 days.
+                      Select one or more photos/videos and set a token price for the whole bundle — set it to 0 to send them free. The fan sees a locked placeholder until they view it, real files are never sent before then. Note: all chat messages, including free and paid unlocks, are automatically removed after 30 days.
                     </p>
                     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
                       <input ref={lockedFileRef} type="file" accept="image/*,video/*" multiple style={{ display: 'none' }} onChange={handleLockedFilesChange} />
@@ -494,8 +481,8 @@ export function Messages() {
                       </Field>
                       <button
                         onClick={handleSendLockedMedia}
-                        disabled={sendingLocked || lockedFiles.length === 0 || !lockedPrice}
-                        style={{ ...S.btn, opacity: (sendingLocked || lockedFiles.length === 0 || !lockedPrice) ? 0.5 : 1 }}
+                        disabled={sendingLocked || lockedFiles.length === 0 || lockedPrice === ''}
+                        style={{ ...S.btn, opacity: (sendingLocked || lockedFiles.length === 0 || lockedPrice === '') ? 0.5 : 1 }}
                       >
                         {sendingLocked ? 'Sending…' : 'Send locked bundle'}
                       </button>
@@ -554,10 +541,7 @@ export function Messages() {
 
                 <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 10, flexShrink: 0 }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-                    <input ref={mediaFileRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleMediaFile} />
-                    <button onClick={() => mediaFileRef.current?.click()} disabled={mediaSending || sending} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', opacity: (mediaSending || sending) ? 0.5 : 1 }} title="Attach image or video (free)">
-                      {mediaSending ? '…' : '📎'}
-                    </button>
+
                     <button onClick={() => setPanel(panel === 'locked-media' ? null : 'locked-media')} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', color: panel === 'locked-media' ? colors.accent : colors.muted }} title="Send unlockable media bundle">
                       🔒
                     </button>

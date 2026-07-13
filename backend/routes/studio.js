@@ -237,8 +237,8 @@ router.post('/dms/:fanId/send-locked-media', async (req, res) => {
   if (!Array.isArray(mediaItems) || mediaItems.length === 0) {
     return res.status(400).json({ error: 'At least one media item is required' });
   }
-  if (!priceCoins || priceCoins < 1) {
-    return res.status(400).json({ error: 'A token price is required' });
+  if (priceCoins === undefined || priceCoins === null || priceCoins < 0) {
+    return res.status(400).json({ error: 'A valid token price is required (0 or more)' });
   }
   // Basic shape check — each item needs a url and a type
   const isValidShape = mediaItems.every((item) => item.url && (item.type === 'image' || item.type === 'video'));
