@@ -22,7 +22,6 @@ export default function Chat() {
   const myIdRef     = useRef(null);
   const typingTimer = useRef(null);
   const statusRef   = useRef(null);
-  const { upload, uploading } = useUpload();
 
   const loadStatus = () => api.get('/api/chat/status').then((d) => {
     setStatus(d);
@@ -401,7 +400,7 @@ export default function Chat() {
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
 
             <textarea value={message} onChange={(e) => { setMessage(e.target.value); handleTyping(); }} onKeyDown={handleKeyDown} placeholder={nextIsFree ? `Message Jinal… (${freeRemaining} free remaining)` : isGuest ? `Message Jinal… (${nextCost} tokens each)` : `Message Jinal… (${nextCost} token${nextCost > 1 ? 's' : ''} each)`} style={composerInput} rows={2} />
-            <button onClick={() => { if (message.trim()) sendMessage(message.trim()); }} disabled={sending || uploading || !message.trim()} style={{ ...sendBtn, opacity: (sending || uploading || !message.trim()) ? 0.5 : 1 }}>
+            <button onClick={() => { if (message.trim()) sendMessage(message.trim()); }} disabled={sending || !message.trim()} style={{ ...sendBtn, opacity: (sending || !message.trim()) ? 0.5 : 1 }}>
               {sending ? '…' : 'Send'}
             </button>
           </div>
