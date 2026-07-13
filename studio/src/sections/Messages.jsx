@@ -45,6 +45,9 @@ export function Messages() {
   const [loading,  setLoading]  = useState(true);
   const [typing,   setTyping]   = useState(false);
   const [panel,    setPanel]    = useState(null);
+  const [allFans,       setAllFans]       = useState([]);
+  const [fanSearch,     setFanSearch]     = useState('');
+  const [showNewChat,   setShowNewChat]   = useState(false);
   const isMobile = useIsMobile();
 
   const [grantAmt,  setGrantAmt]  = useState('');
@@ -60,7 +63,6 @@ export function Messages() {
   const [perTokenBlock, setPerTokenBlock] = useState('');
   const [mediaEnabled,  setMediaEnabled]  = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
-
 
   // Locked media bundle composer
   const [lockedFiles,   setLockedFiles]   = useState([]);
@@ -80,6 +82,8 @@ export function Messages() {
     api.get('/api/studio/dms')
       .then((d) => setConvos(d.conversations || []))
       .finally(() => setLoading(false));
+
+    api.get('/api/studio/fans').then((d) => setAllFans(d.fans || [])).catch(() => {});
 
     initArtistStream();
 
@@ -197,6 +201,12 @@ export function Messages() {
     setPanel(null);
   };
 
+  const startNewChat = (fanId) => {
+    setShowNewChat(false);
+    setFanSearch('');
+    openConvo(fanId);
+  };
+
   const sendReply = async (mediaUrl = null, mediaType = null) => {
     if (!reply.trim() && !mediaUrl) return;
     setSending(true);
@@ -222,11 +232,12 @@ export function Messages() {
         streamMsg.id = data.message.id;
         await channelRef.current.sendMessage(streamMsg).catch(() => {});
       }
+
+      // Refresh the conversation list so a brand-new thread shows up in the sidebar
+      api.get('/api/studio/dms').then((d) => setConvos(d.conversations || [])).catch(() => {});
     } catch (err) { alert(err.message); }
     finally { setSending(false); }
   };
-
-
 
   const handleLockedFilesChange = (e) => {
     const files = Array.from(e.target.files || []);
@@ -266,6 +277,8 @@ export function Messages() {
           locked_item_count: mediaItems.length,
         }).catch(() => {});
       }
+
+      api.get('/api/studio/dms').then((d) => setConvos(d.conversations || [])).catch(() => {});
 
       setLockedFiles([]);
       setLockedPrice('');
@@ -337,8 +350,47 @@ export function Messages() {
     }>
       {showList && (
         <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, flex: isMobile ? 1 : undefined, minHeight: 0 }}>
-          <Eyebrow>Conversations</Eyebrow>
-          {convos.length === 0 && <T.muted>No messages yet.</T.muted>}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <Eyebrow>Conversations</Eyebrow>
+            <button onClick={() => setShowNewChat((v) => !v)} style={{ ...S.ghostBtn, fontSize: 12, padding: '5px 10px' }}>+ New</button>
+          </div>
+
+          {showNewChat && (
+            <Card style={{ marginBottom: 8 }}>
+              <input
+                autoFocus
+                value={fanSearch}
+                onChange={(e) => setFanSearch(e.target.value)}
+                placeholder="Search by name or email…"
+                style={{ ...S.input, width: '100%', marginBottom: 10, boxSizing: 'border-box' }}
+              />
+              <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {allFans
+                  .filter((f) => {
+                    const q = fanSearch.trim().toLowerCase();
+                    if (!q) return true;
+                    return (f.display_name || '').toLowerCase().includes(q) || f.email.toLowerCase().includes(q);
+                  })
+                  .slice(0, 30)
+                  .map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() => startNewChat(f.id)}
+                      style={{ background: 'transparent', border: 'none', borderBottom: `1px solid ${colors.border}`, padding: '8px 4px', textAlign: 'left', cursor: 'pointer', color: colors.text, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}
+                    >
+                      <span style={{ fontFamily: sans, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {f.display_name || f.email}
+                      </span>
+                      <Badge tier={f.tier} />
+                    </button>
+                  ))}
+                {allFans.length === 0 && <T.muted>No registered fans yet.</T.muted>}
+              </div>
+              <button onClick={() => { setShowNewChat(false); setFanSearch(''); }} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 10px', marginTop: 10 }}>Cancel</button>
+            </Card>
+          )}
+
+          {convos.length === 0 && !showNewChat && <T.muted>No messages yet.</T.muted>}
           {convos.map((c) => (
             <button key={c.fan_id} onClick={() => openConvo(c.fan_id)} style={{ background: selected === c.fan_id ? 'rgba(193,125,74,0.1)' : '#161410', border: selected === c.fan_id ? '1px solid rgba(193,125,74,0.3)' : `1px solid ${colors.border}`, borderRadius: 8, padding: '12px 14px', textAlign: 'left', cursor: 'pointer', color: colors.text }}>
               <div style={{ fontFamily: sans, fontSize: 14, marginBottom: 3 }}>{c.display_name || c.email}</div>
@@ -491,6 +543,9 @@ export function Messages() {
                 )}
 
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, padding: '4px 0', minHeight: 0 }}>
+                  {thread.length === 0 && (
+                    <T.muted>No messages yet — send the first one below.</T.muted>
+                  )}
                   {thread.map((msg) => {
                     const isLockedBundle = msg.unlock_price_coins !== null && msg.unlock_price_coins !== undefined;
                     return (
@@ -541,7 +596,6 @@ export function Messages() {
 
                 <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 10, flexShrink: 0 }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-
                     <button onClick={() => setPanel(panel === 'locked-media' ? null : 'locked-media')} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', color: panel === 'locked-media' ? colors.accent : colors.muted }} title="Send unlockable media bundle">
                       🔒
                     </button>
