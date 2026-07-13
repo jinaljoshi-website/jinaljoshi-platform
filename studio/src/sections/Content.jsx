@@ -292,16 +292,25 @@ export function Content() {
         {/* Category-tagged upload zones */}
         <div style={{ marginBottom: 16 }}>
           <div style={fieldLabel}>Media by category ({totalFileCount} / {MAX_ITEMS} total)</div>
+          <p style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 10, lineHeight: 1.5 }}>
+            A set is either tier-segmented (Free through Supreme) or Purchase-only, never both — adding a file to one side locks the other, so the base price never gets split unexpectedly.
+          </p>
           <div style={{ display: 'grid', gap: 14 }}>
             {CATEGORIES.map((cat) => {
               const files = filesByCategory[cat.key];
+              const isPurchaseOnly = cat.key === 'purchase_only';
+              const tierCategoriesHaveFiles = CATEGORIES.filter((c) => c.key !== 'purchase_only').some((c) => filesByCategory[c.key].length > 0);
+              const purchaseOnlyHasFiles = filesByCategory.purchase_only.length > 0;
+              const isLocked = isPurchaseOnly ? tierCategoriesHaveFiles : purchaseOnlyHasFiles;
+
               return (
-                <div key={cat.key} style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12 }}>
+                <div key={cat.key} style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12, opacity: isLocked ? 0.4 : 1, pointerEvents: isLocked ? 'none' : 'auto' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: files.length > 0 ? 10 : 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ width: 8, height: 8, borderRadius: '50%', background: cat.color, display: 'inline-block' }} />
                       <span style={{ fontFamily: sans, fontSize: 13, color: colors.text, fontWeight: 600 }}>{cat.label}</span>
                       <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>({files.length})</span>
+                      {isLocked && <span style={{ fontFamily: sans, fontSize: 10, color: '#D99A9A' }}>— unavailable for this set</span>}
                     </div>
                     <input
                       ref={(el) => { categoryRefs.current[cat.key] = el; }}
@@ -310,8 +319,8 @@ export function Content() {
                     />
                     <button
                       onClick={() => categoryRefs.current[cat.key]?.click()}
-                      disabled={totalFileCount >= MAX_ITEMS}
-                      style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', opacity: totalFileCount >= MAX_ITEMS ? 0.5 : 1 }}
+                      disabled={totalFileCount >= MAX_ITEMS || isLocked}
+                      style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', opacity: (totalFileCount >= MAX_ITEMS || isLocked) ? 0.5 : 1 }}
                     >
                       + Add {cat.label}
                     </button>

@@ -17,7 +17,7 @@ function toUrl(key) {
 
 function meetsCategory(userTier, category) {
   if (category === 'free') return true;
-  if (category === 'purchase_only') return false; // never reachable by tier, ever
+  if (category === 'purchase_only') return false;
   return TIER_ORDER.indexOf(userTier) >= TIER_ORDER.indexOf(category);
 }
 
@@ -30,21 +30,22 @@ function applyDiscount(price, discountPct) {
 function isEffectivelyUnlocked(grantType, membershipCurrentlyActive) {
   if (!grantType) return false;
   if (grantType === 'unlock_credit') return membershipCurrentlyActive;
-  return true; // 'token_purchase' and 'membership_free' are always permanent
+  return true;
 }
 
-// Given a set's items and a fan's tier, splits items into three buckets and computes
-// proportional pricing for the tier-reachable portion and the upsell (higher-tier + purchase-only).
+// Splits items into buckets and computes proportional pricing, plus surfaces the first
+// item's r2_key from each locked bucket, for use as a blurred preview thumbnail on the frontend.
 function computeSegments(items, userTier, basePrice, discountPct, isGuest, guestMultiplier) {
   const total = items.length || 1;
 
-  const freeItems         = items.filter((i) => i.tier_category === 'free');
-  const tierEligibleItems  = items.filter((i) => i.tier_category !== 'free' && i.tier_category !== 'purchase_only' && meetsCategory(userTier, i.tier_category));
-  const higherTierItems    = items.filter((i) => i.tier_category !== 'free' && i.tier_category !== 'purchase_only' && !meetsCategory(userTier, i.tier_category));
-  const purchaseOnlyItems  = items.filter((i) => i.tier_category === 'purchase_only');
+  const freeItems        = items.filter((i) => i.tier_category === 'free');
+  const tierEligibleItems = items.filter((i) => i.tier_category !== 'free' && i.tier_category !== 'purchase_only' && meetsCategory(userTier, i.tier_category));
+  const higherTierItems   = items.filter((i) => i.tier_category !== 'free' && i.tier_category !== 'purchase_only' && !meetsCategory(userTier, i.tier_category));
+  const purchaseOnlyItems = items.filter((i) => i.tier_category === 'purchase_only');
 
   const tierPortionCount   = tierEligibleItems.length;
-  const upsellPortionCount = higherTierItems.length + purchaseOnlyItems.length;
+  const upsellItems        = [...higherTierItems, ...purchaseOnlyItems];
+  const upsellPortionCount = upsellItems.length;
 
   const rawTierPrice   = basePrice * (tierPortionCount / total);
   const rawUpsellPrice = basePrice * (upsellPortionCount / total);
@@ -59,6 +60,8 @@ function computeSegments(items, userTier, basePrice, discountPct, isGuest, guest
     hasUpsell: upsellPortionCount > 0,
     tierPrice,
     upsellPrice,
+    tierPreviewKey: tierEligibleItems[0]?.r2_key || null,
+    upsellPreviewKey: upsellItems[0]?.r2_key || null,
   };
 }
 
@@ -100,7 +103,7 @@ router.get('/sets', authMid, async (req, res) => {
     );
 
     const { rows: allItems } = await pool.query(
-      `SELECT set_id, media_type, tier_category FROM set_items`
+      `SELECT set_id, r2_key, media_type, tier_category FROM set_items`
     );
     const itemsBySet = {};
     allItems.forEach((item) => {
@@ -130,9 +133,12 @@ router.get('/sets', authMid, async (req, res) => {
 
       const tierUnlocked   = tierGrant && isEffectivelyUnlocked(tierGrant, isActive);
       const tierLapsed     = tierGrant === 'unlock_credit' && !isActive;
-      const upsellUnlocked = upsellGrant && isEffectivelyUnlocked(upsellGrant, true); // upsell is always permanent once granted
+      const upsellUnlocked = upsellGrant && isEffectivelyUnlocked(upsellGrant, true);
 
-      const guestBuyout = Math.round(s.price_coins * guestMultiplier);
+      // Cover only shows clearly if the fan has some genuine reach into the set —
+      // a free item, or something their own tier can eventually unlock. Otherwise blurred,
+      // this naturally covers purchase-only sets too, since nobody has "tier reach" into those.
+      const coverBlurred = segments.freeCount === 0 && segments.tierPortionCount === 0;
 
       return {
         id: s.id,
@@ -155,14 +161,15 @@ router.get('/sets', authMid, async (req, res) => {
 
         tierPrice: segments.tierPrice,
         upsellPrice: segments.upsellPrice,
-        guestBuyout,
+        tierPreviewUrl: toUrl(segments.tierPreviewKey),
+        upsellPreviewUrl: toUrl(segments.upsellPreviewKey),
 
-        coverBlurred: !tierUnlocked && segments.freeCount === 0,
+        coverBlurred,
       };
     });
 
-    const freeForAll  = setsWithData.filter((s) => s.isFreeForAll);
-    const unlockable   = setsWithData.filter((s) => !s.isFreeForAll);
+    const freeForAll = setsWithData.filter((s) => s.isFreeForAll);
+    const unlockable = setsWithData.filter((s) => !s.isFreeForAll);
 
     res.json({
       freeForAll,
@@ -174,7 +181,6 @@ router.get('/sets', authMid, async (req, res) => {
       creditsRemaining,
       creditsMax: maxUnlocks,
     });
-
   } catch (err) {
     console.error('gallery/sets error:', err);
     res.status(500).json({ error: 'Failed to load gallery' });
@@ -223,7 +229,7 @@ router.post('/unlock', authMid, async (req, res) => {
     }
     const set = setRows[0];
 
-    const { rows: itemRows } = await client.query(`SELECT media_type, tier_category FROM set_items WHERE set_id = $1`, [setId]);
+    const { rows: itemRows } = await client.query(`SELECT r2_key, media_type, tier_category FROM set_items WHERE set_id = $1`, [setId]);
     const segments = computeSegments(itemRows, userTier, set.price_coins, discountPct, isGuest, guestMultiplier);
 
     if (scope === 'upsell' && !segments.hasUpsell) {
@@ -237,7 +243,6 @@ router.post('/unlock', authMid, async (req, res) => {
     );
     const existing = existingGrants[0];
 
-    // Already permanently unlocked for this scope — nothing to do
     if (existing && isEffectivelyUnlocked(existing.grant_type, scope === 'upsell' ? true : isActive) && existing.grant_type !== 'unlock_credit') {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'Already unlocked' });
@@ -250,7 +255,6 @@ router.post('/unlock', authMid, async (req, res) => {
     let useCredit = false;
     let price = scope === 'tier' ? segments.tierPrice : segments.upsellPrice;
 
-    // Credit is only ever applicable to the 'tier' scope — upsell is always a genuine purchase
     if (scope === 'tier' && segments.tierPortionCount > 0) {
       const monthKey   = now.toISOString().slice(0, 7);
       const maxUnlocks = await getGalleryUnlocksForTier(userTier);
@@ -321,9 +325,6 @@ router.post('/unlock', authMid, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // GET /api/gallery/sets/:setId/items
-// Returns only items the fan currently has legitimate access to.
-// Always returns 200, even with zero visible items — every set is enterable,
-// and the frontend shows unlock frames for anything not yet accessible.
 // ─────────────────────────────────────────────
 
 router.get('/sets/:setId/items', authMid, async (req, res) => {
@@ -354,7 +355,7 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
       if (item.tier_category === 'purchase_only') return upsellUnlocked;
       const isTierReachable = meetsCategory(userTier, item.tier_category);
       if (isTierReachable) return tierUnlocked;
-      return upsellUnlocked; // higher-tier item, only visible if the upsell was bought
+      return upsellUnlocked;
     });
 
     const itemsWithUrls = visibleItems.map((item) => ({ ...item, media_url: toUrl(item.r2_key) }));

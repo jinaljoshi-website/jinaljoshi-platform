@@ -27,8 +27,6 @@ export default function Gallery() {
 
   const allSets = data ? [...(data.unlockable || []), ...(data.freeForAll || [])] : [];
 
-  const findSetById = (list, id) => list.find((s) => s.id === id);
-
   const openViewer = async (set) => {
     setOpenSet(set);
     setSetItems([]);
@@ -54,7 +52,7 @@ export default function Gallery() {
   const refreshOpenSet = async (setId) => {
     const freshData = await api.get('/api/gallery/sets');
     setData(freshData);
-    const updated = findSetById([...(freshData.unlockable || []), ...(freshData.freeForAll || [])], setId);
+    const updated = [...(freshData.unlockable || []), ...(freshData.freeForAll || [])].find((s) => s.id === setId);
     if (updated) setOpenSet(updated);
     const itemsData = await api.get(`/api/gallery/sets/${setId}/items`);
     setSetItems(itemsData.items || []);
@@ -83,6 +81,7 @@ export default function Gallery() {
   if (openSet) {
     const showTierFrame   = openSet.tierPortionCount > 0 && !openSet.tierUnlocked;
     const showUpsellFrame = (openSet.tierPortionCount === 0 || openSet.tierUnlocked) && openSet.hasUpsell && !openSet.upsellUnlocked;
+    const creditsAvailable = (data?.creditsRemaining || 0) > 0;
 
     return (
       <div>
@@ -121,30 +120,42 @@ export default function Gallery() {
           ))}
 
           {showTierFrame && (
-            <div onClick={() => !unlockingScope && handleViewerUnlock('tier')} style={unlockFrame}>
-              <div style={unlockFrameIcon}>{openSet.tierLapsed ? '⏳' : '🔒'}</div>
-              <div style={unlockFrameText}>
-                {unlockingScope === 'tier'
-                  ? 'Unlocking…'
-                  : openSet.tierPrice === 0
-                    ? `Unlock ${openSet.tierPortionCount} more using your credit`
-                    : `Unlock ${openSet.tierPortionCount} more for ${openSet.tierPrice} tokens`}
-              </div>
-              {openSet.tierLapsed && (
-                <div style={unlockFrameSub}>
-                  Your membership unlocked this — renew to view again, or tap to unlock permanently
-                </div>
+            <div onClick={() => !unlockingScope && handleViewerUnlock('tier')} style={unlockFrameWrap}>
+              {openSet.tierPreviewUrl && (
+                <img src={openSet.tierPreviewUrl} alt="" style={{ ...thumb, filter: 'blur(16px)', position: 'absolute', inset: 0 }} />
               )}
+              <div style={unlockFrameOverlay}>
+                <div style={unlockFrameIcon}>{openSet.tierLapsed ? '⏳' : '🔒'}</div>
+                <div style={unlockFrameText}>
+                  {unlockingScope === 'tier'
+                    ? 'Unlocking…'
+                    : creditsAvailable && openSet.tierPrice > 0 === false
+                      ? `Unlock ${openSet.tierPortionCount} more using your credit`
+                      : creditsAvailable
+                        ? `Unlock using credit (${data.creditsRemaining} of ${data.creditsMax} remaining)`
+                        : `Unlock ${openSet.tierPortionCount} more for ${openSet.tierPrice} tokens`}
+                </div>
+                {openSet.tierLapsed && (
+                  <div style={unlockFrameSub}>
+                    Your membership unlocked this — renew to view again, or tap to unlock permanently
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
           {showUpsellFrame && (
-            <div onClick={() => !unlockingScope && handleViewerUnlock('upsell')} style={unlockFrame}>
-              <div style={unlockFrameIcon}>🔒</div>
-              <div style={unlockFrameText}>
-                {unlockingScope === 'upsell'
-                  ? 'Unlocking…'
-                  : `Unlock ${openSet.upsellPortionCount} more for ${openSet.upsellPrice} tokens`}
+            <div onClick={() => !unlockingScope && handleViewerUnlock('upsell')} style={unlockFrameWrap}>
+              {openSet.upsellPreviewUrl && (
+                <img src={openSet.upsellPreviewUrl} alt="" style={{ ...thumb, filter: 'blur(16px)', position: 'absolute', inset: 0 }} />
+              )}
+              <div style={unlockFrameOverlay}>
+                <div style={unlockFrameIcon}>🔒</div>
+                <div style={unlockFrameText}>
+                  {unlockingScope === 'upsell'
+                    ? 'Unlocking…'
+                    : `Unlock ${openSet.upsellPortionCount} more for ${openSet.upsellPrice} tokens`}
+                </div>
               </div>
             </div>
           )}
@@ -202,10 +213,15 @@ export default function Gallery() {
             <div key={item.id} onClick={() => openViewer(item)} style={card}>
               <div style={{ position: 'relative', marginBottom: 12 }}>
                 {item.cover_url ? (
-                  <img src={item.cover_url} alt={item.title} style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 6 }} />
+                  <img src={item.cover_url} alt={item.title} style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 6, filter: item.coverBlurred ? 'blur(14px)' : 'none' }} />
                 ) : (
                   <div style={{ width: '100%', height: 120, background: 'rgba(255,255,255,0.03)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <span style={{ fontFamily: F.mono, fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Preview</span>
+                  </div>
+                )}
+                {item.coverBlurred && (
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'rgba(13,12,10,0.35)' }}>
+                    <div style={{ fontSize: 22 }}>🔒</div>
                   </div>
                 )}
               </div>
@@ -254,10 +270,11 @@ const viewerGrid  = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, m
 const thumbWrap   = { position: 'relative', cursor: 'pointer', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: C.surface };
 const thumb       = { width: '100%', height: '100%', objectFit: 'cover', display: 'block' };
 const playBadge   = { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', fontSize: 28, color: 'white', textShadow: '0 2px 8px rgba(0,0,0,0.8)', pointerEvents: 'none' };
-const unlockFrame = { position: 'relative', cursor: 'pointer', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: 'rgba(193,125,74,0.1)', border: `1px dashed ${C.accent}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 10, gap: 6 };
+const unlockFrameWrap = { position: 'relative', cursor: 'pointer', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: C.surface, border: `1px dashed ${C.accent}` };
+const unlockFrameOverlay = { position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 10, gap: 6, background: 'rgba(13,12,10,0.55)' };
 const unlockFrameIcon = { fontSize: 22 };
-const unlockFrameText = { fontFamily: F.sans, fontSize: 12, color: C.text, fontWeight: 600, lineHeight: 1.4 };
-const unlockFrameSub  = { fontFamily: F.sans, fontSize: 10, color: C.muted, lineHeight: 1.4 };
+const unlockFrameText = { fontFamily: F.sans, fontSize: 12, color: '#fff', fontWeight: 600, lineHeight: 1.4 };
+const unlockFrameSub  = { fontFamily: F.sans, fontSize: 10, color: 'rgba(255,255,255,0.75)', lineHeight: 1.4 };
 const lightboxOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' };
 const lightboxInner   = { display: 'flex', flexDirection: 'column', alignItems: 'center' };
 const closeBtn    = { position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', fontSize: 20, width: 40, height: 40, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
