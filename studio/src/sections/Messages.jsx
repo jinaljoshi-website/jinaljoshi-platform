@@ -481,7 +481,7 @@ export function Messages() {
                   <Card style={{ marginBottom: 10 }}>
                     <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, fontWeight: 600, marginBottom: 10 }}>Send unlockable media</div>
                     <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 14, lineHeight: 1.6 }}>
-                      Select one or more photos/videos, set one token price for the whole bundle. The fan sees a locked placeholder until they pay, real files are never sent until then.
+                      Select one or more photos/videos, set one token price for the whole bundle. The fan sees a locked placeholder until they pay, real files are never sent until then. Note: all chat messages, including paid unlocks, are automatically removed after 30 days.
                     </p>
                     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
                       <input ref={lockedFileRef} type="file" accept="image/*,video/*" multiple style={{ display: 'none' }} onChange={handleLockedFilesChange} />

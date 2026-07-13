@@ -423,13 +423,16 @@ function MessageBubble({ msg, onUnlock, unlocking }) {
                 {msg.locked_item_count} item{msg.locked_item_count === 1 ? '' : 's'}
               </div>
               {!isMe && (
-                <button onClick={onUnlock} disabled={unlocking} style={{ ...sendBtn, padding: '8px 16px', fontSize: 12, opacity: unlocking ? 0.6 : 1 }}>
-                  {unlocking ? 'Unlocking…' : (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                      Unlock for <WonderCoinAmount amount={msg.locked_price} size={12} fontSize={12} textColor="#1A1714" />
-                    </span>
-                  )}
-                </button>
+                <>
+                  <button onClick={onUnlock} disabled={unlocking} style={{ ...sendBtn, padding: '8px 16px', fontSize: 12, opacity: unlocking ? 0.6 : 1 }}>
+                    {unlocking ? 'Unlocking…' : (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        Unlock for <WonderCoinAmount amount={msg.locked_price} size={12} fontSize={12} textColor="#1A1714" />
+                      </span>
+                    )}
+                  </button>
+                  <div style={{ fontFamily: F.sans, fontSize: 9, color: C.muted, textAlign: 'center' }}>Chat messages, including unlocked media, are removed after 30 days</div>
+                </>
               )}
             </div>
           )}

@@ -1,10 +1,12 @@
 // backend/lib/scheduler.js
-// Background jobs: call reminders, no-show refunds, hard duration cutoff enforcement, and missed-call detection
+// Background jobs: call reminders, no-show refunds, hard duration cutoff enforcement,
+// missed-call detection, and expired chat message cleanup
 
 const cron    = require('node-cron');
 const pool    = require('../db/pool');
 const { notifyArtist } = require('./notify');
 const { pushToUser } = require('../routes/push');
+const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 
 function getStreamClient() {
   const { StreamClient } = require('@stream-io/node-sdk');
@@ -12,6 +14,26 @@ function getStreamClient() {
     process.env.STREAM_API_KEY,
     process.env.STREAM_API_SECRET
   );
+}
+
+function getR2Client() {
+  return new S3Client({
+    region: 'auto',
+    endpoint: process.env.R2_ENDPOINT,
+    credentials: {
+      accessKeyId:     process.env.R2_ACCESS_KEY_ID,
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    },
+  });
+}
+
+// Reverses the publicUrl construction in upload.js back into the raw R2 object key.
+// Returns null if the URL doesn't look like one of ours (defensive — never delete something unexpected).
+function extractR2Key(url) {
+  if (!url) return null;
+  const base = process.env.R2_PUBLIC_URL || (process.env.R2_ENDPOINT || '').replace('https://', 'https://pub-');
+  if (!base || !url.startsWith(base)) return null;
+  return url.slice(base.length).replace(/^\//, '');
 }
 
 // ─────────────────────────────────────────────
@@ -201,6 +223,62 @@ async function checkMissedCalls() {
 }
 
 // ─────────────────────────────────────────────
+// Job 5: Expire chat messages older than 30 days
+// Deletes both the database rows AND the underlying R2 files (photos/videos, including
+// locked-media bundles). No exceptions for paid unlocks — this is a deliberate, blanket policy.
+// Runs once a day.
+// ─────────────────────────────────────────────
+
+async function expireOldChatMessages() {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(
+      `SELECT id, media_url, locked_media_urls
+       FROM direct_messages
+       WHERE created_at <= NOW() - INTERVAL '30 days'`
+    );
+
+    if (!rows.length) return;
+
+    const r2 = getR2Client();
+    const bucket = process.env.R2_BUCKET_NAME;
+
+    // Collect every R2 key referenced by these messages (single media_url + locked bundles)
+    const keysToDelete = [];
+    for (const row of rows) {
+      const singleKey = extractR2Key(row.media_url);
+      if (singleKey) keysToDelete.push(singleKey);
+
+      if (Array.isArray(row.locked_media_urls)) {
+        for (const item of row.locked_media_urls) {
+          const key = extractR2Key(item.url);
+          if (key) keysToDelete.push(key);
+        }
+      }
+    }
+
+    // Best-effort R2 cleanup — a failed file delete should never block clearing the DB rows,
+    // otherwise one bad object could stall this job from ever completing
+    for (const key of keysToDelete) {
+      try {
+        await r2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+      } catch (err) {
+        console.error(`scheduler/expireOldChatMessages failed to delete R2 key ${key}:`, err.message);
+      }
+    }
+
+    const ids = rows.map((r) => r.id);
+    await client.query(`DELETE FROM direct_messages WHERE id = ANY($1)`, [ids]);
+
+    console.log(`scheduler/expireOldChatMessages: removed ${rows.length} messages and attempted ${keysToDelete.length} R2 file deletions`);
+  } catch (err) {
+    console.error('scheduler/expireOldChatMessages error:', err.message);
+  } finally {
+    client.release();
+  }
+}
+
+// ─────────────────────────────────────────────
 // Start all scheduled jobs
 // ─────────────────────────────────────────────
 
@@ -217,7 +295,12 @@ function startScheduler() {
     checkMissedCalls();
   }, 15000);
 
-  console.log('Scheduler started: reminders + no-show checks every minute, duration cutoff + missed-call checks every 15s');
+  // Once a day at 4am server time: expired chat message cleanup (low-traffic window)
+  cron.schedule('0 4 * * *', () => {
+    expireOldChatMessages();
+  });
+
+  console.log('Scheduler started: reminders + no-show checks every minute, duration cutoff + missed-call checks every 15s, chat expiry daily at 4am');
 }
 
 module.exports = { startScheduler };
