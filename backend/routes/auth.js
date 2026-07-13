@@ -5,6 +5,47 @@ const jwt      = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const pool     = require('../db/pool');
 const authMid  = require('../middleware/auth');
+const { sendSignupVerificationEmail, sendPasswordResetEmail, consumeToken } = require('../lib/email');
+
+async function createSessionAndRespond(user, req, res) {
+  let streamToken = null;
+  try {
+    const { StreamClient } = require('@stream-io/node-sdk');
+    const streamClient = new StreamClient(process.env.STREAM_API_KEY, process.env.STREAM_API_SECRET);
+    await streamClient.upsertUsers([{ id: user.id, name: user.display_name || user.email }]);
+    streamToken = streamClient.generateUserToken({ user_id: user.id });
+  } catch {}
+
+  const sessionId = uuidv4();
+  const token = jwt.sign(
+    { userId: user.id, sessionId, isArtist: user.is_artist || false },
+    process.env.JWT_SECRET,
+    { expiresIn: '365d' }
+  );
+
+  await pool.query(
+    `INSERT INTO active_sessions (user_id, session_id, device_hint)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (user_id) DO UPDATE SET session_id = $2, device_hint = $3, created_at = NOW()`,
+    [user.id, sessionId, req.headers['user-agent']?.slice(0, 100) || null]
+  );
+
+  await pool.query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
+
+  res.json({
+    jwt: token,
+    streamToken,
+    user: {
+      id:            user.id,
+      email:         user.email,
+      tier:          user.tier,
+      coinBalance:   user.coin_balance,
+      displayName:   user.display_name,
+      phoneVerified: user.phone_verified,
+      isArtist:      user.is_artist || false,
+    },
+  });
+}
 
 // ── SIGNUP ────────────────────────────────────
 
@@ -21,7 +62,6 @@ router.post('/signup', async (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
 
-  // Age check
   const birthDate = new Date(dob);
   const today     = new Date();
   let age = today.getFullYear() - birthDate.getFullYear();
@@ -29,7 +69,6 @@ router.post('/signup', async (req, res) => {
   if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
   if (age < 18) return res.status(400).json({ error: 'You must be 18 or older' });
 
-  // Consent check
   if (!consentTerms || !consentNoRefund) {
     return res.status(400).json({ error: 'You must accept both agreements to create an account' });
   }
@@ -43,42 +82,69 @@ router.post('/signup', async (req, res) => {
 
   const { rows } = await pool.query(
     `INSERT INTO users
-       (email, password_hash, dob, display_name, consent_terms, consent_no_refund, consented_at)
-     VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       (email, password_hash, dob, display_name, consent_terms, consent_no_refund, consented_at, email_verified)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW(), FALSE)
      RETURNING id, email, tier, coin_balance, display_name`,
     [normalizedEmail, hash, dob, displayName?.trim() || null, true, true]
   );
   const user = rows[0];
 
-  const sessionId = uuidv4();
-  const token     = jwt.sign(
-    { userId: user.id, sessionId, isArtist: false },
-    process.env.JWT_SECRET,
-    { expiresIn: '365d' }
-  );
-
-  await pool.query(
-    'INSERT INTO active_sessions (user_id, session_id) VALUES ($1, $2)',
-    [user.id, sessionId]
-  );
-
-  // System message to community (fire and forget)
   try {
-    const { postSystemMessage } = require('./community');
-    const welcomeName = user.display_name || 'A new member';
-    postSystemMessage(`🎉 ${welcomeName} just joined Personal Space. Welcome!`);
-  } catch {}
+    await sendSignupVerificationEmail(user);
+  } catch (err) {
+    console.error('signup verification email error:', err.message);
+  }
 
   res.json({
-    jwt: token,
-    user: {
-      id:          user.id,
-      email:       user.email,
-      tier:        user.tier,
-      coinBalance: user.coin_balance,
-      displayName: user.display_name,
-    },
+    ok: true,
+    requiresVerification: true,
+    message: `We've sent a verification link to ${user.email}. Please check your inbox to activate your account.`,
   });
+});
+
+// ── VERIFY EMAIL (signup) ─────────────────────
+
+router.post('/verify-email', async (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ error: 'Token is required' });
+
+  try {
+    const userId = await consumeToken(token, 'signup');
+    const { rows } = await pool.query(
+      `UPDATE users SET email_verified = TRUE WHERE id = $1 RETURNING *`,
+      [userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Account not found' });
+
+    try {
+      const { postSystemMessage } = require('./community');
+      const welcomeName = rows[0].display_name || 'A new member';
+      postSystemMessage(`🎉 ${welcomeName} just joined Personal Space. Welcome!`);
+    } catch {}
+
+    await createSessionAndRespond(rows[0], req, res);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/resend-verification', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
+  if (!rows.length) return res.status(404).json({ error: 'No account found with this email' });
+
+  const user = rows[0];
+  if (user.email_verified) return res.status(400).json({ error: 'This email is already verified — try logging in.' });
+
+  try {
+    await sendSignupVerificationEmail(user);
+    res.json({ ok: true, message: `Verification email resent to ${user.email}.` });
+  } catch (err) {
+    res.status(429).json({ error: err.message });
+  }
 });
 
 // ── LOGIN ─────────────────────────────────────
@@ -103,43 +169,14 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ error: 'Email or password is incorrect' });
   }
 
-  let streamToken = null;
-  try {
-    const { StreamClient } = require('@stream-io/node-sdk');
-    const streamClient = new StreamClient(process.env.STREAM_API_KEY, process.env.STREAM_API_SECRET);
-    await streamClient.upsertUsers([{ id: user.id, name: user.display_name || user.email }]);
-    streamToken = streamClient.generateUserToken({ user_id: user.id });
-  } catch {}
+  if (!user.email_verified) {
+    return res.status(403).json({
+      error:   'EMAIL_NOT_VERIFIED',
+      message: 'Please verify your email before signing in. Check your inbox, or request a new link.',
+    });
+  }
 
-  const sessionId = uuidv4();
-  const token     = jwt.sign(
-    { userId: user.id, sessionId, isArtist: user.is_artist },
-    process.env.JWT_SECRET,
-    { expiresIn: '365d' }
-  );
-
-  await pool.query(
-    `INSERT INTO active_sessions (user_id, session_id, device_hint)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (user_id) DO UPDATE SET session_id = $2, device_hint = $3, created_at = NOW()`,
-    [user.id, sessionId, req.headers['user-agent']?.slice(0, 100)]
-  );
-
-  await pool.query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
-
-  res.json({
-    jwt: token,
-    streamToken,
-    user: {
-      id:            user.id,
-      email:         user.email,
-      tier:          user.tier,
-      coinBalance:   user.coin_balance,
-      displayName:   user.display_name,
-      phoneVerified: user.phone_verified,
-      isArtist:      user.is_artist,
-    },
-  });
+  await createSessionAndRespond(user, req, res);
 });
 
 // ── LOGOUT ────────────────────────────────────
@@ -149,7 +186,7 @@ router.post('/logout', authMid, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ── PHONE VERIFY ──────────────────────────────
+// ── PHONE VERIFY (post-first-payment; unrelated to password reset now) ──────
 
 router.post('/verify-phone/send', authMid, async (req, res) => {
   const { phone } = req.body;
@@ -187,7 +224,7 @@ router.post('/verify-phone/confirm', authMid, async (req, res) => {
   res.json({ verified: true });
 });
 
-// ── FORGOT PASSWORD ───────────────────────────
+// ── FORGOT PASSWORD (email link, no fee, no phone requirement) ─────────────
 
 router.post('/forgot/request', async (req, res) => {
   const { email } = req.body;
@@ -195,77 +232,40 @@ router.post('/forgot/request', async (req, res) => {
 
   const normalizedEmail = email.toLowerCase().trim();
   const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
-  if (!rows.length) return res.status(404).json({ error: 'No account found with this email' });
 
-  const user = rows[0];
-  if (!user.phone_verified) {
-    return res.status(400).json({ error: 'Phone verification required before password reset' });
+  // Deliberately generic response either way, so this endpoint can't be used
+  // to check which emails have accounts on the platform.
+  const genericMessage = 'If an account exists for that email, a reset link has been sent.';
+
+  if (!rows.length) {
+    return res.json({ ok: true, message: genericMessage });
   }
 
-  const monthKey   = new Date().toISOString().slice(0, 7);
-  const { rows: allotRows } = await pool.query(
-    'SELECT password_resets_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2',
-    [user.id, monthKey]
-  );
-
-  const resetsUsed = allotRows[0]?.password_resets_used || 0;
-  const freeLimit  = parseInt(process.env.PASSWORD_RESET_FREE_LIMIT || '2', 10);
-  const penalty    = parseInt(process.env.PASSWORD_RESET_COIN_PENALTY || '25', 10);
-
-  if (resetsUsed >= freeLimit) {
-    if (user.coin_balance < penalty) {
-      return res.status(402).json({
-        error:   'INSUFFICIENT_COINS',
-        message: `You need ${penalty} tokens for an additional password reset this month`,
-        shortBy: penalty - user.coin_balance,
-      });
-    }
-    await pool.query('UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2', [penalty, user.id]);
-    await pool.query(
-      `INSERT INTO coin_ledger (user_id, type, direction, amount, label)
-       VALUES ($1, 'debit', 'debit', $2, 'Password reset fee')`,
-      [user.id, penalty]
-    );
+  try {
+    await sendPasswordResetEmail(rows[0]);
+  } catch (err) {
+    console.error('password reset email error:', err.message);
   }
 
-  const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-  await twilio.verify.v2.services(process.env.TWILIO_VERIFY_SERVICE_SID)
-    .verifications.create({ to: user.phone, channel: 'sms' });
-
-  await pool.query(
-    `INSERT INTO monthly_allotments (user_id, month_key, password_resets_used)
-     VALUES ($1, $2, 1)
-     ON CONFLICT (user_id, month_key) DO UPDATE
-     SET password_resets_used = monthly_allotments.password_resets_used + 1`,
-    [user.id, monthKey]
-  );
-
-  res.json({ sent: true, phone: user.phone.slice(-4) });
+  res.json({ ok: true, message: genericMessage });
 });
 
 router.post('/forgot/confirm', async (req, res) => {
-  const { email, code, newPassword } = req.body;
-  if (!email || !code || !newPassword) {
-    return res.status(400).json({ error: 'Email, code and new password are required' });
+  const { token, newPassword } = req.body;
+  if (!token || !newPassword) {
+    return res.status(400).json({ error: 'Token and new password are required' });
   }
-
-  const normalizedEmail = email.toLowerCase().trim();
-  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
-  if (!rows.length) return res.status(404).json({ error: 'Account not found' });
-
-  const user   = rows[0];
-  const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-  const check  = await twilio.verify.v2.services(process.env.TWILIO_VERIFY_SERVICE_SID)
-    .verificationChecks.create({ to: user.phone, code });
-
-  if (check.status !== 'approved') return res.status(400).json({ error: 'Incorrect code' });
   if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be 8+ characters' });
 
-  const hash = await argon2.hash(newPassword);
-  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, user.id]);
-  await pool.query('DELETE FROM active_sessions WHERE user_id = $1', [user.id]);
-
-  res.json({ ok: true });
+  try {
+    const userId = await consumeToken(token, 'password_reset');
+    const hash = await argon2.hash(newPassword);
+    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, userId]);
+    await pool.query('DELETE FROM active_sessions WHERE user_id = $1', [userId]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // ── GET PROFILE ────────────────────────────────────────
@@ -290,7 +290,6 @@ router.get('/profile', authMid, async (req, res) => {
 router.patch('/profile', authMid, async (req, res) => {
   const { displayName, dob } = req.body;
 
-  // Validate DOB if provided
   if (dob) {
     const birthDate = new Date(dob);
     const today     = new Date();

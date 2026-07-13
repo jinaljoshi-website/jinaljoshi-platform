@@ -19,15 +19,52 @@ export default function Auth() {
   const [notice,      setNotice]     = useState('');
   const [loading,     setLoading]    = useState(false);
 
+  // Signup — post-submit "check your email" state
+  const [signupDone, setSignupDone] = useState(false);
+  const [signupMsg,  setSignupMsg]  = useState('');
+  const [unverifiedEmail, setUnverifiedEmail] = useState('');
+  const [resending,  setResending]  = useState(false);
+  const [resendMsg,  setResendMsg]  = useState('');
+
+  // Forgot password
+  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotMsg,  setForgotMsg]  = useState('');
+
+  // Reset password (via emailed link)
+  const resetToken = params.get('token');
+  const [newPassword,  setNewPassword]  = useState('');
+  const [resetDone,    setResetDone]    = useState(false);
+
+  // Verify email (via emailed link) — runs automatically on load
+  const [verifyState, setVerifyState] = useState('verifying'); // 'verifying' | 'success' | 'error'
+  const [verifyMsg,   setVerifyMsg]   = useState('');
+
   useEffect(() => {
-    setMode(params.get('mode') || 'login');
+    const urlMode = params.get('mode') || 'login';
+    setMode(urlMode);
     const n = params.get('notice');
     if (n) setNotice(decodeURIComponent(n));
+
+    if (urlMode === 'verify-email' && resetToken) {
+      api.post('/api/auth/verify-email', { token: resetToken })
+        .then((data) => {
+          saveAuth(data.jwt, data.user);
+          if (data.streamToken) saveStreamToken(data.streamToken);
+          setVerifyState('success');
+          setTimeout(() => navigate('/platform/landing'), 1200);
+        })
+        .catch((err) => {
+          setVerifyState('error');
+          setVerifyMsg(err.message);
+        });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);
 
   const handleSubmit = async () => {
     setError('');
     setNotice('');
+    setResendMsg('');
 
     if (!email || !password || (mode === 'signup' && !dob)) {
       setError('Please fill in all required fields.');
@@ -41,28 +78,175 @@ export default function Auth() {
 
     setLoading(true);
     try {
-      let data;
       if (mode === 'signup') {
-        data = await api.post('/api/auth/signup', {
+        const data = await api.post('/api/auth/signup', {
           email, password, dob,
           displayName:     displayName.trim() || null,
           consentTerms:    consent1,
           consentNoRefund: consent2,
         });
+        setSignupDone(true);
+        setSignupMsg(data.message);
       } else {
-        data = await api.post('/api/auth/login', { email, password });
+        const data = await api.post('/api/auth/login', { email, password });
+        saveAuth(data.jwt, data.user);
+        if (data.streamToken) saveStreamToken(data.streamToken);
+        navigate('/platform/landing');
       }
-
-      saveAuth(data.jwt, data.user);
-      if (data.streamToken) saveStreamToken(data.streamToken);
-      navigate('/platform/landing');
     } catch (err) {
-      setError(err.message || 'Something went wrong. Please try again.');
+      if (err.message === 'EMAIL_NOT_VERIFIED' || err.message.includes('verify your email')) {
+        setUnverifiedEmail(email);
+        setError('Please verify your email before signing in. Check your inbox, or request a new link below.');
+      } else {
+        setError(err.message || 'Something went wrong. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  const handleResend = async () => {
+    setResending(true);
+    setResendMsg('');
+    try {
+      const data = await api.post('/api/auth/resend-verification', { email: unverifiedEmail || email });
+      setResendMsg(data.message);
+    } catch (err) {
+      setResendMsg(err.message);
+    } finally {
+      setResending(false);
+    }
+  };
+
+  const handleForgotRequest = async () => {
+    setError('');
+    if (!email) { setError('Please enter your email address.'); return; }
+    setLoading(true);
+    try {
+      const data = await api.post('/api/auth/forgot/request', { email });
+      setForgotSent(true);
+      setForgotMsg(data.message);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetSubmit = async () => {
+    setError('');
+    if (!newPassword || newPassword.length < 8) {
+      setError('Password must be at least 8 characters.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.post('/api/auth/forgot/confirm', { token: resetToken, newPassword });
+      setResetDone(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Verify-email mode (from emailed link) ──────────────────────────────
+  if (mode === 'verify-email') {
+    return (
+      <div style={wrap}>
+        <div style={card}>
+          <div style={{ fontFamily: F.display, fontSize: 28, color: C.text, marginBottom: 12 }}>
+            {verifyState === 'verifying' && 'Verifying your email…'}
+            {verifyState === 'success' && '✓ Email verified'}
+            {verifyState === 'error' && 'Verification failed'}
+          </div>
+          {verifyState === 'success' && (
+            <p style={{ fontFamily: F.sans, fontSize: 14, color: C.muted }}>You're all set — taking you in…</p>
+          )}
+          {verifyState === 'error' && (
+            <>
+              <div style={errorBox}>{verifyMsg}</div>
+              <button onClick={() => navigate('/auth?mode=login')} style={submitBtn}>Back to sign in</button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Reset-password mode (from emailed link) ────────────────────────────
+  if (mode === 'reset-password') {
+    return (
+      <div style={wrap}>
+        <div style={card}>
+          <div style={{ fontFamily: F.display, fontSize: 30, color: C.text, marginBottom: 8 }}>
+            {resetDone ? '✓ Password updated' : 'Set a new password'}
+          </div>
+          {resetDone ? (
+            <>
+              <p style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, marginBottom: 22 }}>
+                You can now sign in with your new password.
+              </p>
+              <button onClick={() => navigate('/auth?mode=login')} style={submitBtn}>Sign in</button>
+            </>
+          ) : (
+            <>
+              <Field label="New password">
+                <input style={inputStyle} type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="8 characters minimum" />
+              </Field>
+              {error && <div style={errorBox}>{error}</div>}
+              <button onClick={handleResetSubmit} disabled={loading} style={{ ...submitBtn, opacity: loading ? 0.6 : 1 }}>
+                {loading ? 'Please wait…' : 'Update password'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Forgot-password mode ────────────────────────────────────────────────
+  if (mode === 'forgot') {
+    return (
+      <div style={wrap}>
+        <div style={card}>
+          <button onClick={() => setMode('login')} style={backBtn}>← Back to sign in</button>
+          <div style={{ fontFamily: F.display, fontSize: 30, color: C.text, marginBottom: 8 }}>Reset your password</div>
+          {forgotSent ? (
+            <div style={noticeBox}>{forgotMsg}</div>
+          ) : (
+            <>
+              <p style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, marginBottom: 22 }}>
+                Enter your email and we'll send you a link to reset your password.
+              </p>
+              <Field label="Email address">
+                <input style={inputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+              </Field>
+              {error && <div style={errorBox}>{error}</div>}
+              <button onClick={handleForgotRequest} disabled={loading} style={{ ...submitBtn, opacity: loading ? 0.6 : 1 }}>
+                {loading ? 'Sending…' : 'Send reset link'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Signup success ("check your email") ─────────────────────────────────
+  if (signupDone) {
+    return (
+      <div style={wrap}>
+        <div style={card}>
+          <div style={{ fontFamily: F.display, fontSize: 30, color: C.text, marginBottom: 8 }}>Check your email</div>
+          <p style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.6, marginBottom: 22 }}>{signupMsg}</p>
+          <button onClick={() => { setSignupDone(false); setMode('login'); }} style={linkBtn}>Back to sign in</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Default: login / signup ─────────────────────────────────────────────
   return (
     <div style={wrap}>
       <div style={card}>
@@ -124,7 +308,19 @@ export default function Auth() {
           </>
         )}
 
-        {error && <div style={errorBox}>{error}</div>}
+        {error && (
+          <div style={errorBox}>
+            {error}
+            {unverifiedEmail && (
+              <div style={{ marginTop: 10 }}>
+                <button onClick={handleResend} disabled={resending} style={{ ...linkBtn, color: '#fff', textDecoration: 'underline' }}>
+                  {resending ? 'Sending…' : 'Resend verification email'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        {resendMsg && <div style={noticeBox}>{resendMsg}</div>}
 
         <button
           onClick={handleSubmit}
@@ -143,9 +339,7 @@ export default function Auth() {
             <>
               <button onClick={() => setMode('signup')} style={linkBtn}>Create account</button>
               <span style={{ color: C.muted, fontSize: 12 }}> • </span>
-              <button onClick={() => setError('Password reset is available after verifying your phone number.')} style={linkBtn}>
-                Forgot password?
-              </button>
+              <button onClick={() => setMode('forgot')} style={linkBtn}>Forgot password?</button>
             </>
           ) : (
             <button onClick={() => setMode('login')} style={linkBtn}>
