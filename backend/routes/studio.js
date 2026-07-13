@@ -274,23 +274,30 @@ router.post('/dms/:fanId/send-locked-media', async (req, res) => {
 
 router.get('/content', async (req, res) => {
   try {
-    const { rows } = await pool.query(`SELECT * FROM sets ORDER BY created_at DESC`);
-    res.json({ sets: rows });
+    const { rows: sets } = await pool.query(`SELECT * FROM sets ORDER BY created_at DESC`);
+    const { rows: itemCounts } = await pool.query(
+      `SELECT set_id, tier_category, COUNT(*) AS count FROM set_items GROUP BY set_id, tier_category`
+    );
+    const countsBySet = {};
+    itemCounts.forEach((row) => {
+      if (!countsBySet[row.set_id]) countsBySet[row.set_id] = {};
+      countsBySet[row.set_id][row.tier_category] = parseInt(row.count);
+    });
+    const setsWithCounts = sets.map((s) => ({ ...s, categoryCounts: countsBySet[s.id] || {} }));
+    res.json({ sets: setsWithCounts });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load content' });
   }
 });
 
 router.post('/content', async (req, res) => {
-  const { title, description, type = 'photo_set', price_coins = 0, min_tier = 'community', use_unlock_credit = true, visible = false } = req.body;
+  const { title, description, type = 'photo_set', price_coins = 0, visible = false } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
-  const VALID_TIERS = ['none', 'community', 'insider', 'premium', 'supreme'];
-  if (!VALID_TIERS.includes(min_tier)) return res.status(400).json({ error: 'Invalid min_tier' });
   try {
     const { rows } = await pool.query(
-      `INSERT INTO sets (title, description, type, price_coins, min_tier, use_unlock_credit, visible)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [title.trim(), description || null, type, price_coins, min_tier, use_unlock_credit, visible]
+      `INSERT INTO sets (title, description, type, price_coins, visible)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [title.trim(), description || null, type, price_coins, visible]
     );
     if (visible) {
       postSystemMessage(`📸 Jinal just dropped "${title.trim()}"! Check the Gallery!`);
@@ -302,16 +309,21 @@ router.post('/content', async (req, res) => {
   }
 });
 
+const VALID_TIER_CATEGORIES = ['free', 'community', 'insider', 'premium', 'supreme', 'purchase_only'];
+
 router.post('/content/item', async (req, res) => {
-  const { setId, type, r2Key, position } = req.body;
+  const { setId, type, r2Key, position, tierCategory = 'community' } = req.body;
   if (!setId || !type || !r2Key) {
     return res.status(400).json({ error: 'setId, type and r2Key are required' });
   }
+  if (!VALID_TIER_CATEGORIES.includes(tierCategory)) {
+    return res.status(400).json({ error: 'Invalid tier category' });
+  }
   try {
     const { rows } = await pool.query(
-      `INSERT INTO set_items (set_id, type, r2_key, position, media_type)
-       VALUES ($1, $2, $3, $4, $2) RETURNING *`,
-      [setId, type, r2Key, position ?? 0]
+      `INSERT INTO set_items (set_id, type, r2_key, position, media_type, tier_category)
+       VALUES ($1, $2, $3, $4, $2, $5) RETURNING *`,
+      [setId, type, r2Key, position ?? 0, tierCategory]
     );
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
@@ -321,7 +333,7 @@ router.post('/content/item', async (req, res) => {
 });
 
 router.patch('/content/:id', async (req, res) => {
-  const { title, description, price_coins, min_tier, use_unlock_credit, visible, type, category, cover_key } = req.body;
+  const { title, description, price_coins, visible, type, category, cover_key } = req.body;
   try {
     const { rows: currentRows } = await pool.query(
       `SELECT title, visible FROM sets WHERE id = $1`, [req.params.id]
@@ -331,17 +343,15 @@ router.patch('/content/:id', async (req, res) => {
 
     const { rows } = await pool.query(
       `UPDATE sets SET
-         title             = COALESCE($1, title),
-         description       = COALESCE($2, description),
-         price_coins       = COALESCE($3, price_coins),
-         min_tier          = COALESCE($4, min_tier),
-         use_unlock_credit = COALESCE($5, use_unlock_credit),
-         visible           = COALESCE($6, visible),
-         type              = COALESCE($7, type),
-         category          = COALESCE($8, category),
-         cover_key         = COALESCE($9, cover_key)
-       WHERE id = $10 RETURNING *`,
-      [title, description, price_coins, min_tier, use_unlock_credit, visible, type, category, cover_key, req.params.id]
+         title       = COALESCE($1, title),
+         description = COALESCE($2, description),
+         price_coins = COALESCE($3, price_coins),
+         visible     = COALESCE($4, visible),
+         type        = COALESCE($5, type),
+         category    = COALESCE($6, category),
+         cover_key   = COALESCE($7, cover_key)
+       WHERE id = $8 RETURNING *`,
+      [title, description, price_coins, visible, type, category, cover_key, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Set not found' });
 

@@ -1,6 +1,6 @@
 // backend/lib/moderation.js
 // Shared enforcement for Mute (chat + calls only) and Block (all actions), with escalating,
-// auto-expiring restrictions. No cron job needed — expiry is just a live timestamp comparison.
+// auto-expiring restrictions, plus a permanent audit log of every moderation action taken.
 
 const pool = require('../db/pool');
 
@@ -25,8 +25,20 @@ function formatRemaining(blockedUntil) {
   return `${Math.ceil(hoursLeft / 24)} days`;
 }
 
-// Throws a fully-formed, ready-to-display message if the user is currently blocked.
-// Safe to call from any action route — does nothing if the user isn't blocked or the block has expired.
+// Every moderation action, from anywhere in the app, funnels through here — this is the one
+// place that writes to moderation_log, so callers never need to remember to log separately.
+async function logModerationAction(targetUserId, actionType, reason, metadata) {
+  try {
+    await pool.query(
+      `INSERT INTO moderation_log (target_user_id, action_type, reason, metadata)
+       VALUES ($1, $2, $3, $4)`,
+      [targetUserId, actionType, reason || null, metadata ? JSON.stringify(metadata) : null]
+    );
+  } catch (err) {
+    console.error('moderation/logModerationAction error:', err.message);
+  }
+}
+
 async function assertNotBlocked(userId) {
   const { rows } = await pool.query(
     `SELECT blocked_until, block_reason FROM users WHERE id = $1`,
@@ -34,7 +46,7 @@ async function assertNotBlocked(userId) {
   );
   const user = rows[0];
   if (!user?.blocked_until) return;
-  if (new Date(user.blocked_until) <= new Date()) return; // expired — no action needed, just proceed
+  if (new Date(user.blocked_until) <= new Date()) return;
 
   const remaining = formatRemaining(user.blocked_until);
   const err = new Error(
@@ -45,7 +57,6 @@ async function assertNotBlocked(userId) {
   throw err;
 }
 
-// Throws if the user is muted — only chat and calls should call this
 async function assertNotMuted(userId) {
   const { rows } = await pool.query(`SELECT is_muted FROM users WHERE id = $1`, [userId]);
   if (rows[0]?.is_muted) {
@@ -55,8 +66,6 @@ async function assertNotMuted(userId) {
   }
 }
 
-// Applies a new block, escalating based on how many times this account has been blocked before.
-// Returns the applied duration and the next-tier warning, for Studio's own confirmation UI.
 async function applyBlock(userId, reason) {
   const { rows } = await pool.query(`SELECT block_count FROM users WHERE id = $1`, [userId]);
   const priorCount = rows[0]?.block_count || 0;
@@ -70,6 +79,8 @@ async function applyBlock(userId, reason) {
     [blockedUntil, reason || null, userId]
   );
 
+  await logModerationAction(userId, 'blocked', reason, { duration: tier.label, offenseNumber: priorCount + 1 });
+
   return {
     appliedDuration: tier.label,
     nextTierWarning: nextTier.label,
@@ -79,10 +90,12 @@ async function applyBlock(userId, reason) {
 
 async function liftBlock(userId) {
   await pool.query(`UPDATE users SET blocked_until = NULL WHERE id = $1`, [userId]);
+  await logModerationAction(userId, 'unblocked', null, null);
 }
 
-async function setMuted(userId, muted) {
+async function setMuted(userId, muted, reason) {
   await pool.query(`UPDATE users SET is_muted = $1 WHERE id = $2`, [muted, userId]);
+  await logModerationAction(userId, muted ? 'muted' : 'unmuted', reason || null, null);
 }
 
-module.exports = { assertNotBlocked, assertNotMuted, applyBlock, liftBlock, setMuted, tierForCount };
+module.exports = { assertNotBlocked, assertNotMuted, applyBlock, liftBlock, setMuted, tierForCount, logModerationAction };

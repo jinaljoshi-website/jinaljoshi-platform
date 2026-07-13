@@ -17,7 +17,7 @@ export default function Gallery() {
   const [itemsLoad, setItemsLoad] = useState(false);
   const [itemsError, setItemsError] = useState('');
   const [lightbox,  setLightbox]  = useState(null);
-  const [activeTab, setActiveTab] = useState('unlockable'); // default to revenue-driving tab
+  const [activeTab, setActiveTab] = useState('unlockable');
 
   const load = () => api.get('/api/gallery/sets')
     .then(setData)
@@ -123,7 +123,6 @@ export default function Gallery() {
   }
 
   // ── Grid view ───────────────────────────────────────────────────────────────
-  const bestTierName = TIERS.supreme?.name || 'Supreme';
   const activeItems = activeTab === 'unlockable' ? (data?.unlockable || []) : (data?.freeForAll || []);
 
   return (
@@ -131,10 +130,7 @@ export default function Gallery() {
       <div style={{ marginBottom: 20 }}>
         <div style={eyebrow}>Exclusive content</div>
         <h1 style={title}>Gallery</h1>
-        <p style={text}>
-          Photo sets, videos and behind-the-scenes content. Every set can be unlocked by anyone.
-          {data?.creditsMax > 0 && ` You have ${data.creditsRemaining} of ${data.creditsMax} free unlocks left this month.`}
-        </p>
+        <p style={text}>Photo sets, videos and behind-the-scenes content. Every set can be unlocked by anyone.</p>
       </div>
 
       {error && (
@@ -144,25 +140,17 @@ export default function Gallery() {
         </div>
       )}
 
-      {/* Tabs */}
       <div style={tabRow}>
-        <button
-          onClick={() => setActiveTab('unlockable')}
-          style={activeTab === 'unlockable' ? tabUnlockableActive : tabUnlockableInactive}
-        >
+        <button onClick={() => setActiveTab('unlockable')} style={activeTab === 'unlockable' ? tabUnlockableActive : tabUnlockableInactive}>
           <span style={{ marginRight: 6 }}>✨</span>Unlockable Content
           {data?.unlockable?.length > 0 && <span style={tabCount}>{data.unlockable.length}</span>}
         </button>
-        <button
-          onClick={() => setActiveTab('free')}
-          style={activeTab === 'free' ? tabFreeActive : tabFreeInactive}
-        >
+        <button onClick={() => setActiveTab('free')} style={activeTab === 'free' ? tabFreeActive : tabFreeInactive}>
           Free for All
           {data?.freeForAll?.length > 0 && <span style={tabCountMuted}>{data.freeForAll.length}</span>}
         </button>
       </div>
 
-      {/* Content */}
       {activeItems.length === 0 ? (
         <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14 }}>
           {activeTab === 'unlockable' ? 'No unlockable content published yet.' : 'No free content published yet.'}
@@ -174,9 +162,7 @@ export default function Gallery() {
               key={item.id}
               item={item}
               isGuest={data.isGuest}
-              userTier={data.userTier}
               coinBalance={data.coinBalance}
-              bestTierName={bestTierName}
               onError={setError}
               onTopUp={setTopUp}
               onUnlocked={load}
@@ -194,42 +180,39 @@ export default function Gallery() {
   );
 }
 
-function GalleryCard({ item, isGuest, userTier, coinBalance, bestTierName, onError, onTopUp, onUnlocked, onOpen, onRenew }) {
-  const [unlocking, setUnlocking] = useState(false);
-  const [unlocked,  setUnlocked]  = useState(!!item.already_unlocked);
+function GalleryCard({ item, isGuest, coinBalance, onError, onTopUp, onUnlocked, onOpen, onRenew }) {
+  const [unlockingScope, setUnlockingScope] = useState(null); // 'tier' | 'upsell' | null
 
-  const displayPrice = item.displayPrice;
-  const isFree        = item.price_coins === 0;
-  const canAfford      = coinBalance >= displayPrice;
-  const isLapsed        = !unlocked && item.lapsedCreditUnlock;
-  const isBlurred      = !unlocked && item.coverBlurred;
+  const canOpen = item.freeCount > 0 || item.tierUnlocked || item.upsellUnlocked;
+  const canAffordTier   = coinBalance >= item.tierPrice;
+  const canAffordUpsell = coinBalance >= item.upsellPrice;
 
   const countLabel = [
     item.photoCount > 0 ? `${item.photoCount} photo${item.photoCount === 1 ? '' : 's'}` : null,
     item.videoCount > 0 ? `${item.videoCount} video${item.videoCount === 1 ? '' : 's'}` : null,
   ].filter(Boolean).join(' · ');
 
-  const handleUnlock = async () => {
+  const doUnlock = async (scope) => {
     onError('');
-    setUnlocking(true);
+    setUnlockingScope(scope);
     try {
-      await api.post('/api/gallery/unlock', { setId: item.id });
-      setUnlocked(true);
+      await api.post('/api/gallery/unlock', { setId: item.id, scope });
       onUnlocked();
-      onOpen({ ...item, already_unlocked: true });
+      onOpen(item);
     } catch (err) {
       if (err.message === 'INSUFFICIENT_TOKENS') {
-        onTopUp(displayPrice);
+        onTopUp(scope === 'tier' ? item.tierPrice : item.upsellPrice);
       } else if (err.message === 'Already unlocked') {
-        setUnlocked(true);
         onOpen(item);
       } else {
         onError(err.message);
       }
     } finally {
-      setUnlocking(false);
+      setUnlockingScope(null);
     }
   };
+
+  const isBlurred = !canOpen;
 
   return (
     <div style={card}>
@@ -238,104 +221,75 @@ function GalleryCard({ item, isGuest, userTier, coinBalance, bestTierName, onErr
           <img
             src={item.cover_url}
             alt={item.title}
-            style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 6, cursor: unlocked ? 'pointer' : 'default', filter: isBlurred ? 'blur(14px)' : 'none', transition: 'filter 0.3s' }}
-            onClick={() => unlocked && onOpen(item)}
+            style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 6, cursor: canOpen ? 'pointer' : 'default', filter: isBlurred ? 'blur(14px)' : 'none', transition: 'filter 0.3s' }}
+            onClick={() => canOpen && onOpen(item)}
           />
         ) : (
-          <div
-            style={{ width: '100%', height: 120, background: 'rgba(255,255,255,0.03)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: unlocked ? 'pointer' : 'default' }}
-            onClick={() => unlocked && onOpen(item)}
-          >
+          <div style={{ width: '100%', height: 120, background: 'rgba(255,255,255,0.03)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: canOpen ? 'pointer' : 'default' }} onClick={() => canOpen && onOpen(item)}>
             <span style={{ fontFamily: F.mono, fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{item.type?.replace('_', ' ')}</span>
           </div>
         )}
         {isBlurred && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'rgba(13,12,10,0.35)' }}>
-            <div style={{ fontSize: 22, marginBottom: 4 }}>{isLapsed ? '⏳' : '🔒'}</div>
-            {isLapsed ? (
-              <div style={{ fontFamily: F.sans, fontSize: 11, color: 'white', textAlign: 'center', padding: '0 12px' }}>Renew to view again</div>
-            ) : (
-              item.min_tier && item.min_tier !== 'none' && (
-                <div style={{ fontFamily: F.sans, fontSize: 11, color: 'white', textTransform: 'capitalize' }}>{item.min_tier}+ preview</div>
-              )
-            )}
+            <div style={{ fontSize: 22, marginBottom: 4 }}>{item.tierLapsed ? '⏳' : '🔒'}</div>
+            {item.tierLapsed && <div style={{ fontFamily: F.sans, fontSize: 11, color: 'white', textAlign: 'center', padding: '0 12px' }}>Renew to view again</div>}
           </div>
         )}
       </div>
 
       <div style={{ fontFamily: F.display, fontSize: 20, color: C.text, marginBottom: 4 }}>{item.title}</div>
 
-      {countLabel && (
-        <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 6 }}>{countLabel}</div>
+      {countLabel && <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 6 }}>{countLabel}</div>}
+      {item.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>{item.description}</div>}
+      {item.freeCount > 0 && <div style={{ fontFamily: F.sans, fontSize: 11, color: '#8FC88F', marginBottom: 8 }}>{item.freeCount} free preview item{item.freeCount === 1 ? '' : 's'}</div>}
+
+      {canOpen && (item.tierUnlocked || item.upsellUnlocked || (item.freeCount > 0 && item.tierPortionCount === 0 && !item.hasUpsell)) && (
+        <button onClick={() => onOpen(item)} style={{ ...unlockBtn, background: 'rgba(100,160,100,0.15)', border: '1px solid rgba(100,160,100,0.3)', color: '#8FC88F', marginBottom: item.hasUpsell && !item.upsellUnlocked ? 8 : 0 }}>
+          ✓ View {item.freeCount > 0 && !item.tierUnlocked ? 'free preview' : 'set'}
+        </button>
       )}
 
-      {item.description && (
-        <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>{item.description}</div>
-      )}
-
-      {item.min_tier && item.min_tier !== 'none' && !isLapsed && (
-        <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 8, textTransform: 'capitalize' }}>
-          {item.min_tier} category
+      {item.tierLapsed && (
+        <div style={{ ...nudge, color: '#D9A45C', borderColor: 'rgba(217,164,92,0.25)', marginBottom: 8 }}>
+          Your membership unlocked this — renew to view it again, or unlock it permanently below.
         </div>
       )}
 
-      {unlocked ? (
-        <button onClick={() => onOpen(item)} style={{ ...unlockBtn, background: 'rgba(100,160,100,0.15)', border: '1px solid rgba(100,160,100,0.3)', color: '#8FC88F', marginTop: 'auto' }}>
-          ✓ View set
-        </button>
-      ) : isLapsed ? (
+      {(item.tierLapsed || (!item.tierUnlocked && item.tierPortionCount > 0)) && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: item.hasUpsell ? 8 : 0 }}>
+          {item.tierLapsed && (
+            <button onClick={onRenew} style={{ ...unlockBtn, background: 'transparent', border: '1px solid rgba(217,164,92,0.4)', color: '#D9A45C' }}>Renew</button>
+          )}
+          <button
+            onClick={() => doUnlock('tier')}
+            disabled={unlockingScope === 'tier' || (!canAffordTier && item.tierPrice > 0)}
+            style={{ ...unlockBtn, opacity: (unlockingScope === 'tier' || (!canAffordTier && item.tierPrice > 0)) ? 0.5 : 1 }}
+          >
+            {unlockingScope === 'tier' ? '…' : item.tierPrice === 0 ? `Unlock with your credit` : `Unlock ${item.tierPortionCount} item${item.tierPortionCount === 1 ? '' : 's'} for ${item.tierPrice}`}
+          </button>
+        </div>
+      )}
+
+      {item.hasUpsell && !item.upsellUnlocked && (
         <>
-          <div style={{ ...nudge, color: '#D9A45C', borderColor: 'rgba(217,164,92,0.25)', marginBottom: 8 }}>
-            Your membership unlocked this — renew to view it again, or unlock it permanently below.
+          <div style={nudge}>
+            {isGuest
+              ? `Unlock everything in this set for ${item.upsellPrice} tokens.`
+              : `${item.upsellPortionCount} item${item.upsellPortionCount === 1 ? '' : 's'} beyond your current tier — unlock for ${item.upsellPrice} tokens.`}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={onRenew} style={{ ...unlockBtn, background: 'transparent', border: '1px solid rgba(217,164,92,0.4)', color: '#D9A45C' }}>
-              Renew
-            </button>
-            <button
-              onClick={handleUnlock}
-              disabled={unlocking || !canAfford}
-              style={{ ...unlockBtn, opacity: (unlocking || !canAfford) ? 0.5 : 1 }}
-            >
-              {unlocking ? '…' : `Unlock for ${displayPrice}`}
-            </button>
-          </div>
-        </>
-      ) : (
-        <>
-          <div style={{ marginBottom: 6 }}>
-            {isFree
-              ? <span style={{ fontFamily: F.sans, fontSize: 13, color: '#8FC88F' }}>Free</span>
-              : <WonderCoinAmount amount={displayPrice} size={18} />
-            }
-          </div>
-
-          {item.creditEligible && (
-            <div style={{ fontFamily: F.sans, fontSize: 11, color: '#8FC88F', marginBottom: 4 }}>Unlocks free with your monthly credit</div>
-          )}
-
-          {isGuest && !isFree && (
-            <div style={nudge}>Members get this for as low as {item.bestMemberPrice} tokens. Explore Membership.</div>
-          )}
-
-          {!isGuest && item.unlocksFreeAtHigherTier && (
-            <div style={nudge}>{bestTierName} members unlock this free with their monthly credit. Upgrade for more free unlocks.</div>
-          )}
-
-          {!canAfford && displayPrice > 0 && (
-            <div style={{ fontFamily: F.sans, fontSize: 11, color: '#D99A9A', marginBottom: 6 }}>
-              Need {displayPrice - coinBalance} more tokens ·{' '}
-              <button onClick={() => onTopUp(displayPrice)} style={{ background: 'none', border: 'none', color: C.accent, fontFamily: F.sans, fontSize: 11, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>Top up</button>
+          <button
+            onClick={() => doUnlock('upsell')}
+            disabled={unlockingScope === 'upsell' || !canAffordUpsell}
+            style={{ ...unlockBtn, opacity: (unlockingScope === 'upsell' || !canAffordUpsell) ? 0.5 : 1, marginTop: 6 }}
+          >
+            {unlockingScope === 'upsell' ? 'Unlocking…' : isGuest ? `Unlock all for ${item.upsellPrice}` : `Unlock more for ${item.upsellPrice}`}
+          </button>
+          {!canAffordUpsell && (
+            <div style={{ fontFamily: F.sans, fontSize: 11, color: '#D99A9A', marginTop: 6 }}>
+              Need {item.upsellPrice - coinBalance} more tokens ·{' '}
+              <button onClick={() => onTopUp(item.upsellPrice)} style={{ background: 'none', border: 'none', color: C.accent, fontFamily: F.sans, fontSize: 11, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>Top up</button>
             </div>
           )}
-
-          <button
-            onClick={handleUnlock}
-            disabled={unlocking || (!canAfford && displayPrice > 0 && !item.creditEligible)}
-            style={{ ...unlockBtn, opacity: (unlocking || (!canAfford && displayPrice > 0 && !item.creditEligible)) ? 0.5 : 1, marginTop: 8 }}
-          >
-            {unlocking ? 'Unlocking…' : isFree ? 'View' : 'Unlock'}
-          </button>
         </>
       )}
     </div>
@@ -353,31 +307,11 @@ const errorBox    = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgb
 const lapsedBox   = { background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.25)', borderRadius: 10, padding: '28px 20px', textAlign: 'center', marginBottom: 16 };
 const inlineTopUp = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '6px 12px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
 const backBtn     = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 8, cursor: 'pointer' };
-
 const tabRow = { display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' };
-const tabUnlockableActive = {
-  fontFamily: F.display, fontSize: 17, fontWeight: 500, letterSpacing: '0.01em',
-  background: 'linear-gradient(135deg, rgba(193,125,74,0.18), rgba(193,125,74,0.06))',
-  border: `1px solid ${C.accent}`, color: C.text,
-  padding: '14px 26px', borderRadius: 10, cursor: 'pointer',
-  boxShadow: '0 0 24px rgba(193,125,74,0.15)',
-  display: 'flex', alignItems: 'center',
-};
-const tabUnlockableInactive = {
-  ...tabUnlockableActive,
-  background: 'transparent', boxShadow: 'none',
-  border: `1px solid rgba(193,125,74,0.3)`, color: C.muted,
-};
-const tabFreeActive = {
-  fontFamily: F.sans, fontSize: 14, fontWeight: 600,
-  background: C.surface, border: `1px solid ${C.border}`, color: C.text,
-  padding: '14px 22px', borderRadius: 10, cursor: 'pointer',
-  display: 'flex', alignItems: 'center',
-};
-const tabFreeInactive = {
-  ...tabFreeActive,
-  background: 'transparent', color: C.muted,
-};
+const tabUnlockableActive = { fontFamily: F.display, fontSize: 17, fontWeight: 500, letterSpacing: '0.01em', background: 'linear-gradient(135deg, rgba(193,125,74,0.18), rgba(193,125,74,0.06))', border: `1px solid ${C.accent}`, color: C.text, padding: '14px 26px', borderRadius: 10, cursor: 'pointer', boxShadow: '0 0 24px rgba(193,125,74,0.15)', display: 'flex', alignItems: 'center' };
+const tabUnlockableInactive = { ...tabUnlockableActive, background: 'transparent', boxShadow: 'none', border: `1px solid rgba(193,125,74,0.3)`, color: C.muted };
+const tabFreeActive = { fontFamily: F.sans, fontSize: 14, fontWeight: 600, background: C.surface, border: `1px solid ${C.border}`, color: C.text, padding: '14px 22px', borderRadius: 10, cursor: 'pointer', display: 'flex', alignItems: 'center' };
+const tabFreeInactive = { ...tabFreeActive, background: 'transparent', color: C.muted };
 const tabCount = { fontFamily: F.mono, fontSize: 11, color: C.accent, background: 'rgba(193,125,74,0.15)', borderRadius: 999, padding: '2px 8px', marginLeft: 8 };
 const tabCountMuted = { fontFamily: F.mono, fontSize: 11, color: C.muted, background: 'rgba(255,255,255,0.06)', borderRadius: 999, padding: '2px 8px', marginLeft: 8 };
 const viewerGrid  = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 };
