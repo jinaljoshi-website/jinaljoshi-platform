@@ -6,7 +6,7 @@ const pool       = require('../db/pool');
 const authMid    = require('../middleware/auth');
 const artistOnly = require('../middleware/artistOnly');
 const { postSystemMessage } = require('./community');
-const { applyBlock, liftBlock, setMuted } = require('../lib/moderation');
+const { applyBlock, liftBlock, setMuted, logModerationAction } = require('../lib/moderation');
 
 router.use(authMid, artistOnly);
 
@@ -243,7 +243,6 @@ router.post('/dms/:fanId/send-locked-media', async (req, res) => {
   if (priceCoins === undefined || priceCoins === null || priceCoins < 0) {
     return res.status(400).json({ error: 'A valid token price is required (0 or more)' });
   }
-  // Basic shape check — each item needs a url and a type
   const isValidShape = mediaItems.every((item) => item.url && (item.type === 'image' || item.type === 'video'));
   if (!isValidShape) {
     return res.status(400).json({ error: 'Each media item needs a url and a valid type' });
@@ -562,7 +561,6 @@ router.patch('/calls/:id', async (req, res) => {
     }
     const current = currentRows[0];
 
-    // Refund only happens once, when transitioning INTO rejected from a non-rejected state
     const isNewRejection = status === 'rejected' && current.status !== 'rejected';
 
     if (isNewRejection) {
@@ -626,7 +624,6 @@ router.patch('/requests/:id', async (req, res) => {
     }
     const current = currentRows[0];
 
-    // Refund only happens once, when transitioning INTO rejected from a non-rejected state
     const isNewRejection = status === 'rejected' && current.status !== 'rejected';
 
     if (isNewRejection) {
@@ -697,7 +694,6 @@ router.patch('/community/:id', async (req, res) => {
 router.patch('/fan-settings/:userId', async (req, res) => {
   const { custom_chat_price, custom_messages_per_token, can_send_media } = req.body;
   try {
-    // custom_chat_price can legitimately be 0 (free messaging for this fan) — only treat undefined as "clear it"
     const priceValue = custom_chat_price === undefined || custom_chat_price === '' ? null : custom_chat_price;
     const perTokenValue = custom_messages_per_token === undefined || custom_messages_per_token === '' ? null : custom_messages_per_token;
 
@@ -746,6 +742,7 @@ router.post('/fan-settings/:userId/unblock', async (req, res) => {
     res.status(500).json({ error: 'Failed to lift block' });
   }
 });
+
 // ─────────────────────────────────────────────
 // CANNED REPLIES
 // ─────────────────────────────────────────────
@@ -784,5 +781,84 @@ router.delete('/canned-replies/:id', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────
+// REPORTS
+// ─────────────────────────────────────────────
+
+router.get('/reports', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT cr.id, cr.reason, cr.status, cr.created_at,
+              cp.id AS post_id, cp.content AS post_content, cp.removed AS post_removed,
+              author.id AS author_id, author.display_name AS author_name, author.email AS author_email,
+              reporter.display_name AS reporter_name, reporter.email AS reporter_email
+       FROM content_reports cr
+       JOIN community_posts cp ON cp.id = cr.post_id
+       JOIN users author ON author.id = cp.user_id
+       JOIN users reporter ON reporter.id = cr.reporter_id
+       WHERE cr.status = 'pending'
+       ORDER BY cr.created_at ASC`
+    );
+    res.json({ reports: rows });
+  } catch (err) {
+    console.error('studio/reports error:', err);
+    res.status(500).json({ error: 'Failed to load reports' });
+  }
+});
+
+router.post('/reports/:id/resolve', async (req, res) => {
+  const { action, reason } = req.body;
+  if (!['dismiss', 'remove', 'remove_and_mute', 'remove_and_block'].includes(action)) {
+    return res.status(400).json({ error: 'Invalid action' });
+  }
+  try {
+    const { rows: reportRows } = await pool.query(
+      `SELECT cr.*, cp.user_id AS author_id
+       FROM content_reports cr JOIN community_posts cp ON cp.id = cr.post_id
+       WHERE cr.id = $1`,
+      [req.params.id]
+    );
+    if (!reportRows.length) return res.status(404).json({ error: 'Report not found' });
+    const report = reportRows[0];
+
+    if (action !== 'dismiss') {
+      await pool.query(`UPDATE community_posts SET removed = TRUE WHERE id = $1`, [report.post_id]);
+      await logModerationAction(report.author_id, 'post_removed', reason || report.reason, { postId: report.post_id, reportId: report.id });
+    }
+    if (action === 'remove_and_mute') {
+      await setMuted(report.author_id, true, reason || 'Reported content');
+    }
+    if (action === 'remove_and_block') {
+      await applyBlock(report.author_id, reason || 'Reported content');
+    }
+
+    await pool.query(`UPDATE content_reports SET status = 'resolved' WHERE id = $1`, [req.params.id]);
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('studio/reports/resolve error:', err);
+    res.status(500).json({ error: 'Failed to resolve report' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// MODERATION LOG
+// ─────────────────────────────────────────────
+
+router.get('/moderation-log', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ml.*, u.display_name, u.email
+       FROM moderation_log ml
+       LEFT JOIN users u ON u.id = ml.target_user_id
+       ORDER BY ml.created_at DESC
+       LIMIT 100`
+    );
+    res.json({ log: rows });
+  } catch (err) {
+    console.error('studio/moderation-log error:', err);
+    res.status(500).json({ error: 'Failed to load moderation log' });
+  }
+});
 
 module.exports = router;

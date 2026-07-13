@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { T, S, Card, Eyebrow, colors } from '../ui';
 
+const sans = "'DM Sans', system-ui, sans-serif";
+
 export function Community() {
   const [posts,       setPosts]       = useState([]);
   const [communityBg, setCommunityBg] = useState('');
@@ -11,6 +13,12 @@ export function Community() {
   const [posting,      setPosting]     = useState(false);
   const [error,        setError]       = useState('');
 
+  const [reports,        setReports]        = useState([]);
+  const [reportReasons,  setReportReasons]  = useState({}); // reportId -> reason input
+  const [resolvingId,    setResolvingId]    = useState(null);
+
+  const loadReports = () => api.get('/api/studio/reports').then((d) => setReports(d.reports || [])).catch(() => {});
+
   useEffect(() => {
     api.get('/api/studio/community')
       .then((d) => {
@@ -18,6 +26,7 @@ export function Community() {
         setCommunityBg(d.communityBg || '');
       })
       .finally(() => setLoading(false));
+    loadReports();
   }, []);
 
   const updatePost = async (id, patch) => {
@@ -41,14 +50,65 @@ export function Community() {
     }
   };
 
-  if (loading) return <T.muted>Loading community…</T.muted>;
+  const resolveReport = async (reportId, action) => {
+    setResolvingId(reportId);
+    try {
+      await api.post(`/api/studio/reports/${reportId}/resolve`, {
+        action,
+        reason: reportReasons[reportId]?.trim() || undefined,
+      });
+      setReports((prev) => prev.filter((r) => r.id !== reportId));
+      // Refresh posts too, since a removal changes what's shown
+      api.get('/api/studio/community').then((d) => setPosts(d.posts || [])).catch(() => {});
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setResolvingId(null);
+    }
+  };
 
-  const sans = "'DM Sans', system-ui, sans-serif";
+  if (loading) return <T.muted>Loading community…</T.muted>;
 
   return (
     <div>
       <Eyebrow>Updates</Eyebrow>
       <T.title>The Happening Place</T.title>
+
+      {/* Reports queue */}
+      {reports.length > 0 && (
+        <Card style={{ marginBottom: 24, border: '1px solid rgba(156,90,90,0.3)' }}>
+          <T.sectionTitle>Pending reports ({reports.length})</T.sectionTitle>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {reports.map((r) => (
+              <div key={r.id} style={{ background: 'rgba(156,90,90,0.06)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: 14 }}>
+                <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 6 }}>
+                  Reported by {r.reporter_name || r.reporter_email} · post by {r.author_name || r.author_email} · {new Date(r.created_at).toLocaleString()}
+                </div>
+                {r.reason && (
+                  <div style={{ fontFamily: sans, fontSize: 12, color: '#D99A9A', marginBottom: 8, fontStyle: 'italic' }}>
+                    Reason given: "{r.reason}"
+                  </div>
+                )}
+                <div style={{ fontFamily: sans, fontSize: 14, color: colors.text, background: 'rgba(0,0,0,0.2)', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
+                  {r.post_content}
+                </div>
+                <input
+                  value={reportReasons[r.id] || ''}
+                  onChange={(e) => setReportReasons((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                  placeholder="Internal note for this decision (optional)"
+                  style={{ ...S.input, width: '100%', boxSizing: 'border-box', fontSize: 12, marginBottom: 10 }}
+                />
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button onClick={() => resolveReport(r.id, 'dismiss')} disabled={resolvingId === r.id} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Dismiss</button>
+                  <button onClick={() => resolveReport(r.id, 'remove')} disabled={resolvingId === r.id} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A' }}>Remove post</button>
+                  <button onClick={() => resolveReport(r.id, 'remove_and_mute')} disabled={resolvingId === r.id} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D9A45C' }}>Remove + Mute author</button>
+                  <button onClick={() => resolveReport(r.id, 'remove_and_block')} disabled={resolvingId === r.id} style={{ ...S.btn, fontSize: 12, padding: '6px 12px', background: '#9C5A5A', border: 'none' }}>Remove + Restrict author</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Post composer */}
       <Card style={{ marginBottom: 24 }}>
@@ -70,14 +130,12 @@ export function Community() {
         </button>
       </Card>
 
-      {/* Live preview label */}
       {communityBg && (
         <div style={{ fontFamily: sans, fontSize: 11, color: colors.accent, marginBottom: 10 }}>
           Showing the current live community background, exactly what members see
         </div>
       )}
 
-      {/* Posts feed with live background */}
       <div style={{ position: 'relative', borderRadius: communityBg ? 10 : 0, overflow: 'hidden' }}>
         {communityBg && (
           <>

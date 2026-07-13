@@ -30,16 +30,21 @@ export function Members() {
 
   // Moderation
   const [mutingId,    setMutingId]    = useState(null);
-  const [blockingId,  setBlockingId]  = useState(null); // fan id currently showing the block-reason input
+  const [blockingId,  setBlockingId]  = useState(null);
   const [blockReason, setBlockReason] = useState('');
 
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
 
+  const [modLog, setModLog] = useState([]);
+  const [showLog, setShowLog] = useState(false);
+
   const loadFans = () => api.get('/api/studio/fans').then((d) => setFans(d.fans || []));
+  const loadModLog = () => api.get('/api/studio/moderation-log').then((d) => setModLog(d.log || [])).catch(() => {});
 
   useEffect(() => {
     loadFans().finally(() => setLoading(false));
+    loadModLog();
   }, []);
 
   const handleGift = async (action = 'gift') => {
@@ -85,6 +90,7 @@ export function Members() {
     try {
       await api.post(`/api/studio/fan-settings/${fanId}/mute`, { muted: !currentlyMuted });
       loadFans();
+      loadModLog();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -102,6 +108,7 @@ export function Members() {
       setSuccess(data.message);
       setBlockingId(null); setBlockReason('');
       loadFans();
+      loadModLog();
     } catch (err) {
       setError(err.message);
     }
@@ -113,6 +120,7 @@ export function Members() {
       const data = await api.post(`/api/studio/fan-settings/${fanId}/unblock`, {});
       setSuccess(data.message);
       loadFans();
+      loadModLog();
     } catch (err) {
       setError(err.message);
     }
@@ -196,7 +204,7 @@ export function Members() {
 
       {/* Fan list */}
       <T.sectionTitle>All fans ({fans.length})</T.sectionTitle>
-      <div style={{ display: 'grid', gap: 8 }}>
+      <div style={{ display: 'grid', gap: 8, marginBottom: 32 }}>
         {fans.map((fan) => {
           const isActive  = fan.membership_expires_at && new Date(fan.membership_expires_at) > new Date();
           const isBlocked = isCurrentlyBlocked(fan.blocked_until);
@@ -258,6 +266,36 @@ export function Members() {
             </div>
           );
         })}
+      </div>
+
+      {/* Moderation history */}
+      <div>
+        <button onClick={() => setShowLog((v) => !v)} style={{ ...S.ghostBtn, fontSize: 13, padding: '8px 14px', marginBottom: showLog ? 12 : 0 }}>
+          {showLog ? 'Hide' : 'Show'} moderation history ({modLog.length})
+        </button>
+        {showLog && (
+          <div style={{ display: 'grid', gap: 6 }}>
+            {modLog.length === 0 && <T.muted>No moderation actions logged yet.</T.muted>}
+            {modLog.map((entry) => (
+              <div key={entry.id} style={{ ...S.card, padding: '10px 14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+                    <strong style={{ textTransform: 'capitalize' }}>{entry.action_type.replace(/_/g, ' ')}</strong>
+                    {entry.display_name || entry.email ? ` — ${entry.display_name || entry.email}` : ''}
+                  </div>
+                  <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: colors.muted }}>
+                    {new Date(entry.created_at).toLocaleString()}
+                  </div>
+                </div>
+                {entry.reason && (
+                  <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 4, fontStyle: 'italic' }}>
+                    "{entry.reason}"
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
