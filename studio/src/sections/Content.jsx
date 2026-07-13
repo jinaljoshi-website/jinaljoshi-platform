@@ -68,9 +68,7 @@ export function Content() {
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
 
-  const [form, setForm] = useState({
-    title: '', description: '', type: 'photo_set', price_coins: '0', visible: false,
-  });
+  const [form, setForm] = useState({ title: '', description: '', price_coins: '0', visible: false });
 
   const [filesByCategory, setFilesByCategory] = useState(emptyCategoryFiles());
   const [coverFile,      setCoverFile]      = useState(null);
@@ -134,7 +132,6 @@ export function Content() {
       const setData = await api.post('/api/studio/content', {
         title:       form.title,
         description: form.description || null,
-        type:        form.type,
         price_coins: parseInt(form.price_coins) || 0,
         visible:     form.visible,
       });
@@ -199,7 +196,7 @@ export function Content() {
       setUploadProgress('');
       setSuccess(`"${form.title}" created with ${position} item${position !== 1 ? 's' : ''}.`);
       setSets((prev) => [{ ...setData.set, cover_url: coverUrl }, ...prev]);
-      setForm({ title: '', description: '', type: 'photo_set', price_coins: '0', visible: false });
+      setForm({ title: '', description: '', price_coins: '0', visible: false });
       setFilesByCategory(emptyCategoryFiles());
       setCoverFile(null);
       setCoverPreview('');
@@ -213,7 +210,7 @@ export function Content() {
 
   const startEdit = (set) => {
     setEditing(set.id);
-    setEditForm({ title: set.title, description: set.description || '', type: set.type, price_coins: set.price_coins, visible: set.visible });
+    setEditForm({ title: set.title, description: set.description || '', price_coins: set.price_coins, visible: set.visible });
   };
 
   const handleUpdate = async (id) => {
@@ -263,13 +260,6 @@ export function Content() {
         <div style={S.formGrid}>
           <Field label="Title">
             <input style={S.input} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Behind the scenes — June shoot" />
-          </Field>
-          <Field label="Type">
-            <select style={S.input} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-              <option value="photo_set">Photo set</option>
-              <option value="video">Video</option>
-              <option value="bts">Behind the scenes</option>
-            </select>
           </Field>
           <TokenField label="Base price for the full set (tokens)" value={form.price_coins} onChange={(v) => setForm({ ...form, price_coins: v })} tokenRateInr={TOKEN_RATE} />
         </div>
@@ -398,13 +388,6 @@ export function Content() {
                     <Field label="Title">
                       <input style={S.input} value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
                     </Field>
-                    <Field label="Type">
-                      <select style={S.input} value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}>
-                        <option value="photo_set">Photo set</option>
-                        <option value="video">Video</option>
-                        <option value="bts">Behind the scenes</option>
-                      </select>
-                    </Field>
                     <TokenField label="Base price (tokens)" value={editForm.price_coins} onChange={(v) => setEditForm({ ...editForm, price_coins: v })} tokenRateInr={TOKEN_RATE} />
                   </div>
                   <div style={{ margin: '12px 0' }}>
@@ -439,7 +422,7 @@ export function Content() {
                       <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 4, fontStyle: 'italic' }}>{set.description}</div>
                     )}
                     <div style={S.rowSub}>
-                      {set.type?.replace('_', ' ')} · Base price {set.price_coins} tokens
+                      Base price {set.price_coins} tokens
                       {summary && ` · ${summary}`}
                     </div>
                   </div>

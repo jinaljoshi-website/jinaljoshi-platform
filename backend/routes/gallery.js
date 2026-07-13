@@ -3,12 +3,11 @@ const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
-const { getGuestMultiplier, getDiscountForTier } = require('../lib/config');
+const { getGuestMultiplier, getDiscountForTier, getGalleryUnlocksForTier } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
 
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
 const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
-const TIER_CATEGORIES_IN_ORDER = ['free', 'community', 'insider', 'premium', 'supreme']; // purchase_only excluded — never tier-reachable
 
 function toUrl(key) {
   if (!key) return null;
@@ -82,6 +81,18 @@ router.get('/sets', authMid, async (req, res) => {
       isGuest ? getGuestMultiplier() : 1,
       isGuest ? 0 : getDiscountForTier(userTier),
     ]);
+
+    const monthKey    = now.toISOString().slice(0, 7);
+    const maxUnlocks  = await getGalleryUnlocksForTier(userTier);
+    let creditsUsed   = 0;
+    if (maxUnlocks > 0) {
+      const { rows: allotRows } = await pool.query(
+        `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2`,
+        [req.user.userId, monthKey]
+      );
+      creditsUsed = allotRows[0]?.unlocks_used || 0;
+    }
+    const creditsRemaining = Math.max(0, maxUnlocks - creditsUsed);
 
     const { rows: sets } = await pool.query(
       `SELECT id, title, description, type, price_coins, cover_key, created_at
@@ -160,7 +171,10 @@ router.get('/sets', authMid, async (req, res) => {
       isGuest,
       discountPct,
       coinBalance: user.coin_balance,
+      creditsRemaining,
+      creditsMax: maxUnlocks,
     });
+
   } catch (err) {
     console.error('gallery/sets error:', err);
     res.status(500).json({ error: 'Failed to load gallery' });
@@ -238,7 +252,6 @@ router.post('/unlock', authMid, async (req, res) => {
 
     // Credit is only ever applicable to the 'tier' scope — upsell is always a genuine purchase
     if (scope === 'tier' && segments.tierPortionCount > 0) {
-      const { getGalleryUnlocksForTier } = require('../lib/config');
       const monthKey   = now.toISOString().slice(0, 7);
       const maxUnlocks = await getGalleryUnlocksForTier(userTier);
       const { rows: allotRows } = await client.query(
@@ -308,7 +321,9 @@ router.post('/unlock', authMid, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // GET /api/gallery/sets/:setId/items
-// Returns only items the fan currently has legitimate access to
+// Returns only items the fan currently has legitimate access to.
+// Always returns 200, even with zero visible items — every set is enterable,
+// and the frontend shows unlock frames for anything not yet accessible.
 // ─────────────────────────────────────────────
 
 router.get('/sets/:setId/items', authMid, async (req, res) => {
@@ -341,10 +356,6 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
       if (isTierReachable) return tierUnlocked;
       return upsellUnlocked; // higher-tier item, only visible if the upsell was bought
     });
-
-    if (visibleItems.length === 0 && items.length > 0) {
-      return res.status(403).json({ error: 'Access not granted' });
-    }
 
     const itemsWithUrls = visibleItems.map((item) => ({ ...item, media_url: toUrl(item.r2_key) }));
     res.json({ items: itemsWithUrls });
