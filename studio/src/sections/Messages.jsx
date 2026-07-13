@@ -82,6 +82,12 @@ export function Messages() {
   const [lockedCaption, setLockedCaption] = useState('');
   const [sendingLocked, setSendingLocked] = useState(false);
 
+  // Canned reply templates
+  const [templates,        setTemplates]        = useState([]);
+  const [newTemplateTitle, setNewTemplateTitle]  = useState('');
+  const [newTemplateBody,  setNewTemplateBody]   = useState('');
+  const [savingTemplate,   setSavingTemplate]    = useState(false);
+
   const lockedFileRef = useRef(null);
   const bgFileRef     = useRef(null);
   const bottomRef     = useRef(null);
@@ -96,6 +102,7 @@ export function Messages() {
       .finally(() => setLoading(false));
 
     api.get('/api/studio/fans').then((d) => setAllFans(d.fans || [])).catch(() => {});
+    api.get('/api/studio/canned-replies').then((d) => setTemplates(d.templates || [])).catch(() => {});
 
     initArtistStream();
 
@@ -392,6 +399,38 @@ export function Messages() {
     }
   };
 
+  const insertTemplate = (content) => {
+    setReply(content);
+    setPanel(null);
+  };
+
+  const saveNewTemplate = async () => {
+    if (!newTemplateTitle.trim() || !newTemplateBody.trim()) return;
+    setSavingTemplate(true);
+    try {
+      const data = await api.post('/api/studio/canned-replies', {
+        title: newTemplateTitle.trim(),
+        content: newTemplateBody.trim(),
+      });
+      setTemplates((prev) => [...prev, data.template]);
+      setNewTemplateTitle('');
+      setNewTemplateBody('');
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const deleteTemplate = async (id) => {
+    try {
+      await api.delete(`/api/studio/canned-replies/${id}`);
+      setTemplates((prev) => prev.filter((t) => t.id !== id));
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   const handleTyping = () => {
     if (channelRef.current) channelRef.current.keystroke().catch(() => {});
   };
@@ -648,6 +687,58 @@ export function Messages() {
                   </Card>
                 )}
 
+                {panel === 'templates' && (
+                  <Card style={{ marginBottom: 10 }}>
+                    <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, fontWeight: 600, marginBottom: 10 }}>Canned replies</div>
+
+                    {templates.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 16, maxHeight: 200, overflowY: 'auto' }}>
+                        {templates.map((t) => (
+                          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: `1px solid ${colors.border}`, padding: '6px 2px' }}>
+                            <button
+                              onClick={() => insertTemplate(t.content)}
+                              style={{ flex: 1, textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer', color: colors.text, padding: '4px 6px' }}
+                            >
+                              <div style={{ fontFamily: sans, fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{t.title}</div>
+                              <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.content}</div>
+                            </button>
+                            <button onClick={() => deleteTemplate(t.id)} style={{ ...S.ghostBtn, fontSize: 11, padding: '4px 8px', color: '#D99A9A', flexShrink: 0 }}>
+                              Delete
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {templates.length === 0 && <T.muted>No templates saved yet.</T.muted>}
+
+                    <div style={{ paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
+                      <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 8 }}>New template</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                        <input
+                          value={newTemplateTitle}
+                          onChange={(e) => setNewTemplateTitle(e.target.value)}
+                          placeholder="Short label, e.g. 'Thank you'"
+                          style={{ ...S.input, width: 200, fontSize: 12 }}
+                        />
+                      </div>
+                      <textarea
+                        value={newTemplateBody}
+                        onChange={(e) => setNewTemplateBody(e.target.value)}
+                        placeholder="The actual reply text…"
+                        rows={2}
+                        style={{ ...S.input, width: '100%', boxSizing: 'border-box', fontSize: 13, resize: 'vertical', marginBottom: 8 }}
+                      />
+                      <button
+                        onClick={saveNewTemplate}
+                        disabled={savingTemplate || !newTemplateTitle.trim() || !newTemplateBody.trim()}
+                        style={{ ...S.btn, fontSize: 12, padding: '7px 14px', opacity: (savingTemplate || !newTemplateTitle.trim() || !newTemplateBody.trim()) ? 0.5 : 1 }}
+                      >
+                        {savingTemplate ? 'Saving…' : 'Save template'}
+                      </button>
+                    </div>
+                  </Card>
+                )}
+
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, padding: '4px 0', minHeight: 0 }}>
                   {thread.length === 0 && (
                     <T.muted>No messages yet — send the first one below.</T.muted>
@@ -702,6 +793,9 @@ export function Messages() {
 
                 <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 10, flexShrink: 0 }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                    <button onClick={() => setPanel(panel === 'templates' ? null : 'templates')} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', color: panel === 'templates' ? colors.accent : colors.muted }} title="Canned replies">
+                      📋
+                    </button>
                     <button onClick={() => setPanel(panel === 'locked-media' ? null : 'locked-media')} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', color: panel === 'locked-media' ? colors.accent : colors.muted }} title="Send unlockable media bundle">
                       🔒
                     </button>

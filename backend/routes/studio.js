@@ -746,5 +746,43 @@ router.post('/fan-settings/:userId/unblock', async (req, res) => {
     res.status(500).json({ error: 'Failed to lift block' });
   }
 });
+// ─────────────────────────────────────────────
+// CANNED REPLIES
+// ─────────────────────────────────────────────
+
+router.get('/canned-replies', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT * FROM canned_replies ORDER BY created_at ASC`);
+    res.json({ templates: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load templates' });
+  }
+});
+
+router.post('/canned-replies', async (req, res) => {
+  const { title, content } = req.body;
+  if (!title?.trim() || !content?.trim()) {
+    return res.status(400).json({ error: 'Title and content are required' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO canned_replies (title, content) VALUES ($1, $2) RETURNING *`,
+      [title.trim(), content.trim()]
+    );
+    res.json({ ok: true, template: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create template' });
+  }
+});
+
+router.delete('/canned-replies/:id', async (req, res) => {
+  try {
+    await pool.query(`DELETE FROM canned_replies WHERE id = $1`, [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete template' });
+  }
+});
+
 
 module.exports = router;
