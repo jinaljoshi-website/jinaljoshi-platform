@@ -213,7 +213,9 @@ export default function Auth() {
           <button onClick={() => setMode('login')} style={backBtn}>← Back to sign in</button>
           <div style={{ fontFamily: F.display, fontSize: 30, color: C.text, marginBottom: 8 }}>Reset your password</div>
           {forgotSent ? (
-            <div style={noticeBox}>{forgotMsg}</div>
+            <div style={noticeBox}>
+              {forgotMsg} Check your Spam / Junk folder if it doesn't arrive shortly.
+            </div>
           ) : (
             <>
               <p style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, marginBottom: 22 }}>
@@ -239,7 +241,10 @@ export default function Auth() {
       <div style={wrap}>
         <div style={card}>
           <div style={{ fontFamily: F.display, fontSize: 30, color: C.text, marginBottom: 8 }}>Check your email</div>
-          <p style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.6, marginBottom: 22 }}>{signupMsg}</p>
+          <p style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.6, marginBottom: 10 }}>{signupMsg}</p>
+          <p style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 22 }}>
+            Look for an email from <strong style={{ color: C.text }}>Personal Space</strong>. Also check your <strong style={{ color: C.text }}>Spam / Junk</strong> folder — it can land there for new accounts.
+          </p>
           <button onClick={() => { setSignupDone(false); setMode('login'); }} style={linkBtn}>Back to sign in</button>
         </div>
       </div>
@@ -320,7 +325,11 @@ export default function Auth() {
             )}
           </div>
         )}
-        {resendMsg && <div style={noticeBox}>{resendMsg}</div>}
+        {resendMsg && (
+          <div style={noticeBox}>
+            {resendMsg} Check your Spam / Junk folder if it doesn't arrive shortly.
+          </div>
+        )}
 
         <button
           onClick={handleSubmit}
