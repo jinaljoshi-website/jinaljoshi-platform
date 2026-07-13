@@ -35,6 +35,10 @@ function derivePricingMode(fan) {
   return 'default';
 }
 
+function isCurrentlyBlocked(blockedUntil) {
+  return blockedUntil && new Date(blockedUntil) > new Date();
+}
+
 export function Messages() {
   const [convos,   setConvos]   = useState([]);
   const [selected, setSelected] = useState(null);
@@ -63,6 +67,14 @@ export function Messages() {
   const [perTokenBlock, setPerTokenBlock] = useState('');
   const [mediaEnabled,  setMediaEnabled]  = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+
+  // Moderation
+  const [fanMuted,        setFanMuted]        = useState(false);
+  const [fanBlockedUntil, setFanBlockedUntil]  = useState(null);
+  const [fanBlockCount,   setFanBlockCount]    = useState(0);
+  const [blockReasonInput, setBlockReasonInput] = useState('');
+  const [moderationSaving, setModerationSaving] = useState(false);
+  const [moderationMsg,    setModerationMsg]    = useState('');
 
   // Locked media bundle composer
   const [lockedFiles,   setLockedFiles]   = useState([]);
@@ -132,6 +144,8 @@ export function Messages() {
     setLockedFiles([]);
     setLockedPrice('');
     setLockedCaption('');
+    setModerationMsg('');
+    setBlockReasonInput('');
 
     const data = await api.get(`/api/studio/dms/${fanId}`);
     setThread(data.messages || []);
@@ -139,6 +153,9 @@ export function Messages() {
     setBgPreview(data.fan?.personal_chat_bg || '');
     setEffectiveBg(data.fan?.effective_chat_bg || '');
     setMediaEnabled(data.fan?.can_send_media || false);
+    setFanMuted(data.fan?.is_muted || false);
+    setFanBlockedUntil(data.fan?.blocked_until || null);
+    setFanBlockCount(data.fan?.block_count || 0);
 
     const mode = derivePricingMode(data.fan);
     setPricingMode(mode);
@@ -233,7 +250,6 @@ export function Messages() {
         await channelRef.current.sendMessage(streamMsg).catch(() => {});
       }
 
-      // Refresh the conversation list so a brand-new thread shows up in the sidebar
       api.get('/api/studio/dms').then((d) => setConvos(d.conversations || [])).catch(() => {});
     } catch (err) { alert(err.message); }
     finally { setSending(false); }
@@ -245,9 +261,6 @@ export function Messages() {
     e.target.value = '';
   };
 
-  // Sends a bundle of media as a paid, unlockable message. The real files upload to R2 as usual,
-  // but the Stream message we broadcast to the fan carries ONLY a placeholder (price + count),
-  // never the real URLs — those only ever come from our own backend, after payment.
   const handleSendLockedMedia = async () => {
     if (!selected || lockedFiles.length === 0 || lockedPrice === '') return;
     setSendingLocked(true);
@@ -333,6 +346,52 @@ export function Messages() {
     finally { setSettingsSaving(false); }
   };
 
+  const toggleFanMute = async () => {
+    if (!fan) return;
+    setModerationSaving(true);
+    setModerationMsg('');
+    try {
+      await api.post(`/api/studio/fan-settings/${fan.id}/mute`, { muted: !fanMuted });
+      setFanMuted((m) => !m);
+    } catch (err) {
+      setModerationMsg(`Error: ${err.message}`);
+    } finally {
+      setModerationSaving(false);
+    }
+  };
+
+  const applyFanBlock = async () => {
+    if (!fan) return;
+    setModerationSaving(true);
+    setModerationMsg('');
+    try {
+      const data = await api.post(`/api/studio/fan-settings/${fan.id}/block`, { reason: blockReasonInput.trim() || undefined });
+      setModerationMsg(data.message);
+      setFanBlockedUntil(data.blockedUntil);
+      setFanBlockCount((c) => c + 1);
+      setBlockReasonInput('');
+    } catch (err) {
+      setModerationMsg(`Error: ${err.message}`);
+    } finally {
+      setModerationSaving(false);
+    }
+  };
+
+  const liftFanBlock = async () => {
+    if (!fan) return;
+    setModerationSaving(true);
+    setModerationMsg('');
+    try {
+      const data = await api.post(`/api/studio/fan-settings/${fan.id}/unblock`, {});
+      setFanBlockedUntil(null);
+      setModerationMsg(data.message);
+    } catch (err) {
+      setModerationMsg(`Error: ${err.message}`);
+    } finally {
+      setModerationSaving(false);
+    }
+  };
+
   const handleTyping = () => {
     if (channelRef.current) channelRef.current.keystroke().catch(() => {});
   };
@@ -342,6 +401,7 @@ export function Messages() {
   const sans = "'DM Sans', system-ui, sans-serif";
   const showList   = !isMobile || !selected;
   const showThread = !isMobile || !!selected;
+  const fanCurrentlyBlocked = isCurrentlyBlocked(fanBlockedUntil);
 
   return (
     <div style={isMobile
@@ -421,6 +481,12 @@ export function Messages() {
                     <div style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20, color: colors.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fan?.display_name || fan?.email}</div>
                     {fan && <Badge tier={fan.tier} />}
                     {fan && !isMobile && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: colors.muted }}>{fan.coin_balance} tokens</span>}
+                    {fanMuted && (
+                      <span style={{ fontFamily: sans, fontSize: 10, color: '#D9A45C', background: 'rgba(217,164,92,0.1)', border: '1px solid rgba(217,164,92,0.3)', borderRadius: 999, padding: '3px 8px' }}>Muted</span>
+                    )}
+                    {fanCurrentlyBlocked && (
+                      <span style={{ fontFamily: sans, fontSize: 10, color: '#D99A9A', background: 'rgba(156,90,90,0.1)', border: '1px solid rgba(156,90,90,0.3)', borderRadius: 999, padding: '3px 8px' }}>Restricted</span>
+                    )}
                     {pricingMode !== 'default' && (
                       <span style={{ fontFamily: sans, fontSize: 10, color: colors.accent, background: 'rgba(193,125,74,0.1)', border: '1px solid rgba(193,125,74,0.25)', borderRadius: 999, padding: '3px 8px' }}>
                         Custom pricing active
@@ -450,6 +516,46 @@ export function Messages() {
 
                 {panel === 'settings' && (
                   <Card style={{ marginBottom: 10 }}>
+                    <div style={{ marginBottom: 18, paddingBottom: 18, borderBottom: `1px solid ${colors.border}` }}>
+                      <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, fontWeight: 600, marginBottom: 10 }}>Moderation</div>
+                      {moderationMsg && <div style={moderationMsg.startsWith('Error') ? S.error : S.success}>{moderationMsg}</div>}
+
+                      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 6 }}>
+                            Mute — blocks chat &amp; calls only, everything else stays available
+                          </div>
+                          <button onClick={toggleFanMute} disabled={moderationSaving} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 12px', opacity: moderationSaving ? 0.5 : 1 }}>
+                            {fanMuted ? 'Unmute' : 'Mute this fan'}
+                          </button>
+                        </div>
+
+                        <div>
+                          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 6 }}>
+                            Restrict — blocks all platform actions temporarily, escalates on repeat
+                            {fanBlockCount > 0 && ` · offense count: ${fanBlockCount}`}
+                          </div>
+                          {fanCurrentlyBlocked ? (
+                            <button onClick={liftFanBlock} disabled={moderationSaving} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 12px', color: '#8FC88F' }}>
+                              Lift restriction (until {new Date(fanBlockedUntil).toLocaleString()})
+                            </button>
+                          ) : (
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              <input
+                                value={blockReasonInput}
+                                onChange={(e) => setBlockReasonInput(e.target.value)}
+                                placeholder="Reason (internal, optional)"
+                                style={{ ...S.input, width: 200, fontSize: 12 }}
+                              />
+                              <button onClick={applyFanBlock} disabled={moderationSaving} style={{ ...S.btn, fontSize: 12, padding: '7px 12px', background: '#9C5A5A', border: 'none' }}>
+                                {moderationSaving ? '…' : `Restrict account${fanBlockCount > 0 ? ` (offense #${fanBlockCount + 1})` : ''}`}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
                     <div style={{ marginBottom: 18 }}>
                       <Field label="Chat background photo (leave empty to use the default)">
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

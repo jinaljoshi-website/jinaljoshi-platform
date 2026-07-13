@@ -4,6 +4,7 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
 const { getDmConfigForTier } = require('../lib/config');
+const { assertNotBlocked, assertNotMuted } = require('../lib/moderation');
 
 function currentMonthKey() { return new Date().toISOString().slice(0, 7); }
 function currentDayStr()   { return new Date().toISOString().slice(0, 10); }
@@ -241,6 +242,13 @@ router.post('/send', authMid, async (req, res) => {
 
   const artistId = process.env.ARTIST_USER_ID;
   if (!artistId) return res.status(500).json({ error: 'Artist account not configured' });
+
+  try {
+    await assertNotBlocked(req.user.userId);
+    await assertNotMuted(req.user.userId);
+  } catch (err) {
+    return res.status(403).json({ error: err.code || 'RESTRICTED', message: err.message });
+  }
 
   const client = await pool.connect();
   try {

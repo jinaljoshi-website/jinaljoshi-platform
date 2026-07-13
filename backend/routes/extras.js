@@ -5,6 +5,7 @@ const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
 const { postSystemMessage } = require('./community');
 const { getDiscountForTier, getGuestMultiplier } = require('../lib/config');
+const { assertNotBlocked } = require('../lib/moderation');
 
 async function pricingFor(basePrice, userTier) {
   if (userTier === 'guest') {
@@ -85,6 +86,12 @@ router.post('/request', authMid, async (req, res) => {
 
   if (!extraItemId)         return res.status(400).json({ error: 'extraItemId is required' });
   if (!details?.trim())     return res.status(400).json({ error: 'Please describe your request' });
+
+  try {
+    await assertNotBlocked(req.user.userId);
+  } catch (err) {
+    return res.status(403).json({ error: err.code || 'RESTRICTED', message: err.message });
+  }
 
   const client = await pool.connect();
   try {

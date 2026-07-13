@@ -4,6 +4,7 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
 const { getGalleryUnlocksForTier, getGuestMultiplier, getDiscountForTier } = require('../lib/config');
+const { assertNotBlocked } = require('../lib/moderation');
 
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
 const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
@@ -152,6 +153,12 @@ router.get('/sets', authMid, async (req, res) => {
 router.post('/unlock', authMid, async (req, res) => {
   const { setId } = req.body;
   if (!setId) return res.status(400).json({ error: 'setId is required' });
+
+  try {
+    await assertNotBlocked(req.user.userId);
+  } catch (err) {
+    return res.status(403).json({ error: err.code || 'RESTRICTED', message: err.message });
+  }
 
   const client = await pool.connect();
   try {

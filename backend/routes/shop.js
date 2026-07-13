@@ -5,6 +5,7 @@ const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
 const { postSystemMessage } = require('./community');
 const { getDiscountForTier, getGuestMultiplier } = require('../lib/config');
+const { assertNotBlocked } = require('../lib/moderation');
 
 // ─────────────────────────────────────────────
 // GET /api/shop/items
@@ -60,6 +61,12 @@ router.post('/buy', authMid, async (req, res) => {
   if (!merchId) return res.status(400).json({ error: 'merchId is required' });
   if (!shipping?.name || !shipping?.phone || !shipping?.line1 || !shipping?.city || !shipping?.state || !shipping?.pincode) {
     return res.status(400).json({ error: 'Complete shipping address is required' });
+  }
+
+  try {
+    await assertNotBlocked(req.user.userId);
+  } catch (err) {
+    return res.status(403).json({ error: err.code || 'RESTRICTED', message: err.message });
   }
 
   const client = await pool.connect();

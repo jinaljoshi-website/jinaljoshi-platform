@@ -4,6 +4,11 @@ import { api } from '../api';
 import { T, S, Card, Eyebrow, Badge, Field, TokenField, colors } from '../ui';
 
 const TOKEN_RATE = 66;
+const sans = "'DM Sans', system-ui, sans-serif";
+
+function isCurrentlyBlocked(blockedUntil) {
+  return blockedUntil && new Date(blockedUntil) > new Date();
+}
 
 export function Members() {
   const [fans,     setFans]     = useState([]);
@@ -22,6 +27,11 @@ export function Members() {
   const [grantAmt,    setGrantAmt]    = useState('');
   const [grantReason, setGrantReason] = useState('');
   const [granting,    setGranting]    = useState(false);
+
+  // Moderation
+  const [mutingId,    setMutingId]    = useState(null);
+  const [blockingId,  setBlockingId]  = useState(null); // fan id currently showing the block-reason input
+  const [blockReason, setBlockReason] = useState('');
 
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
@@ -66,6 +76,45 @@ export function Members() {
       setError(err.message);
     } finally {
       setGranting(false);
+    }
+  };
+
+  const toggleMute = async (fanId, currentlyMuted) => {
+    setError(''); setSuccess('');
+    setMutingId(fanId);
+    try {
+      await api.post(`/api/studio/fan-settings/${fanId}/mute`, { muted: !currentlyMuted });
+      loadFans();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setMutingId(null);
+    }
+  };
+
+  const startBlock = (fanId) => { setBlockingId(fanId); setBlockReason(''); };
+  const cancelBlock = () => { setBlockingId(null); setBlockReason(''); };
+
+  const confirmBlock = async (fanId) => {
+    setError('');
+    try {
+      const data = await api.post(`/api/studio/fan-settings/${fanId}/block`, { reason: blockReason.trim() || undefined });
+      setSuccess(data.message);
+      setBlockingId(null); setBlockReason('');
+      loadFans();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const unblock = async (fanId) => {
+    setError(''); setSuccess('');
+    try {
+      const data = await api.post(`/api/studio/fan-settings/${fanId}/unblock`, {});
+      setSuccess(data.message);
+      loadFans();
+    } catch (err) {
+      setError(err.message);
     }
   };
 
@@ -126,7 +175,7 @@ export function Members() {
       {/* Token grant */}
       <Card style={{ marginBottom: 28 }}>
         <T.sectionTitle>Send tokens to a fan</T.sectionTitle>
-        <p style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: colors.muted, marginBottom: 14, lineHeight: 1.6 }}>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14, lineHeight: 1.6 }}>
           Use this for refunds, compensation for failed calls or requests, or goodwill gestures. The fan sees a balance change and receives a notification.
         </p>
         <div style={S.formGrid}>
@@ -149,17 +198,63 @@ export function Members() {
       <T.sectionTitle>All fans ({fans.length})</T.sectionTitle>
       <div style={{ display: 'grid', gap: 8 }}>
         {fans.map((fan) => {
-          const isActive = fan.membership_expires_at && new Date(fan.membership_expires_at) > new Date();
+          const isActive  = fan.membership_expires_at && new Date(fan.membership_expires_at) > new Date();
+          const isBlocked = isCurrentlyBlocked(fan.blocked_until);
           return (
-            <div key={fan.id} style={{ ...S.listRow, ...S.card }}>
-              <div style={{ flex: 1 }}>
-                <div style={S.rowTitle}>{fan.display_name || fan.email}</div>
-                <div style={S.rowSub}>
-                  Joined {new Date(fan.created_at).toLocaleDateString()} · {fan.coin_balance} tokens
-                  {isActive && ` · expires ${new Date(fan.membership_expires_at).toLocaleDateString()}`}
+            <div key={fan.id} style={{ ...S.card, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 180 }}>
+                  <div style={S.rowTitle}>{fan.display_name || fan.email}</div>
+                  <div style={S.rowSub}>
+                    Joined {new Date(fan.created_at).toLocaleDateString()} · {fan.coin_balance} tokens
+                    {isActive && ` · expires ${new Date(fan.membership_expires_at).toLocaleDateString()}`}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {fan.is_muted && (
+                    <span style={{ fontFamily: sans, fontSize: 10, color: '#D9A45C', background: 'rgba(217,164,92,0.1)', border: '1px solid rgba(217,164,92,0.3)', borderRadius: 999, padding: '3px 8px' }}>Muted</span>
+                  )}
+                  {isBlocked && (
+                    <span style={{ fontFamily: sans, fontSize: 10, color: '#D99A9A', background: 'rgba(156,90,90,0.1)', border: '1px solid rgba(156,90,90,0.3)', borderRadius: 999, padding: '3px 8px' }}>
+                      Blocked until {new Date(fan.blocked_until).toLocaleString()}
+                    </span>
+                  )}
+                  <Badge tier={isActive ? fan.tier : 'guest'} />
                 </div>
               </div>
-              <Badge tier={isActive ? fan.tier : 'guest'} />
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderTop: `1px solid ${colors.border}`, paddingTop: 10 }}>
+                <button
+                  onClick={() => toggleMute(fan.id, fan.is_muted)}
+                  disabled={mutingId === fan.id}
+                  style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', opacity: mutingId === fan.id ? 0.5 : 1 }}
+                >
+                  {mutingId === fan.id ? '…' : fan.is_muted ? 'Unmute' : 'Mute chat & calls'}
+                </button>
+
+                {isBlocked ? (
+                  <button onClick={() => unblock(fan.id)} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', color: '#8FC88F' }}>
+                    Lift restriction
+                  </button>
+                ) : blockingId === fan.id ? (
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input
+                      value={blockReason}
+                      onChange={(e) => setBlockReason(e.target.value)}
+                      placeholder="Reason (internal, optional)"
+                      style={{ ...S.input, width: 200, padding: '5px 10px', fontSize: 11 }}
+                    />
+                    <button onClick={() => confirmBlock(fan.id)} style={{ ...S.btn, fontSize: 11, padding: '5px 10px', background: '#9C5A5A', border: 'none' }}>
+                      Confirm restriction
+                    </button>
+                    <button onClick={cancelBlock} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>Cancel</button>
+                  </div>
+                ) : (
+                  <button onClick={() => startBlock(fan.id)} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', color: '#D99A9A', border: '1px solid rgba(156,90,90,0.3)' }}>
+                    Restrict account {fan.block_count > 0 && `(offense #${fan.block_count + 1})`}
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}

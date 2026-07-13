@@ -6,6 +6,7 @@ const { notifyArtist } = require('../lib/notify');
 const { pushToUser } = require('./push');
 const { postSystemMessage } = require('./community');
 const { getConfigNumber, getDiscountForTier, getGuestMultiplier, getCallMinLeadHours, getCallRingWindowSeconds, getDndEnabled } = require('../lib/config');
+const { assertNotBlocked, assertNotMuted } = require('../lib/moderation');
 
 const MAX_NEGOTIATION_ROUND = 4;
 
@@ -109,6 +110,12 @@ router.post('/book', authMid, async (req, res) => {
     return res.status(400).json({ error: 'Invalid call type' });
   }
 
+  try {
+    await assertNotBlocked(req.user.userId);
+    await assertNotMuted(req.user.userId);
+  } catch (err) {
+    return res.status(403).json({ error: err.code || 'RESTRICTED', message: err.message });
+  }
   const isPriority = callType === 'priority-video';
 
   if (isPriority) {

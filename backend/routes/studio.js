@@ -6,6 +6,7 @@ const pool       = require('../db/pool');
 const authMid    = require('../middleware/auth');
 const artistOnly = require('../middleware/artistOnly');
 const { postSystemMessage } = require('./community');
+const { applyBlock, liftBlock, setMuted } = require('../lib/moderation');
 
 router.use(authMid, artistOnly);
 
@@ -155,7 +156,8 @@ router.post('/grant-tokens', async (req, res) => {
 router.get('/fans', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, email, display_name, tier, membership_expires_at, coin_balance, created_at
+      `SELECT id, email, display_name, tier, membership_expires_at, coin_balance, created_at,
+              is_muted, blocked_until, block_count
        FROM users WHERE is_artist = FALSE ORDER BY created_at DESC`
     );
     res.json({ fans: rows });
@@ -203,6 +205,7 @@ router.get('/dms/:fanId', async (req, res) => {
     const { rows: fanRows } = await pool.query(
       `SELECT u.id, u.email, u.display_name, u.tier, u.coin_balance, fs.personal_chat_bg,
               fs.custom_chat_price, fs.custom_messages_per_token, fs.can_send_media,
+              u.is_muted, u.blocked_until, u.block_count,
               COALESCE(fs.personal_chat_bg, pc.value, '') AS effective_chat_bg
        FROM users u
        LEFT JOIN fan_settings fs ON fs.user_id = u.id
@@ -708,6 +711,39 @@ router.patch('/fan-settings/:userId', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update fan settings' });
+  }
+});
+
+router.post('/fan-settings/:userId/mute', async (req, res) => {
+  const { muted } = req.body;
+  try {
+    await setMuted(req.params.userId, !!muted);
+    res.json({ ok: true, muted: !!muted });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update mute status' });
+  }
+});
+
+router.post('/fan-settings/:userId/block', async (req, res) => {
+  const { reason } = req.body;
+  try {
+    const result = await applyBlock(req.params.userId, reason?.trim() || null);
+    res.json({
+      ok: true,
+      message: `Blocked for ${result.appliedDuration}. If this happens again, the next restriction will be ${result.nextTierWarning}.`,
+      ...result,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to apply block' });
+  }
+});
+
+router.post('/fan-settings/:userId/unblock', async (req, res) => {
+  try {
+    await liftBlock(req.params.userId);
+    res.json({ ok: true, message: 'Restriction lifted.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to lift block' });
   }
 });
 
