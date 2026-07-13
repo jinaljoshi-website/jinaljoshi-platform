@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
@@ -6,6 +7,7 @@ import { TIERS } from '../data';
 import TopUpModal from '../components/TopUpModal';
 
 export default function Gallery() {
+  const navigate    = useNavigate();
   const [data,      setData]      = useState(null);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState('');
@@ -13,6 +15,7 @@ export default function Gallery() {
   const [openSet,   setOpenSet]   = useState(null);
   const [setItems,  setSetItems]  = useState([]);
   const [itemsLoad, setItemsLoad] = useState(false);
+  const [itemsError, setItemsError] = useState('');
   const [lightbox,  setLightbox]  = useState(null);
   const [activeTab, setActiveTab] = useState('unlockable'); // default to revenue-driving tab
 
@@ -26,12 +29,17 @@ export default function Gallery() {
   const openViewer = async (set) => {
     setOpenSet(set);
     setSetItems([]);
+    setItemsError('');
     setItemsLoad(true);
     try {
       const data = await api.get(`/api/gallery/sets/${set.id}/items`);
       setSetItems(data.items || []);
     } catch (err) {
-      setError('Failed to load set contents');
+      if (err.message === 'LAPSED_MEMBERSHIP') {
+        setItemsError("This was unlocked with your membership credit — renew your membership to view it again.");
+      } else {
+        setItemsError('Failed to load set contents');
+      }
     } finally {
       setItemsLoad(false);
     }
@@ -40,6 +48,7 @@ export default function Gallery() {
   const closeViewer = () => {
     setOpenSet(null);
     setSetItems([]);
+    setItemsError('');
     setLightbox(null);
   };
 
@@ -65,7 +74,17 @@ export default function Gallery() {
 
         {itemsLoad && <div style={{ color: C.muted, fontFamily: F.sans }}>Loading…</div>}
 
-        {!itemsLoad && setItems.length === 0 && (
+        {itemsError && (
+          <div style={lapsedBox}>
+            <div style={{ fontSize: 22, marginBottom: 8 }}>🔒</div>
+            <div style={{ fontFamily: F.sans, fontSize: 14, color: C.text, marginBottom: 14, lineHeight: 1.6 }}>{itemsError}</div>
+            <button onClick={() => navigate('/platform/membership')} style={{ ...unlockBtn, width: 'auto', padding: '10px 24px' }}>
+              Renew Membership
+            </button>
+          </div>
+        )}
+
+        {!itemsLoad && !itemsError && setItems.length === 0 && (
           <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14 }}>No items in this set yet.</div>
         )}
 
@@ -162,6 +181,7 @@ export default function Gallery() {
               onTopUp={setTopUp}
               onUnlocked={load}
               onOpen={openViewer}
+              onRenew={() => navigate('/platform/membership')}
             />
           ))}
         </div>
@@ -174,13 +194,14 @@ export default function Gallery() {
   );
 }
 
-function GalleryCard({ item, isGuest, userTier, coinBalance, bestTierName, onError, onTopUp, onUnlocked, onOpen }) {
+function GalleryCard({ item, isGuest, userTier, coinBalance, bestTierName, onError, onTopUp, onUnlocked, onOpen, onRenew }) {
   const [unlocking, setUnlocking] = useState(false);
   const [unlocked,  setUnlocked]  = useState(!!item.already_unlocked);
 
   const displayPrice = item.displayPrice;
   const isFree        = item.price_coins === 0;
   const canAfford      = coinBalance >= displayPrice;
+  const isLapsed        = !unlocked && item.lapsedCreditUnlock;
   const isBlurred      = !unlocked && item.coverBlurred;
 
   const countLabel = [
@@ -230,9 +251,13 @@ function GalleryCard({ item, isGuest, userTier, coinBalance, bestTierName, onErr
         )}
         {isBlurred && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'rgba(13,12,10,0.35)' }}>
-            <div style={{ fontSize: 22, marginBottom: 4 }}>🔒</div>
-            {item.min_tier && item.min_tier !== 'none' && (
-              <div style={{ fontFamily: F.sans, fontSize: 11, color: 'white', textTransform: 'capitalize' }}>{item.min_tier}+ preview</div>
+            <div style={{ fontSize: 22, marginBottom: 4 }}>{isLapsed ? '⏳' : '🔒'}</div>
+            {isLapsed ? (
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: 'white', textAlign: 'center', padding: '0 12px' }}>Renew to view again</div>
+            ) : (
+              item.min_tier && item.min_tier !== 'none' && (
+                <div style={{ fontFamily: F.sans, fontSize: 11, color: 'white', textTransform: 'capitalize' }}>{item.min_tier}+ preview</div>
+              )
             )}
           </div>
         )}
@@ -248,7 +273,7 @@ function GalleryCard({ item, isGuest, userTier, coinBalance, bestTierName, onErr
         <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>{item.description}</div>
       )}
 
-      {item.min_tier && item.min_tier !== 'none' && (
+      {item.min_tier && item.min_tier !== 'none' && !isLapsed && (
         <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 8, textTransform: 'capitalize' }}>
           {item.min_tier} category
         </div>
@@ -258,6 +283,24 @@ function GalleryCard({ item, isGuest, userTier, coinBalance, bestTierName, onErr
         <button onClick={() => onOpen(item)} style={{ ...unlockBtn, background: 'rgba(100,160,100,0.15)', border: '1px solid rgba(100,160,100,0.3)', color: '#8FC88F', marginTop: 'auto' }}>
           ✓ View set
         </button>
+      ) : isLapsed ? (
+        <>
+          <div style={{ ...nudge, color: '#D9A45C', borderColor: 'rgba(217,164,92,0.25)', marginBottom: 8 }}>
+            Your membership unlocked this — renew to view it again, or unlock it permanently below.
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onRenew} style={{ ...unlockBtn, background: 'transparent', border: '1px solid rgba(217,164,92,0.4)', color: '#D9A45C' }}>
+              Renew
+            </button>
+            <button
+              onClick={handleUnlock}
+              disabled={unlocking || !canAfford}
+              style={{ ...unlockBtn, opacity: (unlocking || !canAfford) ? 0.5 : 1 }}
+            >
+              {unlocking ? '…' : `Unlock for ${displayPrice}`}
+            </button>
+          </div>
+        </>
       ) : (
         <>
           <div style={{ marginBottom: 6 }}>
@@ -307,10 +350,10 @@ const card        = { background: C.surface, border: `1px solid ${C.border}`, bo
 const nudge       = { fontFamily: F.sans, fontSize: 12, color: C.muted, background: 'rgba(193,125,74,0.06)', border: `1px solid rgba(193,125,74,0.15)`, borderRadius: 6, padding: '6px 10px', marginBottom: 4 };
 const unlockBtn   = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 13, fontWeight: 700, padding: '10px 0', borderRadius: 8, cursor: 'pointer', width: '100%' };
 const errorBox    = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
+const lapsedBox   = { background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.25)', borderRadius: 10, padding: '28px 20px', textAlign: 'center', marginBottom: 16 };
 const inlineTopUp = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '6px 12px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
 const backBtn     = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 8, cursor: 'pointer' };
 
-// Tabs — Unlockable is styled distinctly more premium/desirable than Free
 const tabRow = { display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' };
 const tabUnlockableActive = {
   fontFamily: F.display, fontSize: 17, fontWeight: 500, letterSpacing: '0.01em',

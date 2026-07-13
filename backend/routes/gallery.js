@@ -25,6 +25,14 @@ function applyDiscount(price, discountPct) {
   return raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
 }
 
+// Grants made with a monthly unlock credit are tied to an active membership —
+// if it lapses, this content re-locks. Token purchases and free grants are always permanent.
+function isEffectivelyUnlocked(grantType, membershipCurrentlyActive) {
+  if (!grantType) return false;
+  if (grantType === 'unlock_credit') return membershipCurrentlyActive;
+  return true; // 'token_purchase' and 'membership_free' are always permanent
+}
+
 // ─────────────────────────────────────────────
 // GET /api/gallery/sets
 // ─────────────────────────────────────────────
@@ -60,7 +68,7 @@ router.get('/sets', authMid, async (req, res) => {
 
     const { rows: sets } = await pool.query(
       `SELECT s.id, s.title, s.description, s.type, s.price_coins, s.min_tier, s.use_unlock_credit, s.cover_key,
-              ag.id AS already_unlocked
+              ag.id AS grant_id, ag.grant_type
        FROM sets s
        LEFT JOIN access_grants ag ON ag.set_id = s.id AND ag.user_id = $1
        WHERE s.visible = TRUE
@@ -81,9 +89,15 @@ router.get('/sets', authMid, async (req, res) => {
     });
 
     const setsWithUrls = sets.map((s) => {
+      // A grant existing doesn't automatically mean it's currently viewable —
+      // credit-based unlocks require the membership that earned them to still be active
+      const hasEverUnlocked = !!s.grant_id;
+      const currentlyUnlocked = hasEverUnlocked && isEffectivelyUnlocked(s.grant_type, isActive);
+      const lapsedCreditUnlock = hasEverUnlocked && s.grant_type === 'unlock_credit' && !isActive;
+
       const qualifiesForCategory = meetsCategory(userTier, s.min_tier);
       const isPurchaseOnly = !s.use_unlock_credit && s.price_coins > 0;
-      const creditEligible = !s.already_unlocked
+      const creditEligible = !currentlyUnlocked
         && s.price_coins > 0
         && s.use_unlock_credit
         && qualifiesForCategory
@@ -99,13 +113,15 @@ router.get('/sets', authMid, async (req, res) => {
       return {
         ...s,
         cover_url: toUrl(s.cover_key),
+        already_unlocked: currentlyUnlocked ? s.grant_id : null,
+        lapsedCreditUnlock, // lets the frontend show "renew to restore access" instead of the generic locked state
         creditEligible,
         displayPrice,
         bestMemberPrice,
         photoCount: counts.photos,
         videoCount: counts.videos,
         isFreeForAll: s.price_coins === 0 && (s.min_tier === 'none' || s.min_tier === null),
-        coverBlurred: !s.already_unlocked && (!qualifiesForCategory || isPurchaseOnly),
+        coverBlurred: !currentlyUnlocked && (!qualifiesForCategory || isPurchaseOnly || lapsedCreditUnlock),
         unlocksFreeAtHigherTier: !isPurchaseOnly && !qualifiesForCategory && s.min_tier && s.min_tier !== 'none',
       };
     });
@@ -167,20 +183,30 @@ router.post('/unlock', authMid, async (req, res) => {
     const set = setRows[0];
 
     const { rows: existing } = await client.query(
-      `SELECT id FROM access_grants WHERE user_id = $1 AND set_id = $2`,
+      `SELECT id, grant_type FROM access_grants WHERE user_id = $1 AND set_id = $2`,
       [req.user.userId, setId]
     );
-    if (existing.length) {
+    // A previous credit-based unlock that's since lapsed is allowed to be re-unlocked
+    // (e.g. paid for outright, or covered by a fresh credit) rather than staying stuck
+    const hasPermanentGrant = existing.length && isEffectivelyUnlocked(existing[0].grant_type, true) && existing[0].grant_type !== 'unlock_credit';
+    if (hasPermanentGrant) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Already unlocked' });
+    }
+    const hasActiveCreditGrant = existing.length && existing[0].grant_type === 'unlock_credit' && isActive;
+    if (hasActiveCreditGrant) {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'Already unlocked' });
     }
 
     if (set.price_coins === 0 && (set.min_tier === 'none' || meetsCategory(userTier, set.min_tier))) {
-      await client.query(
-        `INSERT INTO access_grants (user_id, set_id, grant_type, coins_paid)
-         VALUES ($1, $2, 'membership_free', 0)`,
-        [req.user.userId, setId]
-      );
+      if (!existing.length) {
+        await client.query(
+          `INSERT INTO access_grants (user_id, set_id, grant_type, coins_paid)
+           VALUES ($1, $2, 'membership_free', 0)`,
+          [req.user.userId, setId]
+        );
+      }
       await client.query('COMMIT');
       postSystemMessage(`🔓 ${fanLabel} unlocked "${set.title}"!`);
       return res.json({ ok: true, coinsSpent: 0, grantType: 'membership_free' });
@@ -235,11 +261,22 @@ router.post('/unlock', authMid, async (req, res) => {
       );
     }
 
-    await client.query(
-      `INSERT INTO access_grants (user_id, set_id, grant_type, coins_paid)
-       VALUES ($1, $2, $3, $4)`,
-      [req.user.userId, setId, useUnlockCredit ? 'unlock_credit' : 'token_purchase', price]
-    );
+    const newGrantType = useUnlockCredit ? 'unlock_credit' : 'token_purchase';
+
+    if (existing.length) {
+      // Upgrading a lapsed credit-based grant to a permanent one (e.g. bought outright) —
+      // update in place rather than violate the one-grant-per-set-per-user constraint
+      await client.query(
+        `UPDATE access_grants SET grant_type = $1, coins_paid = $2, granted_at = NOW() WHERE id = $3`,
+        [newGrantType, price, existing[0].id]
+      );
+    } else {
+      await client.query(
+        `INSERT INTO access_grants (user_id, set_id, grant_type, coins_paid)
+         VALUES ($1, $2, $3, $4)`,
+        [req.user.userId, setId, newGrantType, price]
+      );
+    }
 
     await client.query('COMMIT');
 
@@ -268,13 +305,22 @@ router.post('/unlock', authMid, async (req, res) => {
 router.get('/sets/:setId/items', authMid, async (req, res) => {
   const { setId } = req.params;
   try {
+    const { rows: userRows } = await pool.query(
+      `SELECT membership_expires_at FROM users WHERE id = $1`,
+      [req.user.userId]
+    );
+    const isActive = userRows[0]?.membership_expires_at && new Date(userRows[0].membership_expires_at) > new Date();
+
     const { rows: accessRows } = await pool.query(
-      `SELECT id FROM access_grants WHERE user_id = $1 AND set_id = $2`,
+      `SELECT id, grant_type FROM access_grants WHERE user_id = $1 AND set_id = $2`,
       [req.user.userId, setId]
     );
 
-    if (!accessRows.length) {
-      return res.status(403).json({ error: 'Access not granted' });
+    if (!accessRows.length || !isEffectivelyUnlocked(accessRows[0].grant_type, isActive)) {
+      return res.status(403).json({
+        error: !accessRows.length ? 'Access not granted' : 'LAPSED_MEMBERSHIP',
+        message: accessRows.length ? 'This was unlocked with your membership credit — renew your membership to view it again.' : undefined,
+      });
     }
 
     const { rows: items } = await pool.query(
