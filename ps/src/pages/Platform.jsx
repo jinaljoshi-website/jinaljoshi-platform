@@ -4,6 +4,7 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-r
 import { C, F } from '../tokens';
 import { api, getUser, logout } from '../api';
 import { TIERS } from '../data';
+import { WonderCoinAmount } from '../components/WonderCoin';
 import InstallPrompt    from '../components/InstallPrompt';
 import NotificationBell from '../components/NotificationBell';
 
@@ -71,9 +72,7 @@ function StatusBadge({ isMobile }) {
         {tierName}
       </span>
       <span style={{ color: C.border }}>·</span>
-      <span style={{ fontFamily: F.mono, fontSize: isMobile ? 11 : 12, color: C.text }}>
-        🪙 {profile.coin_balance}
-      </span>
+      <WonderCoinAmount amount={profile.coin_balance} size={14} fontSize={isMobile ? 11 : 12} textColor={C.text} gap={4} />
       <button onClick={() => navigate('/platform/coins')} style={topUpMiniBtn}>+</button>
     </div>
   );
