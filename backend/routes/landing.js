@@ -31,6 +31,25 @@ const SIGN_EMOJI = {
 };
 
 // ── Fetch horoscope from free API ─────────────────────────────────────────────
+// A real horoscope is plain, readable English prose. If the API ever returns something
+// broken, garbled, or nonsensical, we skip it entirely rather than show it to users.
+function isPlausibleHoroscopeText(text) {
+  if (!text || typeof text !== 'string') return false;
+  const trimmed = text.trim();
+  if (trimmed.length < 30 || trimmed.length > 2000) return false;
+
+  // Real prose has real word-length words and spaces; garbage tends to be one
+  // enormous run with few/no spaces, or excessive repetition of a short fragment.
+  const spaceRatio = (trimmed.match(/ /g) || []).length / trimmed.length;
+  if (spaceRatio < 0.08) return false;
+
+  const words = trimmed.split(/\s+/);
+  const uniqueWords = new Set(words.map((w) => w.toLowerCase()));
+  if (words.length > 10 && uniqueWords.size / words.length < 0.3) return false; // too repetitive
+
+  return true;
+}
+
 function fetchHoroscope(sign) {
   return new Promise((resolve) => {
     const url = `https://freehoroscopeapi.com/api/v1/get-horoscope/daily?sign=${sign}`;
@@ -40,13 +59,13 @@ function fetchHoroscope(sign) {
       res.on('end', () => {
         try {
           const json = JSON.parse(data);
-          resolve(json?.data?.horoscope || null);
+          const text = json?.data?.horoscope;
+          resolve(isPlausibleHoroscopeText(text) ? text : null);
         } catch {
           resolve(null);
         }
       });
     }).on('error', () => resolve(null));
-    // Timeout after 3 seconds
     setTimeout(() => resolve(null), 3000);
   });
 }
