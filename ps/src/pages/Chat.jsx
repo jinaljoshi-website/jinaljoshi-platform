@@ -119,7 +119,28 @@ export default function Chat() {
         const state = await channel.watch();
         if (!mounted) return;
 
-        setMessages((state.messages || []).map((m) => msgToLocal(m, tokenData.userId)));
+        const streamMessages = (state.messages || []).map((m) => msgToLocal(m, tokenData.userId));
+
+        // Stream never carries real unlocked media (by design) — cross-check our own backend,
+        // which is the authoritative source for whether a locked message was actually paid for
+        let finalMessages = streamMessages;
+        try {
+          const dbData = await api.get('/api/chat/messages');
+          const dbById = new Map((dbData.messages || []).map((m) => [m.id, m]));
+
+          finalMessages = streamMessages.map((m) => {
+            if (!m.is_locked_media) return m;
+            const dbMsg = dbById.get(m.id);
+            if (dbMsg && dbMsg.locked_media_urls) {
+              return { ...m, unlocked_media: dbMsg.locked_media_urls };
+            }
+            return m;
+          });
+        } catch (err) {
+          console.error('Failed to reconcile locked media status:', err);
+        }
+
+        setMessages(finalMessages);
         channel.markRead().catch(() => {});
       } catch (err) {
         console.error('Chat init error:', err);
