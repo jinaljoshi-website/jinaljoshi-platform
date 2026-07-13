@@ -121,14 +121,42 @@ export default function Chat() {
 
         const streamMessages = (state.messages || []).map((m) => msgToLocal(m, tokenData.userId));
 
-        // Stream never carries real unlocked media (by design) — cross-check our own backend,
-        // which is the authoritative source for whether a locked message was actually paid for
+        // Stream isn't always fully reliable for message delivery/sync (most fragile on the very
+        // first message of a brand-new channel) — our own database is the true source of record
+        // for every message, so we merge it in as a safety net rather than trust Stream alone.
         let finalMessages = streamMessages;
         try {
           const dbData = await api.get('/api/chat/messages');
-          const dbById = new Map((dbData.messages || []).map((m) => [m.id, m]));
+          const dbMessages = dbData.messages || [];
+          const streamIds = new Set(streamMessages.map((m) => m.id));
 
-          finalMessages = streamMessages.map((m) => {
+          const dbToLocal = (m) => ({
+            id:                m.id,
+            stream_id:         m.id,
+            sender_id:         m.sender_id,
+            content:           m.content,
+            is_locked_media:   !!m.is_locked && m.unlock_price_coins != null,
+            locked_price:      m.unlock_price_coins,
+            locked_item_count: m.locked_item_count,
+            unlocked_media:    m.locked_media_urls || null,
+            media_url:         m.media_url,
+            media_type:        m.media_type,
+            tokens_charged:    m.tokens_charged || 0,
+            created_at:        m.created_at,
+            is_mine:           m.is_mine,
+            status:            'delivered',
+          });
+
+          // Anything in our database that Stream never delivered gets spliced in —
+          // this is what recovers a message like Jinal's very first "hello" in a new thread
+          const missingFromStream = dbMessages
+            .filter((m) => !streamIds.has(m.id))
+            .map(dbToLocal);
+
+          // Also patch locked-media unlock status for messages Stream DID deliver,
+          // same as before — Stream never carries real unlocked media by design
+          const dbById = new Map(dbMessages.map((m) => [m.id, m]));
+          const patchedStreamMessages = streamMessages.map((m) => {
             if (!m.is_locked_media) return m;
             const dbMsg = dbById.get(m.id);
             if (dbMsg && dbMsg.locked_media_urls) {
@@ -136,8 +164,11 @@ export default function Chat() {
             }
             return m;
           });
+
+          finalMessages = [...patchedStreamMessages, ...missingFromStream]
+            .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         } catch (err) {
-          console.error('Failed to reconcile locked media status:', err);
+          console.error('Failed to reconcile message history with backend:', err);
         }
 
         setMessages(finalMessages);
