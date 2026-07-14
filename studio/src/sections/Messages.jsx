@@ -3,8 +3,13 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { T, S, Card, Eyebrow, Badge, Field, TokenField, colors } from '../ui';
 import { StreamChat } from 'stream-chat';
+import CropTool from '../components/CropTool';
+
+const CHAT_BG_ASPECT = 9 / 16;
+import CropTool from '../components/CropTool';
 
 const TOKEN_RATE = 66;
+const CHAT_BG_ASPECT = 9 / 16;
 
 async function uploadToR2(file, context) {
   const { uploadUrl, publicUrl } = await api.post('/api/upload/presign', {
@@ -61,6 +66,8 @@ export function Messages() {
 
   const [bgUploading,   setBgUploading]   = useState(false);
   const [bgPreview,     setBgPreview]     = useState('');
+  const [bgCropFile,    setBgCropFile]    = useState(null); // raw file awaiting crop confirmation
+  const [bgCropFile,    setBgCropFile]    = useState(null);
   const [effectiveBg,   setEffectiveBg]   = useState('');
   const [pricingMode,   setPricingMode]   = useState('default');
   const [flatPrice,     setFlatPrice]     = useState('');
@@ -322,13 +329,18 @@ export function Messages() {
     finally { setGranting(false); }
   };
 
-  const handleBgUpload = async (e) => {
+  const handleBgFilePick = (e) => {
     const file = e.target.files?.[0];
-    if (!file || !fan) return;
     e.target.value = '';
+    if (!file || !fan) return;
+    setBgCropFile(file);
+  };
+
+  const handleBgCropComplete = async (croppedFile) => {
+    setBgCropFile(null);
     setBgUploading(true);
     try {
-      const publicUrl = await uploadToR2(file, 'background');
+      const publicUrl = await uploadToR2(croppedFile, 'background');
       await api.post('/api/upload/confirm-background', { publicUrl, type: 'fan', fanId: fan.id });
       setBgPreview(publicUrl);
       setEffectiveBg(publicUrl);
@@ -596,9 +608,9 @@ export function Messages() {
                     </div>
 
                     <div style={{ marginBottom: 18 }}>
-                      <Field label="Chat background photo (leave empty to use the default)">
+                      <Field label="Chat background photo — cropped to a tall, phone-friendly frame (leave empty to use the default)">
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <input ref={bgFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleBgUpload} />
+                          <input ref={bgFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleBgFilePick} />
                           <button onClick={() => bgFileRef.current?.click()} disabled={bgUploading} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 12px', opacity: bgUploading ? 0.5 : 1 }}>
                             {bgUploading ? 'Uploading…' : 'Browse photo'}
                           </button>
@@ -818,6 +830,16 @@ export function Messages() {
             )}
           </div>
         </div>
+      )}
+
+      {bgCropFile && (
+        <CropTool
+          file={bgCropFile}
+          aspectRatio={CHAT_BG_ASPECT}
+          outputWidth={720}
+          onCancel={() => setBgCropFile(null)}
+          onCropComplete={handleBgCropComplete}
+        />
       )}
     </div>
   );

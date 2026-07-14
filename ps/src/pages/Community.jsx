@@ -92,7 +92,11 @@ export default function Community() {
     <div style={{ position: 'relative', height: '100%', minHeight: 0, borderRadius: communityBg ? 10 : 0, overflow: 'hidden' }}>
       {communityBg && (
         <>
-          <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', zIndex: 0 }} />
+          <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0 }} />
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', zIndex: 0 }}>
+            <div style={{ height: '100%', aspectRatio: '3 / 4', backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+          </div>
+          {/* Auto-contrast overlay — always applied over any uploaded background so text stays legible */}
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
         </>
       )}

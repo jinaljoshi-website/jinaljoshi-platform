@@ -2,9 +2,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { T, S, Card, Eyebrow, Field, TokenField, colors } from '../ui';
+import CropTool from '../components/CropTool';
 
 const sans = "'DM Sans', system-ui, sans-serif";
 const TIERS = ['community', 'insider', 'premium', 'supreme'];
+const CHAT_BG_ASPECT      = 9 / 16;
+const COMMUNITY_BG_ASPECT = 3 / 4;
 
 const SUBSECTIONS = [
   { id: 'pricing',     label: 'Pricing & Discounts' },
@@ -283,17 +286,26 @@ function BackgroundsSection() {
   const [bgType,      setBgType]      = useState('community');
   const [bgPreview,    setBgPreview]   = useState('');
   const [bgUploading,  setBgUploading] = useState(false);
+  const [bgCropFile,   setBgCropFile]  = useState(null);
   const [error,        setError]       = useState('');
   const [success,      setSuccess]     = useState('');
   const bgFileRef = useRef(null);
 
-  const handleBgFileChange = async (e) => {
+  const aspectForType = bgType === 'community' ? COMMUNITY_BG_ASPECT : CHAT_BG_ASPECT;
+
+  const handleBgFilePick = (e) => {
     const file = e.target.files?.[0];
-    if (!file) return;
     e.target.value = '';
-    setBgUploading(true); setError(''); setSuccess('');
+    if (!file) return;
+    setError(''); setSuccess('');
+    setBgCropFile(file);
+  };
+
+  const handleBgCropComplete = async (croppedFile) => {
+    setBgCropFile(null);
+    setBgUploading(true);
     try {
-      const publicUrl = await uploadToR2(file, 'background', api);
+      const publicUrl = await uploadToR2(croppedFile, 'background', api);
       await api.post('/api/upload/confirm-background', { publicUrl, type: bgType });
       setBgPreview(publicUrl);
       setSuccess(`${bgType === 'community' ? 'Community' : 'Default personal chat'} background updated — live immediately.`);
@@ -308,7 +320,7 @@ function BackgroundsSection() {
     <Card>
       <T.sectionTitle>Chat backgrounds</T.sectionTitle>
       <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 16, lineHeight: 1.6 }}>
-        Upload a photo to use as the background. Community applies to everyone in the community feed. The personal default applies to any fan's DM chat who doesn't have an individual override set (those are managed per-fan from Messages).
+        Upload a photo to use as the background — you'll be able to crop it before it's saved. Community applies to everyone in the community feed. The personal default applies to any fan's DM chat who doesn't have an individual override set (those are managed per-fan from Messages).
       </p>
       {error   && <div style={S.error}>{error}</div>}
       {success && <div style={S.success}>{success}</div>}
@@ -319,7 +331,7 @@ function BackgroundsSection() {
             <option value="personal">Personal chat default (all fans, unless overridden)</option>
           </select>
         </Field>
-        <input ref={bgFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleBgFileChange} />
+        <input ref={bgFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleBgFilePick} />
         <button
           onClick={() => bgFileRef.current?.click()}
           disabled={bgUploading}
@@ -333,6 +345,16 @@ function BackgroundsSection() {
           <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 8 }}>Preview</div>
           <img src={bgPreview} alt="background preview" style={{ width: '100%', maxWidth: 320, height: 180, objectFit: 'cover', borderRadius: 8, border: `1px solid ${colors.border}` }} />
         </div>
+      )}
+
+      {bgCropFile && (
+        <CropTool
+          file={bgCropFile}
+          aspectRatio={aspectForType}
+          outputWidth={bgType === 'community' ? 900 : 720}
+          onCancel={() => setBgCropFile(null)}
+          onCropComplete={handleBgCropComplete}
+        />
       )}
     </Card>
   );
