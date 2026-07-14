@@ -132,7 +132,7 @@ export function Community() {
 
       {communityBg && (
         <div style={{ fontFamily: sans, fontSize: 11, color: colors.accent, marginBottom: 10 }}>
-          Showing the current live community background, exactly what members see
+          Showing the current live community background, exactly what members see — manage it from Settings → Backgrounds
         </div>
       )}
 

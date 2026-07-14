@@ -5,9 +5,6 @@ import { T, S, Card, Eyebrow, Badge, Field, TokenField, colors } from '../ui';
 import { StreamChat } from 'stream-chat';
 import CropTool from '../components/CropTool';
 
-const CHAT_BG_ASPECT = 9 / 16;
-import CropTool from '../components/CropTool';
-
 const TOKEN_RATE = 66;
 const CHAT_BG_ASPECT = 9 / 16;
 
@@ -67,7 +64,6 @@ export function Messages() {
   const [bgUploading,   setBgUploading]   = useState(false);
   const [bgPreview,     setBgPreview]     = useState('');
   const [bgCropFile,    setBgCropFile]    = useState(null); // raw file awaiting crop confirmation
-  const [bgCropFile,    setBgCropFile]    = useState(null);
   const [effectiveBg,   setEffectiveBg]   = useState('');
   const [pricingMode,   setPricingMode]   = useState('default');
   const [flatPrice,     setFlatPrice]     = useState('');
