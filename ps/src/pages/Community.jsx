@@ -158,13 +158,13 @@ export default function Community() {
 
       <div ref={feedRef} style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
         {communityBg && feedRect && (
-          <>
-            <div style={{ position: 'fixed', top: feedRect.top, left: feedRect.left, width: feedRect.width, height: feedRect.height, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0, pointerEvents: 'none' }} />
-            <div style={{ position: 'fixed', top: feedRect.top, left: feedRect.left, width: feedRect.width, height: feedRect.height, display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
-              <img src={communityBg} alt="" style={{ height: feedRect.height, width: 'auto', maxWidth: 'none', display: 'block' }} />
+          <div style={{ position: 'fixed', top: feedRect.top, left: feedRect.left, width: feedRect.width, height: feedRect.height, overflow: 'hidden', zIndex: 0, pointerEvents: 'none' }}>
+            <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)' }} />
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              <img src={communityBg} alt="" style={{ height: '100%', width: 'auto', maxWidth: 'none', display: 'block' }} />
             </div>
-            <div style={{ position: 'fixed', top: feedRect.top, left: feedRect.left, width: feedRect.width, height: feedRect.height, background: 'rgba(10,9,8,0.55)', zIndex: 1, pointerEvents: 'none' }} />
-          </>
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)' }} />
+          </div>
         )}
 
         <div style={{ position: 'relative', zIndex: 2, height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }} onScroll={handleScroll}>
