@@ -95,7 +95,19 @@ router.post('/recharge/initiate', authMid, async (req, res) => {
 router.post('/recharge/verify', authMid, async (req, res) => {
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature, tokens } = req.body;
 
+  // Temporary diagnostic logging — helps us see exactly what the frontend sent,
+  // in case the request arrives but is being silently rejected as "incomplete"
+  // rather than genuinely never reaching the server at all.
+  console.log('coins/recharge/verify received:', {
+    hasOrderId:   !!razorpay_order_id,
+    hasPaymentId: !!razorpay_payment_id,
+    hasSignature: !!razorpay_signature,
+    tokens,
+    userId: req.user?.userId,
+  });
+
   if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !tokens) {
+    console.log('coins/recharge/verify rejected as incomplete:', req.body);
     return res.status(400).json({ error: 'Payment verification data is incomplete' });
   }
 
