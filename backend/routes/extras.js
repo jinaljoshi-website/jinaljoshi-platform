@@ -54,14 +54,20 @@ router.get('/my-requests', authMid, async (req, res) => {
 // ─────────────────────────────────────────────
 
 router.post('/request', authMid, async (req, res) => {
-  const { extraItemId, topic, details, referenceUrl, referenceImageUrl, expectedDeliveryDate, offeredPrice, consentAgreed } = req.body;
+  const {
+    extraItemId, topic, details, referenceUrl, referenceImageUrl, expectedDeliveryDate, offeredPrice, consentAgreed,
+    deliveryChannel, deliveryEmail, deliveryWhatsapp,
+  } = req.body;
 
   // extraItemId is now optional — a fan can pick one of Jinal's listed options, or submit
   // a fully open-ended custom request that isn't tied to any pre-set catalog item at all.
   if (!topic?.trim())       return res.status(400).json({ error: 'Please give your request a short topic' });
   if (!details?.trim())     return res.status(400).json({ error: 'Please describe your request' });
   if (!offeredPrice || offeredPrice < 1) return res.status(400).json({ error: 'Please offer a token amount' });
-  if (!consentAgreed)       return res.status(400).json({ error: 'Please confirm all three agreements before sending' });
+  if (!consentAgreed)       return res.status(400).json({ error: 'Please confirm all agreements before sending' });
+  if (!['email', 'whatsapp'].includes(deliveryChannel)) return res.status(400).json({ error: 'Please choose how you\'d like this delivered' });
+  if (deliveryChannel === 'email' && !deliveryEmail?.trim())       return res.status(400).json({ error: 'Please provide an email address for delivery' });
+  if (deliveryChannel === 'whatsapp' && !deliveryWhatsapp?.trim()) return res.status(400).json({ error: 'Please provide a WhatsApp number for delivery' });
 
   try {
     await assertNotBlocked(req.user.userId);
@@ -110,10 +116,12 @@ router.post('/request', authMid, async (req, res) => {
     const { rows: requestRows } = await client.query(
       `INSERT INTO custom_requests
          (user_id, type, topic, details, reference_url, reference_image_key, expected_delivery_date,
-          offered_price_coins, coins_charged, extra_item_id, consent_agreed)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, TRUE) RETURNING *`,
+          offered_price_coins, coins_charged, extra_item_id, consent_agreed,
+          delivery_channel, delivery_email, delivery_whatsapp)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, TRUE, $10, $11, $12) RETURNING *`,
       [req.user.userId, itemTitle, topic.trim(), details.trim(), referenceUrl?.trim() || null,
-       referenceImageUrl || null, expectedDeliveryDate || null, price, extraItemId || null]
+       referenceImageUrl || null, expectedDeliveryDate || null, price, extraItemId || null,
+       deliveryChannel, deliveryEmail?.trim() || null, deliveryWhatsapp?.trim() || null]
     );
 
     await client.query(

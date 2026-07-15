@@ -27,9 +27,13 @@ export default function Extras() {
   const [refImagePreview, setRefImagePreview] = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
   const [offeredPrice, setOfferedPrice] = useState('');
+  const [deliveryChannel, setDeliveryChannel] = useState('email');
+  const [deliveryEmail, setDeliveryEmail] = useState('');
+  const [deliveryWhatsapp, setDeliveryWhatsapp] = useState('');
   const [consent1, setConsent1] = useState(false);
   const [consent2, setConsent2] = useState(false);
   const [consent3, setConsent3] = useState(false);
+  const [consent4, setConsent4] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [uploading,  setUploading]  = useState(false);
@@ -52,14 +56,16 @@ export default function Extras() {
 
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading…</div>;
 
-  const allConsented = consent1 && consent2 && consent3;
+  const allConsented = consent1 && consent2 && consent3 && consent4;
   const offeredNum = parseInt(offeredPrice) || 0;
   const canAfford = offeredNum > 0 ? (data?.coinBalance || 0) >= offeredNum : true;
+  const deliveryContactFilled = deliveryChannel === 'email' ? !!deliveryEmail.trim() : !!deliveryWhatsapp.trim();
 
   const resetForm = () => {
     setSelected(null); setTopic(''); setDetails(''); setReferenceUrl('');
     setRefImageFile(null); setRefImagePreview(''); setDeliveryDate(''); setOfferedPrice('');
-    setConsent1(false); setConsent2(false); setConsent3(false);
+    setDeliveryChannel('email'); setDeliveryEmail(''); setDeliveryWhatsapp('');
+    setConsent1(false); setConsent2(false); setConsent3(false); setConsent4(false);
   };
 
   const handleImagePick = (e) => {
@@ -90,6 +96,9 @@ export default function Extras() {
         expectedDeliveryDate: deliveryDate || null,
         offeredPrice: offeredNum,
         consentAgreed: true,
+        deliveryChannel,
+        deliveryEmail: deliveryChannel === 'email' ? deliveryEmail.trim() : null,
+        deliveryWhatsapp: deliveryChannel === 'whatsapp' ? deliveryWhatsapp.trim() : null,
       });
       setSuccess(res.message);
       resetForm();
@@ -191,9 +200,26 @@ export default function Extras() {
 
           <div style={fieldLabel}>Your offered price (tokens)</div>
           <input type="number" min={1} value={offeredPrice} onChange={(e) => setOfferedPrice(e.target.value)} style={urlInput} />
-          <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 6, marginBottom: 16 }}>
+          <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 6 }}>
             Jinal will review your offer — she may approve it, decline it, or counter with a different price.
           </div>
+
+          <div style={fieldLabel}>Where should this be delivered?</div>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 10 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: F.sans, fontSize: 13, color: C.muted, cursor: 'pointer' }}>
+              <input type="radio" checked={deliveryChannel === 'email'} onChange={() => setDeliveryChannel('email')} />
+              Email
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: F.sans, fontSize: 13, color: C.muted, cursor: 'pointer' }}>
+              <input type="radio" checked={deliveryChannel === 'whatsapp'} onChange={() => setDeliveryChannel('whatsapp')} />
+              WhatsApp
+            </label>
+          </div>
+          {deliveryChannel === 'email' ? (
+            <input type="email" value={deliveryEmail} onChange={(e) => setDeliveryEmail(e.target.value)} placeholder="you@example.com" style={{ ...urlInput, marginBottom: 16 }} />
+          ) : (
+            <input type="tel" value={deliveryWhatsapp} onChange={(e) => setDeliveryWhatsapp(e.target.value)} placeholder="e.g. +91 98765 43210" style={{ ...urlInput, marginBottom: 16 }} />
+          )}
 
           <div style={consentBox}>
             <label style={consentLabel}>
@@ -208,6 +234,10 @@ export default function Extras() {
               <input type="checkbox" checked={consent3} onChange={(e) => setConsent3(e.target.checked)} style={{ marginRight: 10, marginTop: 2, flexShrink: 0 }} />
               I understand that if my request is declined, I will get token credits reversed, but they cannot be exchanged for cash again.
             </label>
+            <label style={{ ...consentLabel, marginTop: 12 }}>
+              <input type="checkbox" checked={consent4} onChange={(e) => setConsent4(e.target.checked)} style={{ marginRight: 10, marginTop: 2, flexShrink: 0 }} />
+              I authorize Jinal Joshi and her authorized team to contact me using these channels for queries about the request &amp; delivery.
+            </label>
           </div>
 
           {offeredNum > 0 && !canAfford && (
@@ -220,8 +250,8 @@ export default function Extras() {
           <div style={{ display: 'flex', gap: 10 }}>
             <button
               onClick={handleSubmit}
-              disabled={submitting || uploading || !topic.trim() || !details.trim() || !offeredNum || !allConsented || !canAfford}
-              style={{ ...submitBtn, opacity: (submitting || uploading || !topic.trim() || !details.trim() || !offeredNum || !allConsented || !canAfford) ? 0.5 : 1 }}
+              disabled={submitting || uploading || !topic.trim() || !details.trim() || !offeredNum || !allConsented || !canAfford || !deliveryContactFilled}
+              style={{ ...submitBtn, opacity: (submitting || uploading || !topic.trim() || !details.trim() || !offeredNum || !allConsented || !canAfford || !deliveryContactFilled) ? 0.5 : 1 }}
             >
               {uploading ? 'Uploading image…' : submitting ? 'Sending…' : !canAfford ? 'Insufficient balance' : 'Send request'}
             </button>
@@ -242,6 +272,7 @@ export default function Extras() {
                     <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginTop: 2 }}>
                       {r.type} · {r.coins_charged} tokens · {new Date(r.created_at).toLocaleDateString()}
                       {r.expected_delivery_date && ` · needed by ${new Date(r.expected_delivery_date).toLocaleDateString()}`}
+                      {r.delivery_channel && ` · via ${r.delivery_channel === 'email' ? r.delivery_email : r.delivery_whatsapp}`}
                     </div>
                   </div>
                   <span style={{ fontFamily: F.sans, fontSize: 12, color: statusColor(r.status), textTransform: 'capitalize' }}>{r.status}</span>

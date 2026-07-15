@@ -153,6 +153,11 @@ function RequestRow({
             {r.type} · {r.coins_charged} tokens{r.offered_price_coins && r.offered_price_coins !== r.coins_charged ? ` (offered ${r.offered_price_coins})` : ''} · {new Date(r.created_at).toLocaleDateString()} · <Badge tier={r.tier} />
             {r.expected_delivery_date && <span> · needed by {new Date(r.expected_delivery_date).toLocaleDateString()}</span>}
           </div>
+          {r.delivery_channel && (
+            <div style={{ fontFamily: sans, fontSize: 13, color: colors.accent, marginBottom: 10 }}>
+              Deliver via {r.delivery_channel === 'email' ? 'Email' : 'WhatsApp'}: {r.delivery_channel === 'email' ? r.delivery_email : r.delivery_whatsapp}
+            </div>
+          )}
         </div>
         <div style={{ fontFamily: sans, fontSize: 12, color: statusColor(r.status), textTransform: 'capitalize', alignSelf: 'flex-start' }}>
           {r.status}
