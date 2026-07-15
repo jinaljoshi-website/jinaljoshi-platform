@@ -40,7 +40,10 @@ async function verifyPayment({ orderId, paymentId, signature }) {
     .update(body)
     .digest('hex');
 
-  if (expected !== signature) return { verified: false };
+  const expectedBuf = Buffer.from(expected);
+  const receivedBuf = Buffer.from(signature || '');
+  const matches = expectedBuf.length === receivedBuf.length && crypto.timingSafeEqual(expectedBuf, receivedBuf);
+  if (!matches) return { verified: false };
 
   const razorpay   = getClient();
   const paymentRaw = await razorpay.payments.fetch(paymentId);
@@ -65,11 +68,14 @@ function describePaymentMethod(paymentRaw) {
 }
 
 function verifyWebhookSignature(rawBody, signature) {
+  if (!signature || !process.env.RAZORPAY_WEBHOOK_SECRET) return false;
   const expected = crypto
     .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
     .update(rawBody)
     .digest('hex');
-  return expected === signature;
+  const expectedBuf = Buffer.from(expected);
+  const receivedBuf = Buffer.from(signature);
+  return expectedBuf.length === receivedBuf.length && crypto.timingSafeEqual(expectedBuf, receivedBuf);
 }
 
 module.exports = { invoicingOwner, createOrder, verifyPayment, describePaymentMethod, verifyWebhookSignature };
