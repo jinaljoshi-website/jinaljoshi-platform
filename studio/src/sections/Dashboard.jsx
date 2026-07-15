@@ -3,60 +3,313 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { T, S, Card, Eyebrow, Badge, colors } from '../ui';
 
+const sans = "'DM Sans', system-ui, sans-serif";
+
 export function Dashboard() {
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState('');
+  const [busyId,  setBusyId]  = useState(null);
 
-  useEffect(() => {
-    api.get('/api/studio/dashboard')
-      .then(setData)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
+  // Inline reply state (DMs)
+  const [replyDrafts, setReplyDrafts] = useState({});
+
+  // Inline call response state
+  const [callAction,  setCallAction]  = useState({}); // id -> 'reject' | 'counter' | null
+  const [callReason,   setCallReason]   = useState('');
+  const [callCounterTime, setCallCounterTime] = useState('');
+
+  // Inline request response state
+  const [reqAction, setReqAction] = useState({});
+  const [reqReason, setReqReason] = useState('');
+  const [reqCounterPrice, setReqCounterPrice] = useState('');
+  const [reqCounterNote,  setReqCounterNote]  = useState('');
+
+  const load = () => api.get('/api/studio/dashboard')
+    .then(setData)
+    .catch((err) => setError(err.message))
+    .finally(() => setLoading(false));
+
+  useEffect(() => { load(); }, []);
 
   if (loading) return <T.muted>Loading dashboard…</T.muted>;
 
-  const { notifications, pendingCalls, pendingRequests, recentMembers, unreadDMs } = data;
+  const { pendingCalls, pendingRequests, recentMembers, unreadDMs, lowStockMerch, pendingReports } = data;
+
+  // ── DMs ──────────────────────────────────────────────────────────────────
+  const sendQuickReply = async (dm) => {
+    const content = (replyDrafts[dm.fan_id || dm.sender_id] || '').trim();
+    if (!content) return;
+    const fanId = dm.sender_id;
+    setBusyId(dm.id);
+    setError('');
+    try {
+      await api.post(`/api/studio/dms/${fanId}/reply`, { content });
+      await api.get(`/api/studio/dms/${fanId}`); // marks their messages read as a side effect
+      setReplyDrafts((prev) => ({ ...prev, [fanId]: '' }));
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // ── Calls ────────────────────────────────────────────────────────────────
+  const respondToCall = async (id, action, extra) => {
+    setBusyId(id); setError('');
+    try {
+      await api.post(`/api/stream-calls/${id}/artist-respond`, { action, ...extra });
+      setCallAction((prev) => ({ ...prev, [id]: null }));
+      setCallReason(''); setCallCounterTime('');
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // ── Requests ─────────────────────────────────────────────────────────────
+  const updateRequest = async (id, status, reasonText) => {
+    setBusyId(id); setError('');
+    try {
+      await api.patch(`/api/studio/requests/${id}`, { status, reason: reasonText });
+      setReqAction((prev) => ({ ...prev, [id]: null }));
+      setReqReason('');
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const counterRequest = async (id) => {
+    const price = parseInt(reqCounterPrice);
+    if (!price) return;
+    setBusyId(id); setError('');
+    try {
+      await api.post(`/api/studio/requests/${id}/counter`, { counterPrice: price, note: reqCounterNote.trim() || undefined });
+      setReqAction((prev) => ({ ...prev, [id]: null }));
+      setReqCounterPrice(''); setReqCounterNote('');
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // ── Reports ──────────────────────────────────────────────────────────────
+  const resolveReport = async (id, action) => {
+    setBusyId(id); setError('');
+    try {
+      await api.post(`/api/studio/reports/${id}/resolve`, { action });
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // ── Merch ────────────────────────────────────────────────────────────────
+  const restock = async (item, amount) => {
+    setBusyId(item.id); setError('');
+    try {
+      await api.patch(`/api/studio/merch/${item.id}`, { remaining: item.remaining + amount });
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const totalActionable = (unreadDMs?.length || 0) + (pendingCalls?.length || 0) + (pendingRequests?.length || 0) + (pendingReports?.length || 0) + (lowStockMerch?.length || 0);
 
   return (
     <div>
       <Eyebrow>Overview</Eyebrow>
       <T.title>Dashboard</T.title>
 
+      {error && <div style={S.error}>{error}</div>}
+
       <div style={S.statsRow}>
         <StatCard label="Unread DMs"       value={unreadDMs?.length || 0}       />
         <StatCard label="Pending calls"    value={pendingCalls?.length || 0}    />
         <StatCard label="Pending requests" value={pendingRequests?.length || 0} />
-        <StatCard label="Notifications"    value={notifications?.length || 0}   />
+        <StatCard label="Reports"          value={pendingReports?.length || 0}  />
+        <StatCard label="Low stock"        value={lowStockMerch?.length || 0}   />
       </div>
 
+      {totalActionable === 0 && recentMembers?.length === 0 && (
+        <T.muted>All clear — no pending items.</T.muted>
+      )}
+
+      {/* ── Unread DMs — quick reply inline ── */}
       {unreadDMs?.length > 0 && (
         <Card style={{ marginBottom: 20 }}>
           <T.sectionTitle>Unread messages</T.sectionTitle>
-          {unreadDMs.map((dm) => (
-            <div key={dm.id} style={S.listRow}>
-              <div>
-                <div style={S.rowTitle}>{dm.display_name || dm.email}</div>
-                <div style={S.rowSub}>{dm.content.slice(0, 80)}…</div>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {unreadDMs.map((dm) => (
+              <div key={dm.id} style={rowCard}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+                  <div>
+                    <div style={S.rowTitle}>{dm.display_name || dm.email}</div>
+                    <div style={S.rowSub}>{dm.content?.slice(0, 100)}</div>
+                  </div>
+                  <Badge tier={dm.tier} />
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    value={replyDrafts[dm.sender_id] || ''}
+                    onChange={(e) => setReplyDrafts((prev) => ({ ...prev, [dm.sender_id]: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') sendQuickReply(dm); }}
+                    placeholder="Quick reply…"
+                    style={{ flex: 1, boxSizing: 'border-box', background: '#0D0C0A', border: `1px solid ${colors.border}`, color: colors.text, fontFamily: sans, fontSize: 13, padding: '8px 12px', borderRadius: 8, outline: 'none' }}
+                  />
+                  <button onClick={() => sendQuickReply(dm)} disabled={busyId === dm.id || !replyDrafts[dm.sender_id]?.trim()} style={{ ...S.btn, fontSize: 12, padding: '8px 14px', opacity: (busyId === dm.id || !replyDrafts[dm.sender_id]?.trim()) ? 0.5 : 1 }}>
+                    Send
+                  </button>
+                </div>
               </div>
-              <Badge tier={dm.tier} />
-            </div>
-          ))}
+            ))}
+          </div>
         </Card>
       )}
 
+      {/* ── Pending calls — accept/counter/reject inline ── */}
       {pendingCalls?.length > 0 && (
         <Card style={{ marginBottom: 20 }}>
           <T.sectionTitle>Pending call requests</T.sectionTitle>
-          {pendingCalls.map((c) => (
-            <div key={c.id} style={S.listRow}>
-              <div>
-                <div style={S.rowTitle}>{c.display_name || c.email}</div>
-                <div style={S.rowSub}>{c.call_type} · {c.coins_charged} tokens</div>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {pendingCalls.map((c) => (
+              <div key={c.id} style={rowCard}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+                  <div>
+                    <div style={S.rowTitle}>{c.display_name || c.email} — {c.call_type}</div>
+                    <div style={S.rowSub}>{c.coins_charged} tokens · proposed {new Date(c.proposed_time).toLocaleString()}</div>
+                  </div>
+                  <Badge tier={c.tier} />
+                </div>
+                {callAction[c.id] === 'reject' ? (
+                  <div>
+                    <textarea value={callReason} onChange={(e) => setCallReason(e.target.value)} placeholder="Reason (tokens refunded)" style={textareaStyle} rows={2} />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => respondToCall(c.id, 'reject', { reason: callReason })} disabled={!callReason.trim()} style={{ ...S.btn, background: '#9C5A5A', border: 'none', fontSize: 12, padding: '6px 12px', opacity: callReason.trim() ? 1 : 0.5 }}>Confirm decline</button>
+                      <button onClick={() => setCallAction((p) => ({ ...p, [c.id]: null }))} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Cancel</button>
+                    </div>
+                  </div>
+                ) : callAction[c.id] === 'counter' ? (
+                  <div>
+                    <input type="datetime-local" value={callCounterTime} onChange={(e) => setCallCounterTime(e.target.value)} style={inputStyle} />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <button onClick={() => respondToCall(c.id, 'counter', { proposedTime: new Date(callCounterTime).toISOString() })} disabled={!callCounterTime} style={{ ...S.btn, fontSize: 12, padding: '6px 12px', opacity: callCounterTime ? 1 : 0.5 }}>Send</button>
+                      <button onClick={() => setCallAction((p) => ({ ...p, [c.id]: null }))} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button onClick={() => respondToCall(c.id, 'accept')} disabled={busyId === c.id} style={{ ...S.btn, fontSize: 12, padding: '6px 12px' }}>Accept</button>
+                    <button onClick={() => setCallAction((p) => ({ ...p, [c.id]: 'counter' }))} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Suggest alternate time</button>
+                    <button onClick={() => setCallAction((p) => ({ ...p, [c.id]: 'reject' }))} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A', border: '1px solid rgba(156,90,90,0.3)' }}>Reject</button>
+                  </div>
+                )}
               </div>
-              <Badge tier={c.tier} />
-            </div>
-          ))}
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* ── Pending custom requests — accept/counter/reject inline ── */}
+      {pendingRequests?.length > 0 && (
+        <Card style={{ marginBottom: 20 }}>
+          <T.sectionTitle>Pending custom requests</T.sectionTitle>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {pendingRequests.map((r) => (
+              <div key={r.id} style={rowCard}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+                  <div>
+                    <div style={S.rowTitle}>{r.display_name || r.email} — {r.topic || r.type}</div>
+                    <div style={S.rowSub}>{r.coins_charged} tokens offered</div>
+                  </div>
+                  <Badge tier={r.tier} />
+                </div>
+                {reqAction[r.id] === 'reject' ? (
+                  <div>
+                    <textarea value={reqReason} onChange={(e) => setReqReason(e.target.value)} placeholder="Reason (tokens refunded as credit)" style={textareaStyle} rows={2} />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => updateRequest(r.id, 'rejected', reqReason)} disabled={!reqReason.trim()} style={{ ...S.btn, background: '#9C5A5A', border: 'none', fontSize: 12, padding: '6px 12px', opacity: reqReason.trim() ? 1 : 0.5 }}>Confirm decline</button>
+                      <button onClick={() => setReqAction((p) => ({ ...p, [r.id]: null }))} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Cancel</button>
+                    </div>
+                  </div>
+                ) : reqAction[r.id] === 'counter' ? (
+                  <div>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <input type="number" min={0} value={reqCounterPrice} onChange={(e) => setReqCounterPrice(e.target.value)} placeholder="Counter price" style={{ ...inputStyle, width: 140 }} />
+                      <input value={reqCounterNote} onChange={(e) => setReqCounterNote(e.target.value)} placeholder="Note (optional)" style={{ ...inputStyle, flex: 1, minWidth: 140 }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => counterRequest(r.id)} disabled={!reqCounterPrice} style={{ ...S.btn, background: '#D9A45C', border: 'none', color: '#1A1714', fontSize: 12, padding: '6px 12px', opacity: reqCounterPrice ? 1 : 0.5 }}>Send counter</button>
+                      <button onClick={() => setReqAction((p) => ({ ...p, [r.id]: null }))} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button onClick={() => updateRequest(r.id, 'confirmed')} disabled={busyId === r.id} style={{ ...S.btn, fontSize: 12, padding: '6px 12px' }}>Accept</button>
+                    <button onClick={() => { setReqAction((p) => ({ ...p, [r.id]: 'counter' })); setReqCounterPrice(String(r.coins_charged)); }} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D9A45C', border: '1px solid rgba(217,164,92,0.3)' }}>Counter</button>
+                    <button onClick={() => setReqAction((p) => ({ ...p, [r.id]: 'reject' }))} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A', border: '1px solid rgba(156,90,90,0.3)' }}>Reject</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* ── Pending community reports ── */}
+      {pendingReports?.length > 0 && (
+        <Card style={{ marginBottom: 20, border: '1px solid rgba(156,90,90,0.3)' }}>
+          <T.sectionTitle>Pending reports</T.sectionTitle>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {pendingReports.map((r) => (
+              <div key={r.id} style={rowCard}>
+                <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 6 }}>
+                  Reported by {r.reporter_name || r.reporter_email} · post by {r.author_name || r.author_email}
+                </div>
+                <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, background: '#0D0C0A', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>{r.post_content}</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button onClick={() => resolveReport(r.id, 'dismiss')} disabled={busyId === r.id} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Dismiss</button>
+                  <button onClick={() => resolveReport(r.id, 'remove')} disabled={busyId === r.id} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A' }}>Remove</button>
+                  <button onClick={() => resolveReport(r.id, 'remove_and_mute')} disabled={busyId === r.id} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D9A45C' }}>Remove + Mute</button>
+                  <button onClick={() => resolveReport(r.id, 'remove_and_block')} disabled={busyId === r.id} style={{ ...S.btn, background: '#9C5A5A', border: 'none', fontSize: 12, padding: '6px 12px' }}>Remove + Restrict</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* ── Low stock merch ── */}
+      {lowStockMerch?.length > 0 && (
+        <Card style={{ marginBottom: 20 }}>
+          <T.sectionTitle>Low stock merchandise</T.sectionTitle>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {lowStockMerch.map((item) => (
+              <div key={item.id} style={{ ...rowCard, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                <div>
+                  <div style={S.rowTitle}>{item.title}</div>
+                  <div style={{ ...S.rowSub, color: item.remaining === 0 ? '#D99A9A' : '#D9A45C' }}>{item.remaining} remaining</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => restock(item, 5)} disabled={busyId === item.id} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>+5</button>
+                  <button onClick={() => restock(item, 10)} disabled={busyId === item.id} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>+10</button>
+                </div>
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 
@@ -74,10 +327,6 @@ export function Dashboard() {
           ))}
         </Card>
       )}
-
-      {!unreadDMs?.length && !pendingCalls?.length && !recentMembers?.length && (
-        <T.muted>All clear — no pending items.</T.muted>
-      )}
     </div>
   );
 }
@@ -85,8 +334,12 @@ export function Dashboard() {
 function StatCard({ label, value }) {
   return (
     <div style={S.statCard}>
-      <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 11, color: colors.muted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</div>
+      <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</div>
       <div style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 36, color: colors.text }}>{value}</div>
     </div>
   );
 }
+
+const rowCard = { background: '#161410', border: `1px solid ${colors.border}`, borderRadius: 8, padding: 14 };
+const inputStyle = { width: '100%', boxSizing: 'border-box', background: '#0D0C0A', border: `1px solid ${colors.border}`, color: colors.text, fontFamily: sans, fontSize: 13, padding: '8px 12px', borderRadius: 8, outline: 'none' };
+const textareaStyle = { ...inputStyle, resize: 'vertical', marginBottom: 8 };

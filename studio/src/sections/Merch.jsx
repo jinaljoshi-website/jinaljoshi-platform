@@ -1,62 +1,112 @@
 // studio/src/sections/Merch.jsx
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { T, S, Card, Eyebrow, Field, TokenField, colors } from '../ui';
 
 const TOKEN_RATE = 66;
 
+async function uploadImage(file) {
+  const { uploadUrl, publicUrl } = await api.post('/api/upload/presign', {
+    filename: file.name, contentType: file.type, context: 'content',
+  });
+  await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
+  return publicUrl;
+}
+
 export function Merch() {
   const [items,   setItems]   = useState([]);
   const [loading, setLoading] = useState(true);
   const [form,    setForm]    = useState({ title: '', description: '', price_coins: '', total_stock: '', visible: false });
+  const [imgFile,    setImgFile]    = useState(null);
+  const [imgPreview, setImgPreview] = useState('');
+  const [imgUploading, setImgUploading] = useState(false);
   const [saving,  setSaving]  = useState(false);
-  const [editing, setEditing] = useState(null); // id of item being edited
+  const [editing, setEditing] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const [editImgFile,    setEditImgFile]    = useState(null);
+  const [editImgPreview, setEditImgPreview] = useState('');
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
+  const imgRef = useRef(null);
+  const editImgRef = useRef(null);
 
   useEffect(() => {
     api.get('/api/studio/merch').then((d) => setItems(d.items || [])).finally(() => setLoading(false));
   }, []);
 
+  const handleImgPick = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setImgFile(file);
+    setImgPreview(URL.createObjectURL(file));
+  };
+
   const handleCreate = async () => {
     setError(''); setSuccess(''); setSaving(true);
     try {
+      let imgKey = null;
+      if (imgFile) {
+        setImgUploading(true);
+        imgKey = await uploadImage(imgFile);
+        setImgUploading(false);
+      }
       const data = await api.post('/api/studio/merch', {
         title:       form.title,
         description: form.description,
         price_coins: parseInt(form.price_coins) || 0,
         total_stock: parseInt(form.total_stock) || 0,
         visible:     form.visible,
+        img_key:     imgKey,
       });
       setItems((prev) => [data.item, ...prev]);
       setForm({ title: '', description: '', price_coins: '', total_stock: '', visible: false });
+      setImgFile(null); setImgPreview('');
       setSuccess('Item created.');
     } catch (err) {
       setError(err.message);
     } finally {
-      setSaving(false);
+      setSaving(false); setImgUploading(false);
     }
   };
 
   const startEdit = (item) => {
     setEditing(item.id);
     setEditForm({ title: item.title, description: item.description, price_coins: item.price_coins, remaining: item.remaining, visible: item.visible });
+    setEditImgFile(null); setEditImgPreview(item.img_key || '');
+  };
+
+  const handleEditImgPick = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setEditImgFile(file);
+    setEditImgPreview(URL.createObjectURL(file));
   };
 
   const handleUpdate = async (id) => {
     setError('');
     try {
+      let imgKey = undefined;
+      if (editImgFile) {
+        setImgUploading(true);
+        imgKey = await uploadImage(editImgFile);
+        setImgUploading(false);
+      }
       const data = await api.patch(`/api/studio/merch/${id}`, {
         ...editForm,
         price_coins: parseInt(editForm.price_coins),
         remaining:   parseInt(editForm.remaining),
+        ...(imgKey ? { img_key: imgKey } : {}),
       });
       setItems((prev) => prev.map((i) => i.id === id ? data.item : i));
       setEditing(null);
+      setEditImgFile(null); setEditImgPreview('');
       setSuccess('Item updated.');
     } catch (err) {
       setError(err.message);
+    } finally {
+      setImgUploading(false);
     }
   };
 
@@ -176,6 +226,14 @@ function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, 
               <input style={S.input} type="number" min={0} value={editForm.remaining} onChange={(e) => setEditForm({ ...editForm, remaining: e.target.value })} />
             </Field>
           </div>
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: colors.muted, marginBottom: 6 }}>Product image</div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <input ref={editImgRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleEditImgPick} />
+              <button onClick={() => editImgRef.current?.click()} style={S.ghostBtn}>Change photo</button>
+              {editImgPreview && <img src={editImgPreview} alt="" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}` }} />}
+            </div>
+          </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
             <label style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: colors.muted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
               <input type="checkbox" checked={editForm.visible} onChange={(e) => setEditForm({ ...editForm, visible: e.target.checked })} />
@@ -187,6 +245,9 @@ function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, 
         </div>
       ) : (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+          {item.img_key && (
+            <img src={item.img_key} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}`, flexShrink: 0 }} />
+          )}
           <div style={{ flex: 1 }}>
             <div style={S.rowTitle}>{item.title}</div>
             {item.description && <div style={{ ...S.rowSub, marginBottom: 4 }}>{item.description}</div>}

@@ -16,14 +16,29 @@ router.use(authMid, artistOnly);
 
 router.get('/dashboard', async (req, res) => {
   try {
-    const [notifs, pendingCalls, pendingRequests, recentMembers, unreadDMs] = await Promise.all([
+    const [notifs, pendingCalls, pendingRequests, recentMembers, unreadDMs, lowStockMerch, pendingReports] = await Promise.all([
       pool.query(`SELECT * FROM artist_notifications WHERE read = FALSE ORDER BY created_at DESC LIMIT 20`),
-      pool.query(`SELECT cr.*, u.email, u.display_name FROM call_requests cr JOIN users u ON u.id = cr.user_id WHERE cr.status = 'pending' ORDER BY cr.created_at DESC`),
-      pool.query(`SELECT cr.*, u.email, u.display_name FROM custom_requests cr JOIN users u ON u.id = cr.user_id WHERE cr.status = 'pending' ORDER BY cr.created_at DESC`),
+      pool.query(`SELECT cr.*, u.email, u.display_name, u.tier FROM call_requests cr JOIN users u ON u.id = cr.user_id WHERE cr.status = 'pending' AND cr.proposed_by = 'fan' ORDER BY cr.created_at DESC`),
+      pool.query(`SELECT cr.*, u.email, u.display_name, u.tier FROM custom_requests cr JOIN users u ON u.id = cr.user_id WHERE cr.status = 'pending' ORDER BY cr.created_at DESC`),
       pool.query(`SELECT id, email, display_name, tier, membership_expires_at, coin_balance, created_at FROM users WHERE tier != 'guest' AND membership_expires_at > NOW() ORDER BY created_at DESC LIMIT 10`),
       pool.query(`SELECT dm.*, u.email, u.display_name, u.tier FROM direct_messages dm JOIN users u ON u.id = dm.sender_id WHERE dm.recipient_id = $1 AND dm.read = FALSE ORDER BY dm.created_at DESC LIMIT 20`, [req.user.userId]),
+      pool.query(`SELECT * FROM merchandise WHERE visible = TRUE AND remaining <= 5 ORDER BY remaining ASC LIMIT 10`),
+      pool.query(
+        `SELECT cr.id, cr.reason, cr.created_at, cp.id AS post_id, cp.content AS post_content,
+                author.display_name AS author_name, author.email AS author_email,
+                reporter.display_name AS reporter_name, reporter.email AS reporter_email
+         FROM content_reports cr
+         JOIN community_posts cp ON cp.id = cr.post_id
+         JOIN users author ON author.id = cp.user_id
+         JOIN users reporter ON reporter.id = cr.reporter_id
+         WHERE cr.status = 'pending' ORDER BY cr.created_at ASC LIMIT 10`
+      ),
     ]);
-    res.json({ notifications: notifs.rows, pendingCalls: pendingCalls.rows, pendingRequests: pendingRequests.rows, recentMembers: recentMembers.rows, unreadDMs: unreadDMs.rows });
+    res.json({
+      notifications: notifs.rows, pendingCalls: pendingCalls.rows, pendingRequests: pendingRequests.rows,
+      recentMembers: recentMembers.rows, unreadDMs: unreadDMs.rows,
+      lowStockMerch: lowStockMerch.rows, pendingReports: pendingReports.rows,
+    });
   } catch (err) {
     console.error('studio/dashboard error:', err);
     res.status(500).json({ error: 'Failed to load dashboard' });
@@ -402,15 +417,15 @@ router.get('/merch', async (req, res) => {
 });
 
 router.post('/merch', async (req, res) => {
-  const { title, description, price_coins, total_stock, visible = false } = req.body;
+  const { title, description, price_coins, total_stock, visible = false, img_key } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
   if (!price_coins)   return res.status(400).json({ error: 'Price is required' });
   if (!total_stock)   return res.status(400).json({ error: 'Stock quantity is required' });
   try {
     const { rows } = await pool.query(
-      `INSERT INTO merchandise (title, description, price_coins, total_stock, remaining, visible)
-       VALUES ($1, $2, $3, $4, $4, $5) RETURNING *`,
-      [title.trim(), description || '', price_coins, total_stock, visible]
+      `INSERT INTO merchandise (title, description, price_coins, total_stock, remaining, visible, img_key)
+       VALUES ($1, $2, $3, $4, $4, $5, $6) RETURNING *`,
+      [title.trim(), description || '', price_coins, total_stock, visible, img_key || null]
     );
     if (visible) {
       postSystemMessage(`🛍️ Jinal just dropped "${title.trim()}"! Check the Shop!`);
@@ -422,7 +437,7 @@ router.post('/merch', async (req, res) => {
 });
 
 router.patch('/merch/:id', async (req, res) => {
-  const { title, description, price_coins, remaining, visible } = req.body;
+  const { title, description, price_coins, remaining, visible, img_key } = req.body;
   try {
     const { rows: currentRows } = await pool.query(
       `SELECT title, visible FROM merchandise WHERE id = $1`, [req.params.id]
@@ -436,9 +451,10 @@ router.patch('/merch/:id', async (req, res) => {
          description = COALESCE($2, description),
          price_coins = COALESCE($3, price_coins),
          remaining   = COALESCE($4, remaining),
-         visible     = COALESCE($5, visible)
-       WHERE id = $6 RETURNING *`,
-      [title, description, price_coins, remaining, visible, req.params.id]
+         visible     = COALESCE($5, visible),
+         img_key     = COALESCE($6, img_key)
+       WHERE id = $7 RETURNING *`,
+      [title, description, price_coins, remaining, visible, img_key, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Item not found' });
 
