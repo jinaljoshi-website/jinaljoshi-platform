@@ -360,10 +360,8 @@ export default function Chat() {
         {chatBg && (
           <>
             <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0 }} />
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', zIndex: 0 }}>
-              <div style={{ height: '100%', aspectRatio: '9 / 16', overflow: 'hidden' }}>
-                <img src={chatBg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
-              </div>
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 0, overflow: 'hidden' }}>
+              <img src={chatBg} alt="" style={{ height: '100%', width: 'auto', maxWidth: 'none', display: 'block' }} />
             </div>
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
           </>
