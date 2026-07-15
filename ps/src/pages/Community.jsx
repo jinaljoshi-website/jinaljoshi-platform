@@ -5,18 +5,22 @@ import { api, getUser } from '../api';
 const ARTIST_ID = import.meta.env.VITE_ARTIST_USER_ID;
 
 export default function Community() {
-  const feedRef = useRef(null);
   const [feedHeight, setFeedHeight] = useState(0);
+  const feedObserverRef = useRef(null);
 
-  useEffect(() => {
-    if (!feedRef.current) return;
-    const el = feedRef.current;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) setFeedHeight(entry.contentRect.height);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  const feedRef = (node) => {
+    if (feedObserverRef.current) {
+      feedObserverRef.current.disconnect();
+      feedObserverRef.current = null;
+    }
+    if (node) {
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) setFeedHeight(entry.contentRect.height);
+      });
+      observer.observe(node);
+      feedObserverRef.current = observer;
+    }
+  };
   const [posts,   setPosts]   = useState([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);

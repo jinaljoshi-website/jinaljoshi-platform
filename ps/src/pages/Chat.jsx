@@ -7,18 +7,25 @@ import TopUpModal from '../components/TopUpModal';
 import { StreamChat } from 'stream-chat';
 
 export default function Chat() {
-  const feedRef = useRef(null);
   const [feedHeight, setFeedHeight] = useState(0);
+  const feedObserverRef = useRef(null);
 
-  useEffect(() => {
-    if (!feedRef.current) return;
-    const el = feedRef.current;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) setFeedHeight(entry.contentRect.height);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  // Callback ref — fires whenever the feed div actually mounts, immune to the
+  // component's early loading-state return meaning a plain useEffect([]) would
+  // fire once too early (while the ref is still null) and never run again.
+  const feedRef = (node) => {
+    if (feedObserverRef.current) {
+      feedObserverRef.current.disconnect();
+      feedObserverRef.current = null;
+    }
+    if (node) {
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) setFeedHeight(entry.contentRect.height);
+      });
+      observer.observe(node);
+      feedObserverRef.current = observer;
+    }
+  };
   const [messages,   setMessages]   = useState([]);
   const [status,     setStatus]     = useState(null);
   const [message,    setMessage]    = useState('');
