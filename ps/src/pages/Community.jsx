@@ -122,19 +122,20 @@ export default function Community() {
         {reportMsg && <div style={{ ...successBox, marginTop: 8 }}>{reportMsg}</div>}
       </div>
 
-      {/* Feed — the ONLY area the background photo ever renders in */}
-      <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+      {/* Feed — the ONLY area the background photo ever renders in.
+          Uses CSS Grid layer-stacking instead of position:absolute — see Chat.jsx for why. */}
+      <div style={{ flex: 1, minHeight: 0, display: 'grid', overflow: 'hidden' }}>
         {communityBg && (
           <>
-            <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0 }} />
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 0, overflow: 'hidden' }}>
+            <div style={{ gridArea: '1 / 1', backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0 }} />
+            <div style={{ gridArea: '1 / 1', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 0, overflow: 'hidden' }}>
               <img src={communityBg} alt="" style={{ height: '100%', width: 'auto', maxWidth: 'none', display: 'block' }} />
             </div>
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
+            <div style={{ gridArea: '1 / 1', background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
           </>
         )}
 
-        <div style={{ position: 'relative', zIndex: 2, height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }} onScroll={handleScroll}>
+        <div style={{ gridArea: '1 / 1', zIndex: 2, height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }} onScroll={handleScroll}>
           {visiblePosts.length === 0 && (
             <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>
               {posts.length === 0 ? 'Be the first to say something!' : 'No messages to show right now.'}
