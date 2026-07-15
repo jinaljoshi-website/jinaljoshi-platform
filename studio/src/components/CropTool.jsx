@@ -8,15 +8,16 @@ const sans = "'DM Sans', system-ui, sans-serif";
 export default function CropTool({ file, aspectRatio, outputWidth = 800, onCancel, onCropComplete }) {
   const [imgUrl, setImgUrl] = useState('');
   const [natural, setNatural] = useState({ w: 0, h: 0 });
-  const [scale, setScale] = useState(1);      // user zoom multiplier on top of the base "cover" scale
+  const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [processing, setProcessing] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, offX: 0, offY: 0 });
   const imgRef = useRef(null);
+  const frameRef = useRef(null);
 
   const containerW = 260;
-  const containerH = containerW / aspectRatio; // kept as a real fraction, never rounded, to avoid any axis mismatch
+  const containerH = containerW / aspectRatio;
 
   useEffect(() => {
     const url = URL.createObjectURL(file);
@@ -31,8 +32,6 @@ export default function CropTool({ file, aspectRatio, outputWidth = 800, onCance
     setOffset({ x: 0, y: 0 });
   };
 
-  // Base scale makes the image fully cover the crop frame (like background-size: cover),
-  // scale slider then zooms in further from there.
   const baseScale = natural.w && natural.h ? Math.max(containerW / natural.w, containerH / natural.h) : 1;
   const effectiveScale = baseScale * scale;
   const dispW = natural.w * effectiveScale;
@@ -63,29 +62,37 @@ export default function CropTool({ file, aspectRatio, outputWidth = 800, onCance
     setOffset((prev) => clampOffset(prev.x, prev.y, newDispW, newDispH));
   };
 
-  // Directly computes which rectangle of the ORIGINAL photo is currently visible inside the
-  // crop frame (in the source image's own pixel coordinates), then extracts exactly that
-  // rectangle and stretches it to fill the output canvas in a single draw call. This avoids
-  // the earlier approach's reliance on two independently-rounded scale factors staying in
-  // sync, which is what caused the bottom of the crop to sometimes go unpainted.
+  // Measures the ACTUAL rendered positions of the frame and image directly from the DOM,
+  // rather than recomputing them from state via transform math. This is the difference
+  // between calculating where something "should" be versus asking the browser where it
+  // actually painted it — the latter can never drift out of sync with reality.
   const confirmCrop = () => {
     setProcessing(true);
+
+    const frameRect = frameRef.current.getBoundingClientRect();
+    const imgRect = imgRef.current.getBoundingClientRect();
+
+    // Natural (source) pixels per on-screen pixel, measured from the real rendered image box
+    const scaleX = natural.w / imgRect.width;
+    const scaleY = natural.h / imgRect.height;
+
+    // Where the frame's visible window falls within the image's own natural pixel grid
+    let sx = (frameRect.left - imgRect.left) * scaleX;
+    let sy = (frameRect.top - imgRect.top) * scaleY;
+    let sWidth  = frameRect.width * scaleX;
+    let sHeight = frameRect.height * scaleY;
+
+    // Safety clamps in case of any sub-pixel rounding at the very edges
+    sx = Math.max(0, Math.min(sx, natural.w));
+    sy = Math.max(0, Math.min(sy, natural.h));
+    sWidth  = Math.min(sWidth, natural.w - sx);
+    sHeight = Math.min(sHeight, natural.h - sy);
+
     const outH = outputWidth / aspectRatio;
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(outputWidth);
     canvas.height = Math.round(outH);
     const ctx = canvas.getContext('2d');
-
-    // On-screen, the image's top-left corner sits at this position relative to the frame
-    const imgScreenX = containerW / 2 - dispW / 2 + offset.x;
-    const imgScreenY = containerH / 2 - dispH / 2 + offset.y;
-
-    // The frame's visible window, translated into the image's own coordinate space, then
-    // converted from on-screen pixels into the source photo's real pixel dimensions
-    const sx = Math.max(0, (-imgScreenX) / effectiveScale);
-    const sy = Math.max(0, (-imgScreenY) / effectiveScale);
-    const sWidth  = Math.min(natural.w - sx, containerW / effectiveScale);
-    const sHeight = Math.min(natural.h - sy, containerH / effectiveScale);
 
     ctx.drawImage(imgRef.current, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
 
@@ -103,6 +110,7 @@ export default function CropTool({ file, aspectRatio, outputWidth = 800, onCance
         <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 14 }}>Drag to reposition, use the slider to zoom</div>
 
         <div
+          ref={frameRef}
           style={{ ...frame, width: containerW, height: containerH }}
           onMouseDown={(e) => startDrag(e.clientX, e.clientY)}
           onMouseMove={(e) => moveDrag(e.clientX, e.clientY)}
