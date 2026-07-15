@@ -669,6 +669,65 @@ router.patch('/requests/:id', async (req, res) => {
   }
 });
 
+// Counter-offer a pending request with a different price. A LOWER counter is strictly
+// fan-favorable, so it auto-applies immediately (partial refund, request confirmed right away).
+// A HIGHER counter requires the fan's explicit confirmation before any additional charge.
+router.post('/requests/:id/counter', async (req, res) => {
+  const { counterPrice, note } = req.body;
+  const price = parseInt(counterPrice);
+  if (!price || price < 0) return res.status(400).json({ error: 'A valid counter price is required' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: currentRows } = await client.query(`SELECT * FROM custom_requests WHERE id = $1 FOR UPDATE`, [req.params.id]);
+    if (!currentRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    const current = currentRows[0];
+    if (current.status !== 'pending') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Only a pending request can be countered' });
+    }
+
+    if (price <= current.coins_charged) {
+      // Auto-applies — strictly fan-favorable, no confirmation needed
+      const refundAmount = current.coins_charged - price;
+      if (refundAmount > 0) {
+        await client.query(`UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`, [refundAmount, current.user_id]);
+        await client.query(
+          `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
+           VALUES ($1, 'request_refund', 'credit', $2, $3, $4)`,
+          [current.user_id, refundAmount, `Price adjusted for: ${current.topic}`, current.id]
+        );
+      }
+      await client.query(
+        `UPDATE custom_requests SET status = 'confirmed', coins_charged = $1, counter_price_coins = $1, counter_note = $2 WHERE id = $3`,
+        [price, note || null, current.id]
+      );
+      await client.query('COMMIT');
+      notifyArtist({ title: 'Price adjusted & confirmed', body: `Lowered price for "${current.topic}" — auto-confirmed.`, url: '/requests' });
+      return res.json({ ok: true, message: `Confirmed at ${price} tokens (${refundAmount} refunded to the fan).`, autoApplied: true });
+    }
+
+    // Higher counter — needs the fan's confirmation before any charge happens
+    await client.query(
+      `UPDATE custom_requests SET status = 'countered', counter_price_coins = $1, counter_note = $2 WHERE id = $3`,
+      [price, note || null, current.id]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true, message: `Counter-offer of ${price} tokens sent to the fan for confirmation.`, autoApplied: false });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('studio/requests/counter error:', err);
+    res.status(500).json({ error: 'Failed to send counter-offer' });
+  } finally {
+    client.release();
+  }
+});
+
 // ─────────────────────────────────────────────
 // COMMUNITY
 // ─────────────────────────────────────────────

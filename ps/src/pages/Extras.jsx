@@ -1,21 +1,41 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { C, F } from '../tokens';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
+
+async function uploadToR2(file) {
+  const { uploadUrl, publicUrl } = await api.post('/api/upload/presign', {
+    filename: file.name, contentType: file.type, context: 'chat_media',
+  });
+  await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
+  return publicUrl;
+}
 
 export default function Extras() {
   const [data,       setData]       = useState(null);
   const [myRequests, setMyRequests] = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [selected,   setSelected]   = useState(null);
-  const [details,    setDetails]    = useState('');
+
+  const [topic,        setTopic]        = useState('');
+  const [details,      setDetails]      = useState('');
   const [referenceUrl, setReferenceUrl] = useState('');
+  const [refImageFile, setRefImageFile] = useState(null);
+  const [refImagePreview, setRefImagePreview] = useState('');
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [offeredPrice, setOfferedPrice] = useState('');
+  const [consent1, setConsent1] = useState(false);
+  const [consent2, setConsent2] = useState(false);
+  const [consent3, setConsent3] = useState(false);
+
   const [submitting, setSubmitting] = useState(false);
-  const [submitted,  setSubmitted]  = useState([]);
+  const [uploading,  setUploading]  = useState(false);
   const [error,      setError]      = useState('');
   const [success,    setSuccess]    = useState('');
   const [topUp,      setTopUp]      = useState(null);
+  const [respondingId, setRespondingId] = useState(null);
+  const imageRef = useRef(null);
 
   const load = () => Promise.all([
     api.get('/api/extras/options'),
@@ -30,28 +50,73 @@ export default function Extras() {
 
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading…</div>;
 
-  const canAfford = selected ? (data?.coinBalance || 0) >= selected.coinsPerRequest : true;
+  const allConsented = consent1 && consent2 && consent3;
+  const offeredNum = parseInt(offeredPrice) || 0;
+  const canAfford = offeredNum > 0 ? (data?.coinBalance || 0) >= offeredNum : true;
+
+  const resetForm = () => {
+    setSelected(null); setTopic(''); setDetails(''); setReferenceUrl('');
+    setRefImageFile(null); setRefImagePreview(''); setDeliveryDate(''); setOfferedPrice('');
+    setConsent1(false); setConsent2(false); setConsent3(false);
+  };
+
+  const handleImagePick = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setRefImageFile(file);
+    setRefImagePreview(URL.createObjectURL(file));
+  };
 
   const handleSubmit = async () => {
-    if (!selected || !details.trim() || !canAfford) return;
+    if (!selected || !topic.trim() || !details.trim() || !offeredNum || !allConsented || !canAfford) return;
     setError(''); setSuccess(''); setSubmitting(true);
     try {
+      let referenceImageUrl = null;
+      if (refImageFile) {
+        setUploading(true);
+        referenceImageUrl = await uploadToR2(refImageFile);
+        setUploading(false);
+      }
+
       const res = await api.post('/api/extras/request', {
         extraItemId: selected.id,
+        topic: topic.trim(),
         details: details.trim(),
         referenceUrl: referenceUrl.trim() || null,
+        referenceImageUrl,
+        expectedDeliveryDate: deliveryDate || null,
+        offeredPrice: offeredNum,
+        consentAgreed: true,
       });
-      setSubmitted((prev) => [...prev, selected.id]);
-      setSuccess(res.message || `Request for "${selected.title}" sent. Jinal will review and confirm.`);
-      setSelected(null); setDetails(''); setReferenceUrl('');
+      setSuccess(res.message);
+      resetForm();
       load();
     } catch (err) {
       if (err.message === 'INSUFFICIENT_TOKENS') {
-        setTopUp(selected.coinsPerRequest);
+        setTopUp(offeredNum);
       } else {
         setError(err.message);
       }
-    } finally { setSubmitting(false); }
+    } finally { setSubmitting(false); setUploading(false); }
+  };
+
+  const respondToCounter = async (requestId, action) => {
+    setRespondingId(requestId);
+    setError('');
+    try {
+      const res = await api.post(`/api/extras/requests/${requestId}/respond-to-counter`, { action });
+      setSuccess(res.message);
+      load();
+    } catch (err) {
+      if (err.message === 'INSUFFICIENT_TOKENS') {
+        setTopUp(null); // amount varies per-request; a generic top-up still helps
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      setRespondingId(null);
+    }
   };
 
   return (
@@ -59,13 +124,13 @@ export default function Extras() {
       <div style={{ marginBottom: 24 }}>
         <div style={eyebrow}>Custom requests</div>
         <h1 style={title}>Personalised extras</h1>
-        <p style={text}>Birthday greetings, anniversary messages, shoutouts and more.{data?.isGuest && ' Members get up to 20% off.'}</p>
+        <p style={text}>Birthday greetings, anniversary messages, custom video, and more — browse Jinal's listings below, then send your own request with the details and price you'd like to offer.</p>
       </div>
 
       {error && (
         <div style={{ ...errorBox, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 16 }}>
           <span>{error}</span>
-          <button onClick={() => setTopUp(selected ? selected.coinsPerRequest : 0)} style={inlineTopUp}>Top up now</button>
+          <button onClick={() => setTopUp(offeredNum || 10)} style={inlineTopUp}>Top up now</button>
         </div>
       )}
       {success && <div style={successBox}>{success}</div>}
@@ -73,15 +138,12 @@ export default function Extras() {
       <div style={grid}>
         {data?.options?.map((option) => {
           const isSelected = selected?.id === option.id;
-          const isDone     = submitted.includes(option.id);
-
           return (
-            <div key={option.id} onClick={() => !isDone && setSelected(isSelected ? null : option)} style={{ ...card, border: isSelected ? `1px solid ${C.accent}` : `1px solid ${C.border}`, cursor: isDone ? 'default' : 'pointer', opacity: isDone ? 0.6 : 1 }}>
+            <div key={option.id} onClick={() => { setSelected(isSelected ? null : option); if (!isSelected) setOfferedPrice(String(option.price_coins)); }} style={{ ...card, border: isSelected ? `1px solid ${C.accent}` : `1px solid ${C.border}`, cursor: 'pointer' }}>
               <div style={{ fontFamily: F.display, fontSize: 24, color: C.text, marginBottom: 6 }}>{option.title}</div>
-              <div style={{ marginBottom: 6 }}><WonderCoinAmount amount={option.coinsPerRequest} size={18} /></div>
-              {!data?.isGuest && data?.discountPct > 0 && <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 4 }}>{data.discountPct}% member discount applied</div>}
-              {isDone && <div style={{ fontFamily: F.sans, fontSize: 13, color: '#8FC88F', marginTop: 8 }}>✓ Request sent</div>}
-              {isSelected && !isDone && <div style={{ fontFamily: F.sans, fontSize: 12, color: C.accent, marginTop: 8 }}>✓ Selected — fill in details below</div>}
+              <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginBottom: 6 }}>Typical price</div>
+              <div style={{ marginBottom: 6 }}><WonderCoinAmount amount={option.price_coins} size={18} /></div>
+              {isSelected && <div style={{ fontFamily: F.sans, fontSize: 12, color: C.accent, marginTop: 8 }}>✓ Selected — fill in details below</div>}
             </div>
           );
         })}
@@ -89,43 +151,64 @@ export default function Extras() {
 
       {selected && (
         <div style={detailsPanel}>
-          <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 6 }}>{selected.title}</div>
+          <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 16 }}>{selected.title}</div>
 
-          <div style={fieldLabel}>Describe your request</div>
-          <textarea value={details} onChange={(e) => setDetails(e.target.value)} placeholder="Tell Jinal what you'd like: names, dates, occasion, any special message." style={detailsInput} rows={4} />
+          <div style={fieldLabel}>Topic</div>
+          <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. My mom's 50th birthday" style={urlInput} />
 
-          <div style={fieldLabel}>Any reference URLs (optional)</div>
-          <input
-            value={referenceUrl}
-            onChange={(e) => setReferenceUrl(e.target.value)}
-            placeholder="e.g. a link to a look, photo, or style you have in mind"
-            style={urlInput}
-          />
+          <div style={fieldLabel}>Description</div>
+          <textarea value={details} onChange={(e) => setDetails(e.target.value)} placeholder="Names, dates, occasion, any special message." style={detailsInput} rows={4} />
 
-          <div style={totalRow}>
-            <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>Total</span>
-            <WonderCoinAmount amount={selected.coinsPerRequest} size={20} fontSize={22} textColor={canAfford ? C.text : '#D99A9A'} />
+          <div style={fieldLabel}>Reference image (optional)</div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16 }}>
+            <input ref={imageRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImagePick} />
+            <button onClick={() => imageRef.current?.click()} style={browseBtn}>Browse photo</button>
+            {refImagePreview && <img src={refImagePreview} alt="" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, border: `1px solid ${C.border}` }} />}
           </div>
 
-          {!canAfford && (
+          <div style={fieldLabel}>Reference link (optional)</div>
+          <input value={referenceUrl} onChange={(e) => setReferenceUrl(e.target.value)} placeholder="A link to a look, style, or example you have in mind" style={{ ...urlInput, marginBottom: 16 }} />
+
+          <div style={fieldLabel}>Expected delivery date (optional)</div>
+          <input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} style={{ ...urlInput, marginBottom: 16 }} />
+
+          <div style={fieldLabel}>Your offered price (tokens)</div>
+          <input type="number" min={1} value={offeredPrice} onChange={(e) => setOfferedPrice(e.target.value)} style={urlInput} />
+          <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 6, marginBottom: 16 }}>
+            Jinal will review your offer — she may approve it, decline it, or counter with a different price.
+          </div>
+
+          <div style={consentBox}>
+            <label style={consentLabel}>
+              <input type="checkbox" checked={consent1} onChange={(e) => setConsent1(e.target.checked)} style={{ marginRight: 10, marginTop: 2, flexShrink: 0 }} />
+              I am not asking for anything that may be categorised as inappropriate.
+            </label>
+            <label style={{ ...consentLabel, marginTop: 12 }}>
+              <input type="checkbox" checked={consent2} onChange={(e) => setConsent2(e.target.checked)} style={{ marginRight: 10, marginTop: 2, flexShrink: 0 }} />
+              I understand my request is subject to approval and acceptance.
+            </label>
+            <label style={{ ...consentLabel, marginTop: 12 }}>
+              <input type="checkbox" checked={consent3} onChange={(e) => setConsent3(e.target.checked)} style={{ marginRight: 10, marginTop: 2, flexShrink: 0 }} />
+              I understand that if my request is declined, I will get token credits reversed, but they cannot be exchanged for cash again.
+            </label>
+          </div>
+
+          {offeredNum > 0 && !canAfford && (
             <div style={{ ...errorBox, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>You need {selected.coinsPerRequest - (data?.coinBalance || 0)} more tokens.</span>
-              <button onClick={() => setTopUp(selected.coinsPerRequest)} style={inlineTopUp}>Top up now</button>
+              <span>You need {offeredNum - (data?.coinBalance || 0)} more tokens.</span>
+              <button onClick={() => setTopUp(offeredNum)} style={inlineTopUp}>Top up now</button>
             </div>
           )}
 
           <div style={{ display: 'flex', gap: 10 }}>
             <button
               onClick={handleSubmit}
-              disabled={submitting || !details.trim() || !canAfford}
-              style={{ ...submitBtn, opacity: (submitting || !details.trim() || !canAfford) ? 0.5 : 1, cursor: (submitting || !details.trim() || !canAfford) ? 'default' : 'pointer' }}
+              disabled={submitting || uploading || !topic.trim() || !details.trim() || !offeredNum || !allConsented || !canAfford}
+              style={{ ...submitBtn, opacity: (submitting || uploading || !topic.trim() || !details.trim() || !offeredNum || !allConsented || !canAfford) ? 0.5 : 1 }}
             >
-              {submitting ? 'Sending…' : !canAfford ? 'Insufficient balance' : 'Send request'}
+              {uploading ? 'Uploading image…' : submitting ? 'Sending…' : !canAfford ? 'Insufficient balance' : 'Send request'}
             </button>
-            <button onClick={() => { setSelected(null); setDetails(''); setReferenceUrl(''); }} style={cancelBtn}>Cancel</button>
-          </div>
-          <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 8 }}>
-            Tokens are charged when you send the request. All requests are reviewed and fulfilled by Jinal personally. If declined, your tokens are refunded automatically.
+            <button onClick={resetForm} style={cancelBtn}>Cancel</button>
           </div>
         </div>
       )}
@@ -138,16 +221,33 @@ export default function Extras() {
               <div key={r.id} style={historyCard}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
                   <div>
-                    <div style={{ fontFamily: F.sans, fontSize: 14, color: C.text, fontWeight: 600 }}>{r.type}</div>
+                    <div style={{ fontFamily: F.sans, fontSize: 14, color: C.text, fontWeight: 600 }}>{r.topic || r.type}</div>
                     <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginTop: 2 }}>
-                      {r.coins_charged} tokens · {new Date(r.created_at).toLocaleDateString()}
+                      {r.type} · {r.coins_charged} tokens · {new Date(r.created_at).toLocaleDateString()}
+                      {r.expected_delivery_date && ` · needed by ${new Date(r.expected_delivery_date).toLocaleDateString()}`}
                     </div>
                   </div>
                   <span style={{ fontFamily: F.sans, fontSize: 12, color: statusColor(r.status), textTransform: 'capitalize' }}>{r.status}</span>
                 </div>
+
+                {r.status === 'countered' && (
+                  <div style={counterBox}>
+                    <div style={{ fontFamily: F.sans, fontSize: 13, color: C.text, marginBottom: 6 }}>
+                      Jinal countered with <WonderCoinAmount amount={r.counter_price_coins} size={13} fontSize={13} /> — {r.counter_price_coins - r.coins_charged} tokens more than your offer.
+                    </div>
+                    {r.counter_note && <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, fontStyle: 'italic', marginBottom: 10 }}>"{r.counter_note}"</div>}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => respondToCounter(r.id, 'accept')} disabled={respondingId === r.id} style={{ ...inlineTopUp, opacity: respondingId === r.id ? 0.5 : 1 }}>
+                        {respondingId === r.id ? '…' : 'Accept'}
+                      </button>
+                      <button onClick={() => respondToCounter(r.id, 'decline')} disabled={respondingId === r.id} style={declineBtn}>Decline</button>
+                    </div>
+                  </div>
+                )}
+
                 {r.status === 'rejected' && r.rejection_reason && (
                   <div style={{ fontFamily: F.sans, fontSize: 13, color: '#D99A9A', background: 'rgba(156,90,90,0.08)', border: '1px solid rgba(156,90,90,0.25)', borderRadius: 8, padding: '8px 12px', marginTop: 10 }}>
-                    Declined by Jinal: {r.rejection_reason}. Your {r.coins_charged} tokens have been refunded.
+                    Declined by Jinal: {r.rejection_reason}. Your {r.coins_charged} tokens have been credited back to your balance.
                   </div>
                 )}
               </div>
@@ -165,8 +265,10 @@ export default function Extras() {
 
 function statusColor(status) {
   if (status === 'completed')  return '#8FC88F';
+  if (status === 'confirmed')  return '#8FC88F';
   if (status === 'rejected')   return '#D99A9A';
-  if (status === 'confirmed')  return '#C17D4A';
+  if (status === 'cancelled')  return '#D99A9A';
+  if (status === 'countered')  return '#D9A45C';
   return '#9B8F83';
 }
 
@@ -178,11 +280,15 @@ const card        = { background: C.surface, borderRadius: 10, padding: 22, disp
 const historyCard = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16 };
 const detailsPanel = { background: C.surface, border: `1px solid ${C.accent}`, borderRadius: 10, padding: 24, marginTop: 8 };
 const fieldLabel  = { fontFamily: F.sans, fontSize: 12, color: C.muted, marginBottom: 8, marginTop: 16 };
-const detailsInput = { width: '100%', boxSizing: 'border-box', background: '#100F0C', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 16, padding: '12px 14px', borderRadius: 8, outline: 'none', resize: 'vertical', lineHeight: 1.6, marginBottom: 16 };
+const detailsInput = { width: '100%', boxSizing: 'border-box', background: '#100F0C', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 16, padding: '12px 14px', borderRadius: 8, outline: 'none', resize: 'vertical', lineHeight: 1.6 };
 const urlInput    = { width: '100%', boxSizing: 'border-box', background: '#100F0C', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 14, padding: '12px 14px', borderRadius: 8, outline: 'none' };
-const totalRow    = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, margin: '20px 0 16px' };
+const browseBtn   = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 8, cursor: 'pointer' };
 const submitBtn   = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '12px 24px', borderRadius: 8, flexGrow: 1 };
 const cancelBtn   = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 14, padding: '12px 20px', borderRadius: 8, cursor: 'pointer' };
+const declineBtn  = { background: 'transparent', border: '1px solid rgba(156,90,90,0.4)', color: '#D99A9A', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 6, cursor: 'pointer' };
 const errorBox    = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
 const successBox  = { background: 'rgba(100,160,100,0.1)', border: '1px solid rgba(100,160,100,0.3)', color: '#8FC88F', padding: 12, borderRadius: 8, marginBottom: 16, fontFamily: F.sans, fontSize: 14 };
 const inlineTopUp = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '6px 12px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
+const counterBox  = { background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.25)', borderRadius: 8, padding: 14, marginTop: 12 };
+const consentBox   = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${C.border}`, borderRadius: 8, padding: 16, marginTop: 16, marginBottom: 16 };
+const consentLabel = { display: 'flex', alignItems: 'flex-start', fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, cursor: 'pointer' };
