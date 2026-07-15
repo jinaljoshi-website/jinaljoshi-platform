@@ -144,14 +144,10 @@ export default function Chat() {
             status:            'delivered',
           });
 
-          // Anything in our database that Stream never delivered gets spliced in —
-          // this is what recovers a message like Jinal's very first "hello" in a new thread
           const missingFromStream = dbMessages
             .filter((m) => !streamIds.has(m.id))
             .map(dbToLocal);
 
-          // Also patch locked-media unlock status for messages Stream DID deliver,
-          // same as before — Stream never carries real unlocked media by design
           const dbById = new Map(dbMessages.map((m) => [m.id, m]));
           const patchedStreamMessages = streamMessages.map((m) => {
             if (!m.is_locked_media) return m;
@@ -312,8 +308,6 @@ export default function Chat() {
     }
   };
 
-
-
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Connecting to chat…</div>;
 
   const isGuest        = status?.tier === 'guest';
@@ -321,60 +315,59 @@ export default function Chat() {
   const nextCost       = status?.nextCost || 0;
   const freeRemaining  = status?.freeRemaining || 0;
   const dailyRemaining = status?.dailyRemaining || 0;
-  const canSendMedia   = status?.canSendMedia;
   const chatBg         = status?.chatBg;
 
   return (
-    <div style={{ position: 'relative', height: '100%', minHeight: 0, borderRadius: chatBg ? 10 : 0, overflow: 'hidden' }}>
-      {chatBg && (
-        <>
-          {/* Blurred, scaled backdrop fills any leftover width on wide screens */}
-          <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0 }} />
-          {/* Sharp, correctly-cropped image centered on top, at its real portrait ratio */}
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', zIndex: 0 }}>
-            <div style={{ height: '100%', aspectRatio: '9 / 16', backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
-          </div>
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
-        </>
-      )}
-
-      <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, boxSizing: 'border-box' }}>
-        <div style={{ ...stickyHeader, padding: '12px 16px' }}>
-          <div style={{ marginBottom: 10 }}>
-            <div style={eyebrow}>Direct messages</div>
-            <h1 style={title}>Chat with Jinal</h1>
-          </div>
-
-          {status && (
-            <div style={statusBar}>
-              {isGuest ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>Guest ·</span>
-                  <WonderCoinAmount amount={nextCost} size={13} textColor={C.accent} fontSize={13} />
-                  <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>per message</span>
-                  <button onClick={() => setTopUp(nextCost * 5)} style={topUpBtn}>Top up</button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={statItem}><span style={statLabel}>Free DMs left</span><span style={{ fontFamily: F.sans, fontSize: 13, color: freeRemaining > 0 ? C.accent : C.muted }}>{freeRemaining} / {status.freeDMsPerMonth}</span></span>
-                  <span style={statItem}><span style={statLabel}>Today</span><span style={{ fontFamily: F.sans, fontSize: 13, color: dailyRemaining > 0 ? C.accent : C.muted }}>{dailyRemaining} / {status.dailyDMCap}</span></span>
-                  <span style={statItem}><span style={statLabel}>Next</span>{nextIsFree ? <span style={{ fontFamily: F.sans, fontSize: 13, color: '#8FC88F' }}>Free</span> : <WonderCoinAmount amount={nextCost} size={13} textColor={C.muted} fontSize={13} />}</span>
-                  <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>{TIERS[status.tier]?.name} · resets 1st</span>
-                  <button onClick={() => setTopUp(0)} style={topUpBtn}>Top up</button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {error && (
-            <div style={{ ...errorBox, marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-              <span>{error}</span>
-              {error.includes('tokens') && <button onClick={() => setTopUp(nextCost)} style={inlineTopUp}>Top up now</button>}
-            </div>
-          )}
+    <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: C.bg, borderRadius: chatBg ? 10 : 0, overflow: 'hidden' }}>
+      {/* Header — always solid, never carries the background photo */}
+      <div style={{ ...stickyHeader, padding: '10px 16px' }}>
+        <div style={{ marginBottom: 6 }}>
+          <div style={eyebrow}>Direct messages</div>
+          <h1 style={title}>Chat with Jinal</h1>
         </div>
 
-        <div style={{ ...feed, padding: '0 16px' }}>
+        {status && (
+          <div style={statusBar}>
+            {isGuest ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>Guest ·</span>
+                <WonderCoinAmount amount={nextCost} size={13} textColor={C.accent} fontSize={13} />
+                <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>per message</span>
+                <button onClick={() => setTopUp(nextCost * 5)} style={topUpBtn}>Top up</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={statItem}><span style={statLabel}>Free DMs left</span><span style={{ fontFamily: F.sans, fontSize: 13, color: freeRemaining > 0 ? C.accent : C.muted }}>{freeRemaining} / {status.freeDMsPerMonth}</span></span>
+                <span style={statItem}><span style={statLabel}>Today</span><span style={{ fontFamily: F.sans, fontSize: 13, color: dailyRemaining > 0 ? C.accent : C.muted }}>{dailyRemaining} / {status.dailyDMCap}</span></span>
+                <span style={statItem}><span style={statLabel}>Next</span>{nextIsFree ? <span style={{ fontFamily: F.sans, fontSize: 13, color: '#8FC88F' }}>Free</span> : <WonderCoinAmount amount={nextCost} size={13} textColor={C.muted} fontSize={13} />}</span>
+                <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>{TIERS[status.tier]?.name} · resets 1st</span>
+                <button onClick={() => setTopUp(0)} style={topUpBtn}>Top up</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {error && (
+          <div style={{ ...errorBox, marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            <span>{error}</span>
+            {error.includes('tokens') && <button onClick={() => setTopUp(nextCost)} style={inlineTopUp}>Top up now</button>}
+          </div>
+        )}
+      </div>
+
+      {/* Feed — the ONLY area the background photo ever renders in, so what Jinal crops is exactly what's seen here */}
+      <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+        {chatBg && (
+          <>
+            <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0 }} />
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', zIndex: 0 }}>
+              <div style={{ height: '100%', aspectRatio: '9 / 16', backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+            </div>
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
+          </>
+        )}
+
+        <div style={{ position: 'relative', zIndex: 2, height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }}>
           {messages.length === 0 && (
             <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>No messages yet. Say hello!</div>
           )}
@@ -394,27 +387,27 @@ export default function Chat() {
           )}
           <div ref={bottomRef} />
         </div>
-
-        <div style={{ ...composer, padding: '12px 16px' }}>
-          {!nextIsFree && nextCost > 0 && (
-            <div style={costPreview}>
-              <WonderCoinAmount amount={nextCost} size={13} textColor={C.muted} fontSize={13} />
-              <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>{isGuest ? ' per message' : ' per message (quota used)'}</span>
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-
-            <textarea value={message} onChange={(e) => { setMessage(e.target.value); handleTyping(); }} onKeyDown={handleKeyDown} placeholder={nextIsFree ? `Message Jinal… (${freeRemaining} free remaining)` : isGuest ? `Message Jinal… (${nextCost} tokens each)` : `Message Jinal… (${nextCost} token${nextCost > 1 ? 's' : ''} each)`} style={composerInput} rows={2} />
-            <button onClick={() => { if (message.trim()) sendMessage(message.trim()); }} disabled={sending || !message.trim()} style={{ ...sendBtn, opacity: (sending || !message.trim()) ? 0.5 : 1 }}>
-              {sending ? '…' : 'Send'}
-            </button>
-          </div>
-        </div>
-
-        {topUp !== null && (
-          <TopUpModal requiredTokens={topUp} onClose={() => setTopUp(null)} onSuccess={() => { setTopUp(null); loadStatus(); }} />
-        )}
       </div>
+
+      {/* Footer / composer — always solid, always pinned to the bottom of the available space */}
+      <div style={{ ...composer, padding: '10px 16px', flexShrink: 0 }}>
+        {!nextIsFree && nextCost > 0 && (
+          <div style={costPreview}>
+            <WonderCoinAmount amount={nextCost} size={13} textColor={C.muted} fontSize={13} />
+            <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>{isGuest ? ' per message' : ' per message (quota used)'}</span>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <textarea value={message} onChange={(e) => { setMessage(e.target.value); handleTyping(); }} onKeyDown={handleKeyDown} placeholder={nextIsFree ? `Message Jinal… (${freeRemaining} free remaining)` : isGuest ? `Message Jinal… (${nextCost} tokens each)` : `Message Jinal… (${nextCost} token${nextCost > 1 ? 's' : ''} each)`} style={composerInput} rows={2} />
+          <button onClick={() => { if (message.trim()) sendMessage(message.trim()); }} disabled={sending || !message.trim()} style={{ ...sendBtn, opacity: (sending || !message.trim()) ? 0.5 : 1 }}>
+            {sending ? '…' : 'Send'}
+          </button>
+        </div>
+      </div>
+
+      {topUp !== null && (
+        <TopUpModal requiredTokens={topUp} onClose={() => setTopUp(null)} onSuccess={() => { setTopUp(null); loadStatus(); }} />
+      )}
     </div>
   );
 }
@@ -482,19 +475,17 @@ function MessageBubble({ msg, onUnlock, unlocking }) {
   );
 }
 
-const eyebrow      = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 8 };
+const eyebrow      = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 6 };
 const title        = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(18px,2.4vw,26px)', margin: 0 };
-const stickyHeader = { position: 'sticky', top: 0, zIndex: 3, flexShrink: 0, background: 'rgba(13,12,10,0.9)', backdropFilter: 'blur(10px)', borderBottom: `1px solid ${C.border}` };
-const statusBar    = { padding: '8px 12px', background: 'rgba(22,20,16,0.85)', border: `1px solid ${C.border}`, borderRadius: 8, backdropFilter: 'blur(8px)' };
+const stickyHeader = { flexShrink: 0, background: 'rgba(13,12,10,1)', borderBottom: `1px solid ${C.border}` };
+const statusBar    = { padding: '8px 12px', background: 'rgba(22,20,16,0.85)', border: `1px solid ${C.border}`, borderRadius: 8 };
 const statItem     = { display: 'flex', flexDirection: 'column', gap: 2 };
 const statLabel    = { fontFamily: F.sans, fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em' };
 const topUpBtn     = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 11, padding: '4px 8px', borderRadius: 6, cursor: 'pointer' };
 const inlineTopUp  = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
-const feed         = { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 12, paddingBottom: 8 };
 const bubble       = { fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, borderRadius: 10, wordBreak: 'break-word' };
 const errorBox     = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
 const costPreview  = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 };
-const composer     = { flexShrink: 0, borderTop: `1px solid ${C.border}`, background: 'rgba(13,12,10,0.7)', backdropFilter: 'blur(10px)' };
+const composer     = { flexShrink: 0, borderTop: `1px solid ${C.border}`, background: 'rgba(13,12,10,1)' };
 const composerInput = { flex: 1, width: '100%', background: 'rgba(22,20,16,0.9)', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 16, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', lineHeight: 1.5, boxSizing: 'border-box' };
 const sendBtn      = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '10px 20px', borderRadius: 8, flexShrink: 0, cursor: 'pointer' };
-const attachBtn    = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontSize: 16, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', flexShrink: 0 };

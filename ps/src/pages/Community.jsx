@@ -71,7 +71,7 @@ export default function Community() {
     try {
       await api.post('/api/community/preferences', { hideSystemPosts: next });
     } catch (err) {
-      setHideSystemPosts(!next); // revert on failure
+      setHideSystemPosts(!next);
     }
   };
 
@@ -105,34 +105,36 @@ export default function Community() {
   const visiblePosts = hideSystemPosts ? posts.filter((p) => !p.is_system) : posts;
 
   return (
-    <div style={{ position: 'relative', height: '100%', minHeight: 0, borderRadius: communityBg ? 10 : 0, overflow: 'hidden' }}>
-      {communityBg && (
-        <>
-          <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0 }} />
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', zIndex: 0 }}>
-            <div style={{ height: '100%', aspectRatio: '3 / 4', backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+    <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: C.bg, borderRadius: communityBg ? 10 : 0, overflow: 'hidden' }}>
+      {/* Header — always solid, never carries the background photo */}
+      <div style={{ ...stickyHeader, padding: '10px 16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+          <div>
+            <div style={eyebrow}>Updates</div>
+            <h1 style={title}>Public Corner</h1>
           </div>
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
-        </>
-      )}
-
-      <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, boxSizing: 'border-box' }}>
-        <div style={{ ...stickyHeader, padding: '12px 16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-            <div>
-              <div style={eyebrow}>Updates</div>
-              <h1 style={title}>Public Corner</h1>
-            </div>
-            <button onClick={toggleSystemPosts} style={systemToggleBtn}>
-              <span style={{ ...toggleDot, background: hideSystemPosts ? C.muted : C.accent }} />
-              {hideSystemPosts ? 'Updates hidden' : 'Updates shown'}
-            </button>
-          </div>
-          {error && <div style={{ ...errorBox, marginTop: 10 }}>{error}</div>}
-          {reportMsg && <div style={{ ...successBox, marginTop: 10 }}>{reportMsg}</div>}
+          <button onClick={toggleSystemPosts} style={systemToggleBtn}>
+            <span style={{ ...toggleDot, background: hideSystemPosts ? C.muted : C.accent }} />
+            {hideSystemPosts ? 'Updates hidden' : 'Updates shown'}
+          </button>
         </div>
+        {error && <div style={{ ...errorBox, marginTop: 8 }}>{error}</div>}
+        {reportMsg && <div style={{ ...successBox, marginTop: 8 }}>{reportMsg}</div>}
+      </div>
 
-        <div style={{ ...feed, padding: '0 16px' }} onScroll={handleScroll}>
+      {/* Feed — the ONLY area the background photo ever renders in */}
+      <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+        {communityBg && (
+          <>
+            <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0 }} />
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', zIndex: 0 }}>
+              <div style={{ height: '100%', aspectRatio: '3 / 4', backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+            </div>
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
+          </>
+        )}
+
+        <div style={{ position: 'relative', zIndex: 2, height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }} onScroll={handleScroll}>
           {visiblePosts.length === 0 && (
             <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>
               {posts.length === 0 ? 'Be the first to say something!' : 'No messages to show right now.'}
@@ -155,25 +157,26 @@ export default function Community() {
           ))}
           <div ref={bottomRef} />
         </div>
+      </div>
 
-        <div style={{ ...composer, flexShrink: 0, padding: '12px 16px' }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              placeholder="Say something to the community…"
-              style={composerInput}
-              rows={2}
-            />
-            <button
-              onClick={handleSend}
-              disabled={sending || !message.trim()}
-              style={{ ...sendBtn, opacity: (sending || !message.trim()) ? 0.5 : 1 }}
-            >
-              {sending ? '…' : 'Send'}
-            </button>
-          </div>
+      {/* Footer / composer — always solid, always pinned to the bottom of the available space */}
+      <div style={{ ...composer, padding: '10px 16px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+            placeholder="Say something to the community…"
+            style={composerInput}
+            rows={2}
+          />
+          <button
+            onClick={handleSend}
+            disabled={sending || !message.trim()}
+            style={{ ...sendBtn, opacity: (sending || !message.trim()) ? 0.5 : 1 }}
+          >
+            {sending ? '…' : 'Send'}
+          </button>
         </div>
       </div>
     </div>
@@ -243,16 +246,15 @@ function PostBubble({ post, artistId, isOwn, isReporting, reportReason, onReport
 
 const eyebrow      = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 6 };
 const title        = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(18px,2.4vw,26px)', margin: '0 0 4px' };
-const stickyHeader = { position: 'sticky', top: 0, zIndex: 3, flexShrink: 0, background: 'rgba(13,12,10,0.9)', backdropFilter: 'blur(10px)', borderBottom: `1px solid ${C.border}` };
+const stickyHeader = { flexShrink: 0, background: 'rgba(13,12,10,1)', borderBottom: `1px solid ${C.border}` };
 const systemToggleBtn = { display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 11, padding: '6px 10px', borderRadius: 999, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' };
 const toggleDot     = { width: 7, height: 7, borderRadius: '50%', display: 'inline-block' };
-const feed         = { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 12, paddingBottom: 8, minHeight: 0 };
 const bubble       = { fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, padding: '10px 14px', borderRadius: 10, wordBreak: 'break-word' };
 const systemBubble = { fontFamily: F.sans, fontSize: 12, color: C.muted, background: 'rgba(242,235,224,0.04)', border: `1px solid ${C.border}`, borderRadius: 999, padding: '5px 14px', fontStyle: 'italic' };
 const timestamp    = { fontFamily: F.sans, fontSize: 10, color: C.muted, marginTop: 3 };
 const errorBox     = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: 12, borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
 const successBox   = { background: 'rgba(100,160,100,0.1)', border: '1px solid rgba(100,160,100,0.3)', color: '#8FC88F', padding: 12, borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
-const composer     = { flexShrink: 0, borderTop: `1px solid ${C.border}`, background: 'rgba(13,12,10,0.7)', backdropFilter: 'blur(10px)' };
+const composer     = { flexShrink: 0, borderTop: `1px solid ${C.border}`, background: 'rgba(13,12,10,1)' };
 const composerInput = { flex: 1, width: '100%', background: 'rgba(22,20,16,0.9)', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 16, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', lineHeight: 1.5, boxSizing: 'border-box' };
 const sendBtn      = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '10px 20px', borderRadius: 8, flexShrink: 0, cursor: 'pointer' };
 const reportLink   = { fontFamily: F.sans, fontSize: 10, color: C.muted, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0, marginTop: 3 };
