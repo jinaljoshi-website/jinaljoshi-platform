@@ -16,7 +16,7 @@ export default function CropTool({ file, aspectRatio, outputWidth = 800, onCance
   const imgRef = useRef(null);
 
   const containerW = 260;
-  const containerH = Math.round(containerW / aspectRatio);
+  const containerH = containerW / aspectRatio; // kept as a real fraction, never rounded, to avoid any axis mismatch
 
   useEffect(() => {
     const url = URL.createObjectURL(file);
@@ -63,22 +63,32 @@ export default function CropTool({ file, aspectRatio, outputWidth = 800, onCance
     setOffset((prev) => clampOffset(prev.x, prev.y, newDispW, newDispH));
   };
 
+  // Directly computes which rectangle of the ORIGINAL photo is currently visible inside the
+  // crop frame (in the source image's own pixel coordinates), then extracts exactly that
+  // rectangle and stretches it to fill the output canvas in a single draw call. This avoids
+  // the earlier approach's reliance on two independently-rounded scale factors staying in
+  // sync, which is what caused the bottom of the crop to sometimes go unpainted.
   const confirmCrop = () => {
     setProcessing(true);
-    const outH = Math.round(outputWidth / aspectRatio);
+    const outH = outputWidth / aspectRatio;
     const canvas = document.createElement('canvas');
-    canvas.width = outputWidth;
-    canvas.height = outH;
+    canvas.width = Math.round(outputWidth);
+    canvas.height = Math.round(outH);
     const ctx = canvas.getContext('2d');
 
-    // Map the on-screen crop-frame geometry to the output canvas resolution
-    const outScale = outputWidth / containerW;
-    const drawW = dispW * outScale;
-    const drawH = dispH * outScale;
-    const drawX = outputWidth / 2 - drawW / 2 + offset.x * outScale;
-    const drawY = outH / 2 - drawH / 2 + offset.y * outScale;
+    // On-screen, the image's top-left corner sits at this position relative to the frame
+    const imgScreenX = containerW / 2 - dispW / 2 + offset.x;
+    const imgScreenY = containerH / 2 - dispH / 2 + offset.y;
 
-    ctx.drawImage(imgRef.current, drawX, drawY, drawW, drawH);
+    // The frame's visible window, translated into the image's own coordinate space, then
+    // converted from on-screen pixels into the source photo's real pixel dimensions
+    const sx = Math.max(0, (-imgScreenX) / effectiveScale);
+    const sy = Math.max(0, (-imgScreenY) / effectiveScale);
+    const sWidth  = Math.min(natural.w - sx, containerW / effectiveScale);
+    const sHeight = Math.min(natural.h - sy, containerH / effectiveScale);
+
+    ctx.drawImage(imgRef.current, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
+
     canvas.toBlob((blob) => {
       const croppedFile = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
       setProcessing(false);
