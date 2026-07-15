@@ -1,10 +1,10 @@
-// ps/src/pages/Profile.jsx
 import { useEffect, useState } from 'react';
 import { C, F } from '../tokens';
 import { api } from '../api';
 
 export default function Profile() {
   const [user,        setUser]        = useState(null);
+  const [allowances,  setAllowances]  = useState(null);
   const [loading,     setLoading]     = useState(true);
   const [saving,      setSaving]      = useState(false);
   const [displayName, setDisplayName] = useState('');
@@ -13,11 +13,26 @@ export default function Profile() {
   const [success,     setSuccess]     = useState('');
 
   useEffect(() => {
-    api.get('/api/auth/profile')
-      .then((d) => {
-        setUser(d.user);
-        setDisplayName(d.user.display_name || '');
-        setDob(d.user.dob ? String(d.user.dob).slice(0, 10) : '');
+    Promise.all([
+      api.get('/api/auth/profile'),
+      api.get('/api/chat/status').catch(() => null),
+      api.get('/api/community/status').catch(() => null),
+      api.get('/api/gallery/sets').catch(() => null),
+    ])
+      .then(([profileData, chatStatus, communityStatus, galleryData]) => {
+        setUser(profileData.user);
+        setDisplayName(profileData.user.display_name || '');
+        setDob(profileData.user.dob ? String(profileData.user.dob).slice(0, 10) : '');
+        setAllowances({
+          chatFreeRemaining:  chatStatus?.freeRemaining,
+          chatFreePerMonth:   chatStatus?.freeDMsPerMonth,
+          chatDailyRemaining: chatStatus?.dailyRemaining,
+          chatDailyCap:       chatStatus?.dailyDMCap,
+          communityFreeRemaining: communityStatus?.freeRemaining,
+          communityFreeDailyLimit: communityStatus?.freeDailyLimit,
+          galleryCreditsRemaining: galleryData?.creditsRemaining,
+          galleryCreditsMax:       galleryData?.creditsMax,
+        });
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -40,6 +55,8 @@ export default function Profile() {
   };
 
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading…</div>;
+
+  const isGuest = user?.tier === 'guest' || !user?.membership_expires_at || new Date(user.membership_expires_at) < new Date();
 
   return (
     <div>
@@ -85,7 +102,7 @@ export default function Profile() {
         <div style={field}>
           <div style={label}>Membership</div>
           <div style={staticVal}>
-            {user?.tier === 'guest'
+            {isGuest
               ? 'No active membership'
               : `${user?.tier?.charAt(0).toUpperCase() + user?.tier?.slice(1)} · expires ${new Date(user?.membership_expires_at).toLocaleDateString()}`
             }
@@ -96,6 +113,52 @@ export default function Profile() {
           {saving ? 'Saving…' : 'Save changes'}
         </button>
       </div>
+
+      {allowances && (
+        <div style={{ marginTop: 32 }}>
+          <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 14 }}>Your allowances</div>
+          <div style={allowanceGrid}>
+            {!isGuest && allowances.chatFreePerMonth > 0 && (
+              <AllowanceCard
+                label="Free messages this month"
+                value={`${allowances.chatFreeRemaining} / ${allowances.chatFreePerMonth}`}
+              />
+            )}
+            {!isGuest && allowances.chatDailyCap > 0 && (
+              <AllowanceCard
+                label="Messages remaining today"
+                value={`${allowances.chatDailyRemaining} / ${allowances.chatDailyCap}`}
+              />
+            )}
+            {allowances.communityFreeDailyLimit > 0 && (
+              <AllowanceCard
+                label="Free community messages today"
+                value={`${allowances.communityFreeRemaining} / ${allowances.communityFreeDailyLimit}`}
+              />
+            )}
+            {allowances.galleryCreditsMax > 0 && (
+              <AllowanceCard
+                label="Gallery unlock credits this month"
+                value={`${allowances.galleryCreditsRemaining} / ${allowances.galleryCreditsMax}`}
+              />
+            )}
+          </div>
+          {isGuest && (
+            <p style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginTop: 12 }}>
+              Free message and unlock allowances are a membership benefit — join a tier to start earning them.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AllowanceCard({ label, value }) {
+  return (
+    <div style={allowanceCard}>
+      <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{label}</div>
+      <div style={{ fontFamily: F.display, fontSize: 26, color: C.accent }}>{value}</div>
     </div>
   );
 }
@@ -112,3 +175,5 @@ const hint      = { fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop:
 const saveBtn   = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '12px 24px', borderRadius: 8, cursor: 'pointer' };
 const errorBox  = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: 12, borderRadius: 8, marginBottom: 16, fontFamily: F.sans, fontSize: 14 };
 const successBox = { background: 'rgba(100,160,100,0.12)', border: '1px solid rgba(100,160,100,0.35)', color: '#8FC88F', padding: 12, borderRadius: 8, marginBottom: 16, fontFamily: F.sans, fontSize: 14 };
+const allowanceGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px,1fr))', gap: 14, maxWidth: 720 };
+const allowanceCard = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '18px 20px' };
