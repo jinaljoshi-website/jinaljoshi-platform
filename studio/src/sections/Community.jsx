@@ -72,7 +72,7 @@ export function Community() {
   return (
     <div>
       <Eyebrow>Updates</Eyebrow>
-      <T.title>The Happening Place</T.title>
+      <T.title>Public Corner</T.title>
 
       {/* Reports queue */}
       {reports.length > 0 && (

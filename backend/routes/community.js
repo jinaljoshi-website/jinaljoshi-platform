@@ -64,7 +64,7 @@ router.get('/status', authMid, async (req, res) => {
     }
 
     const { rows: userRows } = await pool.query(
-      `SELECT community_message_credits, tier, membership_expires_at, timezone FROM users WHERE id = $1`,
+      `SELECT community_message_credits, tier, membership_expires_at, timezone, hide_system_posts FROM users WHERE id = $1`,
       [req.user.userId]
     );
     const user = userRows[0];
@@ -86,6 +86,7 @@ router.get('/status', authMid, async (req, res) => {
       messageCredits: user.community_message_credits,
       messagesPerTokenBlock: messagesPerBlock,
       communityBg,
+      hideSystemPosts: !!user.hide_system_posts,
     });
   } catch (err) {
     console.error('community/status error:', err);
@@ -282,6 +283,21 @@ router.post('/report', authMid, async (req, res) => {
   } catch (err) {
     console.error('community/report error:', err);
     res.status(500).json({ error: 'Failed to submit report' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/community/preferences
+// ─────────────────────────────────────────────
+
+router.post('/preferences', authMid, async (req, res) => {
+  const { hideSystemPosts } = req.body;
+  try {
+    await pool.query(`UPDATE users SET hide_system_posts = $1 WHERE id = $2`, [!!hideSystemPosts, req.user.userId]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('community/preferences error:', err);
+    res.status(500).json({ error: 'Failed to update preferences' });
   }
 });
 

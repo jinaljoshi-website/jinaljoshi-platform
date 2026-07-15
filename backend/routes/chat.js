@@ -150,6 +150,9 @@ router.post('/messages/:id/unlock', authMid, async (req, res) => {
 
 router.get('/status', authMid, async (req, res) => {
   try {
+    const { rows: dndRows } = await pool.query(`SELECT value FROM platform_config WHERE key = 'dnd_chat_enabled'`);
+    const chatDndActive = dndRows[0]?.value === 'true';
+
     const { rows: userRows } = await pool.query(
       `SELECT u.tier, u.membership_expires_at, u.coin_balance, u.timezone,
               fs.custom_chat_price, fs.custom_messages_per_token, fs.messages_since_charge,
@@ -190,6 +193,7 @@ router.get('/status', authMid, async (req, res) => {
         nextIsFree: overageCost === 0, nextCost: overageCost,
         canSendMedia: user.can_send_media,
         chatBg: user.chat_bg,
+        dndActive: chatDndActive,
       });
     }
 
@@ -219,6 +223,7 @@ router.get('/status', authMid, async (req, res) => {
       nextIsFree, nextCost: nextIsFree ? 0 : overageCost,
       canSendMedia: user.can_send_media,
       chatBg: user.chat_bg,
+      dndActive: chatDndActive,
     });
   } catch (err) {
     console.error('chat/status error:', err);
@@ -367,11 +372,15 @@ router.post('/send', authMid, async (req, res) => {
 
     await client.query('COMMIT');
 
-    notifyArtist({
-      title: 'New message',
-      body:  `A ${userTier === 'guest' ? 'guest' : userTier + ' member'} sent you a message`,
-      url:   '/messages',
-    });
+    const { rows: dndCheckRows } = await pool.query(`SELECT value FROM platform_config WHERE key = 'dnd_chat_enabled'`);
+    const chatDndActive = dndCheckRows[0]?.value === 'true';
+    if (!chatDndActive) {
+      notifyArtist({
+        title: 'New message',
+        body:  `A ${userTier === 'guest' ? 'guest' : userTier + ' member'} sent you a message`,
+        url:   '/messages',
+      });
+    }
 
     res.json({
       ok: true,

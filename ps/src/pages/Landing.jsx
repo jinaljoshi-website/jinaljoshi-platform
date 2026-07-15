@@ -6,7 +6,7 @@ import { api } from '../api';
 
 const SECTIONS = [
   { path: '/platform/chat',       icon: '💬', label: 'Chat',       desc: 'Message Jinal directly' },
-  { path: '/platform/community',  icon: '✨', label: 'Community',  desc: 'Live fan space'         },
+  { path: '/platform/community',  icon: '✨', label: 'Public Corner',  desc: 'Live fan space'         },
   { path: '/platform/gallery',    icon: '📸', label: 'Gallery',    desc: 'Exclusive photo sets'   },
   { path: '/platform/calls',      icon: '📞', label: 'Calls',      desc: 'Book a personal call'   },
   { path: '/platform/shop',       icon: '🛍️', label: 'Shop',       desc: 'Merch & exclusives'     },

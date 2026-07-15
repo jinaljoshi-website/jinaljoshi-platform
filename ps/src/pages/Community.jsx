@@ -11,6 +11,7 @@ export default function Community() {
   const [sending, setSending] = useState(false);
   const [error,   setError]   = useState('');
   const [communityBg, setCommunityBg] = useState('');
+  const [hideSystemPosts, setHideSystemPosts] = useState(false);
   const [reportingId, setReportingId] = useState(null);
   const [reportReason, setReportReason] = useState('');
   const [reportSending, setReportSending] = useState(false);
@@ -27,7 +28,10 @@ export default function Community() {
     .catch((err) => { if (!silent) setError(err.message); setLoading(false); });
 
   const loadStatus = () => api.get('/api/community/status')
-    .then((d) => setCommunityBg(d.communityBg || ''))
+    .then((d) => {
+      setCommunityBg(d.communityBg || '');
+      setHideSystemPosts(!!d.hideSystemPosts);
+    })
     .catch(() => {});
 
   useEffect(() => {
@@ -61,6 +65,16 @@ export default function Community() {
     } finally { setSending(false); }
   };
 
+  const toggleSystemPosts = async () => {
+    const next = !hideSystemPosts;
+    setHideSystemPosts(next);
+    try {
+      await api.post('/api/community/preferences', { hideSystemPosts: next });
+    } catch (err) {
+      setHideSystemPosts(!next); // revert on failure
+    }
+  };
+
   const startReport = (postId) => {
     setReportingId(postId);
     setReportReason('');
@@ -88,6 +102,8 @@ export default function Community() {
 
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading community…</div>;
 
+  const visiblePosts = hideSystemPosts ? posts.filter((p) => !p.is_system) : posts;
+
   return (
     <div style={{ position: 'relative', height: '100%', minHeight: 0, borderRadius: communityBg ? 10 : 0, overflow: 'hidden' }}>
       {communityBg && (
@@ -96,26 +112,33 @@ export default function Community() {
           <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', zIndex: 0 }}>
             <div style={{ height: '100%', aspectRatio: '3 / 4', backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
           </div>
-          {/* Auto-contrast overlay — always applied over any uploaded background so text stays legible */}
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
         </>
       )}
 
       <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, boxSizing: 'border-box' }}>
         <div style={{ ...stickyHeader, padding: '12px 16px' }}>
-          <div style={eyebrow}>Updates</div>
-          <h1 style={title}>The Happening Place</h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+            <div>
+              <div style={eyebrow}>Updates</div>
+              <h1 style={title}>Public Corner</h1>
+            </div>
+            <button onClick={toggleSystemPosts} style={systemToggleBtn}>
+              <span style={{ ...toggleDot, background: hideSystemPosts ? C.muted : C.accent }} />
+              {hideSystemPosts ? 'Updates hidden' : 'Updates shown'}
+            </button>
+          </div>
           {error && <div style={{ ...errorBox, marginTop: 10 }}>{error}</div>}
           {reportMsg && <div style={{ ...successBox, marginTop: 10 }}>{reportMsg}</div>}
         </div>
 
         <div style={{ ...feed, padding: '0 16px' }} onScroll={handleScroll}>
-          {posts.length === 0 && (
+          {visiblePosts.length === 0 && (
             <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>
-              Be the first to say something!
+              {posts.length === 0 ? 'Be the first to say something!' : 'No messages to show right now.'}
             </div>
           )}
-          {posts.map((post) => (
+          {visiblePosts.map((post) => (
             <PostBubble
               key={post.id}
               post={post}
@@ -221,6 +244,8 @@ function PostBubble({ post, artistId, isOwn, isReporting, reportReason, onReport
 const eyebrow      = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 6 };
 const title        = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(18px,2.4vw,26px)', margin: '0 0 4px' };
 const stickyHeader = { position: 'sticky', top: 0, zIndex: 3, flexShrink: 0, background: 'rgba(13,12,10,0.9)', backdropFilter: 'blur(10px)', borderBottom: `1px solid ${C.border}` };
+const systemToggleBtn = { display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 11, padding: '6px 10px', borderRadius: 999, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' };
+const toggleDot     = { width: 7, height: 7, borderRadius: '50%', display: 'inline-block' };
 const feed         = { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 12, paddingBottom: 8, minHeight: 0 };
 const bubble       = { fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, padding: '10px 14px', borderRadius: 10, wordBreak: 'break-word' };
 const systemBubble = { fontFamily: F.sans, fontSize: 12, color: C.muted, background: 'rgba(242,235,224,0.04)', border: `1px solid ${C.border}`, borderRadius: 999, padding: '5px 14px', fontStyle: 'italic' };
