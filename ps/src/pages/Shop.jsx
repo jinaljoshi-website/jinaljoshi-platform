@@ -24,10 +24,9 @@ export default function Shop() {
   const itemPrice = (item) => {
     if (!data) return item.price_coins;
     const { isGuest, discountPct } = data;
-    if (isGuest) return item.price_coins * 2;
-    if (!discountPct) return item.price_coins;
-    const raw = item.price_coins * (1 - discountPct / 100);
-    return raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
+    if (isGuest) return Math.ceil(item.price_coins * 2);
+    if (!discountPct) return Math.ceil(item.price_coins);
+    return Math.ceil(item.price_coins * (1 - discountPct / 100));
   };
 
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading shop…</div>;

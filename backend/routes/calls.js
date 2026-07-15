@@ -7,6 +7,7 @@ const { pushToUser } = require('./push');
 const { postSystemMessage } = require('./community');
 const { getConfigNumber, getDiscountForTier, getGuestMultiplier, getCallMinLeadHours, getCallRingWindowSeconds, getDndEnabled } = require('../lib/config');
 const { assertNotBlocked, assertNotMuted } = require('../lib/moderation');
+const { roundTokensUp } = require('../lib/pricing');
 
 const MAX_NEGOTIATION_ROUND = 4;
 
@@ -55,10 +56,9 @@ router.get('/options', authMid, async (req, res) => {
     ]);
 
     const applyPricing = (base) => {
-      if (isGuest) return base * guestMultiplier;
-      if (!discountPct) return base;
-      const raw = base * (1 - discountPct / 100);
-      return raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
+      if (isGuest) return roundTokensUp(base * guestMultiplier);
+      if (!discountPct) return roundTokensUp(base);
+      return roundTokensUp(base * (1 - discountPct / 100));
     };
 
     const today = new Date().toISOString().slice(0, 10);
@@ -83,9 +83,9 @@ router.get('/options', authMid, async (req, res) => {
       minLeadHours,
       dndActive,
       options: [
-        { id: 'audio',          title: 'Audio Call',     description: 'A private audio session. Schedule at least a few hours ahead.',    coinsPerMin: Math.round(applyPricing(audioRate)    * multiplier) },
-        { id: 'video',          title: 'Video Call',     description: 'A private face-to-face video session. Schedule at least a few hours ahead.', coinsPerMin: Math.round(applyPricing(videoRate)    * multiplier) },
-        { id: 'priority-video', title: 'Priority Video', description: 'Calls Jinal right now — no scheduling, connects immediately if she answers.', coinsPerMin: Math.round(applyPricing(priorityRate) * multiplier) },
+        { id: 'audio',          title: 'Audio Call',     description: 'A private audio session. Schedule at least a few hours ahead.',    coinsPerMin: roundTokensUp(applyPricing(audioRate)    * multiplier) },
+        { id: 'video',          title: 'Video Call',     description: 'A private face-to-face video session. Schedule at least a few hours ahead.', coinsPerMin: roundTokensUp(applyPricing(videoRate)    * multiplier) },
+        { id: 'priority-video', title: 'Priority Video', description: 'Calls Jinal right now — no scheduling, connects immediately if she answers.', coinsPerMin: roundTokensUp(applyPricing(priorityRate) * multiplier) },
       ],
     });
   } catch (err) {
@@ -179,11 +179,8 @@ router.post('/book', authMid, async (req, res) => {
       isGuest ? getGuestMultiplier() : 1,
     ]);
 
-    let perMin = isGuest ? baseRate * guestMultiplier : (discountPct ? (() => {
-      const raw = baseRate * (1 - discountPct / 100);
-      return raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
-    })() : baseRate);
-    perMin = Math.round(perMin * multiplier);
+    let perMin = isGuest ? roundTokensUp(baseRate * guestMultiplier) : (discountPct ? roundTokensUp(baseRate * (1 - discountPct / 100)) : baseRate);
+    perMin = roundTokensUp(perMin * multiplier);
 
     const totalCost = perMin * durationMinutes;
 

@@ -20,7 +20,6 @@ const STREAM_LABELS = {
   community_credits:   'Community Credits',
 };
 
-// Runs a query safely — returns fallback on any error instead of crashing the whole endpoint
 async function safe(fn, fallback) {
   try {
     return await fn();
@@ -30,7 +29,45 @@ async function safe(fn, fallback) {
   }
 }
 
+// Period start dates for WTD/MTD/YTD/All-time bucketing
+function getPeriodBounds() {
+  const now = new Date();
+  const wtd = new Date(now);
+  const dayOfWeek = (wtd.getDay() + 6) % 7; // Monday = 0
+  wtd.setDate(wtd.getDate() - dayOfWeek);
+  wtd.setHours(0, 0, 0, 0);
+
+  const mtd = new Date(now.getFullYear(), now.getMonth(), 1);
+  const ytd = new Date(now.getFullYear(), 0, 1);
+
+  return { wtd, mtd, ytd, allTime: new Date(0) };
+}
+
+async function topFansByRevenueSince(sinceDate) {
+  const { rows } = await pool.query(
+    `SELECT u.id, u.email, u.display_name, u.tier, SUM(cl.payment_amount_inr) AS total_inr
+     FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
+     WHERE cl.type = 'recharge' AND cl.created_at >= $1
+     GROUP BY u.id, u.email, u.display_name, u.tier ORDER BY total_inr DESC LIMIT 10`,
+    [sinceDate]
+  );
+  return rows.map((r) => ({ email: r.email, name: r.display_name, tier: r.tier, totalInr: parseFloat(r.total_inr) }));
+}
+
+async function topFansByActivitySince(sinceDate) {
+  const { rows } = await pool.query(
+    `SELECT u.id, u.email, u.display_name, u.tier, SUM(cl.amount) AS total_tokens
+     FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
+     WHERE cl.direction = 'debit' AND cl.created_at >= $1
+     GROUP BY u.id, u.email, u.display_name, u.tier ORDER BY total_tokens DESC LIMIT 10`,
+    [sinceDate]
+  );
+  return rows.map((r) => ({ email: r.email, name: r.display_name, tier: r.tier, totalTokens: parseInt(r.total_tokens) }));
+}
+
 router.get('/', async (req, res) => {
+  const bounds = getPeriodBounds();
+
   const [
     revenueOverview,
     revenueTrend,
@@ -119,27 +156,27 @@ router.get('/', async (req, res) => {
       return Object.values(grouped).sort((a, b) => b.tokens - a.tokens);
     }, []),
 
-    // ── TOP FANS BY REAL SPEND (INR) ──
+    // ── TOP FANS BY REAL SPEND (INR) — now bucketed by WTD/MTD/YTD/All-time ──
     safe(async () => {
-      const { rows } = await pool.query(
-        `SELECT u.id, u.email, u.display_name, SUM(cl.payment_amount_inr) AS total_inr
-         FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
-         WHERE cl.type = 'recharge'
-         GROUP BY u.id ORDER BY total_inr DESC LIMIT 10`
-      );
-      return rows.map((r) => ({ email: r.email, name: r.display_name, totalInr: parseFloat(r.total_inr) }));
-    }, []),
+      const [wtd, mtd, ytd, allTime] = await Promise.all([
+        topFansByRevenueSince(bounds.wtd),
+        topFansByRevenueSince(bounds.mtd),
+        topFansByRevenueSince(bounds.ytd),
+        topFansByRevenueSince(bounds.allTime),
+      ]);
+      return { wtd, mtd, ytd, allTime };
+    }, { wtd: [], mtd: [], ytd: [], allTime: [] }),
 
-    // ── TOP FANS BY TOKEN ACTIVITY ──
+    // ── TOP FANS BY TOKEN ACTIVITY — now bucketed by WTD/MTD/YTD/All-time ──
     safe(async () => {
-      const { rows } = await pool.query(
-        `SELECT u.id, u.email, u.display_name, SUM(cl.amount) AS total_tokens
-         FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
-         WHERE cl.direction = 'debit'
-         GROUP BY u.id ORDER BY total_tokens DESC LIMIT 10`
-      );
-      return rows.map((r) => ({ email: r.email, name: r.display_name, totalTokens: parseInt(r.total_tokens) }));
-    }, []),
+      const [wtd, mtd, ytd, allTime] = await Promise.all([
+        topFansByActivitySince(bounds.wtd),
+        topFansByActivitySince(bounds.mtd),
+        topFansByActivitySince(bounds.ytd),
+        topFansByActivitySince(bounds.allTime),
+      ]);
+      return { wtd, mtd, ytd, allTime };
+    }, { wtd: [], mtd: [], ytd: [], allTime: [] }),
 
     // ── MEMBERSHIP TIER BREAKDOWN ──
     safe(async () => {
@@ -259,7 +296,6 @@ router.get('/', async (req, res) => {
     }, 66),
   ]);
 
-  // GST estimate — assumes 18% GST-inclusive pricing. Flagged clearly as an estimate.
   const gstRateAssumed = 18;
   const estimatedGstCollected = Math.round(revenueOverview.totalRevenueInr * gstRateAssumed / (100 + gstRateAssumed));
 

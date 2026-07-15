@@ -6,10 +6,18 @@ import { T, S, Card, Eyebrow, colors } from '../ui';
 const sans = "'DM Sans', system-ui, sans-serif";
 const mono = "'DM Mono', 'Courier New', monospace";
 
+const PERIODS = [
+  { key: 'wtd',     label: 'This Week' },
+  { key: 'mtd',     label: 'This Month' },
+  { key: 'ytd',     label: 'This Year' },
+  { key: 'allTime', label: 'All Time' },
+];
+
 export function Analytics() {
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
+  const [period,  setPeriod]  = useState('mtd');
 
   useEffect(() => {
     api.get('/api/studio/analytics')
@@ -131,13 +139,30 @@ export function Analytics() {
         )}
       </Card>
 
-      {/* ── TOP FANS ── */}
+      {/* ── TOP FANS — bucketed by period ── */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        {PERIODS.map((p) => (
+          <button
+            key={p.key}
+            onClick={() => setPeriod(p.key)}
+            style={{
+              background: period === p.key ? 'rgba(193,125,74,0.12)' : 'transparent',
+              border:     period === p.key ? '1px solid rgba(193,125,74,0.3)' : `1px solid ${colors.border}`,
+              color:      period === p.key ? colors.accent : colors.muted,
+              fontFamily: sans, fontSize: 12, fontWeight: period === p.key ? 600 : 400,
+              padding: '6px 14px', borderRadius: 999, cursor: 'pointer',
+            }}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px,1fr))', gap: 16, marginBottom: 20 }}>
         <Card>
           <T.sectionTitle>Top spenders (real ₹)</T.sectionTitle>
-          {topFansByRevenue.length === 0 ? <T.muted>No recharges yet.</T.muted> : (
+          {(topFansByRevenue[period] || []).length === 0 ? <T.muted>No recharges in this period.</T.muted> : (
             <div style={{ display: 'grid', gap: 4 }}>
-              {topFansByRevenue.map((f, i) => (
+              {topFansByRevenue[period].map((f, i) => (
                 <div key={f.email} style={S.listRow}>
                   <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{i + 1}. {f.name || f.email}</span>
                   <span style={{ fontFamily: mono, fontSize: 12, color: colors.accent }}>₹{f.totalInr.toLocaleString('en-IN')}</span>
@@ -148,9 +173,9 @@ export function Analytics() {
         </Card>
         <Card>
           <T.sectionTitle>Most active (token usage)</T.sectionTitle>
-          {topFansByActivity.length === 0 ? <T.muted>No activity yet.</T.muted> : (
+          {(topFansByActivity[period] || []).length === 0 ? <T.muted>No activity in this period.</T.muted> : (
             <div style={{ display: 'grid', gap: 4 }}>
-              {topFansByActivity.map((f, i) => (
+              {topFansByActivity[period].map((f, i) => (
                 <div key={f.email} style={S.listRow}>
                   <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{i + 1}. {f.name || f.email}</span>
                   <span style={{ fontFamily: mono, fontSize: 12, color: colors.accent }}>{f.totalTokens.toLocaleString('en-IN')} tokens</span>
