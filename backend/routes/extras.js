@@ -6,16 +6,16 @@ const { notifyArtist } = require('../lib/notify');
 const { postSystemMessage } = require('./community');
 const { getDiscountForTier, getGuestMultiplier } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
+const { roundTokensUp } = require('../lib/pricing');
 
 async function pricingFor(basePrice, userTier) {
   if (userTier === 'guest') {
     const multiplier = await getGuestMultiplier();
-    return Math.round(basePrice * multiplier);
+    return roundTokensUp(basePrice * multiplier);
   }
   const discountPct = await getDiscountForTier(userTier);
-  if (!discountPct) return Math.round(basePrice);
-  const raw = basePrice * (1 - discountPct / 100);
-  return raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
+  if (!discountPct) return roundTokensUp(basePrice);
+  return roundTokensUp(basePrice * (1 - discountPct / 100));
 }
 
 // ─────────────────────────────────────────────

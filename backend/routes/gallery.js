@@ -5,6 +5,7 @@ const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
 const { getGuestMultiplier, getDiscountForTier, getGalleryUnlocksForTier } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
+const { roundTokensUp } = require('../lib/pricing');
 
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
 const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
@@ -22,9 +23,8 @@ function meetsCategory(userTier, category) {
 }
 
 function applyDiscount(price, discountPct) {
-  if (!discountPct) return Math.round(price);
-  const raw = price * (1 - discountPct / 100);
-  return raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
+  if (!discountPct) return roundTokensUp(price);
+  return roundTokensUp(price * (1 - discountPct / 100));
 }
 
 function isEffectivelyUnlocked(grantType, membershipCurrentlyActive) {
@@ -33,8 +33,6 @@ function isEffectivelyUnlocked(grantType, membershipCurrentlyActive) {
   return true;
 }
 
-// Splits items into buckets and computes proportional pricing, plus surfaces the first
-// item's r2_key from each locked bucket, for use as a blurred preview thumbnail on the frontend.
 function computeSegments(items, userTier, basePrice, discountPct, isGuest, guestMultiplier) {
   const total = items.length || 1;
 
@@ -50,8 +48,8 @@ function computeSegments(items, userTier, basePrice, discountPct, isGuest, guest
   const rawTierPrice   = basePrice * (tierPortionCount / total);
   const rawUpsellPrice = basePrice * (upsellPortionCount / total);
 
-  const tierPrice   = isGuest ? Math.round(rawTierPrice * guestMultiplier)   : applyDiscount(rawTierPrice, discountPct);
-  const upsellPrice = isGuest ? Math.round(rawUpsellPrice * guestMultiplier) : applyDiscount(rawUpsellPrice, discountPct);
+  const tierPrice   = isGuest ? roundTokensUp(rawTierPrice * guestMultiplier)   : applyDiscount(rawTierPrice, discountPct);
+  const upsellPrice = isGuest ? roundTokensUp(rawUpsellPrice * guestMultiplier) : applyDiscount(rawUpsellPrice, discountPct);
 
   return {
     freeCount: freeItems.length,
@@ -135,9 +133,10 @@ router.get('/sets', authMid, async (req, res) => {
       const tierLapsed     = tierGrant === 'unlock_credit' && !isActive;
       const upsellUnlocked = upsellGrant && isEffectivelyUnlocked(upsellGrant, true);
 
-      // Cover only shows clearly if the fan has some genuine reach into the set —
-      // a free item, or something their own tier can eventually unlock. Otherwise blurred,
-      // this naturally covers purchase-only sets too, since nobody has "tier reach" into those.
+      // "Genuinely unlocked" for the fan's Unlocked Media tab means a real credit or token
+      // was spent — a set made entirely of free items never counts, even if viewed.
+      const isGenuinelyUnlocked = !!tierUnlocked || !!upsellUnlocked;
+
       const coverBlurred = segments.freeCount === 0 && segments.tierPortionCount === 0;
 
       return {
@@ -158,6 +157,7 @@ router.get('/sets', authMid, async (req, res) => {
         tierUnlocked: !!tierUnlocked,
         tierLapsed: !!tierLapsed,
         upsellUnlocked: !!upsellUnlocked,
+        isGenuinelyUnlocked,
 
         tierPrice: segments.tierPrice,
         upsellPrice: segments.upsellPrice,
@@ -189,7 +189,6 @@ router.get('/sets', authMid, async (req, res) => {
 
 // ─────────────────────────────────────────────
 // POST /api/gallery/unlock
-// Body: { setId, scope: 'tier' | 'upsell' }
 // ─────────────────────────────────────────────
 
 router.post('/unlock', authMid, async (req, res) => {
