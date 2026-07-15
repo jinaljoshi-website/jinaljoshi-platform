@@ -12,6 +12,8 @@ async function uploadToR2(file) {
   return publicUrl;
 }
 
+const CUSTOM_OPTION = { id: null, title: 'Custom Request', price_coins: null };
+
 export default function Extras() {
   const [data,       setData]       = useState(null);
   const [myRequests, setMyRequests] = useState([]);
@@ -80,7 +82,7 @@ export default function Extras() {
       }
 
       const res = await api.post('/api/extras/request', {
-        extraItemId: selected.id,
+        extraItemId: selected.id || undefined,
         topic: topic.trim(),
         details: details.trim(),
         referenceUrl: referenceUrl.trim() || null,
@@ -147,11 +149,26 @@ export default function Extras() {
             </div>
           );
         })}
+
+        <div
+          onClick={() => { const isSelected = selected?.id === null; setSelected(isSelected ? null : CUSTOM_OPTION); if (!isSelected) setOfferedPrice(''); }}
+          style={{ ...card, border: selected?.id === null ? `1px solid ${C.accent}` : `1px dashed ${C.border}`, cursor: 'pointer', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}
+        >
+          <div style={{ fontSize: 22, marginBottom: 6 }}>✨</div>
+          <div style={{ fontFamily: F.display, fontSize: 20, color: C.text, marginBottom: 4 }}>Something else?</div>
+          <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>Create your own custom request</div>
+          {selected?.id === null && <div style={{ fontFamily: F.sans, fontSize: 12, color: C.accent, marginTop: 8 }}>✓ Selected — fill in details below</div>}
+        </div>
       </div>
 
       {selected && (
         <div style={detailsPanel}>
           <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 16 }}>{selected.title}</div>
+          {selected.price_coins === null && (
+            <p style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginBottom: 16, marginTop: -8 }}>
+              No preset price — offer whatever feels right for what you're asking.
+            </p>
+          )}
 
           <div style={fieldLabel}>Topic</div>
           <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. My mom's 50th birthday" style={urlInput} />

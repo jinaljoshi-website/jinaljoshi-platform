@@ -56,7 +56,8 @@ router.get('/my-requests', authMid, async (req, res) => {
 router.post('/request', authMid, async (req, res) => {
   const { extraItemId, topic, details, referenceUrl, referenceImageUrl, expectedDeliveryDate, offeredPrice, consentAgreed } = req.body;
 
-  if (!extraItemId)         return res.status(400).json({ error: 'Please choose a request type' });
+  // extraItemId is now optional — a fan can pick one of Jinal's listed options, or submit
+  // a fully open-ended custom request that isn't tied to any pre-set catalog item at all.
   if (!topic?.trim())       return res.status(400).json({ error: 'Please give your request a short topic' });
   if (!details?.trim())     return res.status(400).json({ error: 'Please describe your request' });
   if (!offeredPrice || offeredPrice < 1) return res.status(400).json({ error: 'Please offer a token amount' });
@@ -79,15 +80,18 @@ router.post('/request', authMid, async (req, res) => {
     const user = userRows[0];
     const fanLabel = user.display_name || 'A member';
 
-    const { rows: itemRows } = await client.query(
-      `SELECT * FROM extras_items WHERE id = $1 AND visible = TRUE FOR UPDATE`,
-      [extraItemId]
-    );
-    if (!itemRows.length) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'This request type is not available' });
+    let itemTitle = 'Custom Request';
+    if (extraItemId) {
+      const { rows: itemRows } = await client.query(
+        `SELECT * FROM extras_items WHERE id = $1 AND visible = TRUE FOR UPDATE`,
+        [extraItemId]
+      );
+      if (!itemRows.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'This request type is not available' });
+      }
+      itemTitle = itemRows[0].title;
     }
-    const item = itemRows[0];
     const price = Math.ceil(offeredPrice);
 
     if (user.coin_balance < price) {
@@ -108,31 +112,31 @@ router.post('/request', authMid, async (req, res) => {
          (user_id, type, topic, details, reference_url, reference_image_key, expected_delivery_date,
           offered_price_coins, coins_charged, extra_item_id, consent_agreed)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, TRUE) RETURNING *`,
-      [req.user.userId, item.title, topic.trim(), details.trim(), referenceUrl?.trim() || null,
-       referenceImageUrl || null, expectedDeliveryDate || null, price, extraItemId]
+      [req.user.userId, itemTitle, topic.trim(), details.trim(), referenceUrl?.trim() || null,
+       referenceImageUrl || null, expectedDeliveryDate || null, price, extraItemId || null]
     );
 
     await client.query(
       `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
        VALUES ($1, 'custom_request', 'debit', $2, $3, $4)`,
-      [req.user.userId, price, `${item.title}: ${topic.trim()}`, requestRows[0].id]
+      [req.user.userId, price, `${itemTitle}: ${topic.trim()}`, requestRows[0].id]
     );
 
     await client.query(
       `INSERT INTO artist_notifications (type, fan_id, payload)
        VALUES ('custom_request', $1, $2)`,
-      [req.user.userId, JSON.stringify({ title: item.title, topic: topic.trim(), price, requestId: requestRows[0].id })]
+      [req.user.userId, JSON.stringify({ title: itemTitle, topic: topic.trim(), price, requestId: requestRows[0].id })]
     );
 
     await client.query('COMMIT');
 
     notifyArtist({
       title: 'New personalised request 🌟',
-      body:  `${item.title} — "${topic.trim()}" · ${price} tokens offered`,
+      body:  `${itemTitle} — "${topic.trim()}" · ${price} tokens offered`,
       url:   '/requests',
     });
 
-    postSystemMessage(`🌟 ${fanLabel} just requested a ${item.title}!`);
+    postSystemMessage(`🌟 ${fanLabel} just requested a ${itemTitle}!`);
 
     res.json({
       ok:         true,
