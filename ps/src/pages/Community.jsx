@@ -5,22 +5,6 @@ import { api, getUser } from '../api';
 const ARTIST_ID = import.meta.env.VITE_ARTIST_USER_ID;
 
 export default function Community() {
-  const [feedHeight, setFeedHeight] = useState(0);
-  const feedObserverRef = useRef(null);
-
-  const feedRef = (node) => {
-    if (feedObserverRef.current) {
-      feedObserverRef.current.disconnect();
-      feedObserverRef.current = null;
-    }
-    if (node) {
-      const observer = new ResizeObserver((entries) => {
-        for (const entry of entries) setFeedHeight(entry.contentRect.height);
-      });
-      observer.observe(node);
-      feedObserverRef.current = observer;
-    }
-  };
   const [posts,   setPosts]   = useState([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -35,6 +19,37 @@ export default function Community() {
   const bottomRef  = useRef(null);
   const isAtBottom = useRef(true);
   const currentUser = getUser();
+
+  const [feedRect, setFeedRect] = useState(null);
+  const feedElRef = useRef(null);
+  const feedObserverRef = useRef(null);
+
+  const recomputeFeedRect = () => {
+    if (feedElRef.current) setFeedRect(feedElRef.current.getBoundingClientRect());
+  };
+
+  const feedRef = (node) => {
+    if (feedObserverRef.current) {
+      feedObserverRef.current.disconnect();
+      feedObserverRef.current = null;
+    }
+    feedElRef.current = node;
+    if (node) {
+      const observer = new ResizeObserver(() => recomputeFeedRect());
+      observer.observe(node);
+      feedObserverRef.current = observer;
+      recomputeFeedRect();
+    }
+  };
+
+  useEffect(() => {
+    window.addEventListener('resize', recomputeFeedRect);
+    window.addEventListener('scroll', recomputeFeedRect, true);
+    return () => {
+      window.removeEventListener('resize', recomputeFeedRect);
+      window.removeEventListener('scroll', recomputeFeedRect, true);
+    };
+  }, []);
 
   const load = (silent = false) => api.get('/api/community/posts')
     .then((d) => {
@@ -62,6 +77,10 @@ export default function Community() {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [posts]);
+
+  useEffect(() => {
+    if (!loading) recomputeFeedRect();
+  }, [loading]);
 
   const handleScroll = (e) => {
     const el = e.target;
@@ -122,7 +141,6 @@ export default function Community() {
 
   return (
     <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: C.bg, borderRadius: communityBg ? 10 : 0, overflow: 'hidden' }}>
-      {/* Header — always solid, never carries the background photo */}
       <div style={{ ...stickyHeader, padding: '10px 16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
           <div>
@@ -138,20 +156,18 @@ export default function Community() {
         {reportMsg && <div style={{ ...successBox, marginTop: 8 }}>{reportMsg}</div>}
       </div>
 
-      {/* Feed — the ONLY area the background photo ever renders in.
-          Uses CSS Grid layer-stacking instead of position:absolute — see Chat.jsx for why. */}
-      <div ref={feedRef} style={{ flex: 1, minHeight: 0, display: 'grid', overflow: 'hidden' }}>
-        {communityBg && feedHeight > 0 && (
+      <div ref={feedRef} style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+        {communityBg && feedRect && (
           <>
-            <div style={{ gridArea: '1 / 1', width: '100%', height: feedHeight, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0 }} />
-            <div style={{ gridArea: '1 / 1', width: '100%', height: feedHeight, display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 0, overflow: 'hidden' }}>
-              <img src={communityBg} alt="" style={{ height: feedHeight, width: 'auto', maxWidth: 'none', display: 'block' }} />
+            <div style={{ position: 'fixed', top: feedRect.top, left: feedRect.left, width: feedRect.width, height: feedRect.height, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0, pointerEvents: 'none' }} />
+            <div style={{ position: 'fixed', top: feedRect.top, left: feedRect.left, width: feedRect.width, height: feedRect.height, display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+              <img src={communityBg} alt="" style={{ height: feedRect.height, width: 'auto', maxWidth: 'none', display: 'block' }} />
             </div>
-            <div style={{ gridArea: '1 / 1', width: '100%', height: feedHeight, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
+            <div style={{ position: 'fixed', top: feedRect.top, left: feedRect.left, width: feedRect.width, height: feedRect.height, background: 'rgba(10,9,8,0.55)', zIndex: 1, pointerEvents: 'none' }} />
           </>
         )}
 
-        <div style={{ gridArea: '1 / 1', width: '100%', height: feedHeight || '100%', zIndex: 2, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }} onScroll={handleScroll}>
+        <div style={{ position: 'relative', zIndex: 2, height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }} onScroll={handleScroll}>
           {visiblePosts.length === 0 && (
             <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>
               {posts.length === 0 ? 'Be the first to say something!' : 'No messages to show right now.'}
@@ -176,7 +192,6 @@ export default function Community() {
         </div>
       </div>
 
-      {/* Footer / composer — always solid, always pinned to the bottom of the available space */}
       <div style={{ ...composer, padding: '10px 16px', flexShrink: 0 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <textarea

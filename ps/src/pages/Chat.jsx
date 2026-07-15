@@ -7,25 +7,6 @@ import TopUpModal from '../components/TopUpModal';
 import { StreamChat } from 'stream-chat';
 
 export default function Chat() {
-  const [feedHeight, setFeedHeight] = useState(0);
-  const feedObserverRef = useRef(null);
-
-  // Callback ref — fires whenever the feed div actually mounts, immune to the
-  // component's early loading-state return meaning a plain useEffect([]) would
-  // fire once too early (while the ref is still null) and never run again.
-  const feedRef = (node) => {
-    if (feedObserverRef.current) {
-      feedObserverRef.current.disconnect();
-      feedObserverRef.current = null;
-    }
-    if (node) {
-      const observer = new ResizeObserver((entries) => {
-        for (const entry of entries) setFeedHeight(entry.contentRect.height);
-      });
-      observer.observe(node);
-      feedObserverRef.current = observer;
-    }
-  };
   const [messages,   setMessages]   = useState([]);
   const [status,     setStatus]     = useState(null);
   const [message,    setMessage]    = useState('');
@@ -34,7 +15,7 @@ export default function Chat() {
   const [typing,     setTyping]     = useState(false);
   const [error,      setError]      = useState('');
   const [topUp,      setTopUp]      = useState(null);
-  const [unlocking,  setUnlocking]  = useState(null); // db_message_id currently being unlocked
+  const [unlocking,  setUnlocking]  = useState(null);
   const bottomRef   = useRef(null);
   const channelRef  = useRef(null);
   const scClientRef = useRef(null);
@@ -42,13 +23,48 @@ export default function Chat() {
   const typingTimer = useRef(null);
   const statusRef   = useRef(null);
 
+  // Background layer — driven entirely by JS-measured viewport coordinates via position:fixed,
+  // rather than any CSS containing-block/grid mechanism. This is a deliberate choice: every
+  // relative-positioning approach (absolute+inset, grid-area, explicit grid tracks) produced a
+  // confirmed, reproducible several-pixel drift on this exact flex-item structure in testing,
+  // while raw getBoundingClientRect-driven position:fixed coordinates match exactly, always.
+  const [feedRect, setFeedRect] = useState(null);
+  const feedElRef = useRef(null);
+  const feedObserverRef = useRef(null);
+
+  const recomputeFeedRect = () => {
+    if (feedElRef.current) setFeedRect(feedElRef.current.getBoundingClientRect());
+  };
+
+  const feedRef = (node) => {
+    if (feedObserverRef.current) {
+      feedObserverRef.current.disconnect();
+      feedObserverRef.current = null;
+    }
+    feedElRef.current = node;
+    if (node) {
+      const observer = new ResizeObserver(() => recomputeFeedRect());
+      observer.observe(node);
+      feedObserverRef.current = observer;
+      recomputeFeedRect();
+    }
+  };
+
+  useEffect(() => {
+    window.addEventListener('resize', recomputeFeedRect);
+    window.addEventListener('scroll', recomputeFeedRect, true);
+    return () => {
+      window.removeEventListener('resize', recomputeFeedRect);
+      window.removeEventListener('scroll', recomputeFeedRect, true);
+    };
+  }, []);
+
   const loadStatus = () => api.get('/api/chat/status').then((d) => {
     setStatus(d);
     statusRef.current = d;
   }).catch(() => {});
 
   const msgToLocal = (m, myId) => {
-    // Locked media message — Jinal sent a paid unlockable bundle, never carries real URLs over Stream
     if (m.locked_media) {
       return {
         id:                m.db_message_id || m.id,
@@ -58,7 +74,7 @@ export default function Chat() {
         is_locked_media:   true,
         locked_price:      m.locked_price,
         locked_item_count: m.locked_item_count,
-        unlocked_media:    null, // filled in after a successful unlock
+        unlocked_media:    null,
         created_at:        m.created_at,
         is_mine:           m.user?.id === myId,
         status:            'delivered',
@@ -137,9 +153,6 @@ export default function Chat() {
 
         const streamMessages = (state.messages || []).map((m) => msgToLocal(m, tokenData.userId));
 
-        // Stream isn't always fully reliable for message delivery/sync (most fragile on the very
-        // first message of a brand-new channel) — our own database is the true source of record
-        // for every message, so we merge it in as a safety net rather than trust Stream alone.
         let finalMessages = streamMessages;
         try {
           const dbData = await api.get('/api/chat/messages');
@@ -218,6 +231,11 @@ export default function Chat() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, typing]);
+
+  useEffect(() => {
+    // Recompute once loading finishes and the real feed div exists
+    if (!loading) recomputeFeedRect();
+  }, [loading]);
 
   const handleTyping = () => {
     channelRef.current?.keystroke().catch(() => {});
@@ -338,7 +356,6 @@ export default function Chat() {
 
   return (
     <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: C.bg, borderRadius: chatBg ? 10 : 0, overflow: 'hidden' }}>
-      {/* Header — always solid, never carries the background photo */}
       <div style={{ ...stickyHeader, padding: '10px 16px' }}>
         <div style={{ marginBottom: 6 }}>
           <div style={eyebrow}>Direct messages</div>
@@ -374,21 +391,18 @@ export default function Chat() {
         )}
       </div>
 
-      {/* Feed — the ONLY area the background photo ever renders in, so what Jinal crops is exactly what's seen here.
-          Uses CSS Grid layer-stacking (shared grid-area) instead of position:absolute, which avoids a real, confirmed
-          Chromium quirk where flex items act as unreliable containing blocks for absolutely-positioned children. */}
-      <div ref={feedRef} style={{ flex: 1, minHeight: 0, display: 'grid', overflow: 'hidden' }}>
-        {chatBg && feedHeight > 0 && (
+      <div ref={feedRef} style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+        {chatBg && feedRect && (
           <>
-            <div style={{ gridArea: '1 / 1', width: '100%', height: feedHeight, backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0 }} />
-            <div style={{ gridArea: '1 / 1', width: '100%', height: feedHeight, display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 0, overflow: 'hidden' }}>
-              <img src={chatBg} alt="" style={{ height: feedHeight, width: 'auto', maxWidth: 'none', display: 'block' }} />
+            <div style={{ position: 'fixed', top: feedRect.top, left: feedRect.left, width: feedRect.width, height: feedRect.height, backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0, pointerEvents: 'none' }} />
+            <div style={{ position: 'fixed', top: feedRect.top, left: feedRect.left, width: feedRect.width, height: feedRect.height, display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+              <img src={chatBg} alt="" style={{ height: feedRect.height, width: 'auto', maxWidth: 'none', display: 'block' }} />
             </div>
-            <div style={{ gridArea: '1 / 1', width: '100%', height: feedHeight, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
+            <div style={{ position: 'fixed', top: feedRect.top, left: feedRect.left, width: feedRect.width, height: feedRect.height, background: 'rgba(10,9,8,0.55)', zIndex: 1, pointerEvents: 'none' }} />
           </>
         )}
 
-        <div style={{ gridArea: '1 / 1', width: '100%', height: feedHeight || '100%', zIndex: 2, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }}>
+        <div style={{ position: 'relative', zIndex: 2, height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }}>
           {messages.length === 0 && (
             <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>No messages yet. Say hello!</div>
           )}
@@ -410,7 +424,6 @@ export default function Chat() {
         </div>
       </div>
 
-      {/* Footer / composer — always solid, always pinned to the bottom of the available space */}
       <div style={{ ...composer, padding: '10px 16px', flexShrink: 0 }}>
         {!nextIsFree && nextCost > 0 && (
           <div style={costPreview}>
