@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { C, F } from '../tokens';
 import { api } from '../api';
 import { WonderCoinAmount } from '../components/WonderCoin';
@@ -36,7 +36,7 @@ export default function Chat() {
     if (feedElRef.current) setFeedRect(feedElRef.current.getBoundingClientRect());
   };
 
-  const feedRef = (node) => {
+  const feedRef = useCallback((node) => {
     if (feedObserverRef.current) {
       feedObserverRef.current.disconnect();
       feedObserverRef.current = null;
@@ -48,7 +48,7 @@ export default function Chat() {
       feedObserverRef.current = observer;
       recomputeFeedRect();
     }
-  };
+  }, []);
 
   useEffect(() => {
     window.addEventListener('resize', recomputeFeedRect);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { C, F } from '../tokens';
 import { api, getUser } from '../api';
 
@@ -28,7 +28,7 @@ export default function Community() {
     if (feedElRef.current) setFeedRect(feedElRef.current.getBoundingClientRect());
   };
 
-  const feedRef = (node) => {
+  const feedRef = useCallback((node) => {
     if (feedObserverRef.current) {
       feedObserverRef.current.disconnect();
       feedObserverRef.current = null;
@@ -40,7 +40,7 @@ export default function Community() {
       feedObserverRef.current = observer;
       recomputeFeedRect();
     }
-  };
+  }, []);
 
   useEffect(() => {
     window.addEventListener('resize', recomputeFeedRect);
