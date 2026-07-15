@@ -127,8 +127,12 @@ export default function Community() {
         {communityBg && (
           <>
             <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0 }} />
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', zIndex: 0 }}>
-              <div style={{ height: '100%', aspectRatio: '3 / 4', backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'stretch', zIndex: 0 }}>
+              <img
+                src={communityBg}
+                alt=""
+                style={{ height: '100%', width: 'auto', aspectRatio: '3 / 4', objectFit: 'cover', display: 'block' }}
+              />
             </div>
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
           </>
