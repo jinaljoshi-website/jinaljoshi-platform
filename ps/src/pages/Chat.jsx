@@ -7,6 +7,18 @@ import TopUpModal from '../components/TopUpModal';
 import { StreamChat } from 'stream-chat';
 
 export default function Chat() {
+  const feedRef = useRef(null);
+  const [feedHeight, setFeedHeight] = useState(0);
+
+  useEffect(() => {
+    if (!feedRef.current) return;
+    const el = feedRef.current;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) setFeedHeight(entry.contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const [messages,   setMessages]   = useState([]);
   const [status,     setStatus]     = useState(null);
   const [message,    setMessage]    = useState('');
@@ -358,18 +370,18 @@ export default function Chat() {
       {/* Feed — the ONLY area the background photo ever renders in, so what Jinal crops is exactly what's seen here.
           Uses CSS Grid layer-stacking (shared grid-area) instead of position:absolute, which avoids a real, confirmed
           Chromium quirk where flex items act as unreliable containing blocks for absolutely-positioned children. */}
-      <div style={{ flex: 1, minHeight: 0, display: 'grid', overflow: 'hidden' }}>
-        {chatBg && (
+      <div ref={feedRef} style={{ flex: 1, minHeight: 0, display: 'grid', overflow: 'hidden' }}>
+        {chatBg && feedHeight > 0 && (
           <>
-            <div style={{ gridArea: '1 / 1', backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0 }} />
-            <div style={{ gridArea: '1 / 1', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 0, overflow: 'hidden' }}>
-              <img src={chatBg} alt="" style={{ height: '100%', width: 'auto', maxWidth: 'none', display: 'block' }} />
+            <div style={{ gridArea: '1 / 1', width: '100%', height: feedHeight, backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)', zIndex: 0 }} />
+            <div style={{ gridArea: '1 / 1', width: '100%', height: feedHeight, display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 0, overflow: 'hidden' }}>
+              <img src={chatBg} alt="" style={{ height: feedHeight, width: 'auto', maxWidth: 'none', display: 'block' }} />
             </div>
-            <div style={{ gridArea: '1 / 1', background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
+            <div style={{ gridArea: '1 / 1', width: '100%', height: feedHeight, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
           </>
         )}
 
-        <div style={{ gridArea: '1 / 1', zIndex: 2, height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }}>
+        <div style={{ gridArea: '1 / 1', width: '100%', height: feedHeight || '100%', zIndex: 2, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }}>
           {messages.length === 0 && (
             <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>No messages yet. Say hello!</div>
           )}
