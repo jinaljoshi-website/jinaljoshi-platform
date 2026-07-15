@@ -125,12 +125,22 @@ router.post('/recharge/verify', authMid, async (req, res) => {
       return res.status(400).json({ error: 'Payment verification failed — signature mismatch' });
     }
 
+    // The webhook reliably arrives before this client-side call in practice (it's a direct
+    // server-to-server request, with no browser round-trip to wait on). That's expected,
+    // not an error — if the payment's already credited, confirm success using the existing
+    // result instead of treating the fan's own successful payment as a failure.
     const { rows: existing } = await pool.query(
-      `SELECT id FROM coin_ledger WHERE payment_id = $1`,
+      `SELECT amount FROM coin_ledger WHERE payment_id = $1`,
       [razorpay_payment_id]
     );
     if (existing.length) {
-      return res.status(409).json({ error: 'Payment already processed' });
+      const { rows: userRows } = await pool.query(`SELECT coin_balance FROM users WHERE id = $1`, [req.user.userId]);
+      return res.json({
+        ok: true,
+        tokens: existing[0].amount,
+        newBalance: userRows[0].coin_balance,
+        message: `${existing[0].amount} tokens added to your balance!`,
+      });
     }
 
     const priceINR    = calcPrice(amount);
