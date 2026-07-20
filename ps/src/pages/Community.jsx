@@ -4,6 +4,11 @@ import { api, getUser } from '../api';
 
 const ARTIST_ID = import.meta.env.VITE_ARTIST_USER_ID;
 
+function rectsEqual(a, b) {
+  if (!a || !b) return false;
+  return a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height;
+}
+
 export default function Community() {
   const [posts,   setPosts]   = useState([]);
   const [message, setMessage] = useState('');
@@ -20,12 +25,31 @@ export default function Community() {
   const isAtBottom = useRef(true);
   const currentUser = getUser();
 
+  // Background layer geometry — measured carefully to avoid the exact bug that crashed a
+  // real fan's phone in Chat.jsx: rAF-coalesced (at most one measurement per frame),
+  // value-diffed (React only re-renders when the rect actually changed, since
+  // getBoundingClientRect always returns a new object even when nothing moved), and
+  // deliberately NOT listening to 'scroll' at all — this feed's position relative to the
+  // viewport never changes from its own internal scrolling, so that listener was pure
+  // unthrottled overhead that fired far more aggressively on real mobile hardware
+  // (inertia scrolling) than any desktop testing session ever revealed.
   const [feedRect, setFeedRect] = useState(null);
   const feedElRef = useRef(null);
   const feedObserverRef = useRef(null);
+  const lastRectRef = useRef(null);
+  const rafRef = useRef(null);
 
   const recomputeFeedRect = () => {
-    if (feedElRef.current) setFeedRect(feedElRef.current.getBoundingClientRect());
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      if (!feedElRef.current) return;
+      const rect = feedElRef.current.getBoundingClientRect();
+      if (!rectsEqual(rect, lastRectRef.current)) {
+        lastRectRef.current = rect;
+        setFeedRect(rect);
+      }
+    });
   };
 
   const feedRef = useCallback((node) => {
@@ -44,10 +68,9 @@ export default function Community() {
 
   useEffect(() => {
     window.addEventListener('resize', recomputeFeedRect);
-    window.addEventListener('scroll', recomputeFeedRect, true);
     return () => {
       window.removeEventListener('resize', recomputeFeedRect);
-      window.removeEventListener('scroll', recomputeFeedRect, true);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, []);
 
@@ -165,6 +188,9 @@ export default function Community() {
             </div>
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)' }} />
           </div>
+        )}
+        {communityBg && !feedRect && (
+          <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
         )}
 
         <div style={{ position: 'relative', zIndex: 2, height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }} onScroll={handleScroll}>
