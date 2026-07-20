@@ -23,37 +23,6 @@ export default function Chat() {
   const typingTimer = useRef(null);
   const statusRef   = useRef(null);
 
-  const [feedRect, setFeedRect] = useState(null);
-  const feedElRef = useRef(null);
-  const feedObserverRef = useRef(null);
-
-  const recomputeFeedRect = () => {
-    if (feedElRef.current) setFeedRect(feedElRef.current.getBoundingClientRect());
-  };
-
-  const feedRef = (node) => {
-    if (feedObserverRef.current) {
-      feedObserverRef.current.disconnect();
-      feedObserverRef.current = null;
-    }
-    feedElRef.current = node;
-    if (node) {
-      const observer = new ResizeObserver(() => recomputeFeedRect());
-      observer.observe(node);
-      feedObserverRef.current = observer;
-      recomputeFeedRect();
-    }
-  };
-
-  useEffect(() => {
-    window.addEventListener('resize', recomputeFeedRect);
-    window.addEventListener('scroll', recomputeFeedRect, true);
-    return () => {
-      window.removeEventListener('resize', recomputeFeedRect);
-      window.removeEventListener('scroll', recomputeFeedRect, true);
-    };
-  }, []);
-
   const loadStatus = () => api.get('/api/chat/status').then((d) => {
     setStatus(d);
     statusRef.current = d;
@@ -227,10 +196,6 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, typing]);
 
-  useEffect(() => {
-    if (!loading) recomputeFeedRect();
-  }, [loading]);
-
   const handleTyping = () => {
     channelRef.current?.keystroke().catch(() => {});
     clearTimeout(typingTimer.current);
@@ -385,15 +350,12 @@ export default function Chat() {
         )}
       </div>
 
-      <div ref={feedRef} style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
-        {chatBg && feedRect && (
-          <div style={{ position: 'fixed', top: feedRect.top, left: feedRect.left, width: feedRect.width, height: feedRect.height, overflow: 'hidden', zIndex: 0, pointerEvents: 'none' }}>
-            <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)' }} />
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-              <img src={chatBg} alt="" style={{ height: '100%', width: 'auto', maxWidth: 'none', display: 'block' }} />
-            </div>
+      <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+        {chatBg && (
+          <>
+            <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)' }} />
-          </div>
+          </>
         )}
 
         <div style={{ position: 'relative', zIndex: 2, height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }}>
