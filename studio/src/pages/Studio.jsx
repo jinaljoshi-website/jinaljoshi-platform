@@ -17,6 +17,7 @@ import { Requests }      from '../sections/Requests';
 import { Community }     from '../sections/Community';
 import { Settings }      from '../sections/Settings';
 import { Notifications } from '../sections/Notifications';
+import { Website }       from '../sections/Website';
 
 const NAV = [
   { id: 'dashboard',     label: 'Dashboard'     },
@@ -29,6 +30,7 @@ const NAV = [
   { id: 'calls',         label: 'Calls'         },
   { id: 'availability',  label: 'Availability'  },
   { id: 'requests',      label: 'Requests'      },
+  { id: 'website',       label: 'Website'       },
   { id: 'community',     label: 'The Happening Place'     },
   { id: 'notifications', label: 'Notifications' },
   { id: 'settings',      label: 'Settings'      },
@@ -47,6 +49,7 @@ const SECTIONS = {
   requests:      Requests,
   community:     Community,
   notifications: Notifications,
+  website:       Website,
   settings:      Settings,
 };
 
