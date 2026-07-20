@@ -69,8 +69,18 @@ export default function Landing() {
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.text, display: 'flex', flexDirection: 'column' }}>
 
+      {/* ── Persistent top navigation — reaches every section without scrolling ── */}
+      <div style={topNavBar}>
+        {SECTIONS.map((section) => (
+          <button key={section.path} onClick={() => navigate(section.path)} style={topNavBtn} title={section.label}>
+            <span style={{ fontSize: 16 }}>{section.icon}</span>
+            <span style={topNavLabel}>{section.label}</span>
+          </button>
+        ))}
+      </div>
+
       {/* ── Header ── */}
-      <div style={{ padding: '24px 24px 0', flexShrink: 0 }}>
+      <div style={{ padding: '16px 24px 0', flexShrink: 0 }}>
         <div style={{ fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 6 }}>
           Personal Space
         </div>
@@ -233,3 +243,7 @@ const sectionCard = {
   padding: '18px 20px',
   marginBottom: 14,
 };
+
+const topNavBar = { display: 'flex', gap: 4, overflowX: 'auto', padding: '10px 16px', flexShrink: 0, borderBottom: `1px solid ${C.border}`, scrollbarWidth: 'none' };
+const topNavBtn = { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', padding: '6px 10px', borderRadius: 8, flexShrink: 0, minWidth: 56 };
+const topNavLabel = { fontFamily: F.sans, fontSize: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 56 };

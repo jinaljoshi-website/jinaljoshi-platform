@@ -4,7 +4,15 @@ import { api } from '../api';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import { TIERS } from '../data';
 import TopUpModal from '../components/TopUpModal';
+import GuestNudge from '../components/GuestNudge';
 import { StreamChat } from 'stream-chat';
+
+const MAX_VOICE_SECONDS = 60;
+
+function rectsEqual(a, b) {
+  if (!a || !b) return false;
+  return a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height;
+}
 
 export default function Chat() {
   const [messages,   setMessages]   = useState([]);
@@ -16,17 +24,78 @@ export default function Chat() {
   const [error,      setError]      = useState('');
   const [topUp,      setTopUp]      = useState(null);
   const [unlocking,  setUnlocking]  = useState(null);
+  const [recording,  setRecording]  = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
   const bottomRef   = useRef(null);
   const channelRef  = useRef(null);
   const scClientRef = useRef(null);
   const myIdRef     = useRef(null);
   const typingTimer = useRef(null);
   const statusRef   = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef   = useRef([]);
+  const recordTimerRef   = useRef(null);
+  const textareaRef = useRef(null);
+
+  // Background layer geometry — measured via getBoundingClientRect, but carefully guarded
+  // against the exact failure mode that crashed a real fan's phone earlier: rAF-coalesces
+  // rapid-fire triggers into at most one measurement per frame, and only updates state when
+  // the measurement actually changed (getBoundingClientRect always returns a new object even
+  // when nothing moved, so without this check React re-renders on every single scroll tick).
+  // Deliberately NOT listening to 'scroll' at all — the feed container's position relative to
+  // the viewport never changes from its own internal scrolling, so that listener was pure
+  // unthrottled overhead, firing constantly and far more aggressively on real mobile hardware
+  // (inertia scrolling) than anything a desktop testing session ever produced.
+  const [feedRect, setFeedRect] = useState(null);
+  const feedElRef = useRef(null);
+  const feedObserverRef = useRef(null);
+  const lastRectRef = useRef(null);
+  const rafRef = useRef(null);
+
+  const recomputeFeedRect = () => {
+    if (rafRef.current) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      if (!feedElRef.current) return;
+      const rect = feedElRef.current.getBoundingClientRect();
+      if (!rectsEqual(rect, lastRectRef.current)) {
+        lastRectRef.current = rect;
+        setFeedRect(rect);
+      }
+    });
+  };
+
+  const feedRef = (node) => {
+    if (feedObserverRef.current) {
+      feedObserverRef.current.disconnect();
+      feedObserverRef.current = null;
+    }
+    feedElRef.current = node;
+    if (node) {
+      const observer = new ResizeObserver(() => recomputeFeedRect());
+      observer.observe(node);
+      feedObserverRef.current = observer;
+      recomputeFeedRect();
+    }
+  };
+
+  useEffect(() => {
+    window.addEventListener('resize', recomputeFeedRect);
+    return () => {
+      window.removeEventListener('resize', recomputeFeedRect);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
 
   const loadStatus = () => api.get('/api/chat/status').then((d) => {
     setStatus(d);
     statusRef.current = d;
   }).catch(() => {});
+
+  useEffect(() => {
+    const interval = setInterval(() => loadStatus(), 20000);
+    return () => clearInterval(interval);
+  }, []);
 
   const msgToLocal = (m, myId) => {
     if (m.locked_media) {
@@ -50,12 +119,55 @@ export default function Chat() {
       sender_id:      m.user?.id,
       content:        m.text || null,
       media_url:      m.attachments?.[0]?.image_url || m.attachments?.[0]?.asset_url || null,
-      media_type:     m.attachments?.[0]?.type === 'video' ? 'video' : m.attachments?.[0]?.image_url ? 'image' : null,
+      media_type:     m.attachments?.[0]?.type === 'audio' ? 'audio' : m.attachments?.[0]?.type === 'video' ? 'video' : m.attachments?.[0]?.image_url ? 'image' : null,
       tokens_charged: m.tokens_charged || 0,
       created_at:     m.created_at,
       is_mine:        m.user?.id === myId,
       status:         'delivered',
     };
+  };
+
+  const syncMessages = async (myId) => {
+    try {
+      const streamMessages = channelRef.current
+        ? (channelRef.current.state.messages || []).map((m) => msgToLocal(m, myId))
+        : [];
+      const dbData = await api.get('/api/chat/messages');
+      const dbMessages = dbData.messages || [];
+      const streamIds = new Set(streamMessages.map((m) => m.id));
+
+      const dbToLocal = (m) => ({
+        id:                m.id,
+        stream_id:         m.id,
+        sender_id:         m.sender_id,
+        content:           m.content,
+        is_locked_media:   !!m.is_locked && m.unlock_price_coins != null,
+        locked_price:      m.unlock_price_coins,
+        locked_item_count: m.locked_item_count,
+        unlocked_media:    m.locked_media_urls || null,
+        media_url:         m.media_url,
+        media_type:        m.media_type,
+        tokens_charged:    m.tokens_charged || 0,
+        created_at:        m.created_at,
+        is_mine:           m.is_mine,
+        status:            'delivered',
+      });
+
+      const missingFromStream = dbMessages.filter((m) => !streamIds.has(m.id)).map(dbToLocal);
+      const dbById = new Map(dbMessages.map((m) => [m.id, m]));
+      const patchedStreamMessages = streamMessages.map((m) => {
+        if (!m.is_locked_media) return m;
+        const dbMsg = dbById.get(m.id);
+        if (dbMsg && dbMsg.locked_media_urls) return { ...m, unlocked_media: dbMsg.locked_media_urls };
+        return m;
+      });
+
+      const finalMessages = [...patchedStreamMessages, ...missingFromStream]
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      setMessages(finalMessages);
+    } catch (err) {
+      console.error('Failed to sync messages:', err);
+    }
   };
 
   useEffect(() => {
@@ -112,55 +224,10 @@ export default function Chat() {
 
         channelRef.current = channel;
 
-        const state = await channel.watch();
+        await channel.watch();
         if (!mounted) return;
 
-        const streamMessages = (state.messages || []).map((m) => msgToLocal(m, tokenData.userId));
-
-        let finalMessages = streamMessages;
-        try {
-          const dbData = await api.get('/api/chat/messages');
-          const dbMessages = dbData.messages || [];
-          const streamIds = new Set(streamMessages.map((m) => m.id));
-
-          const dbToLocal = (m) => ({
-            id:                m.id,
-            stream_id:         m.id,
-            sender_id:         m.sender_id,
-            content:           m.content,
-            is_locked_media:   !!m.is_locked && m.unlock_price_coins != null,
-            locked_price:      m.unlock_price_coins,
-            locked_item_count: m.locked_item_count,
-            unlocked_media:    m.locked_media_urls || null,
-            media_url:         m.media_url,
-            media_type:        m.media_type,
-            tokens_charged:    m.tokens_charged || 0,
-            created_at:        m.created_at,
-            is_mine:           m.is_mine,
-            status:            'delivered',
-          });
-
-          const missingFromStream = dbMessages
-            .filter((m) => !streamIds.has(m.id))
-            .map(dbToLocal);
-
-          const dbById = new Map(dbMessages.map((m) => [m.id, m]));
-          const patchedStreamMessages = streamMessages.map((m) => {
-            if (!m.is_locked_media) return m;
-            const dbMsg = dbById.get(m.id);
-            if (dbMsg && dbMsg.locked_media_urls) {
-              return { ...m, unlocked_media: dbMsg.locked_media_urls };
-            }
-            return m;
-          });
-
-          finalMessages = [...patchedStreamMessages, ...missingFromStream]
-            .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-        } catch (err) {
-          console.error('Failed to reconcile message history with backend:', err);
-        }
-
-        setMessages(finalMessages);
+        await syncMessages(tokenData.userId);
         channel.markRead().catch(() => {});
       } catch (err) {
         console.error('Chat init error:', err);
@@ -184,9 +251,23 @@ export default function Chat() {
     };
 
     init();
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && myIdRef.current) {
+        syncMessages(myIdRef.current);
+        loadStatus();
+        channelRef.current?.markRead().catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+
     return () => {
       mounted = false;
       clearTimeout(typingTimer.current);
+      clearInterval(recordTimerRef.current);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
       channelRef.current?.stopWatching().catch(() => {});
       if (scClientRef.current?.userID) scClientRef.current.disconnectUser().catch(() => {});
     };
@@ -196,12 +277,22 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, typing]);
 
+  useEffect(() => {
+    if (!loading) recomputeFeedRect();
+  }, [loading]);
+
   const handleTyping = () => {
     channelRef.current?.keystroke().catch(() => {});
     clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => {
       channelRef.current?.stopTyping().catch(() => {});
     }, 2000);
+  };
+
+  const autoGrow = (el) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
   };
 
   const unlockMedia = async (dbMessageId) => {
@@ -265,6 +356,7 @@ export default function Chat() {
         mediaType: mediaType || undefined,
       });
       setMessage('');
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
       if (data.newBalance !== undefined) {
         setStatus((prev) => ({ ...prev, coinBalance: data.newBalance }));
@@ -276,8 +368,8 @@ export default function Chat() {
         if (content) streamMsg.text = content;
         if (mediaUrl) {
           streamMsg.attachments = [{
-            type: mediaType === 'video' ? 'video' : 'image',
-            [mediaType === 'video' ? 'asset_url' : 'image_url']: mediaUrl,
+            type: mediaType === 'audio' ? 'audio' : mediaType === 'video' ? 'video' : 'image',
+            [mediaType === 'video' || mediaType === 'audio' ? 'asset_url' : 'image_url']: mediaUrl,
           }];
         }
         await channelRef.current.sendMessage(streamMsg);
@@ -304,6 +396,67 @@ export default function Chat() {
     }
   };
 
+  const startRecording = async () => {
+    setError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        if (blob.size > 0) uploadAndSendVoiceNote(blob);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+      setRecordSeconds(0);
+      recordTimerRef.current = setInterval(() => {
+        setRecordSeconds((s) => {
+          if (s + 1 >= MAX_VOICE_SECONDS) { stopRecording(); return MAX_VOICE_SECONDS; }
+          return s + 1;
+        });
+      }, 1000);
+    } catch (err) {
+      setError('Microphone access is needed to record a voice note.');
+    }
+  };
+
+  const stopRecording = () => {
+    clearInterval(recordTimerRef.current);
+    if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop();
+    setRecording(false);
+  };
+
+  const cancelRecording = () => {
+    clearInterval(recordTimerRef.current);
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.onstop = null;
+      if (mediaRecorderRef.current.state !== 'inactive') mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream?.getTracks().forEach((t) => t.stop());
+    }
+    setRecording(false);
+    setRecordSeconds(0);
+  };
+
+  const uploadAndSendVoiceNote = async (blob) => {
+    setSending(true);
+    try {
+      const file = new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
+      const { uploadUrl, publicUrl } = await api.post('/api/upload/presign', {
+        filename: file.name, contentType: file.type, context: 'chat_media',
+      });
+      await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
+      await sendMessage(null, publicUrl, 'audio');
+    } catch (err) {
+      setError('Failed to send voice note.');
+    } finally {
+      setSending(false);
+      setRecordSeconds(0);
+    }
+  };
+
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Connecting to chat…</div>;
 
   const isGuest        = status?.tier === 'guest';
@@ -324,11 +477,14 @@ export default function Chat() {
         {status && (
           <div style={statusBar}>
             {isGuest ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>Guest ·</span>
-                <WonderCoinAmount amount={nextCost} size={13} textColor={C.accent} fontSize={13} />
-                <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>per message</span>
-                <button onClick={() => setTopUp(nextCost * 5)} style={topUpBtn}>Top up</button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>Guest ·</span>
+                  <WonderCoinAmount amount={nextCost} size={13} textColor={C.accent} fontSize={13} />
+                  <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>per message</span>
+                  <button onClick={() => setTopUp(nextCost * 5)} style={topUpBtn}>Top up</button>
+                </div>
+                <GuestNudge compact message="Members message Jinal for less" />
               </div>
             ) : (
               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -350,12 +506,20 @@ export default function Chat() {
         )}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
-        {chatBg && (
-          <>
-            <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+      <div ref={feedRef} style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+        {chatBg && feedRect && (
+          <div style={{ position: 'fixed', top: feedRect.top, left: feedRect.left, width: feedRect.width, height: feedRect.height, overflow: 'hidden', zIndex: 0, pointerEvents: 'none' }}>
+            <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center', filter: 'blur(28px)', transform: 'scale(1.15)' }} />
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              <img src={chatBg} alt="" style={{ height: '100%', width: 'auto', maxWidth: 'none', display: 'block' }} />
+            </div>
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)' }} />
-          </>
+          </div>
+        )}
+        {chatBg && !feedRect && (
+          // Fallback shown for the brief moment before the first measurement resolves —
+          // ensures the background is never simply missing while feedRect is still null
+          <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${chatBg})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
         )}
 
         <div style={{ position: 'relative', zIndex: 2, height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px' }}>
@@ -387,12 +551,34 @@ export default function Chat() {
             <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>{isGuest ? ' per message' : ' per message (quota used)'}</span>
           </div>
         )}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-          <textarea value={message} onChange={(e) => { setMessage(e.target.value); handleTyping(); }} onKeyDown={handleKeyDown} placeholder={nextIsFree ? `Message Jinal… (${freeRemaining} free remaining)` : isGuest ? `Message Jinal… (${nextCost} tokens each)` : `Message Jinal… (${nextCost} token${nextCost > 1 ? 's' : ''} each)`} style={composerInput} rows={2} />
-          <button onClick={() => { if (message.trim()) sendMessage(message.trim()); }} disabled={sending || !message.trim()} style={{ ...sendBtn, opacity: (sending || !message.trim()) ? 0.5 : 1 }}>
-            {sending ? '…' : 'Send'}
-          </button>
-        </div>
+
+        {recording ? (
+          <div style={recordingBar}>
+            <div style={recordingDot} />
+            <span style={{ fontFamily: F.mono, fontSize: 14, color: C.text }}>
+              {String(Math.floor(recordSeconds / 60)).padStart(2, '0')}:{String(recordSeconds % 60).padStart(2, '0')} / 01:00
+            </span>
+            <div style={{ flex: 1 }} />
+            <button onClick={cancelRecording} style={cancelRecordBtn}>Cancel</button>
+            <button onClick={stopRecording} style={sendBtn}>Send</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            <button onClick={startRecording} disabled={sending} style={{ ...micBtn, opacity: sending ? 0.5 : 1 }} title="Record a voice note">🎙️</button>
+            <textarea
+              ref={textareaRef}
+              value={message}
+              onChange={(e) => { setMessage(e.target.value); handleTyping(); autoGrow(e.target); }}
+              onKeyDown={handleKeyDown}
+              placeholder={nextIsFree ? `Message Jinal… (${freeRemaining} free remaining)` : isGuest ? `Message Jinal… (${nextCost} tokens each)` : `Message Jinal… (${nextCost} token${nextCost > 1 ? 's' : ''} each)`}
+              style={composerInput}
+              rows={2}
+            />
+            <button onClick={() => { if (message.trim()) sendMessage(message.trim()); }} disabled={sending || !message.trim()} style={{ ...sendBtn, opacity: (sending || !message.trim()) ? 0.5 : 1 }}>
+              {sending ? '…' : 'Send'}
+            </button>
+          </div>
+        )}
       </div>
 
       {topUp !== null && (
@@ -416,7 +602,9 @@ function MessageBubble({ msg, onUnlock, unlocking }) {
               {msg.unlocked_media.map((item, i) => (
                 item.type === 'video'
                   ? <video key={i} src={item.url} controls style={{ width: '100%', borderRadius: 6, display: 'block' }} />
-                  : <img key={i} src={item.url} alt="" style={{ width: '100%', borderRadius: 6, display: 'block' }} />
+                  : item.type === 'audio'
+                    ? <audio key={i} src={item.url} controls style={{ width: '100%' }} />
+                    : <img key={i} src={item.url} alt="" style={{ width: '100%', borderRadius: 6, display: 'block' }} />
               ))}
             </div>
           ) : (
@@ -454,6 +642,7 @@ function MessageBubble({ msg, onUnlock, unlocking }) {
       <div style={{ ...bubble, background: isMe ? 'rgba(193,125,74,0.1)' : C.surface, border: isMe ? `1px solid rgba(193,125,74,0.25)` : `1px solid ${C.border}`, padding: msg.media_url ? 6 : '10px 14px', overflow: 'hidden' }}>
         {msg.media_url && msg.media_type === 'image' && <img src={msg.media_url} alt="" style={{ width: '100%', maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: msg.content ? 8 : 0 }} />}
         {msg.media_url && msg.media_type === 'video' && <video src={msg.media_url} controls style={{ width: '100%', maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: msg.content ? 8 : 0 }} />}
+        {msg.media_url && msg.media_type === 'audio' && <audio src={msg.media_url} controls style={{ width: '100%', minWidth: 220 }} />}
         {msg.content && <div style={{ padding: msg.media_url ? '0 8px 8px' : 0 }}>{msg.content}</div>}
       </div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3, alignSelf: isMe ? 'flex-end' : 'flex-start' }}>
@@ -477,5 +666,9 @@ const bubble       = { fontFamily: F.sans, fontSize: 14, color: C.text, lineHeig
 const errorBox     = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
 const costPreview  = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 };
 const composer     = { flexShrink: 0, borderTop: `1px solid ${C.border}`, background: 'rgba(13,12,10,1)' };
-const composerInput = { flex: 1, width: '100%', background: 'rgba(22,20,16,0.9)', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 16, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', lineHeight: 1.5, boxSizing: 'border-box', textAlign: 'left' };
+const composerInput = { flex: 1, width: '100%', background: 'rgba(22,20,16,0.9)', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 16, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', lineHeight: 1.5, boxSizing: 'border-box', textAlign: 'left', maxHeight: 160 };
 const sendBtn      = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '10px 20px', borderRadius: 8, flexShrink: 0, cursor: 'pointer' };
+const micBtn       = { background: 'transparent', border: `1px solid ${C.border}`, color: C.text, fontSize: 18, padding: '8px 12px', borderRadius: 8, cursor: 'pointer', flexShrink: 0 };
+const recordingBar = { display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(156,90,90,0.1)', border: '1px solid rgba(156,90,90,0.3)', borderRadius: 8, padding: '10px 14px' };
+const recordingDot = { width: 10, height: 10, borderRadius: '50%', background: '#D99A9A', flexShrink: 0 };
+const cancelRecordBtn = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 8, cursor: 'pointer' };

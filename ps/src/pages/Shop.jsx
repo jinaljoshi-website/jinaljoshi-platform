@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { C, F } from '../tokens';
 import { bestMemberPrice } from '../data';
+import GuestNudge from '../components/GuestNudge';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
@@ -78,7 +79,7 @@ export default function Shop() {
               {item.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 10 }}>{item.description}</div>}
               <div style={{ marginBottom: 6 }}><WonderCoinAmount amount={price} size={18} /></div>
               {data?.discountPct > 0 && <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 4 }}>{data.discountPct}% member discount</div>}
-              {data?.isGuest && <div style={nudgeStyle}>Members pay <strong style={{ color: C.accent }}>{nudge}</strong> tokens with Supreme</div>}
+              {data?.isGuest && <GuestNudge compact message={`Members pay ${nudge} tokens with Supreme`} />}
               {!canAfford && !outOfStock && (
                 <div style={{ fontFamily: F.sans, fontSize: 11, color: '#D99A9A', marginBottom: 6 }}>
                   Need {price - (data?.coinBalance || 0)} more tokens ·{' '}

@@ -3,6 +3,7 @@ import { C, F } from '../tokens';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
+import GuestNudge from '../components/GuestNudge';
 
 async function uploadToR2(file) {
   const { uploadUrl, publicUrl } = await api.post('/api/upload/presign', {
@@ -137,6 +138,8 @@ export default function Extras() {
         <h1 style={title}>Personalised extras</h1>
         <p style={text}>Birthday greetings, anniversary messages, custom video, and more — browse Jinal's listings below, then send your own request with the details and price you'd like to offer.</p>
       </div>
+
+      {data?.isGuest && <GuestNudge message="You're browsing as a guest — members get discounted rates on custom requests." />}
 
       {error && (
         <div style={{ ...errorBox, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 16 }}>
