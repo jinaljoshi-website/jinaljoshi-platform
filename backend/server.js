@@ -10,6 +10,8 @@ app.use(cors({
   origin: [
     'https://ps.jinaljoshi.in',
     'https://studio.jinaljoshi.in',
+    'https://jinaljoshi.in',
+    'https://www.jinaljoshi.in',
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:5175',
@@ -40,6 +42,7 @@ app.use('/api/push',         require('./routes/push'));
 app.use('/api/studio/analytics', require('./routes/analytics'));
 app.use('/api/studio',       require('./routes/studio'));
 app.use('/api/upload',       require('./routes/upload'));
+app.use('/api/portfolio', require('./routes/portfolio'));
 
 app.get('/api/health', (req, res) => res.json({ ok: true, service: 'backend' }));
 app.get('/',           (req, res) => res.json({ message: 'Backend is running.' }));
