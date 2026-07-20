@@ -51,6 +51,18 @@ export const api = {
     });
     return parseResponse(res);
   },
+  async delete(path, body) {
+    const jwt = sessionStorage.getItem('jwt');
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    return parseResponse(res);
+  },
 };
 
 export function saveAuth(jwt, user) {
