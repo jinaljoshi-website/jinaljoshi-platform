@@ -3,6 +3,7 @@ import { C, F } from '../tokens';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
+import GuestNudge from '../components/GuestNudge';
 import CallTimer from '../components/CallTimer';
 import IncomingCallOverlay from '../components/IncomingCallOverlay';
 import NotificationNudge from '../components/NotificationNudge';
@@ -373,7 +374,7 @@ export default function Calls() {
                   <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>/ min</span>
                 </div>
                 {data.discountPct > 0 && <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent }}>{data.discountPct}% member discount</div>}
-                {data.isGuest && <div style={nudge}>Members pay less — join a plan</div>}
+                {data.isGuest && <div style={{ marginTop: 8 }}><GuestNudge compact message="Members pay less per minute" /></div>}
                 {isSelectedOption && <div style={{ fontFamily: F.sans, fontSize: 12, color: C.accent, marginTop: 10 }}>✓ Selected</div>}
               </div>
             );
