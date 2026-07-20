@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { T, S, Card, Eyebrow, Field, colors } from '../ui';
+import HeroCropTool from '../components/HeroCropTool';
 
 const sans = "'DM Sans', system-ui, sans-serif";
 
@@ -29,6 +30,7 @@ export function Website() {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
   const [uploadingSlide, setUploadingSlide] = useState(false);
+  const [heroCropFile, setHeroCropFile] = useState(null);
   const slideFileRef = useRef(null);
 
   const [activeCategory, setActiveCategory] = useState('films');
@@ -52,13 +54,18 @@ export function Website() {
   useEffect(() => { load(); }, []);
 
   // ── Hero slides ──
-  const handleSlideUpload = async (e) => {
+  const handleSlideFilePick = (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    setHeroCropFile(file);
+  };
+
+  const handleHeroCropComplete = async (croppedFile) => {
+    setHeroCropFile(null);
     setUploadingSlide(true); setError('');
     try {
-      const publicUrl = await uploadImage(file);
+      const publicUrl = await uploadImage(croppedFile);
       await api.post('/api/studio/portfolio/hero-slides', { image_key: publicUrl });
       load();
     } catch (err) { setError(err.message); }
@@ -158,11 +165,19 @@ export function Website() {
             </div>
           ))}
         </div>
-        <input ref={slideFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleSlideUpload} />
+        <input ref={slideFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleSlideFilePick} />
         <button onClick={() => slideFileRef.current?.click()} disabled={uploadingSlide} style={{ ...S.btn, opacity: uploadingSlide ? 0.5 : 1 }}>
           {uploadingSlide ? 'Uploading…' : '+ Add photo'}
         </button>
       </Card>
+
+      {heroCropFile && (
+        <HeroCropTool
+          file={heroCropFile}
+          onCancel={() => setHeroCropFile(null)}
+          onCropComplete={handleHeroCropComplete}
+        />
+      )}
 
       {/* Works */}
       <Card>
