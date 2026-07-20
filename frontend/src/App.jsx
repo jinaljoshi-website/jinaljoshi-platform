@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
-const SLIDES = [
+// Fallback content — used only if the live portfolio API is unreachable, so the site
+// never breaks even during a backend outage.
+const FALLBACK_SLIDES = [
   '/jinal-hero-01.jpg',
   '/jinal-hero-02.jpg',
   '/jinal-hero-03.jpg',
@@ -70,7 +72,7 @@ function getEmbedInfo(url) {
   }
 }
 
-const WORKS = {
+const FALLBACK_WORKS = {
   films: [
     {
       title: 'Chanchal',
@@ -577,7 +579,11 @@ function ContactSection() {
   )
 }
 
+const API_BASE = import.meta.env.VITE_API_URL
+
 export default function App() {
+  const [slides, setSlides] = useState(FALLBACK_SLIDES)
+  const [worksData, setWorksData] = useState(FALLBACK_WORKS)
   const [current, setCurrent] = useState(0)
   const [heroPaused, setHeroPaused] = useState(false)
   const [heroHovering, setHeroHovering] = useState(false)
@@ -585,16 +591,35 @@ export default function App() {
   const heroPausedRef = useRef(false)
 
   useEffect(() => {
+    fetch(`${API_BASE}/api/portfolio`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.heroSlides?.length) setSlides(data.heroSlides)
+        if (data.works) {
+          setWorksData({
+            films: data.works.films?.length ? data.works.films : FALLBACK_WORKS.films,
+            webSeries: data.works.web_series?.length ? data.works.web_series : FALLBACK_WORKS.webSeries,
+            musicVideos: data.works.music_videos?.length ? data.works.music_videos : FALLBACK_WORKS.musicVideos,
+            adFilms: data.works.ad_films?.length ? data.works.ad_films : FALLBACK_WORKS.adFilms,
+            shortFilms: data.works.short_films?.length ? data.works.short_films : FALLBACK_WORKS.shortFilms,
+            skits: data.works.skits?.length ? data.works.skits : FALLBACK_WORKS.skits,
+          })
+        }
+      })
+      .catch(() => {}) // silently keep fallback content on any failure
+  }, [])
+
+  useEffect(() => {
     heroPausedRef.current = heroPaused || heroHovering
   }, [heroPaused, heroHovering])
 
   const restartHeroTimer = () => {
     if (heroTimerRef.current) clearInterval(heroTimerRef.current)
-    if (SLIDES.length <= 1) return
+    if (slides.length <= 1) return
 
     heroTimerRef.current = setInterval(() => {
       if (!heroPausedRef.current) {
-        setCurrent((prev) => (prev + 1) % SLIDES.length)
+        setCurrent((prev) => (prev + 1) % slides.length)
       }
     }, HERO_INTERVAL)
   }
@@ -607,14 +632,14 @@ export default function App() {
       if (heroTimerRef.current) clearInterval(heroTimerRef.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [slides])
 
   const goToHero = (index) => {
     setCurrent(index)
   }
 
   const nextHero = () => {
-    setCurrent((prev) => (prev + 1) % SLIDES.length)
+    setCurrent((prev) => (prev + 1) % slides.length)
   }
 
   return (
@@ -638,7 +663,7 @@ export default function App() {
             tabIndex={0}
             aria-label="Show next photo"
           >
-            {SLIDES.map((src, index) => (
+            {slides.map((src, index) => (
               <img
                 key={src}
                 className={`hero__image ${index === current ? 'is-active' : ''}`}
@@ -656,14 +681,14 @@ export default function App() {
             </div>
           </div>
 
-          {SLIDES.length > 1 && (
+          {slides.length > 1 && (
             <div className="hero__nav">
               <div className="hero__count">
-                {current + 1} of {SLIDES.length}
+                {current + 1} of {slides.length}
               </div>
 
               <div className="hero__dots">
-                {SLIDES.map((_, index) => (
+                {slides.map((_, index) => (
                   <button
                     key={index}
                     type="button"
@@ -753,21 +778,21 @@ export default function App() {
         </section>
 
         <section className="works">
-          <WorksCarouselSection title="Films" items={WORKS.films} />
-          <WorksCarouselSection title="Web Series" items={WORKS.webSeries} />
+          <WorksCarouselSection title="Films" items={worksData.films} />
+          <WorksCarouselSection title="Web Series" items={worksData.webSeries} />
 
           <SplitVideoSection
             leftTitle="Music Videos"
-            leftItems={WORKS.musicVideos}
+            leftItems={worksData.musicVideos}
             rightTitle="Ad Films"
-            rightItems={WORKS.adFilms}
+            rightItems={worksData.adFilms}
           />
 
           <SplitVideoSection
             leftTitle="Short Films"
-            leftItems={WORKS.shortFilms}
+            leftItems={worksData.shortFilms}
             rightTitle="Skits / Short Videos"
-            rightItems={WORKS.skits}
+            rightItems={worksData.skits}
           />
 
           <ContactSection />
