@@ -946,4 +946,79 @@ router.get('/moderation-log', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────
+// PORTFOLIO (jinaljoshi.in) — hero slides
+// ─────────────────────────────────────────────
+
+router.get('/portfolio/hero-slides', async (req, res) => {
+  const { rows } = await pool.query(`SELECT * FROM portfolio_hero_slides ORDER BY position ASC, created_at ASC`);
+  res.json({ slides: rows });
+});
+
+router.post('/portfolio/hero-slides', async (req, res) => {
+  const { image_key } = req.body;
+  if (!image_key) return res.status(400).json({ error: 'image_key is required' });
+  const { rows: maxRows } = await pool.query(`SELECT COALESCE(MAX(position), -1) AS max FROM portfolio_hero_slides`);
+  const { rows } = await pool.query(
+    `INSERT INTO portfolio_hero_slides (image_key, position) VALUES ($1, $2) RETURNING *`,
+    [image_key, maxRows[0].max + 1]
+  );
+  res.json({ ok: true, slide: rows[0] });
+});
+
+router.patch('/portfolio/hero-slides/:id', async (req, res) => {
+  const { position, visible } = req.body;
+  const { rows } = await pool.query(
+    `UPDATE portfolio_hero_slides SET position = COALESCE($1, position), visible = COALESCE($2, visible) WHERE id = $3 RETURNING *`,
+    [position, visible, req.params.id]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Slide not found' });
+  res.json({ ok: true, slide: rows[0] });
+});
+
+router.delete('/portfolio/hero-slides/:id', async (req, res) => {
+  await pool.query(`DELETE FROM portfolio_hero_slides WHERE id = $1`, [req.params.id]);
+  res.json({ ok: true });
+});
+
+// ─────────────────────────────────────────────
+// PORTFOLIO (jinaljoshi.in) — works entries
+// ─────────────────────────────────────────────
+
+router.get('/portfolio/works', async (req, res) => {
+  const { rows } = await pool.query(`SELECT * FROM portfolio_works ORDER BY category ASC, position ASC, created_at ASC`);
+  res.json({ works: rows });
+});
+
+router.post('/portfolio/works', async (req, res) => {
+  const { category, title, year, character, watch_now_url, trailer_url, image_key } = req.body;
+  if (!category || !title?.trim()) return res.status(400).json({ error: 'category and title are required' });
+  const { rows: maxRows } = await pool.query(`SELECT COALESCE(MAX(position), -1) AS max FROM portfolio_works WHERE category = $1`, [category]);
+  const { rows } = await pool.query(
+    `INSERT INTO portfolio_works (category, title, year, character, watch_now_url, trailer_url, image_key, position)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [category, title.trim(), year || null, character || null, watch_now_url || null, trailer_url || null, image_key || null, maxRows[0].max + 1]
+  );
+  res.json({ ok: true, work: rows[0] });
+});
+
+router.patch('/portfolio/works/:id', async (req, res) => {
+  const { title, year, character, watch_now_url, trailer_url, image_key, position, visible } = req.body;
+  const { rows } = await pool.query(
+    `UPDATE portfolio_works SET
+       title = COALESCE($1, title), year = COALESCE($2, year), character = COALESCE($3, character),
+       watch_now_url = COALESCE($4, watch_now_url), trailer_url = COALESCE($5, trailer_url),
+       image_key = COALESCE($6, image_key), position = COALESCE($7, position), visible = COALESCE($8, visible)
+     WHERE id = $9 RETURNING *`,
+    [title, year, character, watch_now_url, trailer_url, image_key, position, visible, req.params.id]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Work not found' });
+  res.json({ ok: true, work: rows[0] });
+});
+
+router.delete('/portfolio/works/:id', async (req, res) => {
+  await pool.query(`DELETE FROM portfolio_works WHERE id = $1`, [req.params.id]);
+  res.json({ ok: true });
+});
+
 module.exports = router;
