@@ -96,7 +96,7 @@ router.get('/sets', authMid, async (req, res) => {
     const creditsRemaining = Math.max(0, maxUnlocks - creditsUsed);
 
     const { rows: sets } = await pool.query(
-      `SELECT id, title, description, type, price_coins, cover_key, created_at
+      `SELECT id, title, description, type, category, price_coins, cover_key, created_at
        FROM sets WHERE visible = TRUE ORDER BY created_at DESC`
     );
 
@@ -144,6 +144,7 @@ router.get('/sets', authMid, async (req, res) => {
         title: s.title,
         description: s.description,
         type: s.type,
+        category: s.category,
         cover_url: toUrl(s.cover_key),
         photoCount: counts.photos,
         videoCount: counts.videos,

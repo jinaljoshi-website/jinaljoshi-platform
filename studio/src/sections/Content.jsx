@@ -19,6 +19,14 @@ const CATEGORIES = [
   { key: 'purchase_only', label: 'Purchase-only',  color: '#D99A9A' },
 ];
 
+// Content categories — what KIND of set this is, shown to fans for browsing.
+// Fully separate from the tier categories above, which govern pricing/access.
+const CONTENT_CATEGORIES = [
+  { key: 'behind_the_scenes', label: 'Behind-the-Scenes' },
+  { key: 'vlog_style',        label: 'Vlog-Style' },
+  { key: 'photos_videos',     label: 'Photos & Videos' },
+];
+
 const sans = "'DM Sans', system-ui, sans-serif";
 
 function toUrl(key) {
@@ -68,7 +76,7 @@ export function Content() {
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
 
-  const [form, setForm] = useState({ title: '', description: '', price_coins: '0', visible: false });
+  const [form, setForm] = useState({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key });
 
   const [filesByCategory, setFilesByCategory] = useState(emptyCategoryFiles());
   const [coverFile,      setCoverFile]      = useState(null);
@@ -134,6 +142,7 @@ export function Content() {
         description: form.description || null,
         price_coins: parseInt(form.price_coins) || 0,
         visible:     form.visible,
+        category:    form.category,
       });
       const setId = setData.set.id;
 
@@ -196,7 +205,7 @@ export function Content() {
       setUploadProgress('');
       setSuccess(`"${form.title}" created with ${position} item${position !== 1 ? 's' : ''}.`);
       setSets((prev) => [{ ...setData.set, cover_url: coverUrl }, ...prev]);
-      setForm({ title: '', description: '', price_coins: '0', visible: false });
+      setForm({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key });
       setFilesByCategory(emptyCategoryFiles());
       setCoverFile(null);
       setCoverPreview('');
@@ -210,7 +219,7 @@ export function Content() {
 
   const startEdit = (set) => {
     setEditing(set.id);
-    setEditForm({ title: set.title, description: set.description || '', price_coins: set.price_coins, visible: set.visible });
+    setEditForm({ title: set.title, description: set.description || '', price_coins: set.price_coins, visible: set.visible, category: set.category || CONTENT_CATEGORIES[0].key });
   };
 
   const handleUpdate = async (id) => {
@@ -264,6 +273,16 @@ export function Content() {
           <TokenField label="Base price for the full set (tokens)" value={form.price_coins} onChange={(v) => setForm({ ...form, price_coins: v })} tokenRateInr={TOKEN_RATE} />
         </div>
 
+        <div style={{ marginTop: 16 }}>
+          <Field label="Content category — how this set is browsed by fans">
+            <select style={S.input} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+              {CONTENT_CATEGORIES.map((c) => (
+                <option key={c.key} value={c.key}>{c.label}</option>
+              ))}
+            </select>
+          </Field>
+        </div>
+
         <div style={{ marginTop: 16, marginBottom: 20 }}>
           <div style={fieldLabel}>Description (shown to fans in gallery)</div>
           <textarea
@@ -291,7 +310,7 @@ export function Content() {
 
         {/* Category-tagged upload zones */}
         <div style={{ marginBottom: 16 }}>
-          <div style={fieldLabel}>Media by category ({totalFileCount} / {MAX_ITEMS} total)</div>
+          <div style={fieldLabel}>Media by tier ({totalFileCount} / {MAX_ITEMS} total)</div>
           <p style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 10, lineHeight: 1.5 }}>
             A set is either tier-segmented (Free through Supreme) or Purchase-only, never both — adding a file to one side locks the other, so the base price never gets split unexpectedly.
           </p>
@@ -377,6 +396,7 @@ export function Content() {
             .filter((c) => counts[c.key] > 0)
             .map((c) => `${counts[c.key]} ${c.label}`)
             .join(' · ');
+          const contentCatLabel = CONTENT_CATEGORIES.find((c) => c.key === set.category)?.label;
           return (
             <div key={set.id} style={S.card}>
               {confirmDelete === set.id ? (
@@ -398,6 +418,15 @@ export function Content() {
                       <input style={S.input} value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
                     </Field>
                     <TokenField label="Base price (tokens)" value={editForm.price_coins} onChange={(v) => setEditForm({ ...editForm, price_coins: v })} tokenRateInr={TOKEN_RATE} />
+                  </div>
+                  <div style={{ marginTop: 12 }}>
+                    <Field label="Content category">
+                      <select style={S.input} value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}>
+                        {CONTENT_CATEGORIES.map((c) => (
+                          <option key={c.key} value={c.key}>{c.label}</option>
+                        ))}
+                      </select>
+                    </Field>
                   </div>
                   <div style={{ margin: '12px 0' }}>
                     <div style={fieldLabel}>Description</div>
@@ -426,7 +455,14 @@ export function Content() {
                     <img src={set.cover_url || toUrl(set.cover_key)} alt="" style={{ width: 60, height: 50, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
                   )}
                   <div style={{ flex: 1 }}>
-                    <div style={S.rowTitle}>{set.title}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <div style={S.rowTitle}>{set.title}</div>
+                      {contentCatLabel && (
+                        <span style={{ fontFamily: sans, fontSize: 10, color: colors.accent, background: 'rgba(193,125,74,0.1)', border: '1px solid rgba(193,125,74,0.25)', borderRadius: 999, padding: '2px 8px' }}>
+                          {contentCatLabel}
+                        </span>
+                      )}
+                    </div>
                     {set.description && (
                       <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 4, fontStyle: 'italic' }}>{set.description}</div>
                     )}

@@ -306,13 +306,13 @@ router.get('/content', async (req, res) => {
 });
 
 router.post('/content', async (req, res) => {
-  const { title, description, type = 'photo_set', price_coins = 0, visible = false } = req.body;
+  const { title, description, type = 'photo_set', price_coins = 0, visible = false, category } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
   try {
     const { rows } = await pool.query(
-      `INSERT INTO sets (title, description, type, price_coins, visible)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [title.trim(), description || null, type, price_coins, visible]
+      `INSERT INTO sets (title, description, type, price_coins, visible, category)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [title.trim(), description || null, type, price_coins, visible, category || null]
     );
     if (visible) {
       postSystemMessage(`📸 Jinal just dropped "${title.trim()}"! Check the Gallery!`);

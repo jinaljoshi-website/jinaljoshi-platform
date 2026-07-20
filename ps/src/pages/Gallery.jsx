@@ -3,6 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
+import GuestNudge from '../components/GuestNudge';
+
+const CONTENT_CATEGORIES = [
+  { key: 'behind_the_scenes', label: 'Behind-the-Scenes' },
+  { key: 'vlog_style',        label: 'Vlog-Style' },
+  { key: 'photos_videos',     label: 'Photos & Videos' },
+];
 
 export default function Gallery() {
   const navigate    = useNavigate();
@@ -16,7 +23,7 @@ export default function Gallery() {
   const [lightbox,  setLightbox]  = useState(null);
   const [unlockingScope, setUnlockingScope] = useState(null);
   const [viewerError, setViewerError] = useState('');
-  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'unlocked'
+  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'unlocked' | a content-category key
 
   const load = () => api.get('/api/gallery/sets')
     .then(setData)
@@ -175,7 +182,11 @@ export default function Gallery() {
   }
 
   // ── Grid view ───────────────────────────────────────────────────────────────
-  const activeItems = activeTab === 'unlocked' ? unlockedSets : allSets;
+  const activeItems = activeTab === 'unlocked'
+    ? unlockedSets
+    : activeTab === 'all'
+      ? allSets
+      : allSets.filter((s) => s.category === activeTab);
 
   return (
     <div>
@@ -188,6 +199,8 @@ export default function Gallery() {
         </p>
       </div>
 
+      {data?.isGuest && <GuestNudge message="You're browsing as a guest — members unlock more sets each month for free." />}
+
       {error && (
         <div style={{ ...errorBox, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 16 }}>
           <span>{error}</span>
@@ -199,6 +212,11 @@ export default function Gallery() {
         <button onClick={() => setActiveTab('all')} style={activeTab === 'all' ? tabActive : tabInactive}>
           All
         </button>
+        {CONTENT_CATEGORIES.map((cat) => (
+          <button key={cat.key} onClick={() => setActiveTab(cat.key)} style={activeTab === cat.key ? tabActive : tabInactive}>
+            {cat.label}
+          </button>
+        ))}
         <button onClick={() => setActiveTab('unlocked')} style={activeTab === 'unlocked' ? tabActive : tabInactive}>
           Unlocked Media
           {unlockedSets.length > 0 && <span style={tabCount}>{unlockedSets.length}</span>}
@@ -211,41 +229,50 @@ export default function Gallery() {
         </div>
       ) : (
         <div style={grid}>
-          {activeItems.map((item) => (
-            <div key={item.id} onClick={() => openViewer(item)} style={card}>
-              <div style={{ position: 'relative', marginBottom: 12 }}>
-                {item.cover_url ? (
-                  <img src={item.cover_url} alt={item.title} style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 6 }} />
-                ) : (
-                  <div style={{ width: '100%', height: 120, background: 'rgba(255,255,255,0.03)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ fontFamily: F.mono, fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Preview</span>
+          {activeItems.map((item) => {
+            const catLabel = CONTENT_CATEGORIES.find((c) => c.key === item.category)?.label;
+            return (
+              <div key={item.id} onClick={() => openViewer(item)} style={card}>
+                <div style={{ position: 'relative', marginBottom: 12 }}>
+                  {item.cover_url ? (
+                    <img src={item.cover_url} alt={item.title} style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 6 }} />
+                  ) : (
+                    <div style={{ width: '100%', height: 120, background: 'rgba(255,255,255,0.03)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ fontFamily: F.mono, fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Preview</span>
+                    </div>
+                  )}
+                </div>
+
+                {catLabel && (
+                  <div style={{ fontFamily: F.mono, fontSize: 9, color: C.accent, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                    {catLabel}
                   </div>
                 )}
-              </div>
 
-              <div style={{ fontFamily: F.display, fontSize: 20, color: C.text, marginBottom: 4 }}>{item.title}</div>
+                <div style={{ fontFamily: F.display, fontSize: 20, color: C.text, marginBottom: 4 }}>{item.title}</div>
 
-              {(item.photoCount > 0 || item.videoCount > 0) && (
-                <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 6 }}>
-                  {[
-                    item.photoCount > 0 ? `${item.photoCount} photo${item.photoCount === 1 ? '' : 's'}` : null,
-                    item.videoCount > 0 ? `${item.videoCount} video${item.videoCount === 1 ? '' : 's'}` : null,
-                  ].filter(Boolean).join(' · ')}
+                {(item.photoCount > 0 || item.videoCount > 0) && (
+                  <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 6 }}>
+                    {[
+                      item.photoCount > 0 ? `${item.photoCount} photo${item.photoCount === 1 ? '' : 's'}` : null,
+                      item.videoCount > 0 ? `${item.videoCount} video${item.videoCount === 1 ? '' : 's'}` : null,
+                    ].filter(Boolean).join(' · ')}
+                  </div>
+                )}
+
+                {item.description && (
+                  <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>{item.description}</div>
+                )}
+
+                <div style={{ fontFamily: F.sans, fontSize: 12, color: C.accent, marginTop: 'auto' }}>
+                  {item.isGenuinelyUnlocked && <span style={{ color: '#8FC88F' }}>✓ Unlocked · </span>}
+                  {item.freeCount > 0 && `${item.freeCount} free`}
+                  {item.tierPortionCount > 0 && !item.tierUnlocked && `${item.freeCount > 0 ? ' · ' : ''}${item.tierPortionCount} unlockable`}
+                  {item.hasUpsell && !item.upsellUnlocked && ` · ${item.upsellPortionCount} exclusive`}
                 </div>
-              )}
-
-              {item.description && (
-                <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>{item.description}</div>
-              )}
-
-              <div style={{ fontFamily: F.sans, fontSize: 12, color: C.accent, marginTop: 'auto' }}>
-                {item.isGenuinelyUnlocked && <span style={{ color: '#8FC88F' }}>✓ Unlocked · </span>}
-                {item.freeCount > 0 && `${item.freeCount} free`}
-                {item.tierPortionCount > 0 && !item.tierUnlocked && `${item.freeCount > 0 ? ' · ' : ''}${item.tierPortionCount} unlockable`}
-                {item.hasUpsell && !item.upsellUnlocked && ` · ${item.upsellPortionCount} exclusive`}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -264,7 +291,7 @@ const card        = { background: C.surface, border: `1px solid ${C.border}`, bo
 const errorBox    = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
 const inlineTopUp = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '6px 12px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
 const backBtn     = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 8, cursor: 'pointer' };
-const tabRow = { display: 'flex', gap: 10, marginBottom: 22 };
+const tabRow = { display: 'flex', gap: 10, marginBottom: 22, flexWrap: 'wrap' };
 const tabActive = { fontFamily: F.sans, fontSize: 14, fontWeight: 600, background: 'rgba(193,125,74,0.12)', border: `1px solid rgba(193,125,74,0.4)`, color: C.text, padding: '10px 20px', borderRadius: 999, cursor: 'pointer', display: 'flex', alignItems: 'center' };
 const tabInactive = { ...tabActive, background: 'transparent', border: `1px solid ${C.border}`, color: C.muted };
 const tabCount = { fontFamily: F.mono, fontSize: 11, color: C.accent, background: 'rgba(193,125,74,0.15)', borderRadius: 999, padding: '2px 8px', marginLeft: 8 };
