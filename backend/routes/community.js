@@ -5,6 +5,7 @@ const authMid = require('../middleware/auth');
 const { getConfigNumber, getGuestMultiplier } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
 const { getLocalDateStr } = require('../lib/time');
+const { roundTokensUp } = require('../lib/pricing');
 
 // ── Helper: post a system message ────────────────────────────────────────────
 async function postSystemMessage(content) {
@@ -210,7 +211,7 @@ router.post('/buy-credits', authMid, async (req, res) => {
     );
     const user = userRows[0];
 
-    const actualCost = isGuest ? Math.round(amount * guestMultiplier) : amount;
+    const actualCost = isGuest ? roundTokensUp(amount * guestMultiplier) : amount;
 
     if (user.coin_balance < actualCost) {
       await client.query('ROLLBACK');
