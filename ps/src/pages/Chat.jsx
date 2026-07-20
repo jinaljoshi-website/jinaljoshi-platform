@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { C, F } from '../tokens';
 import { api } from '../api';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import { TIERS } from '../data';
 import TopUpModal from '../components/TopUpModal';
 import { StreamChat } from 'stream-chat';
+
+const MAX_VOICE_SECONDS = 60;
 
 export default function Chat() {
   const [messages,   setMessages]   = useState([]);
@@ -16,18 +18,19 @@ export default function Chat() {
   const [error,      setError]      = useState('');
   const [topUp,      setTopUp]      = useState(null);
   const [unlocking,  setUnlocking]  = useState(null);
+  const [recording,  setRecording]  = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
   const bottomRef   = useRef(null);
   const channelRef  = useRef(null);
   const scClientRef = useRef(null);
   const myIdRef     = useRef(null);
   const typingTimer = useRef(null);
   const statusRef   = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef   = useRef([]);
+  const recordTimerRef   = useRef(null);
+  const textareaRef = useRef(null);
 
-  // Background layer — driven entirely by JS-measured viewport coordinates via position:fixed,
-  // rather than any CSS containing-block/grid mechanism. This is a deliberate choice: every
-  // relative-positioning approach (absolute+inset, grid-area, explicit grid tracks) produced a
-  // confirmed, reproducible several-pixel drift on this exact flex-item structure in testing,
-  // while raw getBoundingClientRect-driven position:fixed coordinates match exactly, always.
   const [feedRect, setFeedRect] = useState(null);
   const feedElRef = useRef(null);
   const feedObserverRef = useRef(null);
@@ -36,7 +39,7 @@ export default function Chat() {
     if (feedElRef.current) setFeedRect(feedElRef.current.getBoundingClientRect());
   };
 
-  const feedRef = useCallback((node) => {
+  const feedRef = (node) => {
     if (feedObserverRef.current) {
       feedObserverRef.current.disconnect();
       feedObserverRef.current = null;
@@ -48,7 +51,7 @@ export default function Chat() {
       feedObserverRef.current = observer;
       recomputeFeedRect();
     }
-  }, []);
+  };
 
   useEffect(() => {
     window.addEventListener('resize', recomputeFeedRect);
@@ -63,6 +66,13 @@ export default function Chat() {
     setStatus(d);
     statusRef.current = d;
   }).catch(() => {});
+
+  // Periodic refresh — catches a background change or quota update Jinal makes while this
+  // tab is already open, without requiring a manual page refresh.
+  useEffect(() => {
+    const interval = setInterval(() => loadStatus(), 20000);
+    return () => clearInterval(interval);
+  }, []);
 
   const msgToLocal = (m, myId) => {
     if (m.locked_media) {
@@ -86,12 +96,56 @@ export default function Chat() {
       sender_id:      m.user?.id,
       content:        m.text || null,
       media_url:      m.attachments?.[0]?.image_url || m.attachments?.[0]?.asset_url || null,
-      media_type:     m.attachments?.[0]?.type === 'video' ? 'video' : m.attachments?.[0]?.image_url ? 'image' : null,
+      media_type:     m.attachments?.[0]?.type === 'audio' ? 'audio' : m.attachments?.[0]?.type === 'video' ? 'video' : m.attachments?.[0]?.image_url ? 'image' : null,
       tokens_charged: m.tokens_charged || 0,
       created_at:     m.created_at,
       is_mine:        m.user?.id === myId,
       status:         'delivered',
     };
+  };
+
+  // Reconciles DB (source of truth) with whatever Stream has delivered — used both at
+  // initial load and whenever the tab becomes visible again after being backgrounded.
+  const syncMessages = async (myId) => {
+    try {
+      const state = channelRef.current ? { messages: channelRef.current.state.messages } : { messages: [] };
+      const streamMessages = (state.messages || []).map((m) => msgToLocal(m, myId));
+      const dbData = await api.get('/api/chat/messages');
+      const dbMessages = dbData.messages || [];
+      const streamIds = new Set(streamMessages.map((m) => m.id));
+
+      const dbToLocal = (m) => ({
+        id:                m.id,
+        stream_id:         m.id,
+        sender_id:         m.sender_id,
+        content:           m.content,
+        is_locked_media:   !!m.is_locked && m.unlock_price_coins != null,
+        locked_price:      m.unlock_price_coins,
+        locked_item_count: m.locked_item_count,
+        unlocked_media:    m.locked_media_urls || null,
+        media_url:         m.media_url,
+        media_type:        m.media_type,
+        tokens_charged:    m.tokens_charged || 0,
+        created_at:        m.created_at,
+        is_mine:           m.is_mine,
+        status:            'delivered',
+      });
+
+      const missingFromStream = dbMessages.filter((m) => !streamIds.has(m.id)).map(dbToLocal);
+      const dbById = new Map(dbMessages.map((m) => [m.id, m]));
+      const patchedStreamMessages = streamMessages.map((m) => {
+        if (!m.is_locked_media) return m;
+        const dbMsg = dbById.get(m.id);
+        if (dbMsg && dbMsg.locked_media_urls) return { ...m, unlocked_media: dbMsg.locked_media_urls };
+        return m;
+      });
+
+      const finalMessages = [...patchedStreamMessages, ...missingFromStream]
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      setMessages(finalMessages);
+    } catch (err) {
+      console.error('Failed to sync messages:', err);
+    }
   };
 
   useEffect(() => {
@@ -148,55 +202,10 @@ export default function Chat() {
 
         channelRef.current = channel;
 
-        const state = await channel.watch();
+        await channel.watch();
         if (!mounted) return;
 
-        const streamMessages = (state.messages || []).map((m) => msgToLocal(m, tokenData.userId));
-
-        let finalMessages = streamMessages;
-        try {
-          const dbData = await api.get('/api/chat/messages');
-          const dbMessages = dbData.messages || [];
-          const streamIds = new Set(streamMessages.map((m) => m.id));
-
-          const dbToLocal = (m) => ({
-            id:                m.id,
-            stream_id:         m.id,
-            sender_id:         m.sender_id,
-            content:           m.content,
-            is_locked_media:   !!m.is_locked && m.unlock_price_coins != null,
-            locked_price:      m.unlock_price_coins,
-            locked_item_count: m.locked_item_count,
-            unlocked_media:    m.locked_media_urls || null,
-            media_url:         m.media_url,
-            media_type:        m.media_type,
-            tokens_charged:    m.tokens_charged || 0,
-            created_at:        m.created_at,
-            is_mine:           m.is_mine,
-            status:            'delivered',
-          });
-
-          const missingFromStream = dbMessages
-            .filter((m) => !streamIds.has(m.id))
-            .map(dbToLocal);
-
-          const dbById = new Map(dbMessages.map((m) => [m.id, m]));
-          const patchedStreamMessages = streamMessages.map((m) => {
-            if (!m.is_locked_media) return m;
-            const dbMsg = dbById.get(m.id);
-            if (dbMsg && dbMsg.locked_media_urls) {
-              return { ...m, unlocked_media: dbMsg.locked_media_urls };
-            }
-            return m;
-          });
-
-          finalMessages = [...patchedStreamMessages, ...missingFromStream]
-            .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-        } catch (err) {
-          console.error('Failed to reconcile message history with backend:', err);
-        }
-
-        setMessages(finalMessages);
+        await syncMessages(tokenData.userId);
         channel.markRead().catch(() => {});
       } catch (err) {
         console.error('Chat init error:', err);
@@ -220,9 +229,25 @@ export default function Chat() {
     };
 
     init();
+
+    // Catches the case where the tab was backgrounded/suspended for a while and Stream's
+    // websocket went stale without visibly disconnecting — resync the moment it's visible again.
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && myIdRef.current) {
+        syncMessages(myIdRef.current);
+        loadStatus();
+        channelRef.current?.markRead().catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+
     return () => {
       mounted = false;
       clearTimeout(typingTimer.current);
+      clearInterval(recordTimerRef.current);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
       channelRef.current?.stopWatching().catch(() => {});
       if (scClientRef.current?.userID) scClientRef.current.disconnectUser().catch(() => {});
     };
@@ -233,7 +258,6 @@ export default function Chat() {
   }, [messages, typing]);
 
   useEffect(() => {
-    // Recompute once loading finishes and the real feed div exists
     if (!loading) recomputeFeedRect();
   }, [loading]);
 
@@ -243,6 +267,12 @@ export default function Chat() {
     typingTimer.current = setTimeout(() => {
       channelRef.current?.stopTyping().catch(() => {});
     }, 2000);
+  };
+
+  const autoGrow = (el) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
   };
 
   const unlockMedia = async (dbMessageId) => {
@@ -306,6 +336,7 @@ export default function Chat() {
         mediaType: mediaType || undefined,
       });
       setMessage('');
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
       if (data.newBalance !== undefined) {
         setStatus((prev) => ({ ...prev, coinBalance: data.newBalance }));
@@ -317,8 +348,8 @@ export default function Chat() {
         if (content) streamMsg.text = content;
         if (mediaUrl) {
           streamMsg.attachments = [{
-            type: mediaType === 'video' ? 'video' : 'image',
-            [mediaType === 'video' ? 'asset_url' : 'image_url']: mediaUrl,
+            type: mediaType === 'audio' ? 'audio' : mediaType === 'video' ? 'video' : 'image',
+            [mediaType === 'video' || mediaType === 'audio' ? 'asset_url' : 'image_url']: mediaUrl,
           }];
         }
         await channelRef.current.sendMessage(streamMsg);
@@ -342,6 +373,71 @@ export default function Chat() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (message.trim()) sendMessage(message.trim());
+    }
+  };
+
+  // ── Voice notes ──
+  const startRecording = async () => {
+    setError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        if (blob.size > 0) uploadAndSendVoiceNote(blob);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+      setRecordSeconds(0);
+      recordTimerRef.current = setInterval(() => {
+        setRecordSeconds((s) => {
+          if (s + 1 >= MAX_VOICE_SECONDS) {
+            stopRecording();
+            return MAX_VOICE_SECONDS;
+          }
+          return s + 1;
+        });
+      }, 1000);
+    } catch (err) {
+      setError('Microphone access is needed to record a voice note.');
+    }
+  };
+
+  const stopRecording = () => {
+    clearInterval(recordTimerRef.current);
+    if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop();
+    setRecording(false);
+  };
+
+  const cancelRecording = () => {
+    clearInterval(recordTimerRef.current);
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.onstop = null;
+      if (mediaRecorderRef.current.state !== 'inactive') mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream?.getTracks().forEach((t) => t.stop());
+    }
+    setRecording(false);
+    setRecordSeconds(0);
+  };
+
+  const uploadAndSendVoiceNote = async (blob) => {
+    setSending(true);
+    try {
+      const file = new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
+      const { uploadUrl, publicUrl } = await api.post('/api/upload/presign', {
+        filename: file.name, contentType: file.type, context: 'chat_media',
+      });
+      await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
+      await sendMessage(null, publicUrl, 'audio');
+    } catch (err) {
+      setError('Failed to send voice note.');
+    } finally {
+      setSending(false);
+      setRecordSeconds(0);
     }
   };
 
@@ -431,12 +527,34 @@ export default function Chat() {
             <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>{isGuest ? ' per message' : ' per message (quota used)'}</span>
           </div>
         )}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-          <textarea value={message} onChange={(e) => { setMessage(e.target.value); handleTyping(); }} onKeyDown={handleKeyDown} placeholder={nextIsFree ? `Message Jinal… (${freeRemaining} free remaining)` : isGuest ? `Message Jinal… (${nextCost} tokens each)` : `Message Jinal… (${nextCost} token${nextCost > 1 ? 's' : ''} each)`} style={composerInput} rows={2} />
-          <button onClick={() => { if (message.trim()) sendMessage(message.trim()); }} disabled={sending || !message.trim()} style={{ ...sendBtn, opacity: (sending || !message.trim()) ? 0.5 : 1 }}>
-            {sending ? '…' : 'Send'}
-          </button>
-        </div>
+
+        {recording ? (
+          <div style={recordingBar}>
+            <div style={recordingDot} />
+            <span style={{ fontFamily: F.mono, fontSize: 14, color: C.text }}>
+              {String(Math.floor(recordSeconds / 60)).padStart(2, '0')}:{String(recordSeconds % 60).padStart(2, '0')} / 01:00
+            </span>
+            <div style={{ flex: 1 }} />
+            <button onClick={cancelRecording} style={cancelRecordBtn}>Cancel</button>
+            <button onClick={stopRecording} style={sendBtn}>Send</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            <button onClick={startRecording} disabled={sending} style={{ ...micBtn, opacity: sending ? 0.5 : 1 }} title="Record a voice note">🎙️</button>
+            <textarea
+              ref={textareaRef}
+              value={message}
+              onChange={(e) => { setMessage(e.target.value); handleTyping(); autoGrow(e.target); }}
+              onKeyDown={handleKeyDown}
+              placeholder={nextIsFree ? `Message Jinal… (${freeRemaining} free remaining)` : isGuest ? `Message Jinal… (${nextCost} tokens each)` : `Message Jinal… (${nextCost} token${nextCost > 1 ? 's' : ''} each)`}
+              style={composerInput}
+              rows={2}
+            />
+            <button onClick={() => { if (message.trim()) sendMessage(message.trim()); }} disabled={sending || !message.trim()} style={{ ...sendBtn, opacity: (sending || !message.trim()) ? 0.5 : 1 }}>
+              {sending ? '…' : 'Send'}
+            </button>
+          </div>
+        )}
       </div>
 
       {topUp !== null && (
@@ -460,7 +578,9 @@ function MessageBubble({ msg, onUnlock, unlocking }) {
               {msg.unlocked_media.map((item, i) => (
                 item.type === 'video'
                   ? <video key={i} src={item.url} controls style={{ width: '100%', borderRadius: 6, display: 'block' }} />
-                  : <img key={i} src={item.url} alt="" style={{ width: '100%', borderRadius: 6, display: 'block' }} />
+                  : item.type === 'audio'
+                    ? <audio key={i} src={item.url} controls style={{ width: '100%' }} />
+                    : <img key={i} src={item.url} alt="" style={{ width: '100%', borderRadius: 6, display: 'block' }} />
               ))}
             </div>
           ) : (
@@ -498,6 +618,7 @@ function MessageBubble({ msg, onUnlock, unlocking }) {
       <div style={{ ...bubble, background: isMe ? 'rgba(193,125,74,0.1)' : C.surface, border: isMe ? `1px solid rgba(193,125,74,0.25)` : `1px solid ${C.border}`, padding: msg.media_url ? 6 : '10px 14px', overflow: 'hidden' }}>
         {msg.media_url && msg.media_type === 'image' && <img src={msg.media_url} alt="" style={{ width: '100%', maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: msg.content ? 8 : 0 }} />}
         {msg.media_url && msg.media_type === 'video' && <video src={msg.media_url} controls style={{ width: '100%', maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: msg.content ? 8 : 0 }} />}
+        {msg.media_url && msg.media_type === 'audio' && <audio src={msg.media_url} controls style={{ width: '100%', minWidth: 220 }} />}
         {msg.content && <div style={{ padding: msg.media_url ? '0 8px 8px' : 0 }}>{msg.content}</div>}
       </div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3, alignSelf: isMe ? 'flex-end' : 'flex-start' }}>
@@ -517,9 +638,13 @@ const statItem     = { display: 'flex', flexDirection: 'column', gap: 2 };
 const statLabel    = { fontFamily: F.sans, fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em' };
 const topUpBtn     = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 11, padding: '4px 8px', borderRadius: 6, cursor: 'pointer' };
 const inlineTopUp  = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
-const bubble       = { fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, borderRadius: 10, wordBreak: 'break-word' };
+const bubble       = { fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, borderRadius: 10, wordBreak: 'break-word', textAlign: 'left' };
 const errorBox     = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
 const costPreview  = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 };
 const composer     = { flexShrink: 0, borderTop: `1px solid ${C.border}`, background: 'rgba(13,12,10,1)' };
-const composerInput = { flex: 1, width: '100%', background: 'rgba(22,20,16,0.9)', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 16, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', lineHeight: 1.5, boxSizing: 'border-box' };
+const composerInput = { flex: 1, width: '100%', background: 'rgba(22,20,16,0.9)', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 16, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', lineHeight: 1.5, boxSizing: 'border-box', textAlign: 'left', maxHeight: 160 };
 const sendBtn      = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '10px 20px', borderRadius: 8, flexShrink: 0, cursor: 'pointer' };
+const micBtn       = { background: 'transparent', border: `1px solid ${C.border}`, color: C.text, fontSize: 18, padding: '8px 12px', borderRadius: 8, cursor: 'pointer', flexShrink: 0 };
+const recordingBar = { display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(156,90,90,0.1)', border: '1px solid rgba(156,90,90,0.3)', borderRadius: 8, padding: '10px 14px' };
+const recordingDot = { width: 10, height: 10, borderRadius: '50%', background: '#D99A9A', flexShrink: 0 };
+const cancelRecordBtn = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 8, cursor: 'pointer' };

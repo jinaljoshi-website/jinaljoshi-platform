@@ -7,6 +7,7 @@ import CropTool from '../components/CropTool';
 
 const TOKEN_RATE = 66;
 const CHAT_BG_ASPECT = 9 / 16;
+const MAX_VOICE_SECONDS = 60;
 
 async function uploadToR2(file, context) {
   const { uploadUrl, publicUrl } = await api.post('/api/upload/presign', {
@@ -54,6 +55,9 @@ export function Messages() {
   const [allFans,       setAllFans]       = useState([]);
   const [fanSearch,     setFanSearch]     = useState('');
   const [showNewChat,   setShowNewChat]   = useState(false);
+  const [fanLastRead,   setFanLastRead]   = useState(null);
+  const [recording,     setRecording]     = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
   const isMobile = useIsMobile();
 
   const [grantAmt,  setGrantAmt]  = useState('');
@@ -63,7 +67,7 @@ export function Messages() {
 
   const [bgUploading,   setBgUploading]   = useState(false);
   const [bgPreview,     setBgPreview]     = useState('');
-  const [bgCropFile,    setBgCropFile]    = useState(null); // raw file awaiting crop confirmation
+  const [bgCropFile,    setBgCropFile]    = useState(null);
   const [effectiveBg,   setEffectiveBg]   = useState('');
   const [pricingMode,   setPricingMode]   = useState('default');
   const [flatPrice,     setFlatPrice]     = useState('');
@@ -71,7 +75,6 @@ export function Messages() {
   const [mediaEnabled,  setMediaEnabled]  = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
 
-  // Moderation
   const [fanMuted,        setFanMuted]        = useState(false);
   const [fanBlockedUntil, setFanBlockedUntil]  = useState(null);
   const [fanBlockCount,   setFanBlockCount]    = useState(0);
@@ -79,25 +82,23 @@ export function Messages() {
   const [moderationSaving, setModerationSaving] = useState(false);
   const [moderationMsg,    setModerationMsg]    = useState('');
 
-  // Locked media bundle composer
   const [lockedFiles,   setLockedFiles]   = useState([]);
   const [lockedPrice,   setLockedPrice]   = useState('');
   const [lockedCaption, setLockedCaption] = useState('');
   const [sendingLocked, setSendingLocked] = useState(false);
 
-  // Canned reply templates
-  const [templates,        setTemplates]        = useState([]);
-  const [newTemplateTitle, setNewTemplateTitle]  = useState('');
-  const [newTemplateBody,  setNewTemplateBody]   = useState('');
-  const [savingTemplate,   setSavingTemplate]    = useState(false);
-
   const lockedFileRef = useRef(null);
   const bgFileRef     = useRef(null);
   const bottomRef     = useRef(null);
+  const replyRef      = useRef(null);
 
   const scClientRef  = useRef(null);
   const channelRef   = useRef(null);
   const artistIdRef  = useRef(null);
+  const selectedRef  = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef   = useRef([]);
+  const recordTimerRef   = useRef(null);
 
   useEffect(() => {
     api.get('/api/studio/dms')
@@ -105,11 +106,20 @@ export function Messages() {
       .finally(() => setLoading(false));
 
     api.get('/api/studio/fans').then((d) => setAllFans(d.fans || [])).catch(() => {});
-    api.get('/api/studio/canned-replies').then((d) => setTemplates(d.templates || [])).catch(() => {});
 
     initArtistStream();
 
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && selectedRef.current) {
+        resyncThread(selectedRef.current);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
       if (channelRef.current) channelRef.current.stopWatching().catch(() => {});
       if (scClientRef.current?.userID) scClientRef.current.disconnectUser().catch(() => {});
     };
@@ -138,16 +148,26 @@ export function Messages() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [thread, typing]);
 
+  const resyncThread = async (fanId) => {
+    try {
+      const data = await api.get(`/api/studio/dms/${fanId}`);
+      setThread(data.messages || []);
+      channelRef.current?.markRead().catch(() => {});
+    } catch {}
+  };
+
   const openConvo = async (fanId) => {
     if (channelRef.current) {
       channelRef.current.off('message.new');
       channelRef.current.off('typing.start');
       channelRef.current.off('typing.stop');
+      channelRef.current.off('message.read');
       await channelRef.current.stopWatching().catch(() => {});
       channelRef.current = null;
     }
 
     setSelected(fanId);
+    selectedRef.current = fanId;
     setPanel(null);
     setGrantMsg('');
     setTyping(false);
@@ -156,6 +176,7 @@ export function Messages() {
     setLockedCaption('');
     setModerationMsg('');
     setBlockReasonInput('');
+    setFanLastRead(null);
 
     const data = await api.get(`/api/studio/dms/${fanId}`);
     setThread(data.messages || []);
@@ -195,7 +216,7 @@ export function Messages() {
             sender_id:  msg.user.id,
             content:    msg.text || null,
             media_url:  msg.attachments?.[0]?.image_url || msg.attachments?.[0]?.asset_url || null,
-            media_type: msg.attachments?.[0]?.type === 'video' ? 'video' : msg.attachments?.[0]?.image_url ? 'image' : null,
+            media_type: msg.attachments?.[0]?.type === 'audio' ? 'audio' : msg.attachments?.[0]?.type === 'video' ? 'video' : msg.attachments?.[0]?.image_url ? 'image' : null,
             created_at: msg.created_at,
             is_mine:    false,
           }];
@@ -213,8 +234,19 @@ export function Messages() {
         if (event.user?.id !== artistId) setTyping(false);
       });
 
+      // Tracks the fan's read receipt so Jinal's own sent messages can show ✓ vs ✓✓
+      channel.on('message.read', (event) => {
+        if (event.user?.id === fanId) {
+          setFanLastRead(new Date(event.received_at || event.created_at || Date.now()));
+        }
+      });
+
       channelRef.current = channel;
-      await channel.watch();
+      const state = await channel.watch();
+
+      const fanReadState = state.read?.[fanId];
+      if (fanReadState?.last_read) setFanLastRead(new Date(fanReadState.last_read));
+
       channel.markRead().catch(() => {});
     } catch (err) {
       console.error('Studio channel watch error:', err);
@@ -223,6 +255,7 @@ export function Messages() {
 
   const closeConvo = () => {
     setSelected(null);
+    selectedRef.current = null;
     setThread([]);
     setFan(null);
     setPanel(null);
@@ -246,14 +279,15 @@ export function Messages() {
 
       setThread((prev) => [...prev, data.message]);
       setReply('');
+      if (replyRef.current) replyRef.current.style.height = 'auto';
 
       if (channelRef.current) {
         const streamMsg = {};
         if (reply.trim()) streamMsg.text = reply.trim();
         if (mediaUrl) {
           streamMsg.attachments = [{
-            type: mediaType === 'video' ? 'video' : 'image',
-            [mediaType === 'video' ? 'asset_url' : 'image_url']: mediaUrl,
+            type: mediaType === 'audio' ? 'audio' : mediaType === 'video' ? 'video' : 'image',
+            [mediaType === 'video' || mediaType === 'audio' ? 'asset_url' : 'image_url']: mediaUrl,
           }];
         }
         streamMsg.id = data.message.id;
@@ -263,6 +297,64 @@ export function Messages() {
       api.get('/api/studio/dms').then((d) => setConvos(d.conversations || [])).catch(() => {});
     } catch (err) { alert(err.message); }
     finally { setSending(false); }
+  };
+
+  // ── Voice notes (Jinal's side) ──
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        if (blob.size > 0) uploadAndSendVoiceNote(blob);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+      setRecordSeconds(0);
+      recordTimerRef.current = setInterval(() => {
+        setRecordSeconds((s) => {
+          if (s + 1 >= MAX_VOICE_SECONDS) { stopRecording(); return MAX_VOICE_SECONDS; }
+          return s + 1;
+        });
+      }, 1000);
+    } catch (err) {
+      alert('Microphone access is needed to record a voice note.');
+    }
+  };
+
+  const stopRecording = () => {
+    clearInterval(recordTimerRef.current);
+    if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop();
+    setRecording(false);
+  };
+
+  const cancelRecording = () => {
+    clearInterval(recordTimerRef.current);
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.onstop = null;
+      if (mediaRecorderRef.current.state !== 'inactive') mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream?.getTracks().forEach((t) => t.stop());
+    }
+    setRecording(false);
+    setRecordSeconds(0);
+  };
+
+  const uploadAndSendVoiceNote = async (blob) => {
+    setSending(true);
+    try {
+      const file = new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
+      const publicUrl = await uploadToR2(file, 'chat_media');
+      await sendReply(publicUrl, 'audio');
+    } catch (err) {
+      alert('Failed to send voice note.');
+    } finally {
+      setSending(false);
+      setRecordSeconds(0);
+    }
   };
 
   const handleLockedFilesChange = (e) => {
@@ -407,40 +499,14 @@ export function Messages() {
     }
   };
 
-  const insertTemplate = (content) => {
-    setReply(content);
-    setPanel(null);
-  };
-
-  const saveNewTemplate = async () => {
-    if (!newTemplateTitle.trim() || !newTemplateBody.trim()) return;
-    setSavingTemplate(true);
-    try {
-      const data = await api.post('/api/studio/canned-replies', {
-        title: newTemplateTitle.trim(),
-        content: newTemplateBody.trim(),
-      });
-      setTemplates((prev) => [...prev, data.template]);
-      setNewTemplateTitle('');
-      setNewTemplateBody('');
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setSavingTemplate(false);
-    }
-  };
-
-  const deleteTemplate = async (id) => {
-    try {
-      await api.delete(`/api/studio/canned-replies/${id}`);
-      setTemplates((prev) => prev.filter((t) => t.id !== id));
-    } catch (err) {
-      alert(err.message);
-    }
-  };
-
   const handleTyping = () => {
     if (channelRef.current) channelRef.current.keystroke().catch(() => {});
+  };
+
+  const autoGrow = (el) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
   };
 
   if (loading) return <T.muted>Loading messages…</T.muted>;
@@ -561,108 +627,84 @@ export function Messages() {
                   </Card>
                 )}
 
+                {/* Settings panel — kept small and scrollable so it never takes over the whole screen on mobile */}
                 {panel === 'settings' && (
-                  <Card style={{ marginBottom: 10 }}>
-                    <div style={{ marginBottom: 18, paddingBottom: 18, borderBottom: `1px solid ${colors.border}` }}>
+                  <Card style={{ marginBottom: 10, maxHeight: '65vh', overflowY: 'auto' }}>
+                    <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: `1px solid ${colors.border}` }}>
                       <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, fontWeight: 600, marginBottom: 10 }}>Moderation</div>
                       {moderationMsg && <div style={moderationMsg.startsWith('Error') ? S.error : S.success}>{moderationMsg}</div>}
 
-                      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                        <div>
-                          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 6 }}>
-                            Mute — blocks chat &amp; calls only, everything else stays available
-                          </div>
-                          <button onClick={toggleFanMute} disabled={moderationSaving} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 12px', opacity: moderationSaving ? 0.5 : 1 }}>
-                            {fanMuted ? 'Unmute' : 'Mute this fan'}
-                          </button>
-                        </div>
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <button onClick={toggleFanMute} disabled={moderationSaving} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 14px', opacity: moderationSaving ? 0.5 : 1 }}>
+                          {fanMuted ? 'Unmute' : 'Mute'}
+                        </button>
 
-                        <div>
-                          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 6 }}>
-                            Restrict — blocks all platform actions temporarily, escalates on repeat
-                            {fanBlockCount > 0 && ` · offense count: ${fanBlockCount}`}
-                          </div>
-                          {fanCurrentlyBlocked ? (
-                            <button onClick={liftFanBlock} disabled={moderationSaving} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 12px', color: '#8FC88F' }}>
-                              Lift restriction (until {new Date(fanBlockedUntil).toLocaleString()})
+                        {fanCurrentlyBlocked ? (
+                          <button onClick={liftFanBlock} disabled={moderationSaving} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 14px', color: '#8FC88F' }}>
+                            Lift restriction
+                          </button>
+                        ) : (
+                          <>
+                            <input
+                              value={blockReasonInput}
+                              onChange={(e) => setBlockReasonInput(e.target.value)}
+                              placeholder="Reason (optional)"
+                              style={{ ...S.input, width: 140, fontSize: 12 }}
+                            />
+                            <button onClick={applyFanBlock} disabled={moderationSaving} style={{ ...S.btn, fontSize: 12, padding: '7px 14px', background: '#9C5A5A', border: 'none' }}>
+                              {moderationSaving ? '…' : `Restrict${fanBlockCount > 0 ? ` (#${fanBlockCount + 1})` : ''}`}
                             </button>
-                          ) : (
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                              <input
-                                value={blockReasonInput}
-                                onChange={(e) => setBlockReasonInput(e.target.value)}
-                                placeholder="Reason (internal, optional)"
-                                style={{ ...S.input, width: 200, fontSize: 12 }}
-                              />
-                              <button onClick={applyFanBlock} disabled={moderationSaving} style={{ ...S.btn, fontSize: 12, padding: '7px 12px', background: '#9C5A5A', border: 'none' }}>
-                                {moderationSaving ? '…' : `Restrict account${fanBlockCount > 0 ? ` (offense #${fanBlockCount + 1})` : ''}`}
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                          </>
+                        )}
                       </div>
                     </div>
 
-                    <div style={{ marginBottom: 18 }}>
-                      <Field label="Chat background photo — cropped to a tall, phone-friendly frame (leave empty to use the default)">
+                    <div style={{ marginBottom: 16 }}>
+                      <Field label="Chat background (leave empty to use default)">
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                           <input ref={bgFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleBgFilePick} />
                           <button onClick={() => bgFileRef.current?.click()} disabled={bgUploading} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 12px', opacity: bgUploading ? 0.5 : 1 }}>
                             {bgUploading ? 'Uploading…' : 'Browse photo'}
                           </button>
-                          {bgPreview && <img src={bgPreview} alt="bg" style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 4, border: `1px solid ${colors.border}` }} />}
+                          {bgPreview && <img src={bgPreview} alt="bg" style={{ width: 40, height: 30, objectFit: 'cover', borderRadius: 4, border: `1px solid ${colors.border}` }} />}
                           {bgPreview && (
-                            <button onClick={() => setBgPreview('')} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 8px', color: '#D99A9A' }}>Clear override</button>
+                            <button onClick={() => setBgPreview('')} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 8px', color: '#D99A9A' }}>Clear</button>
                           )}
                         </div>
                       </Field>
                     </div>
 
-                    <div style={{ marginBottom: 14, paddingTop: 14, borderTop: `1px solid ${colors.border}` }}>
-                      <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, fontWeight: 600, marginBottom: 10 }}>Message pricing for this fan</div>
-                      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: sans, fontSize: 13, color: colors.muted, cursor: 'pointer' }}>
+                    <div style={{ marginBottom: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
+                      <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, fontWeight: 600, marginBottom: 10 }}>Message pricing</div>
+                      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 10 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: sans, fontSize: 12, color: colors.muted, cursor: 'pointer' }}>
                           <input type="radio" checked={pricingMode === 'default'} onChange={() => setPricingMode('default')} />
-                          Use tier default
+                          Tier default
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: sans, fontSize: 13, color: colors.muted, cursor: 'pointer' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: sans, fontSize: 12, color: colors.muted, cursor: 'pointer' }}>
                           <input type="radio" checked={pricingMode === 'flat'} onChange={() => setPricingMode('flat')} />
-                          Flat price per message
+                          Flat price
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: sans, fontSize: 13, color: colors.muted, cursor: 'pointer' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: sans, fontSize: 12, color: colors.muted, cursor: 'pointer' }}>
                           <input type="radio" checked={pricingMode === 'per_token'} onChange={() => setPricingMode('per_token')} />
-                          Messages per token
+                          Per token
                         </label>
                       </div>
 
                       {pricingMode === 'flat' && (
-                        <div>
-                          <Field label="Tokens per message (0 = free for this fan)">
-                            <input style={{ ...S.input, width: 160 }} type="number" min={0} value={flatPrice} onChange={(e) => setFlatPrice(e.target.value)} placeholder="e.g. 0" />
-                          </Field>
-                        </div>
+                        <input style={{ ...S.input, width: 140 }} type="number" min={0} value={flatPrice} onChange={(e) => setFlatPrice(e.target.value)} placeholder="Tokens/msg" />
                       )}
-
                       {pricingMode === 'per_token' && (
-                        <div>
-                          <Field label="Messages per 1 token">
-                            <input style={{ ...S.input, width: 160 }} type="number" min={1} value={perTokenBlock} onChange={(e) => setPerTokenBlock(e.target.value)} placeholder="e.g. 3" />
-                          </Field>
-                          <p style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 6 }}>
-                            e.g. 3 means this fan is only charged 1 token on their 3rd message, then the counter resets.
-                          </p>
-                        </div>
+                        <input style={{ ...S.input, width: 140 }} type="number" min={1} value={perTokenBlock} onChange={(e) => setPerTokenBlock(e.target.value)} placeholder="Msgs per token" />
                       )}
                     </div>
 
-                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', paddingTop: 14, borderTop: `1px solid ${colors.border}` }}>
-                      <Field label="Allow fan to send media">
-                        <label style={{ fontFamily: sans, fontSize: 13, color: colors.muted, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 6 }}>
-                          <input type="checkbox" checked={mediaEnabled} onChange={(e) => setMediaEnabled(e.target.checked)} />
-                          {mediaEnabled ? 'Enabled' : 'Disabled'}
-                        </label>
-                      </Field>
-                      <button onClick={saveSettings} disabled={settingsSaving} style={{ ...S.btn, opacity: settingsSaving ? 0.5 : 1, alignSelf: 'flex-end' }}>
+                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
+                      <label style={{ fontFamily: sans, fontSize: 13, color: colors.muted, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={mediaEnabled} onChange={(e) => setMediaEnabled(e.target.checked)} />
+                        Allow media
+                      </label>
+                      <button onClick={saveSettings} disabled={settingsSaving} style={{ ...S.btn, opacity: settingsSaving ? 0.5 : 1 }}>
                         {settingsSaving ? 'Saving…' : 'Save settings'}
                       </button>
                     </div>
@@ -673,7 +715,7 @@ export function Messages() {
                   <Card style={{ marginBottom: 10 }}>
                     <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, fontWeight: 600, marginBottom: 10 }}>Send unlockable media</div>
                     <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 14, lineHeight: 1.6 }}>
-                      Select one or more photos/videos and set a token price for the whole bundle — set it to 0 to send them free. The fan sees a locked placeholder until they view it, real files are never sent before then. Note: all chat messages, including free and paid unlocks, are automatically removed after 30 days.
+                      Select photos/videos and set a token price for the whole bundle — 0 sends them free. Removed automatically after 30 days.
                     </p>
                     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
                       <input ref={lockedFileRef} type="file" accept="image/*,video/*" multiple style={{ display: 'none' }} onChange={handleLockedFilesChange} />
@@ -695,64 +737,13 @@ export function Messages() {
                   </Card>
                 )}
 
-                {panel === 'templates' && (
-                  <Card style={{ marginBottom: 10 }}>
-                    <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, fontWeight: 600, marginBottom: 10 }}>Canned replies</div>
-
-                    {templates.length > 0 && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 16, maxHeight: 200, overflowY: 'auto' }}>
-                        {templates.map((t) => (
-                          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: `1px solid ${colors.border}`, padding: '6px 2px' }}>
-                            <button
-                              onClick={() => insertTemplate(t.content)}
-                              style={{ flex: 1, textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer', color: colors.text, padding: '4px 6px' }}
-                            >
-                              <div style={{ fontFamily: sans, fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{t.title}</div>
-                              <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.content}</div>
-                            </button>
-                            <button onClick={() => deleteTemplate(t.id)} style={{ ...S.ghostBtn, fontSize: 11, padding: '4px 8px', color: '#D99A9A', flexShrink: 0 }}>
-                              Delete
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {templates.length === 0 && <T.muted>No templates saved yet.</T.muted>}
-
-                    <div style={{ paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
-                      <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 8 }}>New template</div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                        <input
-                          value={newTemplateTitle}
-                          onChange={(e) => setNewTemplateTitle(e.target.value)}
-                          placeholder="Short label, e.g. 'Thank you'"
-                          style={{ ...S.input, width: 200, fontSize: 12 }}
-                        />
-                      </div>
-                      <textarea
-                        value={newTemplateBody}
-                        onChange={(e) => setNewTemplateBody(e.target.value)}
-                        placeholder="The actual reply text…"
-                        rows={2}
-                        style={{ ...S.input, width: '100%', boxSizing: 'border-box', fontSize: 13, resize: 'vertical', marginBottom: 8 }}
-                      />
-                      <button
-                        onClick={saveNewTemplate}
-                        disabled={savingTemplate || !newTemplateTitle.trim() || !newTemplateBody.trim()}
-                        style={{ ...S.btn, fontSize: 12, padding: '7px 14px', opacity: (savingTemplate || !newTemplateTitle.trim() || !newTemplateBody.trim()) ? 0.5 : 1 }}
-                      >
-                        {savingTemplate ? 'Saving…' : 'Save template'}
-                      </button>
-                    </div>
-                  </Card>
-                )}
-
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, padding: '4px 0', minHeight: 0 }}>
                   {thread.length === 0 && (
                     <T.muted>No messages yet — send the first one below.</T.muted>
                   )}
                   {thread.map((msg) => {
                     const isLockedBundle = msg.unlock_price_coins !== null && msg.unlock_price_coins !== undefined;
+                    const isRead = msg.is_mine && fanLastRead && new Date(msg.created_at) <= fanLastRead;
                     return (
                       <div key={msg.id || msg.stream_id} style={{ alignSelf: msg.is_mine ? 'flex-end' : 'flex-start', maxWidth: '75%' }}>
                         {!msg.is_mine && (
@@ -760,7 +751,7 @@ export function Messages() {
                             {fan?.display_name || fan?.email}
                           </div>
                         )}
-                        <div style={{ fontFamily: sans, fontSize: 14, color: colors.text, lineHeight: 1.6, padding: (msg.media_url || isLockedBundle) ? 6 : '10px 14px', borderRadius: 10, wordBreak: 'break-word', overflow: 'hidden', background: msg.is_mine ? 'rgba(193,125,74,0.15)' : 'rgba(22,20,16,0.9)', border: msg.is_mine ? '1px solid rgba(193,125,74,0.25)' : `1px solid ${colors.border}` }}>
+                        <div style={{ fontFamily: sans, fontSize: 14, color: colors.text, lineHeight: 1.6, textAlign: 'left', padding: (msg.media_url || isLockedBundle) ? 6 : '10px 14px', borderRadius: 10, wordBreak: 'break-word', overflow: 'hidden', background: msg.is_mine ? 'rgba(193,125,74,0.15)' : 'rgba(22,20,16,0.9)', border: msg.is_mine ? '1px solid rgba(193,125,74,0.25)' : `1px solid ${colors.border}` }}>
                           {isLockedBundle ? (
                             <>
                               <div style={{ display: 'grid', gridTemplateColumns: msg.locked_media_urls?.length > 1 ? '1fr 1fr' : '1fr', gap: 4 }}>
@@ -778,12 +769,18 @@ export function Messages() {
                             <>
                               {msg.media_url && msg.media_type === 'image' && <img src={msg.media_url} alt="" style={{ width: '100%', maxWidth: 260, borderRadius: 6, display: 'block', marginBottom: msg.content ? 6 : 0 }} />}
                               {msg.media_url && msg.media_type === 'video' && <video src={msg.media_url} controls style={{ width: '100%', maxWidth: 260, borderRadius: 6, display: 'block', marginBottom: msg.content ? 6 : 0 }} />}
+                              {msg.media_url && msg.media_type === 'audio' && <audio src={msg.media_url} controls style={{ width: '100%', minWidth: 220 }} />}
                             </>
                           )}
                           {msg.content && <div style={{ padding: (msg.media_url || isLockedBundle) ? '0 8px 8px' : 0 }}>{msg.content}</div>}
                         </div>
-                        <div style={{ fontFamily: sans, fontSize: 10, color: colors.muted, marginTop: 3, textAlign: msg.is_mine ? 'right' : 'left' }}>
-                          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, alignSelf: msg.is_mine ? 'flex-end' : 'flex-start' }}>
+                          <span style={{ fontFamily: sans, fontSize: 10, color: colors.muted }}>
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {msg.is_mine && (
+                            <span style={{ fontSize: 11, color: isRead ? colors.accent : colors.muted }}>{isRead ? '✓✓' : '✓'}</span>
+                          )}
                         </div>
                       </div>
                     );
@@ -800,25 +797,38 @@ export function Messages() {
                 </div>
 
                 <div style={{ borderTop: `1px solid ${colors.border}`, paddingTop: 10, flexShrink: 0 }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-                    <button onClick={() => setPanel(panel === 'templates' ? null : 'templates')} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', color: panel === 'templates' ? colors.accent : colors.muted }} title="Canned replies">
-                      📋
-                    </button>
-                    <button onClick={() => setPanel(panel === 'locked-media' ? null : 'locked-media')} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', color: panel === 'locked-media' ? colors.accent : colors.muted }} title="Send unlockable media bundle">
-                      🔒
-                    </button>
-                    <textarea
-                      value={reply}
-                      onChange={(e) => { setReply(e.target.value); handleTyping(); }}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
-                      placeholder="Reply… (Enter to send)"
-                      rows={2}
-                      style={{ flex: 1, background: 'rgba(22,20,16,0.9)', border: `1px solid ${colors.border}`, color: colors.text, fontFamily: sans, fontSize: 14, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none' }}
-                    />
-                    <button onClick={() => sendReply()} disabled={sending || !reply.trim()} style={{ ...S.btn, opacity: (sending || !reply.trim()) ? 0.5 : 1 }}>
-                      {sending ? '…' : 'Send'}
-                    </button>
-                  </div>
+                  {recording ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(156,90,90,0.1)', border: '1px solid rgba(156,90,90,0.3)', borderRadius: 8, padding: '10px 14px' }}>
+                      <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#D99A9A', flexShrink: 0 }} />
+                      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, color: colors.text }}>
+                        {String(Math.floor(recordSeconds / 60)).padStart(2, '0')}:{String(recordSeconds % 60).padStart(2, '0')} / 01:00
+                      </span>
+                      <div style={{ flex: 1 }} />
+                      <button onClick={cancelRecording} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 14px' }}>Cancel</button>
+                      <button onClick={stopRecording} style={{ ...S.btn, fontSize: 12, padding: '7px 14px' }}>Send</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                      <button onClick={() => setPanel(panel === 'locked-media' ? null : 'locked-media')} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', color: panel === 'locked-media' ? colors.accent : colors.muted }} title="Send unlockable media bundle">
+                        🔒
+                      </button>
+                      <button onClick={startRecording} disabled={sending} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', opacity: sending ? 0.5 : 1 }} title="Record a voice note">
+                        🎙️
+                      </button>
+                      <textarea
+                        ref={replyRef}
+                        value={reply}
+                        onChange={(e) => { setReply(e.target.value); handleTyping(); autoGrow(e.target); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
+                        placeholder="Reply… (Enter to send)"
+                        rows={3}
+                        style={{ flex: 1, background: 'rgba(22,20,16,0.9)', border: `1px solid ${colors.border}`, color: colors.text, fontFamily: sans, fontSize: 14, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', textAlign: 'left', maxHeight: 160 }}
+                      />
+                      <button onClick={() => sendReply()} disabled={sending || !reply.trim()} style={{ ...S.btn, opacity: (sending || !reply.trim()) ? 0.5 : 1 }}>
+                        {sending ? '…' : 'Send'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
