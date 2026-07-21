@@ -5,14 +5,14 @@ import { C, F } from '../tokens';
 import { api } from '../api';
 
 const SECTIONS = [
-  { path: '/platform/chat',       icon: '💬', label: 'Chat',       desc: 'Message Jinal directly' },
   { path: '/platform/community',  icon: '✨', label: 'Public Corner',  desc: 'Live fan space'         },
   { path: '/platform/gallery',    icon: '📸', label: 'Gallery',    desc: 'Exclusive photo sets'   },
-  { path: '/platform/calls',      icon: '📞', label: 'Calls',      desc: 'Book a personal call'   },
+  { path: '/platform/membership', icon: '👑', label: 'Membership', desc: 'Your member plan'       },
   { path: '/platform/shop',       icon: '🛍️', label: 'Shop',       desc: 'Merch & exclusives'     },
   { path: '/platform/extras',     icon: '🌟', label: 'Extras',     desc: 'Custom requests'        },
-  { path: '/platform/membership', icon: '👑', label: 'Membership', desc: 'Your member plan'       },
-  { path: '/platform/coins',      icon: '🪙', label: 'Tokens',     desc: 'J Token wallet'         },
+  { path: '/platform/calls',      icon: '📞', label: 'Calls',      desc: 'Book a personal call'   },
+  { path: '/platform/chat',       icon: '💬', label: 'Messages',   desc: 'Send Jinal a message'   },
+  { path: '/platform/coins',      icon: '🪙', label: 'Coins',      desc: 'J Token wallet'         },
 ];
 
 const SIGN_NAMES = {

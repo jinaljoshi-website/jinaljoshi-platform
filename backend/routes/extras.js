@@ -13,11 +13,18 @@ const { assertNotBlocked } = require('../lib/moderation');
 
 router.get('/options', authMid, async (req, res) => {
   try {
-    const { rows: userRows } = await pool.query(`SELECT coin_balance FROM users WHERE id = $1`, [req.user.userId]);
+    const { rows: userRows } = await pool.query(
+      `SELECT coin_balance, tier, membership_expires_at FROM users WHERE id = $1`,
+      [req.user.userId]
+    );
+    const user = userRows[0];
+    const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > new Date();
+    const isGuest = !isActive;
+
     const { rows: items } = await pool.query(
       `SELECT id, title, price_coins FROM extras_items WHERE visible = TRUE ORDER BY created_at ASC`
     );
-    res.json({ options: items, coinBalance: userRows[0].coin_balance });
+    res.json({ options: items, coinBalance: user.coin_balance, isGuest });
   } catch (err) {
     console.error('extras/options error:', err);
     res.status(500).json({ error: 'Failed to load extras options' });
