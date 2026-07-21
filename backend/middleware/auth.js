@@ -13,12 +13,15 @@ module.exports = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+    // Checks whether THIS specific session still exists, rather than comparing against
+    // a single row — works correctly whether the account has exactly one active session
+    // (fans) or several at once (Jinal's multi-device access).
     const { rows } = await pool.query(
-      'SELECT session_id FROM active_sessions WHERE user_id = $1',
-      [decoded.userId]
+      'SELECT 1 FROM active_sessions WHERE user_id = $1 AND session_id = $2',
+      [decoded.userId, decoded.sessionId]
     );
 
-    if (!rows.length || rows[0].session_id !== decoded.sessionId) {
+    if (!rows.length) {
       return res.status(401).json({
         error: 'SESSION_EXPIRED',
         message: 'You were signed in on another device.'
@@ -26,8 +29,8 @@ module.exports = async (req, res, next) => {
     }
 
     await pool.query(
-      'UPDATE active_sessions SET last_seen_at = NOW() WHERE user_id = $1',
-      [decoded.userId]
+      'UPDATE active_sessions SET last_seen_at = NOW() WHERE user_id = $1 AND session_id = $2',
+      [decoded.userId, decoded.sessionId]
     );
 
     req.user = decoded;

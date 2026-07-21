@@ -40,12 +40,22 @@ async function createSessionAndRespond(user, req, res, timezone) {
     { expiresIn: '365d' }
   );
 
-  await pool.query(
-    `INSERT INTO active_sessions (user_id, session_id, device_hint)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (user_id) DO UPDATE SET session_id = $2, device_hint = $3, created_at = NOW()`,
-    [user.id, sessionId, req.headers['user-agent']?.slice(0, 100) || null]
-  );
+  if (user.is_artist) {
+    // Jinal's account supports multiple concurrent sessions (phone + laptop at once) —
+    // each login simply adds a new session row rather than replacing the existing one.
+    await pool.query(
+      `INSERT INTO active_sessions (user_id, session_id, device_hint) VALUES ($1, $2, $3)`,
+      [user.id, sessionId, req.headers['user-agent']?.slice(0, 100) || null]
+    );
+  } else {
+    // Fans keep single-session enforcement — a new login replaces any existing session,
+    // which also serves as a mild deterrent against sharing a paid membership login.
+    await pool.query('DELETE FROM active_sessions WHERE user_id = $1', [user.id]);
+    await pool.query(
+      `INSERT INTO active_sessions (user_id, session_id, device_hint) VALUES ($1, $2, $3)`,
+      [user.id, sessionId, req.headers['user-agent']?.slice(0, 100) || null]
+    );
+  }
 
   await pool.query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
   if (timezone) {
@@ -212,7 +222,9 @@ router.post('/login', async (req, res) => {
 // ── LOGOUT ────────────────────────────────────
 
 router.post('/logout', authMid, async (req, res) => {
-  await pool.query('DELETE FROM active_sessions WHERE user_id = $1', [req.user.userId]);
+  // Only this device's session — logging out on one device shouldn't sign out other
+  // active sessions on the same account (matters now that Jinal can have several).
+  await pool.query('DELETE FROM active_sessions WHERE user_id = $1 AND session_id = $2', [req.user.userId, req.user.sessionId]);
   res.json({ ok: true });
 });
 
