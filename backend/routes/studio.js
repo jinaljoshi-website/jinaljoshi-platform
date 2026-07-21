@@ -113,14 +113,22 @@ router.post('/chat-bg', async (req, res) => {
       );
     } else {
       const key = type === 'community' ? 'community_chat_bg' : 'personal_chat_bg';
-      await pool.query(
-        `INSERT INTO platform_config (key, value, updated_at) VALUES ($1, $2, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
-        [key, value]
-      );
+      if (value === null || value === undefined || value === '') {
+        // platform_config.value is NOT NULL — "removing" a background means deleting the
+        // row entirely rather than trying to store null. chat.js's LEFT JOIN + COALESCE
+        // already treats a missing row exactly the same as a null value on read.
+        await pool.query(`DELETE FROM platform_config WHERE key = $1`, [key]);
+      } else {
+        await pool.query(
+          `INSERT INTO platform_config (key, value, updated_at) VALUES ($1, $2, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+          [key, value]
+        );
+      }
     }
     res.json({ ok: true });
   } catch (err) {
+    console.error('chat-bg update error:', err.message);
     res.status(500).json({ error: 'Failed to update background' });
   }
 });
