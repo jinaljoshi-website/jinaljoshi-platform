@@ -273,10 +273,25 @@ export const RECHARGE_PACKS = [
   { tokens: 1000, discountPct: 10, label: '1000 Tokens' },
 ];
 
+// Mutable at runtime — these defaults match today's values, but Jinal can change the real
+// thresholds/percentages from Studio. Coins.jsx fetches the live config on load and calls
+// setDiscountConfig(), so pricing throughout the app reflects it without a page reload.
+export let discountConfig = {
+  tier1Threshold: 500,
+  tier1Pct: 5,
+  tier2Threshold: 1000,
+  tier2Pct: 10,
+};
+
+export function setDiscountConfig(cfg) {
+  if (!cfg) return;
+  discountConfig = { ...discountConfig, ...cfg };
+}
+
 // For any token amount, calculate discount automatically
 export function rechargeDiscount(tokens) {
-  if (tokens >= 1000) return 10;
-  if (tokens >= 500)  return 5;
+  if (tokens >= discountConfig.tier2Threshold) return discountConfig.tier2Pct;
+  if (tokens >= discountConfig.tier1Threshold) return discountConfig.tier1Pct;
   return 0;
 }
 

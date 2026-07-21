@@ -122,6 +122,8 @@ function PricingSection({ draft, set, config, setConfig, tokenRate }) {
     'token_rate_inr', 'guest_price_multiplier',
     'community_monthly_cost', 'insider_monthly_cost', 'premium_monthly_cost', 'supreme_monthly_cost',
     'community_discount_pct', 'insider_discount_pct', 'premium_discount_pct', 'supreme_discount_pct',
+    'recharge_discount_tier1_threshold', 'recharge_discount_tier1_pct',
+    'recharge_discount_tier2_threshold', 'recharge_discount_tier2_pct',
   ];
 
   return (
@@ -144,6 +146,30 @@ function PricingSection({ draft, set, config, setConfig, tokenRate }) {
         </Field>
         <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 8, fontStyle: 'italic' }}>
           e.g. 2 means guests pay double what a member would pay before any membership discount.
+        </p>
+      </Card>
+
+      <Card style={{ marginBottom: 20 }}>
+        <T.sectionTitle>Token recharge bulk discounts</T.sectionTitle>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>
+          Two discount tiers apply automatically when a fan buys tokens in bulk — spend at or above the threshold and the percentage discount applies to the whole purchase.
+        </p>
+        <div style={S.formGrid}>
+          <Field label="Tier 1 — token threshold">
+            <input style={S.input} type="number" min={1} value={draft.recharge_discount_tier1_threshold ?? 500} onChange={(e) => set('recharge_discount_tier1_threshold', e.target.value)} />
+          </Field>
+          <Field label="Tier 1 — discount %">
+            <input style={S.input} type="number" min={0} max={100} value={draft.recharge_discount_tier1_pct ?? 5} onChange={(e) => set('recharge_discount_tier1_pct', e.target.value)} />
+          </Field>
+          <Field label="Tier 2 — token threshold">
+            <input style={S.input} type="number" min={1} value={draft.recharge_discount_tier2_threshold ?? 1000} onChange={(e) => set('recharge_discount_tier2_threshold', e.target.value)} />
+          </Field>
+          <Field label="Tier 2 — discount %">
+            <input style={S.input} type="number" min={0} max={100} value={draft.recharge_discount_tier2_pct ?? 10} onChange={(e) => set('recharge_discount_tier2_pct', e.target.value)} />
+          </Field>
+        </div>
+        <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 10, fontStyle: 'italic' }}>
+          e.g. with the values above: buying {draft.recharge_discount_tier1_threshold ?? 500}+ tokens gets {draft.recharge_discount_tier1_pct ?? 5}% off, {draft.recharge_discount_tier2_threshold ?? 1000}+ gets {draft.recharge_discount_tier2_pct ?? 10}% off.
         </p>
       </Card>
 

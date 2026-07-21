@@ -6,17 +6,34 @@ const { postSystemMessage } = require('./community');
 const { getClientIp, lookupIpCountry } = require('../lib/geoip');
 const { issueInvoiceForPurchase } = require('../lib/invoice');
 const payments = require('../lib/payments');
+const { getConfigNumber } = require('../lib/config');
 
 const TOKEN_RATE_INR = parseInt(process.env.TOKEN_RATE_INR || '66');
 
-function calcDiscount(tokens) {
-  if (tokens >= 1000) return 10;
-  if (tokens >= 500)  return 5;
+async function getDiscountConfig() {
+  const [tier1Threshold, tier1Pct, tier2Threshold, tier2Pct] = await Promise.all([
+    getConfigNumber('recharge_discount_tier1_threshold'),
+    getConfigNumber('recharge_discount_tier1_pct'),
+    getConfigNumber('recharge_discount_tier2_threshold'),
+    getConfigNumber('recharge_discount_tier2_pct'),
+  ]);
+  return {
+    tier1Threshold: tier1Threshold || 500,
+    tier1Pct:       tier1Pct ?? 5,
+    tier2Threshold: tier2Threshold || 1000,
+    tier2Pct:       tier2Pct ?? 10,
+  };
+}
+
+async function calcDiscount(tokens) {
+  const cfg = await getDiscountConfig();
+  if (tokens >= cfg.tier2Threshold) return cfg.tier2Pct;
+  if (tokens >= cfg.tier1Threshold) return cfg.tier1Pct;
   return 0;
 }
 
-function calcPrice(tokens) {
-  const pct  = calcDiscount(tokens);
+async function calcPrice(tokens) {
+  const pct  = await calcDiscount(tokens);
   const base = tokens * TOKEN_RATE_INR;
   return Math.round(base * (1 - pct / 100));
 }
@@ -37,7 +54,8 @@ router.get('/balance', authMid, async (req, res) => {
        ORDER BY created_at DESC LIMIT 30`,
       [req.user.userId]
     );
-    res.json({ balance: userRows[0]?.coin_balance || 0, ledger });
+    const discountConfig = await getDiscountConfig();
+    res.json({ balance: userRows[0]?.coin_balance || 0, ledger, discountConfig });
   } catch (err) {
     console.error('coins/balance error:', err);
     res.status(500).json({ error: 'Failed to load balance' });
@@ -61,8 +79,8 @@ router.post('/recharge/initiate', authMid, async (req, res) => {
     return res.status(400).json({ error: 'Maximum 10,000 tokens per transaction' });
   }
 
-  const priceINR    = calcPrice(amount);
-  const discountPct = calcDiscount(amount);
+  const priceINR    = await calcPrice(amount);
+  const discountPct = await calcDiscount(amount);
 
   try {
     const order = await payments.createOrder({
@@ -131,8 +149,8 @@ router.post('/recharge/verify', authMid, async (req, res) => {
       });
     }
 
-    const priceINR    = calcPrice(amount);
-    const discountPct = calcDiscount(amount);
+    const priceINR    = await calcPrice(amount);
+    const discountPct = await calcDiscount(amount);
     const paymentMethodDisplay = payments.describePaymentMethod('razorpay', result.paymentRaw);
     const invoicingOwner = payments.invoicingOwnerFor('razorpay');
 

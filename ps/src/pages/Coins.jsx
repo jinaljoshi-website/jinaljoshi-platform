@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { RECHARGE_PACKS, TOKEN_RATE_INR, rechargePrice } from '../data';
+import { RECHARGE_PACKS, TOKEN_RATE_INR, rechargePrice, discountConfig, setDiscountConfig } from '../data';
 import { C, F } from '../tokens';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 import TopUpModal from '../components/TopUpModal';
@@ -19,7 +19,11 @@ export default function Coins() {
 
   const load = () => {
     api.get('/api/coins/balance')
-      .then((data) => { setBalance(data.balance ?? 0); setLedger(data.ledger || []); })
+      .then((data) => {
+        setDiscountConfig(data.discountConfig);
+        setBalance(data.balance ?? 0);
+        setLedger(data.ledger || []);
+      })
       .catch((err) => setError(err.message || 'Could not load coin balance.'))
       .finally(() => setLoading(false));
   };
@@ -45,7 +49,7 @@ export default function Coins() {
         <h1 style={title}>Your balance</h1>
         <p style={text}>
           1 J Token = ₹{TOKEN_RATE_INR} incl. GST. Tokens never expire.
-          Bulk discounts: 5% off on 500+, 10% off on 1000+.
+          Bulk discounts: {discountConfig.tier1Pct}% off on {discountConfig.tier1Threshold}+, {discountConfig.tier2Pct}% off on {discountConfig.tier2Threshold}+.
         </p>
         <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 6, opacity: 0.8 }}>
           All purchases are voluntary, final &amp; non-refundable.
