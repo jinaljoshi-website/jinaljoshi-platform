@@ -440,7 +440,9 @@ export function Messages() {
     if (!fan) return;
     setSettingsSaving(true);
     try {
-      await api.post('/api/studio/chat-bg', { type: 'fan', value: bgPreview, fanId: fan.id });
+      // A genuine null, not an empty string — an empty string would satisfy
+      // COALESCE() on the read side and break the fallback to the platform default.
+      await api.post('/api/studio/chat-bg', { type: 'fan', value: bgPreview || null, fanId: fan.id });
 
       const payload = {
         can_send_media: mediaEnabled,
@@ -668,7 +670,7 @@ export function Messages() {
                           </button>
                           {bgPreview && <img src={bgPreview} alt="bg" style={{ width: 40, height: 30, objectFit: 'cover', borderRadius: 4, border: `1px solid ${colors.border}` }} />}
                           {bgPreview && (
-                            <button onClick={() => setBgPreview('')} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 8px', color: '#D99A9A' }}>Clear</button>
+                            <button onClick={() => setBgPreview(null)} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 8px', color: '#D99A9A' }}>Remove (use default)</button>
                           )}
                         </div>
                       </Field>

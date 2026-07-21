@@ -77,7 +77,7 @@ export function Settings() {
       {active === 'gallery'     && <GallerySection       draft={draft} set={set} config={config} setConfig={setConfig} />}
       {active === 'calls'       && <CallsSection         draft={draft} set={set} config={config} setConfig={setConfig} tokenRate={tokenRate} />}
       {active === 'messages'    && <MessagesSection      draft={draft} set={set} config={config} setConfig={setConfig} tokenRate={tokenRate} />}
-      {active === 'backgrounds' && <BackgroundsSection />}
+      {active === 'backgrounds' && <BackgroundsSection config={config} setConfig={setConfig} />}
     </div>
   );
 }
@@ -297,16 +297,20 @@ function MessagesSection({ draft, set, config, setConfig, tokenRate }) {
   );
 }
 // ── Backgrounds ───────────────────────────────────────────────────────────────
-function BackgroundsSection() {
+function BackgroundsSection({ config, setConfig }) {
   const [bgType,      setBgType]      = useState('community');
-  const [bgPreview,    setBgPreview]   = useState('');
   const [bgUploading,  setBgUploading] = useState(false);
+  const [bgRemoving,   setBgRemoving]  = useState(false);
   const [bgCropFile,   setBgCropFile]  = useState(null);
   const [error,        setError]       = useState('');
   const [success,      setSuccess]     = useState('');
   const bgFileRef = useRef(null);
 
   const aspectForType = bgType === 'community' ? COMMUNITY_BG_ASPECT : CHAT_BG_ASPECT;
+  const configKey = bgType === 'community' ? 'community_chat_bg' : 'personal_chat_bg';
+  // Read directly from the already-loaded platform config — this is what's genuinely live
+  // right now, rather than a separate, easy-to-drift local copy.
+  const currentBg = config?.[configKey] || '';
 
   const handleBgFilePick = (e) => {
     const file = e.target.files?.[0];
@@ -319,15 +323,31 @@ function BackgroundsSection() {
   const handleBgCropComplete = async (croppedFile) => {
     setBgCropFile(null);
     setBgUploading(true);
+    setError(''); setSuccess('');
     try {
       const publicUrl = await uploadToR2(croppedFile, 'background', api);
-      await api.post('/api/upload/confirm-background', { publicUrl, type: bgType });
-      setBgPreview(publicUrl);
+      await api.post('/api/studio/chat-bg', { type: bgType, value: publicUrl });
+      setConfig((c) => ({ ...c, [configKey]: publicUrl }));
       setSuccess(`${bgType === 'community' ? 'Community' : 'Default personal chat'} background updated — live immediately.`);
     } catch (err) {
       setError(err.message);
     } finally {
       setBgUploading(false);
+    }
+  };
+
+  const handleRemoveBg = async () => {
+    setError(''); setSuccess(''); setBgRemoving(true);
+    try {
+      // A genuine SQL NULL, not an empty string — an empty string would satisfy
+      // COALESCE() as "present" on the read side and break the intended fallback.
+      await api.post('/api/studio/chat-bg', { type: bgType, value: null });
+      setConfig((c) => ({ ...c, [configKey]: null }));
+      setSuccess(`${bgType === 'community' ? 'Community' : 'Default personal chat'} background removed — chat now shows the plain background.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBgRemoving(false);
     }
   };
 
@@ -349,17 +369,28 @@ function BackgroundsSection() {
         <input ref={bgFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleBgFilePick} />
         <button
           onClick={() => bgFileRef.current?.click()}
-          disabled={bgUploading}
-          style={{ ...S.btn, opacity: bgUploading ? 0.5 : 1 }}
+          disabled={bgUploading || bgRemoving}
+          style={{ ...S.btn, opacity: (bgUploading || bgRemoving) ? 0.5 : 1 }}
         >
           {bgUploading ? 'Uploading…' : 'Browse & upload photo'}
         </button>
+        {currentBg && (
+          <button
+            onClick={handleRemoveBg}
+            disabled={bgUploading || bgRemoving}
+            style={{ ...S.ghostBtn, color: '#D99A9A', opacity: (bgUploading || bgRemoving) ? 0.5 : 1 }}
+          >
+            {bgRemoving ? 'Removing…' : 'Remove background'}
+          </button>
+        )}
       </div>
-      {bgPreview && (
+      {currentBg ? (
         <div>
-          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 8 }}>Preview</div>
-          <img src={bgPreview} alt="background preview" style={{ width: '100%', maxWidth: 320, height: 180, objectFit: 'cover', borderRadius: 8, border: `1px solid ${colors.border}` }} />
+          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 8 }}>Currently live</div>
+          <img src={currentBg} alt="background preview" style={{ width: '100%', maxWidth: 320, height: 180, objectFit: 'cover', borderRadius: 8, border: `1px solid ${colors.border}` }} />
         </div>
+      ) : (
+        <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, fontStyle: 'italic' }}>No background currently set — showing the plain default.</p>
       )}
 
       {bgCropFile && (
