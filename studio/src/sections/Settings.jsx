@@ -326,7 +326,7 @@ function BackgroundsSection({ config, setConfig }) {
     setError(''); setSuccess('');
     try {
       const publicUrl = await uploadToR2(croppedFile, 'background', api);
-      await api.post('/api/studio/chat-bg', { type: bgType, value: publicUrl });
+      await api.post('/api/upload/confirm-background', { publicUrl, type: bgType });
       setConfig((c) => ({ ...c, [configKey]: publicUrl }));
       setSuccess(`${bgType === 'community' ? 'Community' : 'Default personal chat'} background updated — live immediately.`);
     } catch (err) {
