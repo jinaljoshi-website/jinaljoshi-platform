@@ -30,13 +30,13 @@ const TIER_PERKS = {
 
 const OFFERINGS = [
   { id: 'community',   title: 'Member Community',      text: "A live space where we are one. All of you and me in one community where we interact daily, in real time." },
-  { id: 'merchandise', title: 'Official Merchandise',  text: "You get the option to own select merchandise, handcrafted accessories and outfits. Regular drops!" },
-  { id: 'messages',    title: 'Direct Messaging',      text: "For those of you who wish to write to me directly. No AI, no representative. You speak with me." },
-  { id: 'calls',       title: 'Virtual Connect',       text: "Looking for direct access? Request a call, audio or video. Propose a time, and let's connect so I can get to know you better." },
-  { id: 'extras',      title: 'Personalised Requests', text: "Special days! Get a video from me wishing you or your loved ones on special days." },
   { id: 'gallery',     title: 'Exclusive Content',     text: "There's only so much I can post on social media. Extended videos, alternate edits, more photos. Get all of them here. Only here!" },
   { id: 'bts',         title: 'Behind the Scenes',     text: "Experience my life behind the lens when I am shooting in a studio, beach, home or anywhere. Be with me at the shoots!" },
   { id: 'earlyAccess', title: 'Early Access',          text: "Public posts are planned and go live at a pre-decided time. Here, you see what might take a week to come live on social media." },
+  { id: 'merchandise', title: 'Official Merchandise',  text: "You get the option to own select merchandise, handcrafted accessories and outfits. Regular drops!" },
+  { id: 'extras',      title: 'Personalised Requests', text: "Special days! Get a video from me wishing you or your loved ones on special days." },
+  { id: 'messages',    title: 'Direct Messaging',      text: "For those of you who wish to write to me directly. No AI, no representative. You speak with me." },
+  { id: 'calls',       title: 'Virtual Connect',       text: "Looking for direct access? Request a call, audio or video. Propose a time, and let's connect so I can get to know you better." },
 ];
 
 const HOW_IT_WORKS = [
@@ -97,14 +97,11 @@ export default function Homepage() {
         <div style={heroInner}>
           <WonderCoin size={64} />
           <h1 style={heroTitle}>Jinal's Personal Space</h1>
-          <p style={heroTagline}>
-            An independent space to connect, created and run by Jinal Joshi.
-          </p>
           <p style={heroSub}>
             For those who want to be part of my journey beyond social media. Updates, conversations, and moments I only share here.
           </p>
           <div style={privateBadge}>
-            Personally run &amp; managed by Jinal Joshi · Not a multi-artist platform
+            Personally run &amp; managed by Jinal Joshi
           </div>
 
           <div style={offeringsGrid}>
@@ -275,7 +272,7 @@ export default function Homepage() {
             © {new Date().getFullYear()} Personal Space · ps.jinaljoshi.in · Personally operated by Jinal Joshi
           </span>
           <span style={{ fontFamily: F.sans, fontSize: 12, color: '#6B6560' }}>
-            Payments secured by To Be Updated
+            Secure, encrypted checkout
           </span>
         </div>
       </footer>
