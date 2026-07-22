@@ -36,7 +36,7 @@ const OFFERINGS = [
   { id: 'merchandise', title: 'Official Merchandise',  text: "You get the option to own select merchandise, handcrafted accessories and outfits. Regular drops!" },
   { id: 'extras',      title: 'Personalised Requests', text: "Special days! Get a video from me wishing you or your loved ones on special days." },
   { id: 'messages',    title: 'Direct Messaging',      text: "For those of you who wish to write to me directly. No AI, no representative. You speak with me." },
-  { id: 'calls',       title: 'Virtual Connect',       text: "Looking for direct access? Request a call, audio or video. Propose a time, and let's connect so I can get to know you better." },
+  { id: 'calls',       title: 'Virtual Connect',       text: "Book an audio or video session with Jinal. Propose a time, subject to your membership tier's call allowance." },
 ];
 
 const HOW_IT_WORKS = [
