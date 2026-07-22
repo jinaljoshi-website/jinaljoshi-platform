@@ -23,7 +23,12 @@ export default function Refund() {
         </div>
 
         <Section title="Our commitment to transparency">
-          <p>Personal Space is built on trust. We want every person who joins this space to feel informed and confident about how transactions work here. This policy explains clearly what you are purchasing, why all sales are final, and what recourse is available if something goes wrong on our end.</p>
+          <p>Personal Space is operated by Jinal Joshi, a sole proprietorship registered under GSTIN 27AVBPJ4823E1ZV, with its registered office at B-102, Parinee Crescenzo, G Block, BKC, Bandra East, Mumbai - 400051.</p>
+          <p>This policy is split into two clearly separate parts, because Personal Space sells two genuinely different kinds of things, digital access (which cannot be "returned" once delivered) and physical merchandise (which can). Please read the part that applies to what you've purchased.</p>
+        </Section>
+
+        <Section title="Part A — Digital purchases (tokens, memberships, content, messages, calls)">
+          <p>This part covers everything delivered digitally: J Token recharges, membership plans, content set unlocks, direct messages, virtual call bookings, and personalised video requests.</p>
         </Section>
 
         <Section title="What J Tokens are">
@@ -33,23 +38,21 @@ export default function Refund() {
         </Section>
 
         <Section title="All sales are final">
-          <p>Due to the immediate and consumable nature of digital tokens and the exclusive digital media access they unlock, <strong style={{ color: C.text }}>all purchases on Personal Space are final and non-refundable.</strong> This applies to:</p>
+          <p>Due to the immediate and consumable nature of digital tokens and the exclusive digital media access they unlock, <strong style={{ color: C.text }}>all digital purchases on Personal Space are final and non-refundable.</strong> This applies to:</p>
           <ul>
             <li>J Token recharges of any amount</li>
             <li>Membership plan purchases (Community, Insider, Premium, Supreme)</li>
             <li>Content set unlocks</li>
             <li>Direct message charges</li>
             <li>Virtual call bookings</li>
-            <li>Merchandise orders</li>
             <li>Personalised video requests</li>
           </ul>
-          <p>Once tokens are credited to your account or a service has been activated, no refund will be issued. This policy exists because digital content, once accessed, cannot be "returned."</p>
+          <p>Once tokens are credited to your account or a service has been activated, no refund will be issued. This policy exists because digital content, once accessed, cannot be "returned." Physical merchandise is handled separately, see Part B below.</p>
           <p>By making any purchase, you confirm that the transaction is voluntary, made of your own free will, and that you understand and accept these terms.</p>
         </Section>
 
         <Section title="Cancellations">
           <p>Membership plans do not auto-renew. There is nothing to cancel — your membership simply expires at the end of the chosen period (monthly, quarterly, or annual). You choose when and if to renew.</p>
-          <p>Merchandise orders cannot be cancelled once placed. If you placed an order in error, contact us immediately at <a href="mailto:orders@jinaljoshi.in" style={link}>orders@jinaljoshi.in</a> — we will do our best to help if the order has not yet been processed, but cannot guarantee cancellation.</p>
         </Section>
 
         <Section title="Technical issues — token credits">
@@ -60,11 +63,29 @@ export default function Refund() {
             <li>A content unlock was charged but access was not granted</li>
           </ul>
           <p>…you may write to <a href="mailto:billing@jinaljoshi.in" style={link}>billing@jinaljoshi.in</a> with the details of the transaction. We will investigate and, where the fault is ours, issue <strong style={{ color: C.text }}>token credits</strong> to your account within 7 business days.</p>
-          <p><strong style={{ color: C.text }}>Cash refunds are not available under any circumstances,</strong> including technical issues. Token credits are the only form of remedy available.</p>
+          <p><strong style={{ color: C.text }}>Cash refunds are not available under any circumstances,</strong> including technical issues. Token credits are the only form of remedy available for digital purchases.</p>
         </Section>
 
-        <Section title="Merchandise — damaged or incorrect items">
-          <p>If you receive a merchandise item that is damaged or incorrect, write to <a href="mailto:orders@jinaljoshi.in" style={link}>orders@jinaljoshi.in</a> with photographic evidence within 48 hours of delivery. We will review the case and arrange a replacement or issue token credits at our discretion.</p>
+        <Section title="Part B — Physical merchandise">
+          <p>Merchandise on Personal Space is purchased using J Tokens you've already bought, not a fresh payment at checkout. Because of this, every remedy below is issued as a <strong style={{ color: C.text }}>token credit back to your balance</strong>, never a cash refund, consistent with how J Tokens work everywhere else on the platform.</p>
+        </Section>
+
+        <Section title="Cancelling a merchandise order">
+          <p>You may cancel a merchandise order for a full token credit at any time <strong style={{ color: C.text }}>before it has been dispatched</strong>. Once an order has been handed to the courier or postal service, it can no longer be cancelled, you may instead choose to refuse the parcel at the point of delivery.</p>
+          <p>To cancel an order before dispatch, write to <a href="mailto:orders@jinaljoshi.in" style={link}>orders@jinaljoshi.in</a> with your order details as soon as possible.</p>
+        </Section>
+
+        <Section title="Damaged, defective, or incorrect items">
+          <p>If you receive a merchandise item that is damaged, defective, or not what you ordered, write to <a href="mailto:orders@jinaljoshi.in" style={link}>orders@jinaljoshi.in</a> with photographic evidence <strong style={{ color: C.text }}>within 3 days of delivery</strong>. Once reviewed, we will arrange either a replacement (where stock allows) or a full token credit for the item, at your preference.</p>
+          <p>Items must be reported unused and, where possible, in their original packaging for a replacement or credit to be issued.</p>
+        </Section>
+
+        <Section title="Items not eligible for cancellation or return">
+          <p>Merchandise explicitly marked as limited-edition, personalised, or final sale at the time of purchase is not eligible for cancellation, return, or exchange except in cases of genuine damage or defect.</p>
+        </Section>
+
+        <Section title="Processing time">
+          <p>Approved token credits for merchandise cancellations, damage, or defects are applied to your account balance within <strong style={{ color: C.text }}>7 business days</strong> of approval.</p>
         </Section>
 
         <Section title="Chargebacks">
@@ -99,13 +120,13 @@ function Section({ title, children }) {
 const topBar      = { position: 'sticky', top: 0, zIndex: 50, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 28px', background: 'rgba(13,12,10,0.94)', borderBottom: `1px solid rgba(242,235,224,0.08)`, backdropFilter: 'blur(12px)' };
 const backBtn     = { background: 'transparent', border: `1px solid rgba(242,235,224,0.08)`, color: '#9B8F83', fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 8, cursor: 'pointer' };
 const page        = { maxWidth: 760, margin: '0 auto', padding: '48px 24px 80px' };
-const header      = { marginBottom: 48, paddingBottom: 32, borderBottom: `1px solid rgba(242,235,224,0.08)` };
-const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 12 };
-const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(36px,5vw,56px)', color: C.text, margin: '0 0 16px' };
-const subtitle    = { fontFamily: F.sans, fontSize: 16, color: '#9B8F83', lineHeight: 1.7, margin: '0 0 10px' };
-const updated     = { fontFamily: F.mono, fontSize: 11, color: '#6B6560', margin: 0 };
-const sectionWrap = { marginBottom: 40, paddingBottom: 40, borderBottom: `1px solid rgba(242,235,224,0.06)` };
-const sectionTitle = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(22px,3vw,30px)', color: C.text, margin: '0 0 16px' };
-const sectionBody = { fontFamily: F.sans, fontSize: 15, color: '#9B8F83', lineHeight: 1.85 };
+const header      = { marginBottom: 48, paddingBottom: 32, borderBottom: `1px solid rgba(242,235,224,0.08)`, textAlign: 'left' };
+const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 12, textAlign: 'left' };
+const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(36px,5vw,56px)', color: C.text, margin: '0 0 16px', textAlign: 'left' };
+const subtitle    = { fontFamily: F.sans, fontSize: 16, color: '#9B8F83', lineHeight: 1.7, margin: '0 0 10px', textAlign: 'left' };
+const updated     = { fontFamily: F.mono, fontSize: 11, color: '#6B6560', margin: 0, textAlign: 'left' };
+const sectionWrap = { marginBottom: 40, paddingBottom: 40, borderBottom: `1px solid rgba(242,235,224,0.06)`, textAlign: 'left' };
+const sectionTitle = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(22px,3vw,30px)', color: C.text, margin: '0 0 16px', textAlign: 'left' };
+const sectionBody = { fontFamily: F.sans, fontSize: 15, color: '#9B8F83', lineHeight: 1.85, textAlign: 'left' };
 const link        = { color: C.accent, textDecoration: 'none' };
 const footerNote  = { fontFamily: F.mono, fontSize: 11, color: '#6B6560', letterSpacing: '0.08em', textAlign: 'center', marginTop: 48 };
