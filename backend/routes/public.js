@@ -12,7 +12,11 @@ router.get('/config', async (req, res) => {
          'insider_monthly_tokens',
          'premium_monthly_tokens',
          'supreme_monthly_tokens',
-         'config_published'
+         'config_published',
+         'recharge_discount_tier1_threshold',
+         'recharge_discount_tier1_pct',
+         'recharge_discount_tier2_threshold',
+         'recharge_discount_tier2_pct'
        )`
     );
     const raw = {};
