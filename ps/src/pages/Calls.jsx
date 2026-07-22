@@ -249,7 +249,7 @@ export default function Calls() {
         <div style={eyebrow}>Bookings</div>
         <h1 style={title}>Virtual sessions</h1>
         <p style={text}>
-          Book a private audio or video call with Jinal, or connect right now with Priority Video.
+          Book an audio or video call with Jinal, or connect right now with Priority Video.
           {data?.isPrimetime && <strong style={{ color: C.accent }}> Primetime rates active ({data.multiplier}×).</strong>}
         </p>
       </div>
