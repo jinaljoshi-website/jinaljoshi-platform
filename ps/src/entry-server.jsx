@@ -5,7 +5,7 @@
 // drifting out of sync with the real app the way a hand-written static copy would.
 import React from 'react';
 import { renderToString } from 'react-dom/server';
-import { StaticRouter } from 'react-router-dom/server';
+import { MemoryRouter } from 'react-router-dom';
 import Homepage from './pages/Homepage';
 import Terms    from './pages/Terms';
 import Privacy  from './pages/Privacy';
@@ -25,6 +25,6 @@ const PAGES = {
 export function render(routePath) {
   const Component = PAGES[routePath];
   return renderToString(
-    React.createElement(StaticRouter, { location: routePath }, React.createElement(Component))
+    React.createElement(MemoryRouter, { initialEntries: [routePath] }, React.createElement(Component))
   );
 }
