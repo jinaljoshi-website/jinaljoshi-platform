@@ -23,7 +23,8 @@ export default function Privacy() {
         </div>
 
         <Section title="Who we are">
-          <p>Personal Space (ps.jinaljoshi.in) is an independent digital platform personally operated by Jinal Joshi. It is not affiliated with any agency, network, or third-party creator platform. When this policy says "we" or "the platform," it refers to this service operated by Jinal Joshi directly.</p>
+          <p>Personal Space (ps.jinaljoshi.in) is an independent digital platform personally operated by Jinal Joshi, a sole proprietorship registered under GSTIN 27AVBPJ4823E1ZV, with its registered office at B-102, Parinee Crescenzo, G Block, BKC, Bandra East, Mumbai - 400051. It is not affiliated with any agency, network, or third-party creator platform. When this policy says "we" or "the platform," it refers to this service operated by Jinal Joshi directly.</p>
+          <p>We do not offer any product or service under this Platform outside India, and your personal data is stored and processed primarily in India, in accordance with the applicable data protection laws of India.</p>
           <p>If you have any questions about how your data is handled, write to <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a>.</p>
         </Section>
 
@@ -51,6 +52,15 @@ export default function Privacy() {
             <li>To prevent fraud and maintain platform security</li>
           </ul>
           <p>We do not use your information for advertising. We do not sell your data to third parties. We do not share your data with any marketing or analytics companies.</p>
+        </Section>
+
+        <Section title="Sharing your information">
+          <p>We share your information only with the specific third parties genuinely necessary to deliver what you've purchased:</p>
+          <ul>
+            <li><strong style={{ color: C.text }}>Our payment gateway partner</strong> — to process token recharges and payments securely. See "Payment processing" below.</li>
+            <li><strong style={{ color: C.text }}>Courier and postal partners</strong> — your name, address, and phone number, only if you place a merchandise order, solely to deliver it to you.</li>
+          </ul>
+          <p>We do not share your information with any other business partners, sellers, or third-party marketing programs, because Personal Space is not a marketplace and has none. We may disclose personal data if required by law, in response to a valid legal process, or where reasonably necessary to protect the rights, property, or safety of Personal Space, our users, or the public.</p>
         </Section>
 
         <Section title="Payment processing">
@@ -82,6 +92,10 @@ export default function Privacy() {
             <li>Withdraw consent to push notifications at any time (via platform settings or device settings)</li>
           </ul>
           <p>To exercise any of these rights, write to <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a>.</p>
+        </Section>
+
+        <Section title="Consent">
+          <p>By visiting the Platform or providing your information, you consent to the collection, use, storage, and processing of your information as described in this Privacy Policy. If you wish to withdraw consent you have previously given, write to our Grievance Officer with the subject line "Withdrawal of consent for processing personal data." Please note that withdrawal is not retrospective, and where certain information is necessary to provide a service, withdrawing consent may mean we can no longer provide that service to you.</p>
         </Section>
 
         <Section title="Children's privacy">
