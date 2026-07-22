@@ -46,10 +46,13 @@ const HOW_IT_WORKS = [
   { title: 'Heavy Discounts',          text: "Memberships bring discounts on every purchase. Tokens can also be bought at a discounted price in bulk: 5% off on 500 tokens, 10% off on 1000. Save more, do more." },
 ];
 
+const DEFAULT_DISCOUNT_CONFIG = { tier1Threshold: 500, tier1Pct: 5, tier2Threshold: 1000, tier2Pct: 10 };
+
 export default function Homepage() {
   const navigate = useNavigate();
   const [tierPrices, setTierPrices] = useState(DEFAULT_TIER_PRICES);
   const [tokenRate,  setTokenRate]  = useState(TOKEN_RATE);
+  const [discountCfg, setDiscountCfg] = useState(DEFAULT_DISCOUNT_CONFIG);
   const [loading,    setLoading]    = useState(true);
 
   useEffect(() => {
@@ -64,6 +67,14 @@ export default function Homepage() {
           premium:   parseInt(c.premium_monthly_cost   || DEFAULT_TIER_PRICES.premium),
           supreme:   parseInt(c.supreme_monthly_cost   || DEFAULT_TIER_PRICES.supreme),
         });
+        // Same recharge-discount config Jinal sets in Studio → Pricing & Discounts —
+        // this is what actually determines the last two pricing blocks below.
+        setDiscountCfg({
+          tier1Threshold: parseInt(c.recharge_discount_tier1_threshold) || DEFAULT_DISCOUNT_CONFIG.tier1Threshold,
+          tier1Pct:       c.recharge_discount_tier1_pct !== undefined ? parseInt(c.recharge_discount_tier1_pct) : DEFAULT_DISCOUNT_CONFIG.tier1Pct,
+          tier2Threshold: parseInt(c.recharge_discount_tier2_threshold) || DEFAULT_DISCOUNT_CONFIG.tier2Threshold,
+          tier2Pct:       c.recharge_discount_tier2_pct !== undefined ? parseInt(c.recharge_discount_tier2_pct) : DEFAULT_DISCOUNT_CONFIG.tier2Pct,
+        });
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -73,8 +84,16 @@ export default function Homepage() {
     { tokens: 10,   inr: 10   * tokenRate,           label: 'A message or two',   saving: null,    highlight: false },
     { tokens: 50,   inr: 50   * tokenRate,           label: 'A week of chats',    saving: null,    highlight: false },
     { tokens: 100,  inr: 100  * tokenRate,           label: 'Content + messages', saving: null,    highlight: false },
-    { tokens: 500,  inr: Math.round(500  * tokenRate * 0.95), label: 'More for less', saving: '5% off',  highlight: true  },
-    { tokens: 1000, inr: Math.round(1000 * tokenRate * 0.90), label: 'Best value',    saving: '10% off', highlight: true  },
+    {
+      tokens: discountCfg.tier1Threshold,
+      inr: Math.round(discountCfg.tier1Threshold * tokenRate * (1 - discountCfg.tier1Pct / 100)),
+      label: 'More for less', saving: `${discountCfg.tier1Pct}% off`, highlight: true,
+    },
+    {
+      tokens: discountCfg.tier2Threshold,
+      inr: Math.round(discountCfg.tier2Threshold * tokenRate * (1 - discountCfg.tier2Pct / 100)),
+      label: 'Best value', saving: `${discountCfg.tier2Pct}% off`, highlight: true,
+    },
   ];
 
   return (

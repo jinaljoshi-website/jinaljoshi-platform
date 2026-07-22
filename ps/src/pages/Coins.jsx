@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { RECHARGE_PACKS, TOKEN_RATE_INR, rechargePrice, discountConfig, setDiscountConfig } from '../data';
+import { TOKEN_RATE_INR, rechargePrice, discountConfig, setDiscountConfig } from '../data';
 import { C, F } from '../tokens';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 import TopUpModal from '../components/TopUpModal';
@@ -115,10 +115,18 @@ export default function Coins() {
           </div>
         </div>
 
-        {/* Quick-pick packs */}
+        {/* Quick-pick packs — the last two amounts are derived fresh on every render from
+            Jinal's actual configured thresholds, so the buttons themselves change (not just
+            their discount badges) the moment she updates them in Studio. */}
         <div style={sectionLabel}>Quick select</div>
         <div style={packsRow}>
-          {RECHARGE_PACKS.map((pack) => {
+          {[
+            { tokens: 10 },
+            { tokens: 50 },
+            { tokens: 100 },
+            { tokens: discountConfig.tier1Threshold },
+            { tokens: discountConfig.tier2Threshold },
+          ].map((pack) => {
             const p = rechargePrice(pack.tokens);
             const isSelected = quickPick === pack.tokens;
             return (
