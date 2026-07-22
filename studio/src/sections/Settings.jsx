@@ -432,7 +432,9 @@ function BackgroundsSection({ config, setConfig }) {
       )}
     </Card>
   );
-  // ── Legal Details ─────────────────────────────────────────────────────────────
+}
+
+// ── Legal Details ─────────────────────────────────────────────────────────────
 function LegalDetailsSection({ draft, set, config, setConfig }) {
   const keys = ['legal_registered_address', 'legal_gstin'];
 
@@ -456,5 +458,4 @@ function LegalDetailsSection({ draft, set, config, setConfig }) {
       <SectionSave keys={keys} draft={draft} config={config} setConfig={setConfig} />
     </Card>
   );
-}
 }
