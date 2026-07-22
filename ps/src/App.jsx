@@ -7,6 +7,7 @@ import Platform from './pages/Platform';
 import Terms    from './pages/Terms';
 import Privacy  from './pages/Privacy';
 import Refund   from './pages/Refund';
+import Shipping from './pages/Shipping';
 import Contact  from './pages/Contact';
 import Sitemap  from './pages/Sitemap';
 import { C, F } from './tokens';
@@ -28,8 +29,9 @@ export default function App() {
           <Route path="/auth"    element={<Auth />} />
           <Route path="/terms"   element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
-          <Route path="/refund"  element={<Refund />} />
-          <Route path="/contact" element={<Contact />} />
+          <Route path="/refund"   element={<Refund />} />
+          <Route path="/shipping" element={<Shipping />} />
+          <Route path="/contact"  element={<Contact />} />
           <Route path="/sitemap" element={<Sitemap />} />
 
           {/* Landing is its own top-level route — no sidebar/topbar chrome */}

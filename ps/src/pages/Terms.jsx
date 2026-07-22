@@ -40,7 +40,7 @@ export default function Terms() {
           <p>The price of J Tokens in Indian Rupees (INR) is set by the platform and is displayed in real time on the platform's pricing page and at checkout. The rate includes all applicable taxes. No hidden charges apply.</p>
           <p>Bulk discounts apply automatically when purchasing larger quantities of tokens. The exact thresholds and discount percentages are displayed at the time of purchase.</p>
           <p><strong style={{ color: C.text }}>Tokens are strictly single-use digital utility instruments.</strong> They exist solely within the Personal Space platform and hold no real-world cash value. Tokens cannot be converted back to INR, transferred to another account, traded peer-to-peer, or redeemed for cash under any circumstances. Token balances do not expire.</p>
-          <p>Tokens are purchased using Indian Rupees (INR) via To Be Updated, our payment processing partner.</p>
+          <p>Tokens are purchased using Indian Rupees (INR) through our secure, third-party payment gateway partner.</p>
         </Section>
 
         <Section title="Membership plans">
@@ -96,7 +96,7 @@ export default function Terms() {
 
         <Section title="Privacy">
           <p>Personal Space collects the minimum information required to operate the platform: your email address, date of birth, and any shipping address you choose to provide. Your data is not sold to third parties.</p>
-          <p>Payment processing is handled by To Be Updated. Personal Space does not store your card or bank details. Please refer to our <a href="/privacy" style={link}>Privacy Policy</a> for full details.</p>
+          <p>Payment processing is handled by our secure, third-party payment gateway partner. Personal Space does not store your card or bank details. Please refer to our <a href="/privacy" style={link}>Privacy Policy</a> for full details.</p>
         </Section>
 
         <Section title="Governing law">
@@ -135,13 +135,13 @@ function Section({ title, children }) {
 const topBar      = { position: 'sticky', top: 0, zIndex: 50, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 28px', background: 'rgba(13,12,10,0.94)', borderBottom: `1px solid rgba(242,235,224,0.08)`, backdropFilter: 'blur(12px)' };
 const backBtn     = { background: 'transparent', border: `1px solid rgba(242,235,224,0.08)`, color: '#9B8F83', fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 8, cursor: 'pointer' };
 const page        = { maxWidth: 760, margin: '0 auto', padding: '48px 24px 80px' };
-const header      = { marginBottom: 48, paddingBottom: 32, borderBottom: `1px solid rgba(242,235,224,0.08)` };
-const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 12 };
-const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(36px,5vw,56px)', color: C.text, margin: '0 0 16px' };
-const subtitle    = { fontFamily: F.sans, fontSize: 16, color: '#9B8F83', lineHeight: 1.7, margin: '0 0 10px' };
-const updated     = { fontFamily: F.mono, fontSize: 11, color: '#6B6560', margin: 0 };
-const sectionWrap = { marginBottom: 40, paddingBottom: 40, borderBottom: `1px solid rgba(242,235,224,0.06)` };
-const sectionTitle = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(22px,3vw,30px)', color: C.text, margin: '0 0 16px' };
-const sectionBody = { fontFamily: F.sans, fontSize: 15, color: '#9B8F83', lineHeight: 1.85 };
+const header      = { marginBottom: 48, paddingBottom: 32, borderBottom: `1px solid rgba(242,235,224,0.08)`, textAlign: 'left' };
+const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 12, textAlign: 'left' };
+const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(36px,5vw,56px)', color: C.text, margin: '0 0 16px', textAlign: 'left' };
+const subtitle    = { fontFamily: F.sans, fontSize: 16, color: '#9B8F83', lineHeight: 1.7, margin: '0 0 10px', textAlign: 'left' };
+const updated     = { fontFamily: F.mono, fontSize: 11, color: '#6B6560', margin: 0, textAlign: 'left' };
+const sectionWrap = { marginBottom: 40, paddingBottom: 40, borderBottom: `1px solid rgba(242,235,224,0.06)`, textAlign: 'left' };
+const sectionTitle = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(22px,3vw,30px)', color: C.text, margin: '0 0 16px', textAlign: 'left' };
+const sectionBody = { fontFamily: F.sans, fontSize: 15, color: '#9B8F83', lineHeight: 1.85, textAlign: 'left' };
 const link        = { color: C.accent, textDecoration: 'none' };
 const footerNote  = { fontFamily: F.mono, fontSize: 11, color: '#6B6560', letterSpacing: '0.08em', textAlign: 'center', marginTop: 48 };

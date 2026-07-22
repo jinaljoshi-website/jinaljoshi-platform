@@ -36,7 +36,7 @@ export default function Privacy() {
             <li><strong style={{ color: C.text }}>Device information</strong> — browser type and approximate location, collected automatically when you log in, for security purposes.</li>
             <li><strong style={{ color: C.text }}>Communications</strong> — messages sent through the platform's direct messaging feature are stored to maintain conversation history.</li>
           </ul>
-          <p>We do not collect payment card details. All payment processing is handled directly by To Be Updated.</p>
+          <p>We do not collect payment card details. All payment processing is handled directly by our secure, third-party payment gateway partner.</p>
         </Section>
 
         <Section title="How we use your information">
@@ -54,7 +54,7 @@ export default function Privacy() {
         </Section>
 
         <Section title="Payment processing">
-          <p>All payments are processed by To Be Updated. Personal Space does not store, process, or transmit your card or bank account details at any point.</p>
+          <p>All payments are processed by our secure, third-party payment gateway partner. Personal Space does not store, process, or transmit your card or bank account details at any point.</p>
           <p>When you make a payment, your financial details are entered directly into our payment processor's secure interface, not stored on our own servers at any point.</p>
         </Section>
 
@@ -117,13 +117,13 @@ function Section({ title, children }) {
 const topBar      = { position: 'sticky', top: 0, zIndex: 50, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 28px', background: 'rgba(13,12,10,0.94)', borderBottom: `1px solid rgba(242,235,224,0.08)`, backdropFilter: 'blur(12px)' };
 const backBtn     = { background: 'transparent', border: `1px solid rgba(242,235,224,0.08)`, color: '#9B8F83', fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 8, cursor: 'pointer' };
 const page        = { maxWidth: 760, margin: '0 auto', padding: '48px 24px 80px' };
-const header      = { marginBottom: 48, paddingBottom: 32, borderBottom: `1px solid rgba(242,235,224,0.08)` };
-const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 12 };
-const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(36px,5vw,56px)', color: C.text, margin: '0 0 16px' };
-const subtitle    = { fontFamily: F.sans, fontSize: 16, color: '#9B8F83', lineHeight: 1.7, margin: '0 0 10px' };
-const updated     = { fontFamily: F.mono, fontSize: 11, color: '#6B6560', margin: 0 };
-const sectionWrap = { marginBottom: 40, paddingBottom: 40, borderBottom: `1px solid rgba(242,235,224,0.06)` };
-const sectionTitle = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(22px,3vw,30px)', color: C.text, margin: '0 0 16px' };
-const sectionBody = { fontFamily: F.sans, fontSize: 15, color: '#9B8F83', lineHeight: 1.85 };
+const header      = { marginBottom: 48, paddingBottom: 32, borderBottom: `1px solid rgba(242,235,224,0.08)`, textAlign: 'left' };
+const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 12, textAlign: 'left' };
+const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(36px,5vw,56px)', color: C.text, margin: '0 0 16px', textAlign: 'left' };
+const subtitle    = { fontFamily: F.sans, fontSize: 16, color: '#9B8F83', lineHeight: 1.7, margin: '0 0 10px', textAlign: 'left' };
+const updated     = { fontFamily: F.mono, fontSize: 11, color: '#6B6560', margin: 0, textAlign: 'left' };
+const sectionWrap = { marginBottom: 40, paddingBottom: 40, borderBottom: `1px solid rgba(242,235,224,0.06)`, textAlign: 'left' };
+const sectionTitle = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(22px,3vw,30px)', color: C.text, margin: '0 0 16px', textAlign: 'left' };
+const sectionBody = { fontFamily: F.sans, fontSize: 15, color: '#9B8F83', lineHeight: 1.85, textAlign: 'left' };
 const link        = { color: C.accent, textDecoration: 'none' };
 const footerNote  = { fontFamily: F.mono, fontSize: 11, color: '#6B6560', letterSpacing: '0.08em', textAlign: 'center', marginTop: 48 };

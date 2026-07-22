@@ -273,10 +273,11 @@ export default function Homepage() {
             </div>
             <div style={footerCol}>
               <div style={footerColTitle}>Legal</div>
-              <a href="/terms"   style={footerLink}>Terms of Use</a>
-              <a href="/privacy" style={footerLink}>Privacy Policy</a>
-              <a href="/refund"  style={footerLink}>Refund Policy</a>
-              <a href="/contact" style={footerLink}>Contact Us</a>
+              <a href="/terms"    style={footerLink}>Terms of Use</a>
+              <a href="/privacy"  style={footerLink}>Privacy Policy</a>
+              <a href="/refund"   style={footerLink}>Refund Policy</a>
+              <a href="/shipping" style={footerLink}>Shipping Policy</a>
+              <a href="/contact"  style={footerLink}>Contact Us</a>
             </div>
             <div style={footerCol}>
               <div style={footerColTitle}>Support</div>
