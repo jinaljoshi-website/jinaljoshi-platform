@@ -1,10 +1,26 @@
 // ps/src/pages/Contact.jsx
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { WonderCoin } from '../components/WonderCoin';
 
+const API = import.meta.env.VITE_API_URL;
+const DEFAULT_ADDRESS = 'Jinal Joshi, A-14/103, Broadway Avenue Society, Jay Gopal Lal Road, Nr Jangid Circle, Mira Road East, Mira Bhayandar, Thane, Maharashtra - 401107';
+
 export default function Contact() {
   const navigate = useNavigate();
+  const [address, setAddress] = useState(DEFAULT_ADDRESS);
+
+  useEffect(() => {
+    fetch(`${API}/api/public/config`)
+      .then((r) => r.json())
+      .then((data) => {
+        const c = data.config || {};
+        if (c.legal_registered_address) setAddress(c.legal_registered_address);
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.text }}>
       <div style={topBar}>
@@ -76,11 +92,11 @@ export default function Contact() {
             </div>
             <div style={infoRow}>
               <span style={infoLabel}>Regd. Office:</span>
-              <span style={{ ...infoVal, textAlign: 'right' }}>Jinal Joshi<br />1B, 1st Floor, Parinee Crescenzo,<br />G Block, BKC, Bandra East, Mumbai - 400 051</span>
+              <span style={{ ...infoVal, textAlign: 'right' }}>{address}</span>
             </div>
             <div style={infoRow}>
               <span style={infoLabel}>Payment processor</span>
-              <span style={infoVal}>To Be Updated</span>
+              <span style={infoVal}>Secure, encrypted checkout</span>
             </div>
           </div>
         </div>
