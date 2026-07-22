@@ -1,10 +1,28 @@
 // ps/src/pages/Terms.jsx
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { WonderCoin } from '../components/WonderCoin';
 
+const API = import.meta.env.VITE_API_URL;
+const DEFAULT_ADDRESS = 'Jinal Joshi, A-14/103, Broadway Avenue Society, Jay Gopal Lal Road, Nr Jangid Circle, Mira Road East, Mira Bhayandar, Thane, Maharashtra - 401107';
+const DEFAULT_GSTIN = '27AVBPJ4823E1ZV';
+
 export default function Terms() {
   const navigate = useNavigate();
+  const [address, setAddress] = useState(DEFAULT_ADDRESS);
+  const [gstin,   setGstin]   = useState(DEFAULT_GSTIN);
+
+  useEffect(() => {
+    fetch(`${API}/api/public/config`)
+      .then((r) => r.json())
+      .then((data) => {
+        const c = data.config || {};
+        if (c.legal_registered_address) setAddress(c.legal_registered_address);
+        if (c.legal_gstin) setGstin(c.legal_gstin);
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.text }}>
@@ -29,7 +47,7 @@ export default function Terms() {
         </Section>
 
         <Section title="What is Personal Space?">
-          <p>Personal Space (ps.jinaljoshi.in) is an independent digital platform run and managed personally by Jinal Joshi, operating as a sole proprietorship registered under GSTIN 27AVBPJ4823E1ZV, with its registered office at B-102, Parinee Crescenzo, G Block, BKC, Bandra East, Mumbai - 400051 (referred to in these Terms as "Platform Owner," "we," "us," or "our"). It is not a multi-artist platform or a fan aggregator. This is Jinal's own space, built for people who want to experience her journey more closely.</p>
+          <p>Personal Space (ps.jinaljoshi.in) is an independent digital platform run and managed personally by Jinal Joshi, operating as a sole proprietorship registered under GSTIN {gstin}, with its registered office at {address} (referred to in these Terms as "Platform Owner," "we," "us," or "our"). It is not a multi-artist platform or a fan aggregator. This is Jinal's own space, built for people who want to experience her journey more closely.</p>
           <p>The platform offers exclusive content, direct messaging, virtual call sessions, official merchandise, community interaction, personalised video requests, behind-the-scenes access, and early access to upcoming work. Everything inside the platform is accessed using J Tokens, the platform's internal currency.</p>
           <p>This platform is independently operated. It is not affiliated with any talent agency, management company, or third-party creator network.</p>
           <p>By accessing, browsing, or otherwise using the Platform, you agree to be bound by these Terms of Use in their entirety. If you do not agree, please do not access or use the Platform.</p>
@@ -134,7 +152,7 @@ export default function Terms() {
           <p>
             <strong style={{ color: C.text }}>Email:</strong> <a href="mailto:grievance@jinaljoshi.in" style={link}>grievance@jinaljoshi.in</a><br />
             <strong style={{ color: C.text }}>Response time:</strong> Within 7 business days<br />
-            <strong style={{ color: C.text }}>Regd. Office:</strong> Jinal Joshi, 1B, 1st Floor, Parinee Crescenzo, G Block, BKC, Bandra East, Mumbai - 400 051
+            <strong style={{ color: C.text }}>Regd. Office:</strong> {address}
           </p>
           <p>Personal Space is personally operated by Jinal Joshi and support is handled directly, not by a third-party team.</p>
         </Section>

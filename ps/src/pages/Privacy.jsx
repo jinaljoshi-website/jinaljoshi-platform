@@ -1,10 +1,29 @@
 // ps/src/pages/Privacy.jsx
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { WonderCoin } from '../components/WonderCoin';
 
+const API = import.meta.env.VITE_API_URL;
+const DEFAULT_ADDRESS = 'Jinal Joshi, A-14/103, Broadway Avenue Society, Jay Gopal Lal Road, Nr Jangid Circle, Mira Road East, Mira Bhayandar, Thane, Maharashtra - 401107';
+const DEFAULT_GSTIN = '27AVBPJ4823E1ZV';
+
 export default function Privacy() {
   const navigate = useNavigate();
+  const [address, setAddress] = useState(DEFAULT_ADDRESS);
+  const [gstin,   setGstin]   = useState(DEFAULT_GSTIN);
+
+  useEffect(() => {
+    fetch(`${API}/api/public/config`)
+      .then((r) => r.json())
+      .then((data) => {
+        const c = data.config || {};
+        if (c.legal_registered_address) setAddress(c.legal_registered_address);
+        if (c.legal_gstin) setGstin(c.legal_gstin);
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.text }}>
       <div style={topBar}>
@@ -23,7 +42,7 @@ export default function Privacy() {
         </div>
 
         <Section title="Who we are">
-          <p>Personal Space (ps.jinaljoshi.in) is an independent digital platform personally operated by Jinal Joshi, a sole proprietorship registered under GSTIN 27AVBPJ4823E1ZV, with its registered office at B-102, Parinee Crescenzo, G Block, BKC, Bandra East, Mumbai - 400051. It is not affiliated with any agency, network, or third-party creator platform. When this policy says "we" or "the platform," it refers to this service operated by Jinal Joshi directly.</p>
+          <p>Personal Space (ps.jinaljoshi.in) is an independent digital platform personally operated by Jinal Joshi, a sole proprietorship registered under GSTIN {gstin}, with its registered office at {address}. It is not affiliated with any agency, network, or third-party creator platform. When this policy says "we" or "the platform," it refers to this service operated by Jinal Joshi directly.</p>
           <p>We do not offer any product or service under this Platform outside India, and your personal data is stored and processed primarily in India, in accordance with the applicable data protection laws of India.</p>
           <p>If you have any questions about how your data is handled, write to <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a>.</p>
         </Section>
@@ -110,7 +129,7 @@ export default function Privacy() {
           <p>For privacy-related queries or to raise a grievance:</p>
           <p><strong style={{ color: C.text }}>Email:</strong> <a href="mailto:grievance@jinaljoshi.in" style={link}>grievance@jinaljoshi.in</a><br />
           <strong style={{ color: C.text }}>Response time:</strong> Within 7 business days<br />
-          <strong style={{ color: C.text }}>Regd. Office:</strong> Jinal Joshi, 1B, 1st Floor, Parinee Crescenzo, G Block, BKC, Bandra East, Mumbai - 400 051</p>
+          <strong style={{ color: C.text }}>Regd. Office:</strong> {address}</p>
         </Section>
 
         <div style={footerNote}>Personal Space · ps.jinaljoshi.in · Personally operated by Jinal Joshi</div>

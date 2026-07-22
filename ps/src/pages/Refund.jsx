@@ -1,10 +1,29 @@
 // ps/src/pages/Refund.jsx
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { WonderCoin } from '../components/WonderCoin';
 
+const API = import.meta.env.VITE_API_URL;
+const DEFAULT_ADDRESS = 'Jinal Joshi, A-14/103, Broadway Avenue Society, Jay Gopal Lal Road, Nr Jangid Circle, Mira Road East, Mira Bhayandar, Thane, Maharashtra - 401107';
+const DEFAULT_GSTIN = '27AVBPJ4823E1ZV';
+
 export default function Refund() {
   const navigate = useNavigate();
+  const [address, setAddress] = useState(DEFAULT_ADDRESS);
+  const [gstin,   setGstin]   = useState(DEFAULT_GSTIN);
+
+  useEffect(() => {
+    fetch(`${API}/api/public/config`)
+      .then((r) => r.json())
+      .then((data) => {
+        const c = data.config || {};
+        if (c.legal_registered_address) setAddress(c.legal_registered_address);
+        if (c.legal_gstin) setGstin(c.legal_gstin);
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.text }}>
       <div style={topBar}>
@@ -23,7 +42,7 @@ export default function Refund() {
         </div>
 
         <Section title="Our commitment to transparency">
-          <p>Personal Space is operated by Jinal Joshi, a sole proprietorship registered under GSTIN 27AVBPJ4823E1ZV, with its registered office at B-102, Parinee Crescenzo, G Block, BKC, Bandra East, Mumbai - 400051.</p>
+          <p>Personal Space is operated by Jinal Joshi, a sole proprietorship registered under GSTIN {gstin}, with its registered office at {address}.</p>
           <p>This policy is split into two clearly separate parts, because Personal Space sells two genuinely different kinds of things, digital access (which cannot be "returned" once delivered) and physical merchandise (which can). Please read the part that applies to what you've purchased.</p>
         </Section>
 
@@ -97,7 +116,7 @@ export default function Refund() {
           <p>
             <strong style={{ color: C.text }}>Email:</strong> <a href="mailto:grievance@jinaljoshi.in" style={link}>grievance@jinaljoshi.in</a><br />
             <strong style={{ color: C.text }}>Response time:</strong> Within 5 business days<br />
-            <strong style={{ color: C.text }}>Regd. Office:</strong> Jinal Joshi, 1B, 1st Floor, Parinee Crescenzo, G Block, BKC, Bandra East, Mumbai - 400 051
+            <strong style={{ color: C.text }}>Regd. Office:</strong> {address}
           </p>
           <p>Please include your registered email address, the date of the transaction, the amount, and a description of the issue. We take every grievance seriously and will respond promptly.</p>
         </Section>

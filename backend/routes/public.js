@@ -16,7 +16,9 @@ router.get('/config', async (req, res) => {
          'recharge_discount_tier1_threshold',
          'recharge_discount_tier1_pct',
          'recharge_discount_tier2_threshold',
-         'recharge_discount_tier2_pct'
+         'recharge_discount_tier2_pct',
+         'legal_registered_address',
+         'legal_gstin'
        )`
     );
     const raw = {};

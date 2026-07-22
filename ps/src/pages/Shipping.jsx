@@ -1,10 +1,25 @@
 // ps/src/pages/Shipping.jsx
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { WonderCoin } from '../components/WonderCoin';
 
+const API = import.meta.env.VITE_API_URL;
+const DEFAULT_ADDRESS = 'Jinal Joshi, A-14/103, Broadway Avenue Society, Jay Gopal Lal Road, Nr Jangid Circle, Mira Road East, Mira Bhayandar, Thane, Maharashtra - 401107';
+
 export default function Shipping() {
   const navigate = useNavigate();
+  const [address, setAddress] = useState(DEFAULT_ADDRESS);
+
+  useEffect(() => {
+    fetch(`${API}/api/public/config`)
+      .then((r) => r.json())
+      .then((data) => {
+        const c = data.config || {};
+        if (c.legal_registered_address) setAddress(c.legal_registered_address);
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.text }}>
@@ -55,7 +70,7 @@ export default function Shipping() {
           <p>
             <strong style={{ color: C.text }}>Email:</strong> <a href="mailto:grievance@jinaljoshi.in" style={link}>grievance@jinaljoshi.in</a><br />
             <strong style={{ color: C.text }}>Response time:</strong> Within 7 business days<br />
-            <strong style={{ color: C.text }}>Regd. Office:</strong> Jinal Joshi, 1B, 1st Floor, Parinee Crescenzo, G Block, BKC, Bandra East, Mumbai - 400 051
+            <strong style={{ color: C.text }}>Regd. Office:</strong> {address}
           </p>
         </Section>
 

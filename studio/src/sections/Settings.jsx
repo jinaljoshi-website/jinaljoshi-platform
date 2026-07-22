@@ -16,6 +16,7 @@ const SUBSECTIONS = [
   { id: 'calls',       label: 'Call Rates'           },
   { id: 'messages',    label: 'Direct Messages'     },
   { id: 'backgrounds', label: 'Backgrounds'          },
+  { id: 'legal',       label: 'Legal Details'        },
 ];
 
 
@@ -78,6 +79,7 @@ export function Settings() {
       {active === 'calls'       && <CallsSection         draft={draft} set={set} config={config} setConfig={setConfig} tokenRate={tokenRate} />}
       {active === 'messages'    && <MessagesSection      draft={draft} set={set} config={config} setConfig={setConfig} tokenRate={tokenRate} />}
       {active === 'backgrounds' && <BackgroundsSection config={config} setConfig={setConfig} />}
+      {active === 'legal'       && <LegalDetailsSection draft={draft} set={set} config={config} setConfig={setConfig} />}
     </div>
   );
 }
@@ -430,4 +432,29 @@ function BackgroundsSection({ config, setConfig }) {
       )}
     </Card>
   );
+  // ── Legal Details ─────────────────────────────────────────────────────────────
+function LegalDetailsSection({ draft, set, config, setConfig }) {
+  const keys = ['legal_registered_address', 'legal_gstin'];
+
+  return (
+    <Card>
+      <T.sectionTitle>Business & legal details</T.sectionTitle>
+      <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 16 }}>
+        This address and GSTIN appear on every legal page (Terms, Privacy, Refund, Shipping) and the site footer. Update it here once, rather than editing each page by hand.
+      </p>
+      <Field label="Registered address (as per GST certificate)">
+        <textarea
+          style={{ ...S.input, minHeight: 70, resize: 'vertical', lineHeight: 1.6 }}
+          value={draft.legal_registered_address ?? ''}
+          onChange={(e) => set('legal_registered_address', e.target.value)}
+        />
+      </Field>
+      <Field label="GSTIN">
+        <input style={S.input} value={draft.legal_gstin ?? ''} onChange={(e) => set('legal_gstin', e.target.value)} />
+      </Field>
+
+      <SectionSave keys={keys} draft={draft} config={config} setConfig={setConfig} />
+    </Card>
+  );
+}
 }
