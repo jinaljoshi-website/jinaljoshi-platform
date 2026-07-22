@@ -24,15 +24,21 @@ export default function Terms() {
           <p style={updated}>Last updated: June 2026</p>
         </div>
 
+        <Section title="Legal notice">
+          <p>This document is an electronic record under the Information Technology Act, 2000 and the rules made thereunder, and is published in accordance with Rule 3(1) of the Information Technology (Intermediaries Guidelines) Rules, 2011, which require publishing the rules, privacy policy, and terms of use for a platform such as this one. This is a computer-generated record and does not require any physical or digital signature.</p>
+        </Section>
+
         <Section title="What is Personal Space?">
-          <p>Personal Space (ps.jinaljoshi.in) is an independent digital platform run and managed personally by Jinal Joshi. It is not a multi-artist platform or a fan aggregator. This is Jinal's own space, built for people who want to experience her journey more closely.</p>
+          <p>Personal Space (ps.jinaljoshi.in) is an independent digital platform run and managed personally by Jinal Joshi, operating as a sole proprietorship registered under GSTIN 27AVBPJ4823E1ZV, with its registered office at B-102, Parinee Crescenzo, G Block, BKC, Bandra East, Mumbai - 400051 (referred to in these Terms as "Platform Owner," "we," "us," or "our"). It is not a multi-artist platform or a fan aggregator. This is Jinal's own space, built for people who want to experience her journey more closely.</p>
           <p>The platform offers exclusive content, direct messaging, virtual call sessions, official merchandise, community interaction, personalised video requests, behind-the-scenes access, and early access to upcoming work. Everything inside the platform is accessed using J Tokens, the platform's internal currency.</p>
           <p>This platform is independently operated. It is not affiliated with any talent agency, management company, or third-party creator network.</p>
+          <p>By accessing, browsing, or otherwise using the Platform, you agree to be bound by these Terms of Use in their entirety. If you do not agree, please do not access or use the Platform.</p>
         </Section>
 
         <Section title="Who can join?">
           <p>Personal Space is an adult-only platform. You must be 18 years of age or older to create an account. By registering, you confirm that you meet this age requirement.</p>
           <p>Registration is voluntary. Nobody is required to join or make any purchase. All membership and token purchases are made entirely of your own free will.</p>
+          <p>To access and use the Platform, you agree to provide true, accurate, and complete information during and after registration, and you are responsible for all activity conducted through your registered account.</p>
         </Section>
 
         <Section title="J Tokens — the platform currency">
@@ -66,15 +72,15 @@ export default function Terms() {
         </Section>
 
         <Section title="All sales are final">
-          <p>All purchases made on Personal Space, including J Token recharges, membership plans, content unlocks, merchandise orders, call bookings, and personalised requests, are <strong style={{ color: C.text }}>final and non-refundable.</strong></p>
-          <p>Tokens cannot be refunded once purchased. Memberships cannot be cancelled for a refund once activated. Merchandise orders cannot be cancelled once placed.</p>
+          <p>All digital purchases made on Personal Space, including J Token recharges, membership plans, content unlocks, call bookings, and personalised requests, are <strong style={{ color: C.text }}>final and non-refundable.</strong> Physical merchandise orders follow a separate cancellation and damage-reporting process, set out in full in our <a href="/refund" style={link}>Refund &amp; Cancellation Policy</a>.</p>
+          <p>Tokens cannot be refunded once purchased. Memberships cannot be cancelled for a refund once activated.</p>
           <p><strong style={{ color: C.text }}>Technical issues:</strong> If a purchase fails due to a verifiable technical error on the platform's side, you may write to <a href="mailto:billing@jinaljoshi.in" style={link}>billing@jinaljoshi.in</a>. Token credits may be issued at the platform's discretion. Cash refunds are not available under any circumstances.</p>
-          <p>By making any purchase, you confirm that the transaction is voluntary and made of your own free will for your own benefit.</p>
+          <p>By making any purchase, you confirm that the transaction is voluntary and made of your own free will for your own benefit. You agree to pay all charges associated with your use of the Platform's services.</p>
         </Section>
 
         <Section title="Content and intellectual property">
-          <p>All content published on Personal Space, including photos, videos, messages, and any other media, is the intellectual property of Jinal Joshi. You may not download, screenshot, reproduce, share, or distribute any content from the platform without explicit written permission.</p>
-          <p>Access to content is granted for personal viewing only. Sharing platform content on social media or any other channel is strictly prohibited and may result in immediate account termination without refund.</p>
+          <p>All content published on Personal Space, including photos, videos, messages, and any other media, is the intellectual property of Jinal Joshi. This also extends to the Platform's own design, layout, and graphics, which are proprietary to the Platform Owner. You may not download, screenshot, reproduce, share, or distribute any content from the platform without explicit written permission, and you have no claim to any intellectual property rights, title, or interest in it.</p>
+          <p>Access to content is granted for personal viewing only. Sharing platform content on social media or any other channel is strictly prohibited and may result in immediate account termination without refund. Unauthorised use of the Platform or its content may also result in action under applicable law.</p>
         </Section>
 
         <Section title="Direct messaging and calls">
@@ -84,12 +90,12 @@ export default function Terms() {
         </Section>
 
         <Section title="Merchandise and shipping">
-          <p>Merchandise items are shipped to the address provided at the time of purchase. Delivery timelines are estimates and may vary. The platform is not responsible for delays caused by courier services.</p>
-          <p>Merchandise purchases are final. Exchanges may be considered for items received in a damaged or incorrect condition. Write to <a href="mailto:orders@jinaljoshi.in" style={link}>orders@jinaljoshi.in</a> with photographic evidence within 48 hours of delivery.</p>
+          <p>Merchandise items are shipped to the address provided at the time of purchase. Delivery timelines, shipping areas, and courier handling are set out in full in our <a href="/shipping" style={link}>Shipping Policy</a>.</p>
+          <p>Merchandise cancellations, damaged or incorrect items, and applicable token-credit remedies are set out in full in our <a href="/refund" style={link}>Refund &amp; Cancellation Policy</a>, rather than repeated here, so that the current rules always live in one place.</p>
         </Section>
 
         <Section title="Account and security">
-          <p>You are responsible for maintaining the security of your account credentials. Personal Space enforces single-device login: signing in on a new device will end your previous session.</p>
+          <p>You are responsible for maintaining the security of your account credentials. Personal Space enforces single-device login for fan accounts: signing in on a new device will end your previous session.</p>
           <p>You may not share your account with another person or allow anyone else to use your account. Accounts found to be shared may be terminated.</p>
           <p>Personal Space reserves the right to suspend or terminate any account that violates these terms, without prior notice and without refund of any token balance.</p>
         </Section>
@@ -99,12 +105,28 @@ export default function Terms() {
           <p>Payment processing is handled by our secure, third-party payment gateway partner. Personal Space does not store your card or bank details. Please refer to our <a href="/privacy" style={link}>Privacy Policy</a> for full details.</p>
         </Section>
 
+        <Section title="No warranty">
+          <p>We do not provide any warranty or guarantee as to the accuracy, timeliness, performance, completeness, or suitability of the information, content, or Services offered on the Platform for any specific purpose. You acknowledge that such information may contain inaccuracies or errors, and your use of the Platform and Services is entirely at your own risk and discretion.</p>
+        </Section>
+
+        <Section title="Third-party links">
+          <p>The Platform may contain links to third-party websites, including our payment gateway partner. Accessing these links means you will be governed by that third party's own terms of use and privacy policy, provided solely for your convenience and further information. We are not responsible for the content or practices of any third-party website.</p>
+        </Section>
+
+        <Section title="Indemnification">
+          <p>You agree to indemnify and hold harmless the Platform Owner and any of her associated collaborators, agents, and employees from any claim, demand, or loss, including reasonable legal fees, made by any third party arising out of your breach of these Terms, our Privacy Policy, or any other platform policy, or your violation of any applicable law or any third party's rights.</p>
+        </Section>
+
+        <Section title="Force majeure">
+          <p>The Platform Owner shall not be liable for any failure or delay in performing an obligation under these Terms where such failure or delay results from a cause beyond her reasonable control.</p>
+        </Section>
+
         <Section title="Governing law">
-          <p>These terms are governed by the laws of India. Any disputes arising from the use of this platform shall be subject to the jurisdiction of the courts of Mumbai, Maharashtra.</p>
+          <p>These terms are governed by the laws of India. Any disputes arising from the use of this platform shall be subject to the exclusive jurisdiction of the courts of Mumbai, Maharashtra.</p>
         </Section>
 
         <Section title="Changes to these terms">
-          <p>These terms may be updated from time to time. Significant changes will be communicated via the platform. Continued use of Personal Space after any update constitutes acceptance of the revised terms.</p>
+          <p>These terms may be updated from time to time, without assigning any reason, and it is your responsibility to periodically review them. Significant changes will be communicated via the platform. Continued use of Personal Space after any update constitutes acceptance of the revised terms.</p>
         </Section>
 
         <Section title="Contact & grievance officer">
