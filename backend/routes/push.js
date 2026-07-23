@@ -26,6 +26,12 @@ async function pushToUser(userId, payload) {
         JSON.stringify(payload)
       );
     } catch (err) {
+      console.error('pushToUser send failed:', {
+        endpoint: sub.endpoint.slice(0, 60) + '...',
+        statusCode: err.statusCode,
+        body: err.body,
+        message: err.message,
+      });
       if (err.statusCode === 410) expired.push(sub.endpoint);
     }
   }));
@@ -135,6 +141,16 @@ router.post('/send', authMid, artistOnly, async (req, res) => {
         sent++;
       } catch (err) {
         failed++;
+        // Previously silent for anything other than 410 — meaning every real failure
+        // reason (bad VAPID keys, malformed subscription, an auth error from the push
+        // service) was being discarded with zero trace, which is exactly why nothing
+        // ever showed up in the logs despite repeated failed sends.
+        console.error('push send failed:', {
+          endpoint: sub.endpoint.slice(0, 60) + '...',
+          statusCode: err.statusCode,
+          body: err.body,
+          message: err.message,
+        });
         if (err.statusCode === 410) expired.push(sub.endpoint);
       }
     }));
