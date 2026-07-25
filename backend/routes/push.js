@@ -92,10 +92,10 @@ router.post('/subscribe-artist', authMid, artistOnly, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-// DELETE /api/push/unsubscribe
+// POST /api/push/unsubscribe
 // ─────────────────────────────────────────────
 
-router.delete('/unsubscribe', authMid, async (req, res) => {
+router.post('/unsubscribe', authMid, async (req, res) => {
   const { endpoint } = req.body;
   try {
     await pool.query(
