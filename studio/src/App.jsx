@@ -6,7 +6,7 @@ import Studio from './pages/Studio';
 import { api } from './api';
 
 function isLoggedIn() {
-  return !!sessionStorage.getItem('jwt');
+  return !!localStorage.getItem('jwt');
 }
 
 // Wraps protected routes — checks session on mount and every 5 minutes

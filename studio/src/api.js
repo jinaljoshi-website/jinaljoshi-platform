@@ -2,8 +2,8 @@
 const BASE_URL = import.meta.env.VITE_API_URL;
 
 function handleUnauthorized() {
-  sessionStorage.removeItem('jwt');
-  sessionStorage.removeItem('user');
+  localStorage.removeItem('jwt');
+  localStorage.removeItem('user');
   window.location.href = '/login';
 }
 
@@ -21,14 +21,14 @@ async function parseResponse(res) {
 
 export const api = {
   async get(path) {
-    const jwt = sessionStorage.getItem('jwt');
+    const jwt = localStorage.getItem('jwt');
     const res = await fetch(`${BASE_URL}${path}`, {
       headers: jwt ? { Authorization: `Bearer ${jwt}` } : {},
     });
     return parseResponse(res);
   },
   async post(path, body = {}) {
-    const jwt = sessionStorage.getItem('jwt');
+    const jwt = localStorage.getItem('jwt');
     const res = await fetch(`${BASE_URL}${path}`, {
       method: 'POST',
       headers: {
@@ -40,7 +40,7 @@ export const api = {
     return parseResponse(res);
   },
   async patch(path, body = {}) {
-    const jwt = sessionStorage.getItem('jwt');
+    const jwt = localStorage.getItem('jwt');
     const res = await fetch(`${BASE_URL}${path}`, {
       method: 'PATCH',
       headers: {
@@ -52,7 +52,7 @@ export const api = {
     return parseResponse(res);
   },
   async delete(path, body) {
-    const jwt = sessionStorage.getItem('jwt');
+    const jwt = localStorage.getItem('jwt');
     const res = await fetch(`${BASE_URL}${path}`, {
       method: 'DELETE',
       headers: {
@@ -66,16 +66,16 @@ export const api = {
 };
 
 export function saveAuth(jwt, user) {
-  sessionStorage.setItem('jwt', jwt);
-  sessionStorage.setItem('user', JSON.stringify(user));
+  localStorage.setItem('jwt', jwt);
+  localStorage.setItem('user', JSON.stringify(user));
 }
 
 export function getUser() {
-  try { return JSON.parse(sessionStorage.getItem('user') || 'null'); } catch { return null; }
+  try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
 }
 
 export function logout() {
-  sessionStorage.removeItem('jwt');
-  sessionStorage.removeItem('user');
+  localStorage.removeItem('jwt');
+  localStorage.removeItem('user');
   window.location.href = '/login';
 }
