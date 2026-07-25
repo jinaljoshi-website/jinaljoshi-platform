@@ -1,6 +1,6 @@
 {
-  "name": "Personal Space",
-  "short_name": "PS",
+  "name": "Personal Space Studio",
+  "short_name": "Studio",
   "description": "Jinal Joshi's private member platform",
   "start_url": "/",
   "display": "standalone",
