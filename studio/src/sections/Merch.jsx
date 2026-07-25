@@ -182,6 +182,9 @@ export function Merch() {
             onCancelEdit={() => setEditing(null)}
             onUpdate={() => handleUpdate(item.id)}
             onRestock={(amt) => quickRestock(item, amt)}
+            editImgRef={editImgRef}
+            editImgPreview={editImgPreview}
+            handleEditImgPick={handleEditImgPick}
           />
         ))}
       </div>
@@ -202,6 +205,9 @@ export function Merch() {
             onCancelEdit={() => setEditing(null)}
             onUpdate={() => handleUpdate(item.id)}
             onRestock={(amt) => quickRestock(item, amt)}
+            editImgRef={editImgRef}
+            editImgPreview={editImgPreview}
+            handleEditImgPick={handleEditImgPick}
           />
         ))}
       </div>
@@ -209,7 +215,7 @@ export function Merch() {
   );
 }
 
-function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, onCancelEdit, onUpdate, onRestock }) {
+function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, onCancelEdit, onUpdate, onRestock, editImgRef, editImgPreview, handleEditImgPick }) {
   return (
     <div style={{ ...S.card, ...(soldOut ? { border: '1px solid rgba(156,90,90,0.3)' } : {}) }}>
       {editing ? (
