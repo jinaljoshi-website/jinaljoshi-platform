@@ -229,6 +229,78 @@ async function checkMissedCalls() {
 // Runs once a day.
 // ─────────────────────────────────────────────
 
+// ─────────────────────────────────────────────
+// Job 6: Auction lifecycle — end expired auctions, send the 24h reminder email,
+// expire unclaimed wins back to the queue, and keep exactly one slot always active.
+// Runs every minute — bidding deadlines matter more than a slow poll would allow.
+// ─────────────────────────────────────────────
+
+async function checkAuctions() {
+  const { promoteNextItem } = require('../routes/auction');
+  const client = await pool.connect();
+  try {
+    // 1. End any active auction whose 72-hour window has closed
+    const { rows: ended } = await client.query(
+      `SELECT * FROM merchandise
+       WHERE is_auction_item = TRUE AND auction_status = 'active'
+       AND auction_started_at <= NOW() - INTERVAL '72 hours'`
+    );
+    for (const item of ended) {
+      if (item.current_highest_bid && item.current_highest_bid >= item.price_coins) {
+        await client.query(
+          `UPDATE merchandise SET auction_status = 'awaiting_payment', winner_id = $1, won_at = NOW() WHERE id = $2`,
+          [item.current_highest_bidder_id, item.id]
+        );
+        pushToUser(item.current_highest_bidder_id, { title: '🎉 You won the Shoot Wardrobe auction!', body: `"${item.title}" — claim it within 72 hours to secure it.`, url: '/platform/shop' });
+      } else {
+        await client.query(
+          `UPDATE merchandise SET auction_status = 'queued', went_unsold_at = NOW(), current_highest_bid = NULL, current_highest_bidder_id = NULL WHERE id = $1`,
+          [item.id]
+        );
+      }
+    }
+
+    // 2. Send the 24-hour reminder email to anyone who hasn't claimed their win yet
+    const { rows: needsReminder } = await client.query(
+      `SELECT m.*, u.email, u.display_name FROM merchandise m JOIN users u ON u.id = m.winner_id
+       WHERE m.auction_status = 'awaiting_payment' AND m.winner_email_sent_at IS NULL
+       AND m.won_at <= NOW() - INTERVAL '24 hours'`
+    );
+    for (const item of needsReminder) {
+      try {
+        const { sendEmail } = require('./email');
+        await sendEmail({
+          to: item.email,
+          subject: `You won "${item.title}" — claim it within 48 hours`,
+          html: `<p>Hi ${item.display_name || 'there'},</p><p>You're the winning bidder for "${item.title}" in this week's Shoot Wardrobe auction. Please log in and claim it within the next 48 hours, or it will go back up for sale.</p>`,
+        });
+      } catch (e) { console.error('checkAuctions email failed:', e.message); }
+      await client.query(`UPDATE merchandise SET winner_email_sent_at = NOW() WHERE id = $1`, [item.id]);
+    }
+
+    // 3. Expire unclaimed wins — 72 hours since winning, with no payment
+    const { rows: expiredWins } = await client.query(
+      `SELECT id, title FROM merchandise
+       WHERE auction_status = 'awaiting_payment' AND won_at <= NOW() - INTERVAL '72 hours'`
+    );
+    for (const item of expiredWins) {
+      await client.query(
+        `UPDATE merchandise SET auction_status = 'queued', went_unsold_at = NOW(),
+                winner_id = NULL, won_at = NULL, winner_email_sent_at = NULL,
+                current_highest_bid = NULL, current_highest_bidder_id = NULL WHERE id = $1`,
+        [item.id]
+      );
+    }
+
+    // 4. Always keep exactly one slot active
+    await promoteNextItem();
+  } catch (err) {
+    console.error('scheduler/checkAuctions error:', err.message);
+  } finally {
+    client.release();
+  }
+}
+
 async function expireOldChatMessages() {
   const client = await pool.connect();
   try {
@@ -300,7 +372,12 @@ function startScheduler() {
     expireOldChatMessages();
   });
 
-  console.log('Scheduler started: reminders + no-show checks every minute, duration cutoff + missed-call checks every 15s, chat expiry daily at 4am');
+  // Every minute: auction lifecycle (ending auctions, reminder emails, expiring unclaimed wins, queue promotion)
+  cron.schedule('* * * * *', () => {
+    checkAuctions();
+  });
+
+  console.log('Scheduler started: reminders + no-show checks + auction lifecycle every minute, duration cutoff + missed-call checks every 15s, chat expiry daily at 4am');
 }
 
 module.exports = { startScheduler };
