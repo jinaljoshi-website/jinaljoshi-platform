@@ -39,11 +39,23 @@ export function StudioNotificationBell() {
     setError('');
     setSubscribing(true);
     try {
+      let permission = Notification.permission;
+      if (permission === 'default') {
+        permission = await Notification.requestPermission();
+      }
+      if (permission !== 'granted') {
+        setError(permission === 'denied'
+          ? 'Notifications are blocked. On iPhone: Settings > Notifications > Personal Space > Allow Notifications.'
+          : 'Permission was not granted.');
+        return;
+      }
       if (!vapidKeyRef.current) {
         const d = await api.get('/api/push/vapid-public');
         vapidKeyRef.current = d.publicKey;
       }
       const reg = await navigator.serviceWorker.ready;
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) await existing.unsubscribe();
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly:      true,
         applicationServerKey: urlBase64ToUint8Array(vapidKeyRef.current),
