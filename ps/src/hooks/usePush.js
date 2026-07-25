@@ -11,6 +11,8 @@ function urlBase64ToUint8Array(base64String) {
   return new Uint8Array([...raw].map((c) => c.charCodeAt(0)));
 }
 
+let vapidKey = null;
+
 export function usePush() {
   const [supported,   setSupported]   = useState(false);
   const [subscribed,  setSubscribed]  = useState(false);
@@ -21,6 +23,8 @@ export function usePush() {
     if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
     setSupported(true);
     setPermission(Notification.permission);
+
+    if (!vapidKey) api.get('/api/push/vapid-public').then((d) => { vapidKey = d.publicKey; }).catch(() => {});
 
     navigator.serviceWorker.register('/sw.js').then((reg) => {
       reg.pushManager.getSubscription().then((sub) => {
@@ -33,12 +37,21 @@ export function usePush() {
     if (!supported || subscribing) return;
     setSubscribing(true);
     try {
-      const { publicKey } = await api.get('/api/push/vapid-public');
+      let perm = Notification.permission;
+      if (perm === 'default') perm = await Notification.requestPermission();
+      setPermission(perm);
+      if (perm !== 'granted') return;
+      if (!vapidKey) {
+        const d = await api.get('/api/push/vapid-public');
+        vapidKey = d.publicKey;
+      }
 
       const reg = await navigator.serviceWorker.ready;
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) await existing.unsubscribe();
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly:      true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
+        applicationServerKey: urlBase64ToUint8Array(vapidKey),
       });
 
       await api.post('/api/push/subscribe', sub.toJSON());
