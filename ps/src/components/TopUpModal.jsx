@@ -6,15 +6,15 @@ import { useEffect, useRef, useState } from 'react';
 import { C, F } from '../tokens';
 import { WonderCoin, WonderCoinAmount } from './WonderCoin';
 import { api } from '../api';
-import { RECHARGE_PACKS, tokenRateInr, rechargePrice } from '../data';
+import { rechargePacks, tokenRateInr, rechargePrice } from '../data';
 
 export default function TopUpModal({ requiredTokens = 0, onClose, onSuccess }) {
   // Find the smallest pack that covers the required amount,
   // or default to the first pack above required
-  const suggestedPack = RECHARGE_PACKS.find((p) => p.tokens >= requiredTokens)
-    || RECHARGE_PACKS[RECHARGE_PACKS.length - 1];
+  const packs = rechargePacks();
+  const suggestedPack = packs.find((p) => p.tokens >= requiredTokens) || packs[packs.length - 1];
 
-  const [selected,    setSelected]    = useState(suggestedPack.tokens);
+  const [selected,    setSelected]    = useState(suggestedPack?.tokens ?? 0);
   const [custom,      setCustom]      = useState('');
   const [useCustom,   setUseCustom]   = useState(false);
   const [processing,  setProcessing]  = useState(false);
@@ -102,7 +102,7 @@ export default function TopUpModal({ requiredTokens = 0, onClose, onSuccess }) {
     }
   };
 
-  if (rate === null || !pricing) {
+  if (rate === null || !pricing || !packs.length) {
     return (
       <div ref={overlayRef} onClick={handleBackdrop} style={overlay}>
         <div style={modal}>
@@ -138,7 +138,7 @@ export default function TopUpModal({ requiredTokens = 0, onClose, onSuccess }) {
         <div style={{ marginBottom: 16 }}>
           <div style={sectionLabel}>Select amount</div>
           <div style={packsGrid}>
-            {RECHARGE_PACKS.map((pack) => {
+            {packs.map((pack) => {
               const p          = rechargePrice(pack.tokens);
               const isSelected = !useCustom && selected === pack.tokens;
               const covers     = pack.tokens >= requiredTokens;

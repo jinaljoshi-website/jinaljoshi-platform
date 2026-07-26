@@ -209,13 +209,21 @@ export const EXTRA_OPTIONS = [
 // TOKEN RECHARGE PACKS
 // ─────────────────────────────────────────────
 
-export const RECHARGE_PACKS = [
-  { tokens: 10,   discountPct: 0,  label: '10 Tokens'   },
-  { tokens: 50,   discountPct: 0,  label: '50 Tokens'   },
-  { tokens: 100,  discountPct: 0,  label: '100 Tokens'  },
-  { tokens: 500,  discountPct: 5,  label: '500 Tokens'  },
-  { tokens: 1000, discountPct: 10, label: '1000 Tokens' },
-];
+// The last two amounts ARE Jinal's live bulk-discount thresholds, so the buttons
+// themselves move when she changes them in Studio — a fan can never be offered a
+// pack that just misses a discount tier. Returns [] if config is unavailable.
+export function rechargePacks() {
+  const t1 = cfgNum('recharge_discount_tier1_threshold');
+  const t2 = cfgNum('recharge_discount_tier2_threshold');
+  if (t1 === null || t2 === null) return [];
+  return [
+    { tokens: 10,  label: '10 Tokens'  },
+    { tokens: 50,  label: '50 Tokens'  },
+    { tokens: 100, label: '100 Tokens' },
+    { tokens: t1,  label: `${t1} Tokens` },
+    { tokens: t2,  label: `${t2} Tokens` },
+  ];
+}
 
 // Mutable at runtime — these defaults match today's values, but Jinal can change the real
 // thresholds/percentages from Studio. Coins.jsx fetches the live config on load and calls
