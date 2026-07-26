@@ -9,9 +9,9 @@ const API = import.meta.env.VITE_API_URL || '';
 // Default fallback prices (tokens per month)
 const DEFAULT_TIER_PRICES = {
   community: 10,
-  insider:   30,
-  premium:   75,
-  supreme:   150,
+  insider:   20,
+  premium:   40,
+  supreme:   110,
 };
 
 const TIER_META = {
