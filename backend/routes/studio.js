@@ -165,6 +165,13 @@ router.post('/grant-tokens', async (req, res) => {
     );
     await client.query('COMMIT');
     res.json({ ok: true, message: `${amount} tokens sent to ${email}` });
+
+    pushToUser(userId, {
+      title: 'Jinal sent you tokens',
+      body:  `${amount} tokens have been added to your balance.`,
+      url:   '/platform/coins',
+      tag:   'grant',
+    }).catch((e) => console.error('Grant push failed:', e.message));
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: 'Failed to grant tokens' });
@@ -297,6 +304,13 @@ router.post('/dms/:fanId/send-locked-media', async (req, res) => {
     );
 
     res.json({ ok: true, message: { ...rows[0], is_mine: true } });
+
+    pushToUser(req.params.fanId, {
+      title: 'Jinal sent you something',
+      body:  priceCoins > 0 ? `Unlock for ${priceCoins} tokens` : 'New media in your chat',
+      url:   '/platform/chat',
+      tag:   'dm',
+    }).catch((e) => console.error('Locked media push failed:', e.message));
   } catch (err) {
     console.error('studio/dms/send-locked-media error:', err);
     res.status(500).json({ error: 'Failed to send locked media' });
