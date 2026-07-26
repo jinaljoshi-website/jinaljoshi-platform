@@ -710,6 +710,17 @@ router.patch('/requests/:id', async (req, res) => {
 
     await client.query('COMMIT');
     res.json({ ok: true, request: rows[0], refunded: isNewRejection ? current.coins_charged : 0 });
+
+    const statusPush = {
+      confirmed: { title: 'Request accepted',      body: `Jinal accepted your request: "${current.topic}"` },
+      completed: { title: 'Your request is ready', body: `"${current.topic}" has been delivered.` },
+      rejected:  { title: 'Request declined',      body: `${current.coins_charged} tokens have been refunded.` },
+      cancelled: { title: 'Request cancelled',     body: `"${current.topic}" was cancelled.` },
+    }[status];
+    if (statusPush) {
+      pushToUser(current.user_id, { ...statusPush, url: '/platform/extras', tag: 'request' })
+        .catch((e) => console.error('Request status push failed:', e.message));
+    }
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('studio/requests patch error:', err);
@@ -759,6 +770,14 @@ router.post('/requests/:id/counter', async (req, res) => {
       );
       await client.query('COMMIT');
       notifyArtist({ title: 'Price adjusted & confirmed', body: `Lowered price for "${current.topic}" — auto-confirmed.`, url: '/requests' });
+      pushToUser(current.user_id, {
+        title: 'Good news on your request',
+        body:  refundAmount > 0
+          ? `Jinal lowered the price to ${price} tokens. ${refundAmount} refunded.`
+          : `Jinal confirmed your request at ${price} tokens.`,
+        url:   '/platform/extras',
+        tag:   'request',
+      }).catch((e) => console.error('Counter push failed:', e.message));
       return res.json({ ok: true, message: `Confirmed at ${price} tokens (${refundAmount} refunded to the fan).`, autoApplied: true });
     }
 
@@ -769,6 +788,13 @@ router.post('/requests/:id/counter', async (req, res) => {
     );
     await client.query('COMMIT');
     res.json({ ok: true, message: `Counter-offer of ${price} tokens sent to the fan for confirmation.`, autoApplied: false });
+
+    pushToUser(current.user_id, {
+      title: 'Jinal sent a counter-offer',
+      body:  `"${current.topic}" — ${price} tokens. Tap to accept or decline.`,
+      url:   '/platform/extras',
+      tag:   'request',
+    }).catch((e) => console.error('Counter push failed:', e.message));
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('studio/requests/counter error:', err);
