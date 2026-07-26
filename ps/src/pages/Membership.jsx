@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { C, F } from '../tokens';
-import { TERMS, termPrice, tierPerks, cfgNum } from '../data';
+import { tierPerks, cfgNum } from '../data';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';

@@ -76,147 +76,29 @@ export const TOKEN_DISCLAIMER =
 // MEMBERSHIP TIERS
 // ─────────────────────────────────────────────
 
+// Display metadata only. Every economic value — price, discount, unlocks, DM
+// allowances — lives in platform_config and is read via cfgNum()/tierEconomics().
+// Nothing monetary belongs in this file.
 export const TIERS = {
-  guest: {
-    id: 'guest',
-    name: 'Guest',
-    color: '#6B6560',
-    monthlyTokens: 0,
-    freeDMsPerMonth: 0,
-    dailyDMCap: 0,
-    overageDMCost: 2,
-    setUnlocksPerMonth: 0,
-    discountPct: 0,
-    communityChatCost: 2,
-    description: 'Explore without a membership. All prices are 2× the member rate.',
-    perks: [
-      'Browse the platform',
-      'Community chat (2 tokens/day)',
-      'Purchase content at 2× price',
-    ],
-  },
-  community: {
-    id: 'community',
-    name: 'Community',
-    color: '#C17D4A',
-    monthlyTokens: 10,
-    freeDMsPerMonth: 5,
-    dailyDMCap: 2,
-    overageDMCost: 2,
-    setUnlocksPerMonth: 1,
-    discountPct: 5,
-    communityChatCost: 0,
-    description: 'Entry-level membership with community access and a monthly content unlock.',
-    perks: [
-      'Community chat — free, fair use limits apply',
-      '5 free direct messages (2/day cap)',
-      '1 set unlock per month',
-      '5% discount on all token purchases',
-      'Community posts free to view',
-    ],
-  },
-  insider: {
-    id: 'insider',
-    name: 'Insider',
-    color: '#A8834E',
-    monthlyTokens: 30,
-    freeDMsPerMonth: 30,
-    dailyDMCap: 3,
-    overageDMCost: 1,
-    setUnlocksPerMonth: 4,
-    discountPct: 10,
-    communityChatCost: 0,
-    description: 'More messages, more unlocks, and a better discount on every purchase.',
-    perks: [
-      'Community chat — free, fair use limits apply',
-      '30 free direct messages (3/day cap)',
-      '4 set unlocks per month',
-      '10% discount on all token purchases',
-      'Community posts free to view',
-    ],
-  },
-  premium: {
-    id: 'premium',
-    name: 'Premium',
-    color: '#8C6B3E',
-    monthlyTokens: 75,
-    freeDMsPerMonth: 100,
-    dailyDMCap: 5,
-    overageDMCost: 1,
-    setUnlocksPerMonth: 7,
-    discountPct: 15,
-    communityChatCost: 0,
-    description: 'Generous monthly allocations and a significant discount across the platform.',
-    perks: [
-      'Community chat — free, fair use limits apply',
-      '100 free direct messages (5/day cap)',
-      '7 set unlocks per month',
-      '15% discount on all token purchases',
-      'Community posts free to view',
-    ],
-  },
-  supreme: {
-    id: 'supreme',
-    name: 'Supreme',
-    color: '#9C5A5A',
-    monthlyTokens: 150,
-    freeDMsPerMonth: 250,
-    dailyDMCap: 10,
-    overageDMCost: 1,
-    setUnlocksPerMonth: 10,
-    discountPct: 20,
-    communityChatCost: 0,
-    description: 'The highest access tier — maximum unlocks, best discount, full DM access.',
-    perks: [
-      'Community chat — free, fair use limits apply',
-      '250 free direct messages (10/day cap)',
-      '10 set unlocks per month',
-      '20% discount on all token purchases',
-      'Community posts free to view',
-    ],
-  },
+  guest:     { id: 'guest',     name: 'Guest',     color: '#6B6560' },
+  community: { id: 'community', name: 'Community', color: '#C17D4A' },
+  insider:   { id: 'insider',   name: 'Insider',   color: '#B8860B' },
+  premium:   { id: 'premium',   name: 'Premium',   color: '#9B8F83' },
+  supreme:   { id: 'supreme',   name: 'Supreme',   color: '#C17D4A' },
 };
 
 export const PAID_TIER_IDS = ['community', 'insider', 'premium', 'supreme'];
 export const ALL_TIER_IDS  = ['guest', ...PAID_TIER_IDS];
 
 // ─────────────────────────────────────────────
-// BILLING TERMS
+// PRICING HELPERS
 // ─────────────────────────────────────────────
-
-export const TERMS = [
-  { id: 'monthly',   label: 'Monthly',   months: 1,  billingMonths: 1,   savingLabel: null },
-  { id: 'quarterly', label: 'Quarterly', months: 3,  billingMonths: 2.5, savingLabel: 'Save 15 days' },
-  { id: 'annual',    label: 'Annual',    months: 12, billingMonths: 9,   savingLabel: 'Save 3 months' },
-];
-
-// ─────────────────────────────────────────────
-// MEMBERSHIP PRICING HELPERS
-// ─────────────────────────────────────────────
-
-export function membershipCost(tierId, termId) {
-  const tier = TIERS[tierId];
-  const term = TERMS.find((t) => t.id === termId);
-  if (!tier || !term) return 0;
-  return Math.round(tier.monthlyTokens * term.billingMonths);
-}
-
-// Legacy alias used by Membership.jsx
-export function termPrice(tier, term) {
-  if (!tier || !term) return 0;
-  return Math.round(tier.monthlyTokens * term.billingMonths);
-}
 
 export function applyDiscount(baseTokens, discountPct) {
   if (!discountPct) return baseTokens;
   // Always round up — matches roundTokensUp() on the backend so the displayed
   // price and the charged price can never diverge.
   return Math.ceil(baseTokens * (1 - discountPct / 100));
-}
-
-export function guestPrice(baseTokens) {
-  const mult = guestMultiplier();
-  return mult === null ? null : Math.ceil(baseTokens * mult);
 }
 
 // Best discount any tier currently offers, straight from Studio.
@@ -230,14 +112,6 @@ export function bestDiscountPct() {
 export function bestMemberPrice(baseTokens) {
   const pct = bestDiscountPct();
   return pct === null ? null : applyDiscount(baseTokens, pct);
-}
-
-export function upgradeCost(oldTierId, newTierId, daysRemaining) {
-  const oldMonthly = TIERS[oldTierId]?.monthlyTokens || 0;
-  const newMonthly = TIERS[newTierId]?.monthlyTokens || 0;
-  const rawCredit  = (oldMonthly / 30) * daysRemaining;
-  const credit     = rawCredit % 1 >= 0.5 ? Math.ceil(rawCredit) : Math.floor(rawCredit);
-  return Math.max(0, newMonthly - credit);
 }
 
 // ─────────────────────────────────────────────
