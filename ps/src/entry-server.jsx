@@ -13,6 +13,9 @@ import Refund   from './pages/Refund';
 import Shipping from './pages/Shipping';
 import Contact  from './pages/Contact';
 
+// Re-exported so the pre-render script can inject live pricing before rendering.
+export { setPricing } from './data';
+
 const PAGES = {
   '/':         Homepage,
   '/terms':    Terms,

@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { render } from '../dist-server/entry-server.js';
+import { render, setPricing } from '../dist-server/entry-server.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(__dirname, '..', 'dist');
@@ -21,6 +21,23 @@ const ROUTES = [
 ];
 
 const template = fs.readFileSync(path.join(distDir, 'index.html'), 'utf-8');
+
+// Prices must be real in the static HTML too — a gateway reviewer or crawler with
+// no JavaScript sees this file. Fail the build rather than ship blank prices.
+const API_BASE = process.env.VITE_API_URL;
+try {
+  if (!API_BASE) throw new Error('VITE_API_URL is not set');
+  const res = await fetch(`${API_BASE}/api/public/config`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const { config } = await res.json();
+  if (!config?.token_rate_inr) throw new Error('config payload incomplete');
+  setPricing(config);
+  console.log('✓ Loaded live pricing for pre-render');
+} catch (err) {
+  console.error(`\n✗ Could not load pricing for pre-render: ${err.message}`);
+  console.error('  Refusing to build pages with missing prices.\n');
+  process.exit(1);
+}
 
 for (const route of ROUTES) {
   const appHtml = render(route.path);
