@@ -160,7 +160,7 @@ export default function Membership() {
       ) : (
         <div style={guestBanner}>
           <div style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.7 }}>
-            You are browsing as a <strong style={{ color: C.text }}>Guest</strong>. All prices are 2× the member rate. Choose a membership below to unlock member pricing immediately.
+            You are browsing as a <strong style={{ color: C.text }}>Guest</strong>. All prices are {cfgNum('guest_price_multiplier')}× the member rate. Choose a membership below to unlock member pricing immediately.
           </div>
         </div>
       )}

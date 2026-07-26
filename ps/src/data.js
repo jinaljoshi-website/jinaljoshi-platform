@@ -67,11 +67,6 @@ export function tierPerks(tierId) {
 
 export const SUPPORT_EMAIL      = 'support@jinaljoshi.in';
 
-export const TOKEN_DISCLAIMER =
-  "J Tokens are the platform's internal currency. Tokens are purchased with INR at ₹66 each. " +
-  'All platform actions — content, messages, calls, merchandise, memberships — are priced in tokens. ' +
-  'Purchases are final and non-refundable.';
-
 // ─────────────────────────────────────────────
 // MEMBERSHIP TIERS
 // ─────────────────────────────────────────────
@@ -118,18 +113,9 @@ export function bestMemberPrice(baseTokens) {
 // COMMUNITY CHAT
 // ─────────────────────────────────────────────
 
-export const COMMUNITY_CHAT = {
-  paidMemberCost: 0,
-  guestCostPerDay: 2,
-  maxPerHour: 25,
-  maxPerDay: 50,
-};
-
 // ─────────────────────────────────────────────
 // CONTENT
 // ─────────────────────────────────────────────
-
-export const COMMUNITY_POST_GUEST_PRICE = 5;
 
 export const OFFERING_CATEGORIES = [
   { id: 'access',      label: 'Access',          subtitle: 'Chat & Calls' },

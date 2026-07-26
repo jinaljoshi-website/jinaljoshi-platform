@@ -22,12 +22,17 @@ const OFFERINGS = [
   { id: 'calls',       title: 'Virtual Connect',       text: "Book an audio or video session with Jinal. Propose a time, subject to your membership tier's call allowance." },
 ];
 
-const HOW_IT_WORKS = [
+function howItWorks(discountCfg) {
+  const bulk = (discountCfg.tier1Pct !== null && discountCfg.tier2Pct !== null)
+    ? ` Tokens can also be bought at a discounted price in bulk: ${discountCfg.tier1Pct}% off on ${discountCfg.tier1Threshold} tokens, ${discountCfg.tier2Pct}% off on ${discountCfg.tier2Threshold}.`
+    : '';
+  return [
   { title: 'J Token',                  text: "A wonderful currency that works inside the platform. Remember tokens from Play Zone? Same thing. One token works for everything: content, calls, messages, merchandise, memberships." },
   { title: 'Membership',               text: "Each item has an associated token value. A membership offers a discounted token price for every item you access. Multiple tiers to choose from. Explore what works best for you." },
   { title: 'No Cash Reward or Refund', text: "Tokens can never be redeemed for cash or refund. In case of a technical issue, get token credits by writing to support. All purchases are voluntary and final." },
-  { title: 'Heavy Discounts',          text: "Memberships bring discounts on every purchase. Tokens can also be bought at a discounted price in bulk: 5% off on 500 tokens, 10% off on 1000. Save more, do more." },
-];
+  { title: 'Heavy Discounts',          text: `Memberships bring discounts on every purchase.${bulk} Save more, do more.` },
+  ];
+}
 
 export default function Homepage() {
   const navigate = useNavigate();
@@ -136,7 +141,7 @@ export default function Homepage() {
           <h2 style={sectionTitle}>Our Own World</h2>
         </div>
         <div style={stepsGrid}>
-          {HOW_IT_WORKS.map((h) => (
+          {howItWorks(discountCfg).map((h) => (
             <div key={h.title} style={howCard}>
               <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 10 }}>{h.title}</div>
               <div style={{ fontFamily: F.sans, fontSize: 14, color: '#9B8F83', lineHeight: 1.8 }}>{h.text}</div>
