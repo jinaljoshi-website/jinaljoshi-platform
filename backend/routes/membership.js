@@ -3,13 +3,15 @@ const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
-const { getTierPrice, getAllTierPrices } = require('../lib/config');
+const { getTierPrice, getAllTierPrices, getConfigNumber } = require('../lib/config');
+const { roundTokensUp } = require('../lib/pricing');
 
 const TIER_ORDER = ['community', 'insider', 'premium', 'supreme'];
 
-function termMultiplier(term) {
-  if (term === 'quarterly') return 2.5;
-  if (term === 'annual')    return 9;
+// Billing months are Studio-configurable — Settings → Pricing & Discounts.
+async function termMultiplier(term) {
+  if (term === 'quarterly') return getConfigNumber('quarterly_billing_months');
+  if (term === 'annual')    return getConfigNumber('annual_billing_months');
   return 1;
 }
 
@@ -82,9 +84,9 @@ router.post('/purchase', authMid, async (req, res) => {
     }
 
     const basePrice = TIER_PRICES[tier];
-    const mult      = termMultiplier(term);
+    const mult      = await termMultiplier(term);
     const months    = termMonths(term);
-    const totalCost = Math.round(basePrice * mult);
+    const totalCost = roundTokensUp(basePrice * mult);
 
     if (user.coin_balance < totalCost) {
       await client.query('ROLLBACK');
@@ -258,9 +260,9 @@ router.post('/extend', authMid, async (req, res) => {
     }
 
     const basePrice = await getTierPrice(user.tier);
-    const mult      = termMultiplier(term);
+    const mult      = await termMultiplier(term);
     const months    = termMonths(term);
-    const totalCost = Math.round(basePrice * mult);
+    const totalCost = roundTokensUp(basePrice * mult);
 
     if (user.coin_balance < totalCost) {
       await client.query('ROLLBACK');

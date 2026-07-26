@@ -71,7 +71,7 @@ export default function Membership() {
     const base = tierPrices[tierId];
     const mult = termMultiplier(termId);
     if (base === null || mult === null) return null;
-    return Math.round(base * mult);
+    return Math.ceil(base * mult);
   };
 
   const calcUpgradeCost = (fromTier, toTier, daysRemaining) => {

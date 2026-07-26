@@ -209,8 +209,9 @@ export function termPrice(tier, term) {
 
 export function applyDiscount(baseTokens, discountPct) {
   if (!discountPct) return baseTokens;
-  const raw = baseTokens * (1 - discountPct / 100);
-  return raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
+  // Always round up — matches roundTokensUp() on the backend so the displayed
+  // price and the charged price can never diverge.
+  return Math.ceil(baseTokens * (1 - discountPct / 100));
 }
 
 export function guestPrice(baseTokens) {

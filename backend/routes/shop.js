@@ -6,6 +6,7 @@ const { notifyArtist } = require('../lib/notify');
 const { postSystemMessage } = require('./community');
 const { getDiscountForTier, getGuestMultiplier } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
+const { roundTokensUp } = require('../lib/pricing');
 
 // ─────────────────────────────────────────────
 // GET /api/shop/items
@@ -109,10 +110,9 @@ router.post('/buy', authMid, async (req, res) => {
 
     let price = item.price_coins;
     if (isGuest) {
-      price = Math.round(price * guestMultiplier);
+      price = roundTokensUp(price * guestMultiplier);
     } else if (discountPct) {
-      const raw = price * (1 - discountPct / 100);
-      price = raw % 1 >= 0.5 ? Math.ceil(raw) : Math.floor(raw);
+      price = roundTokensUp(price * (1 - discountPct / 100));
     }
 
     if (user.coin_balance < price) {
