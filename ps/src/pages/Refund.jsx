@@ -1,28 +1,14 @@
 // ps/src/pages/Refund.jsx
-import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { WonderCoin } from '../components/WonderCoin';
-
-const API = import.meta.env.VITE_API_URL;
-const DEFAULT_ADDRESS = 'Jinal Joshi, A-14/103, Broadway Avenue Society, Jay Gopal Lal Road, Nr Jangid Circle, Mira Road East, Mira Bhayandar, Thane, Maharashtra - 401107';
-const DEFAULT_GSTIN = '27AVBPJ4823E1ZV';
+import { cfgNum, cfgStr } from '../data';
 
 export default function Refund() {
   const navigate = useNavigate();
-  const [address, setAddress] = useState(DEFAULT_ADDRESS);
-  const [gstin,   setGstin]   = useState(DEFAULT_GSTIN);
-
-  useEffect(() => {
-    fetch(`${API}/api/public/config`)
-      .then((r) => r.json())
-      .then((data) => {
-        const c = data.config || {};
-        if (c.legal_registered_address) setAddress(c.legal_registered_address);
-        if (c.legal_gstin) setGstin(c.legal_gstin);
-      })
-      .catch(() => {});
-  }, []);
+  const address  = cfgStr('legal_registered_address');
+  const gstin    = cfgStr('legal_gstin');
+  const rate     = cfgNum('token_rate_inr');
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.text }}>
@@ -53,7 +39,7 @@ export default function Refund() {
         <Section title="What J Tokens are">
           <p>J Tokens are single-use digital utility instruments that exist solely within the Personal Space platform. They are used to access digital content, direct messaging, virtual call sessions, merchandise, personalised requests, and membership plans.</p>
           <p><strong style={{ color: C.text }}>J Tokens are not currency.</strong> They cannot be transferred to another account, traded peer-to-peer, withdrawn, or converted back into Indian Rupees or any other currency under any circumstances. They carry no real-world cash value outside of this platform.</p>
-          <p>1 J Token = ₹66 incl. GST at the time of purchase. This rate is set by the platform and is subject to change with advance notice.</p>
+          {rate !== null && <p>1 J Token = ₹{rate} incl. GST at the time of purchase. This rate is set by the platform and is subject to change with advance notice.</p>}
         </Section>
 
         <Section title="All sales are final">

@@ -22,6 +22,10 @@ export function cfgNum(key) {
   return PRICING ? num(PRICING[key]) : null;
 }
 
+export function cfgStr(key) {
+  return PRICING ? (PRICING[key] ?? null) : null;
+}
+
 export function tokenRateInr() {
   return cfgNum('token_rate_inr');
 }

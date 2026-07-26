@@ -1,10 +1,8 @@
 // ps/src/pages/Sitemap.jsx
-import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { WonderCoin } from '../components/WonderCoin';
-
-const DEFAULT_RATE = 66;
+import { cfgNum } from '../data';
 
 const SECTIONS = [
   {
@@ -113,24 +111,20 @@ const SECTIONS = [
 ];
 
 export default function Sitemap() {
-  const navigate   = useNavigate();
-  const [rate,     setRate]     = useState(DEFAULT_RATE);
-  const [loading,  setLoading]  = useState(true);
+  const navigate = useNavigate();
+  const rate     = cfgNum('token_rate_inr');
+  const t1       = cfgNum('recharge_discount_tier1_threshold');
+  const p1       = cfgNum('recharge_discount_tier1_pct');
+  const t2       = cfgNum('recharge_discount_tier2_threshold');
+  const p2       = cfgNum('recharge_discount_tier2_pct');
+  const loading  = rate === null || t1 === null || t2 === null;
 
-  useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL || ''}/api/public/config`)
-      .then((r) => r.json())
-      .then((d) => { setRate(parseInt(d.config?.token_rate_inr || DEFAULT_RATE)); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const packages = [
-    { tokens: 10,   discount: 0,    label: 'A message or two' },
-    { tokens: 50,   discount: 0,    label: 'A week of chats' },
-    { tokens: 100,  discount: 0,    label: 'Content + messages' },
-    { tokens: 500,  discount: 0.05, label: '5% bulk discount', highlight: true },
-    { tokens: 1000, discount: 0.10, label: '10% bulk discount', highlight: true },
+  const packages = loading ? [] : [
+    { tokens: 10,  discount: 0,        label: 'A message or two' },
+    { tokens: 50,  discount: 0,        label: 'A week of chats' },
+    { tokens: 100, discount: 0,        label: 'Content + messages' },
+    { tokens: t1,  discount: p1 / 100, label: `${p1}% bulk discount`, highlight: true },
+    { tokens: t2,  discount: p2 / 100, label: `${p2}% bulk discount`, highlight: true },
   ].map((p) => ({
     ...p,
     inr: Math.round(p.tokens * rate * (1 - p.discount)),
