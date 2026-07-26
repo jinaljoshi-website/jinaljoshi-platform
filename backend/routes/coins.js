@@ -8,7 +8,6 @@ const { issueInvoiceForPurchase } = require('../lib/invoice');
 const payments = require('../lib/payments');
 const { getConfigNumber } = require('../lib/config');
 
-const TOKEN_RATE_INR = parseInt(process.env.TOKEN_RATE_INR || '66');
 
 async function getDiscountConfig() {
   const [tier1Threshold, tier1Pct, tier2Threshold, tier2Pct] = await Promise.all([
@@ -34,7 +33,8 @@ async function calcDiscount(tokens) {
 
 async function calcPrice(tokens) {
   const pct  = await calcDiscount(tokens);
-  const base = tokens * TOKEN_RATE_INR;
+  const rate = await getConfigNumber('token_rate_inr');
+  const base = tokens * rate;
   return Math.round(base * (1 - pct / 100));
 }
 
