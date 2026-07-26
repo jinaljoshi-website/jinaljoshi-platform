@@ -62,10 +62,10 @@ export default function Homepage() {
         const c = data.config || {};
         setTokenRate(parseInt(c.token_rate_inr || TOKEN_RATE));
         setTierPrices({
-          community: parseInt(c.community_monthly_tokens || DEFAULT_TIER_PRICES.community),
-          insider:   parseInt(c.insider_monthly_tokens   || DEFAULT_TIER_PRICES.insider),
-          premium:   parseInt(c.premium_monthly_tokens   || DEFAULT_TIER_PRICES.premium),
-          supreme:   parseInt(c.supreme_monthly_tokens   || DEFAULT_TIER_PRICES.supreme),
+          community: parseInt(c.community_monthly_cost || DEFAULT_TIER_PRICES.community),
+          insider:   parseInt(c.insider_monthly_cost   || DEFAULT_TIER_PRICES.insider),
+          premium:   parseInt(c.premium_monthly_cost   || DEFAULT_TIER_PRICES.premium),
+          supreme:   parseInt(c.supreme_monthly_cost   || DEFAULT_TIER_PRICES.supreme),
         });
         // Same recharge-discount config Jinal sets in Studio → Pricing & Discounts —
         // this is what actually determines the last two pricing blocks below.

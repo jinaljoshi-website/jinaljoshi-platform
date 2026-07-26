@@ -8,10 +8,10 @@ router.get('/config', async (req, res) => {
       `SELECT key, value FROM platform_config
        WHERE key IN (
          'token_rate_inr',
-         'community_monthly_tokens',
-         'insider_monthly_tokens',
-         'premium_monthly_tokens',
-         'supreme_monthly_tokens',
+         'community_monthly_cost',
+         'insider_monthly_cost',
+         'premium_monthly_cost',
+         'supreme_monthly_cost',
          'config_published',
          'recharge_discount_tier1_threshold',
          'recharge_discount_tier1_pct',
@@ -27,10 +27,10 @@ router.get('/config', async (req, res) => {
     // Map to the standard names the frontend expects
     const config = {
       token_rate_inr:          raw.token_rate_inr          || '66',
-      community_monthly_cost:  raw.community_monthly_tokens || '10',
-      insider_monthly_cost:    raw.insider_monthly_tokens   || '30',
-      premium_monthly_cost:    raw.premium_monthly_tokens   || '75',
-      supreme_monthly_cost:    raw.supreme_monthly_tokens   || '150',
+      community_monthly_cost:  raw.community_monthly_cost || '10',
+      insider_monthly_cost:    raw.insider_monthly_cost   || '20',
+      premium_monthly_cost:    raw.premium_monthly_cost   || '40',
+      supreme_monthly_cost:    raw.supreme_monthly_cost   || '110',
       config_published:        raw.config_published         || 'false',
     };
 
@@ -41,9 +41,9 @@ router.get('/config', async (req, res) => {
       config: {
         token_rate_inr:         '66',
         community_monthly_cost: '10',
-        insider_monthly_cost:   '30',
-        premium_monthly_cost:   '75',
-        supreme_monthly_cost:   '150',
+        insider_monthly_cost:   '20',
+        premium_monthly_cost:   '40',
+        supreme_monthly_cost:   '110',
       },
     });
   }
