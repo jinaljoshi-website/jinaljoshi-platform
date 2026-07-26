@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { C, F } from '../tokens';
-import { bestMemberPrice } from '../data';
+import { bestMemberPrice, bestDiscountPct, guestMultiplier } from '../data';
 import GuestNudge from '../components/GuestNudge';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
@@ -23,9 +23,12 @@ export default function Shop() {
   useEffect(() => { load(); }, []);
 
   const itemPrice = (item) => {
-    if (!data) return item.price_coins;
+    if (!data) return null;
     const { isGuest, discountPct } = data;
-    if (isGuest) return Math.ceil(item.price_coins * 2);
+    if (isGuest) {
+      const mult = guestMultiplier();
+      return mult === null ? null : Math.ceil(item.price_coins * mult);
+    }
     if (!discountPct) return Math.ceil(item.price_coins);
     return Math.ceil(item.price_coins * (1 - discountPct / 100));
   };
@@ -39,7 +42,7 @@ export default function Shop() {
         <h1 style={title}>Official shop</h1>
         <p style={text}>
           Limited drops, outfits and accessories. All purchases in J Tokens.
-          {data?.isGuest && ' Members get up to 20% off.'}
+          {data?.isGuest && bestDiscountPct() > 0 && ` Members get up to ${bestDiscountPct()}% off.`}
         </p>
         <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 8, opacity: 0.8 }}>
           All purchases are voluntary, final &amp; non-refundable.
@@ -91,8 +94,8 @@ export default function Shop() {
               ) : (
                 <button
                   onClick={() => setCheckout(item)}
-                  disabled={outOfStock || !canAfford}
-                  style={{ ...buyBtn, opacity: (outOfStock || !canAfford) ? 0.5 : 1, cursor: (outOfStock || !canAfford) ? 'default' : 'pointer', marginTop: 10 }}
+                  disabled={outOfStock || !canAfford || price === null}
+                  style={{ ...buyBtn, opacity: (outOfStock || !canAfford || price === null) ? 0.5 : 1, cursor: (outOfStock || !canAfford || price === null) ? 'default' : 'pointer', marginTop: 10 }}
                 >
                   {outOfStock ? 'Out of stock' : 'Buy now'}
                 </button>

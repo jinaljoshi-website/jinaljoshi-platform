@@ -218,8 +218,17 @@ export function guestPrice(baseTokens) {
   return mult === null ? null : Math.ceil(baseTokens * mult);
 }
 
+// Best discount any tier currently offers, straight from Studio.
+export function bestDiscountPct() {
+  const pcts = ['community', 'insider', 'premium', 'supreme']
+    .map((t) => cfgNum(`${t}_discount_pct`))
+    .filter((v) => v !== null);
+  return pcts.length ? Math.max(...pcts) : null;
+}
+
 export function bestMemberPrice(baseTokens) {
-  return applyDiscount(baseTokens, TIERS.supreme.discountPct);
+  const pct = bestDiscountPct();
+  return pct === null ? null : applyDiscount(baseTokens, pct);
 }
 
 export function upgradeCost(oldTierId, newTierId, daysRemaining) {
