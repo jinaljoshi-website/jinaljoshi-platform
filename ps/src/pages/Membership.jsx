@@ -191,7 +191,7 @@ export default function Membership() {
           const canUpgrade  = isActive && tierIdx > currentTierIdx;
           const canBuy      = !isActive;
           const tokenCost   = calcCost(tierId, selectedTerm);
-          const inrCost     = tokenCost * tokenRate;
+          const inrCost     = (tokenCost === null || tokenRate === null) ? null : tokenCost * tokenRate;
           const upgCost     = canUpgrade ? calcUpgradeCost(currentTierId, tierId, status?.daysRemaining || 0) : null;
           const months      = termMonths(selectedTerm);
 
@@ -205,13 +205,17 @@ export default function Membership() {
               <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, marginBottom: 16, lineHeight: 1.6 }}>{meta.description}</div>
 
               {/* Token price */}
-              <div style={{ marginBottom: 2 }}>
-                <WonderCoinAmount amount={tokenCost} size={20} textColor={meta.color} fontSize={28} />
-              </div>
+              {tokenCost !== null && (
+                <div style={{ marginBottom: 2 }}>
+                  <WonderCoinAmount amount={tokenCost} size={20} textColor={meta.color} fontSize={28} />
+                </div>
+              )}
               {/* INR price */}
-              <div style={{ fontFamily: F.sans, fontSize: 20, color: C.text, fontWeight: 600, marginBottom: 4 }}>
-                ₹{inrCost.toLocaleString('en-IN')}
-              </div>
+              {inrCost !== null && (
+                <div style={{ fontFamily: F.sans, fontSize: 20, color: C.text, fontWeight: 600, marginBottom: 4 }}>
+                  ₹{inrCost.toLocaleString('en-IN')}
+                </div>
+              )}
               <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 18 }}>
                 {selectedTerm === 'monthly'   && 'per month · prepaid · no auto-renewal'}
                 {selectedTerm === 'quarterly' && `for 3 months · prepaid · no auto-renewal`}
