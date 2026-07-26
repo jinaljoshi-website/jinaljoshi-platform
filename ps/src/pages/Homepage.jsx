@@ -191,7 +191,7 @@ export default function Homepage() {
         </div>
         <div style={termNote}>
           Quarterly billing = {cfgNum('quarterly_billing_months')} months charged, 3 months access. &nbsp;
-          Annual billing = 9 months charged, 12 months access.
+          Annual billing = {cfgNum('annual_billing_months')} months charged, 12 months access.
         </div>
       </section>
 
