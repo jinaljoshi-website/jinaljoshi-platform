@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { loadEnv } from 'vite';
 import { render, setPricing } from '../dist-server/entry-server.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -24,20 +25,48 @@ const template = fs.readFileSync(path.join(distDir, 'index.html'), 'utf-8');
 
 // Prices must be real in the static HTML too — a gateway reviewer or crawler with
 // no JavaScript sees this file. Fail the build rather than ship blank prices.
-const API_BASE = process.env.VITE_API_URL;
+const SNAPSHOT = path.join(__dirname, '..', 'pricing-snapshot.json');
+
+async function fetchConfig(attempts = 3) {
+  // Vercel sets this as a real environment variable. Locally it lives in .env,
+  // which plain Node does not read — so fall back to Vite's own env loader.
+  const base = process.env.VITE_API_URL
+    || loadEnv('production', path.join(__dirname, '..'), '').VITE_API_URL;
+  if (!base) throw new Error('VITE_API_URL is not set');
+  let lastErr;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      const res = await fetch(`${base}/api/public/config`, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { config } = await res.json();
+      if (!config?.token_rate_inr) throw new Error('incomplete payload');
+      return config;
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts) {
+        console.log(`  pricing fetch attempt ${i} failed (${err.message}) — retrying in ${i * 3}s`);
+        await new Promise((r) => setTimeout(r, i * 3000));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+let config;
 try {
-  if (!API_BASE) throw new Error('VITE_API_URL is not set');
-  const res = await fetch(`${API_BASE}/api/public/config`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const { config } = await res.json();
-  if (!config?.token_rate_inr) throw new Error('config payload incomplete');
-  setPricing(config);
+  config = await fetchConfig();
+  fs.writeFileSync(SNAPSHOT, JSON.stringify(config, null, 2));
   console.log('✓ Loaded live pricing for pre-render');
 } catch (err) {
-  console.error(`\n✗ Could not load pricing for pre-render: ${err.message}`);
-  console.error('  Refusing to build pages with missing prices.\n');
-  process.exit(1);
+  console.warn(`⚠ Live pricing unavailable (${err.message}) — falling back to last snapshot`);
+  if (!fs.existsSync(SNAPSHOT)) {
+    console.error('✗ No pricing snapshot exists. Refusing to build pages with no prices.\n');
+    process.exit(1);
+  }
+  config = JSON.parse(fs.readFileSync(SNAPSHOT, 'utf-8'));
+  console.warn('  Static pages will show prices from the last successful build.');
 }
+setPricing(config);
 
 for (const route of ROUTES) {
   const appHtml = render(route.path);
