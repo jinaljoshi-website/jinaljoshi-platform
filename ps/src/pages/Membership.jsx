@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { C, F } from '../tokens';
-import { TERMS, termPrice } from '../data';
+import { TERMS, termPrice, tierPerks, cfgNum } from '../data';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
@@ -16,12 +16,6 @@ const TIER_META = {
   supreme:   { name: 'Supreme',   color: '#C17D4A', description: 'The highest access tier — maximum unlocks, best discount, full DM access.' },
 };
 
-const TIER_PERKS = {
-  community: ['Community Chat Centre', '5 free Direct Messages · 2 Per Day max', 'Unlock any One Set', '5% Discount site-wide', 'All content posted to community'],
-  insider:   ['Community Chat Centre', '30 free Direct Messages · 3 Per Day max', 'Unlock any Four Sets', '10% Discount site-wide', 'All content posted to community'],
-  premium:   ['Community Chat Centre', '100 free Direct Messages · 5 Per Day max', 'Unlock any Seven Sets', '15% Discount site-wide', 'All content posted to community'],
-  supreme:   ['Community Chat Centre', '250 free Direct Messages · 10 Per Day max', 'Unlock any Ten Sets', '20% Discount site-wide', 'All content posted to community'],
-};
 
 const DEFAULT_PRICES = { community: 10, insider: 30, premium: 75, supreme: 150 };
 
@@ -218,11 +212,13 @@ export default function Membership() {
                 {selectedTerm === 'annual'    && `for 12 months · prepaid · no auto-renewal`}
               </div>
 
-              <ul style={perkList}>{TIER_PERKS[tierId].map((p) => <li key={p}>{p}</li>)}</ul>
+              <ul style={perkList}>{tierPerks(tierId).map((p) => <li key={p}>{p}</li>)}</ul>
 
-              <div style={discountBadge}>
-                {tierId === 'community' ? '5' : tierId === 'insider' ? '10' : tierId === 'premium' ? '15' : '20'}% off all purchases while active
-              </div>
+              {cfgNum(`${tierId}_discount_pct`) > 0 && (
+                <div style={discountBadge}>
+                  {cfgNum(`${tierId}_discount_pct`)}% off all purchases while active
+                </div>
+              )}
 
               {canBuy && (
                 <button onClick={() => handlePurchase(tierId)} disabled={!!actionLoading} style={{ ...joinBtn, background: meta.color, opacity: actionLoading === tierId ? 0.6 : 1 }}>
