@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { C, F } from '../tokens';
 import { WonderCoin, WonderCoinAmount } from './WonderCoin';
 import { api } from '../api';
-import { RECHARGE_PACKS, TOKEN_RATE_INR, rechargePrice } from '../data';
+import { RECHARGE_PACKS, tokenRateInr, rechargePrice } from '../data';
 
 export default function TopUpModal({ requiredTokens = 0, onClose, onSuccess }) {
   // Find the smallest pack that covers the required amount,
@@ -46,6 +46,7 @@ export default function TopUpModal({ requiredTokens = 0, onClose, onSuccess }) {
     ? (parseInt(custom) || 0)
     : selected;
 
+  const rate    = tokenRateInr();
   const pricing = rechargePrice(tokenAmount);
 
   const handleRecharge = async () => {
@@ -100,6 +101,18 @@ export default function TopUpModal({ requiredTokens = 0, onClose, onSuccess }) {
       setProcessing(false);
     }
   };
+
+  if (rate === null || !pricing) {
+    return (
+      <div ref={overlayRef} onClick={handleBackdrop} style={overlay}>
+        <div style={modal}>
+          <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 10 }}>Pricing unavailable</div>
+          <div style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, marginBottom: 18 }}>We could not load the current token rate. Please close this and try again in a moment.</div>
+          <button onClick={onClose} style={rechargeBtn}>Close</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={overlayRef} onClick={handleBackdrop} style={overlay}>
@@ -211,9 +224,9 @@ export default function TopUpModal({ requiredTokens = 0, onClose, onSuccess }) {
               </div>
             )}
           </div>
-          {tokenAmount >= 500 && (
+          {pricing.pct > 0 && (
             <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginTop: 6 }}>
-              {tokenAmount >= 1000 ? '10% discount applied — bulk recharge' : '5% discount applied — bulk recharge'}
+              {pricing.pct}% discount applied — bulk recharge
             </div>
           )}
         </div>
@@ -248,7 +261,7 @@ export default function TopUpModal({ requiredTokens = 0, onClose, onSuccess }) {
         </button>
 
         <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, textAlign: 'center', marginTop: 10 }}>
-          1 J Token = ₹{TOKEN_RATE_INR} incl. GST · Secure payment via Razorpay
+          1 J Token = ₹{rate} incl. GST · Secure payment via Razorpay
         </div>
       </div>
     </div>

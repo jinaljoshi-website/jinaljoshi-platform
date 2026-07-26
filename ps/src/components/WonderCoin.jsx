@@ -1,6 +1,6 @@
 import coinUrl from '../assets/wonder-coin.svg';
 import { C, F } from '../tokens';
-import { TOKEN_RATE_INR } from '../data';
+import { tokenRateInr } from '../data';
 
 export function WonderCoin({ size = 18, alt = 'Wonder Coin' }) {
   return (
@@ -32,7 +32,8 @@ export function WonderCoinAmount({
   fontSize,
   subSize = 12,
 }) {
-  const inrValue = amount * TOKEN_RATE_INR;
+  const rate     = tokenRateInr();
+  const inrValue = rate === null ? null : amount * rate;
 
   return (
     <div
@@ -55,7 +56,7 @@ export function WonderCoinAmount({
           >
             {amount}
           </div>
-          {showInr && (
+          {showInr && inrValue !== null && (
             <div
               style={{
                 fontFamily: F.sans,

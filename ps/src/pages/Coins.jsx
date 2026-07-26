@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { TOKEN_RATE_INR, rechargePrice, discountConfig, setDiscountConfig } from '../data';
+import { tokenRateInr, rechargePrice, discountConfig, setDiscountConfig } from '../data';
 import { C, F } from '../tokens';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 import TopUpModal from '../components/TopUpModal';
@@ -42,13 +42,16 @@ export default function Coins() {
 
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading balance…</div>;
 
+  const rate = tokenRateInr();
+  if (rate === null) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Pricing is temporarily unavailable. Please refresh in a moment.</div>;
+
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
         <div style={eyebrow}>J Tokens</div>
         <h1 style={title}>Your balance</h1>
         <p style={text}>
-          1 J Token = ₹{TOKEN_RATE_INR} incl. GST. Tokens never expire.
+          1 J Token = ₹{rate} incl. GST. Tokens never expire.
           Bulk discounts: {discountConfig.tier1Pct}% off on {discountConfig.tier1Threshold}+, {discountConfig.tier2Pct}% off on {discountConfig.tier2Threshold}+.
         </p>
         <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 6, opacity: 0.8 }}>
@@ -64,7 +67,7 @@ export default function Coins() {
           : <WonderCoinAmount amount={balance} size={44} fontSize={52} />
         }
         <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginTop: 8 }}>
-          ≈ ₹{((balance || 0) * TOKEN_RATE_INR).toLocaleString('en-IN')} equivalent
+          ≈ ₹{((balance || 0) * rate).toLocaleString('en-IN')} equivalent
         </div>
       </div>
 

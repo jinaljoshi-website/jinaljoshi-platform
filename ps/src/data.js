@@ -61,7 +61,6 @@ export function tierPerks(tierId) {
   return perks;
 }
 
-export const TOKEN_RATE_INR     = 66;
 export const SUPPORT_EMAIL      = 'support@jinaljoshi.in';
 
 export const TOKEN_DISCLAIMER =
@@ -353,18 +352,15 @@ export function rechargeDiscount(tokens) {
 }
 
 export function rechargePrice(tokens) {
-  const base     = tokens * TOKEN_RATE_INR;
+  const rate = tokenRateInr();
+  if (rate === null) return null;
+  const base     = tokens * rate;
   const pct      = rechargeDiscount(tokens);
   const discount = pct ? Math.round(base * pct / 100) : 0;
   return { base, discount, final: base - discount, pct };
 }
 
-// Alias used by Coins.jsx
-export const COIN_PACKS = RECHARGE_PACKS.map((p) => ({
-  amount: p.tokens,
-  label:  p.label,
-  inr:    p.tokens * TOKEN_RATE_INR,
-}));
+
 
 // ─────────────────────────────────────────────
 // CONSENT
