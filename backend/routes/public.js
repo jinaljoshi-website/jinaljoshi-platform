@@ -32,6 +32,8 @@ const PUBLIC_KEYS = [
   'recharge_discount_tier1_threshold', 'recharge_discount_tier1_pct',
   'recharge_discount_tier2_threshold', 'recharge_discount_tier2_pct',
 
+  'quarterly_billing_months', 'annual_billing_months',
+
   'legal_registered_address', 'legal_gstin',
 ];
 

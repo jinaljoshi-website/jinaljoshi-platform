@@ -141,14 +141,27 @@ function PricingSection({ draft, set, config, setConfig, tokenRate }) {
       <Card style={{ marginBottom: 20 }}>
         <T.sectionTitle>Non-member (guest) pricing</T.sectionTitle>
         <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>
-          Applied everywhere a non-member pays: Calls, Gallery unlocks, Merchandise, and Extras. Direct message guest pricing is derived from this multiplied by the Community tier's message rate.
+          Applied everywhere a non-member pays: Calls, Gallery unlocks, Merchandise, and the auction. Extras are excluded — fans name their own price there. Direct message guest pricing is derived from this multiplied by the Community tier's message rate.
         </p>
         <Field label="Guest price multiplier">
           <input style={S.input} type="number" min={1} step={0.1} value={draft.guest_price_multiplier ?? 2} onChange={(e) => set('guest_price_multiplier', e.target.value)} />
         </Field>
         <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 8, fontStyle: 'italic' }}>
-          e.g. 2 means guests pay double what a member would pay before any membership discount.
+          e.g. 1.5 means guests pay 50% more than a member would, before any membership discount.
         </p>
+      </Card>
+
+      <Card style={{ marginBottom: 20 }}>
+        <T.sectionTitle>Quarterly &amp; annual billing</T.sectionTitle>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>
+          How many months a fan is charged when they prepay. Charging 2.5 months for 3 months' access is a ~17% saving; 9 for 12 months is 25%.
+        </p>
+        <Field label="Quarterly — months charged (3 months access)">
+          <input style={S.input} type="number" min={0.5} step={0.1} value={draft.quarterly_billing_months ?? ''} onChange={(e) => set('quarterly_billing_months', e.target.value)} />
+        </Field>
+        <Field label="Annual — months charged (12 months access)">
+          <input style={S.input} type="number" min={1} step={0.5} value={draft.annual_billing_months ?? ''} onChange={(e) => set('annual_billing_months', e.target.value)} />
+        </Field>
       </Card>
 
       <Card style={{ marginBottom: 20 }}>
