@@ -5,6 +5,62 @@
 export const PLATFORM_NAME      = 'Personal Space';
 export const PLATFORM_NAME_FULL = "Jinal Joshi's Personal Space";
 export const ARTIST_NAME        = 'Jinal Joshi';
+// ─────────────────────────────────────────────
+// LIVE PRICING — hydrated from /api/public/config before the app renders.
+// Nothing below defines a price. If config is unavailable we render nothing
+// rather than a number that might be wrong.
+// ─────────────────────────────────────────────
+export let PRICING = null;
+
+export function setPricing(config) {
+  if (config) PRICING = config;
+}
+
+const num = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
+
+export function cfgNum(key) {
+  return PRICING ? num(PRICING[key]) : null;
+}
+
+export function tokenRateInr() {
+  return cfgNum('token_rate_inr');
+}
+
+export function guestMultiplier() {
+  return cfgNum('guest_price_multiplier');
+}
+
+// Every economic value for a tier, straight from Studio.
+export function tierEconomics(tierId) {
+  if (!PRICING) return null;
+  return {
+    monthlyCost: cfgNum(`${tierId}_monthly_cost`),
+    discountPct: cfgNum(`${tierId}_discount_pct`),
+    unlocks:     cfgNum(`gallery_unlocks_${tierId}`),
+    freeDMs:     cfgNum(`dm_free_per_month_${tierId}`),
+    dailyDMCap:  cfgNum(`dm_daily_cap_${tierId}`),
+    overageDM:   cfgNum(`dm_overage_cost_${tierId}`),
+  };
+}
+
+// Perk sentences generated from live values — never hardcoded prose.
+export function tierPerks(tierId) {
+  const e = tierEconomics(tierId);
+  if (!e) return [];
+  const perks = ['Community Chat Centre'];
+  if (e.freeDMs !== null && e.dailyDMCap !== null) {
+    perks.push(`${e.freeDMs} free Direct Messages · ${e.dailyDMCap} Per Day max`);
+  }
+  if (e.unlocks) {
+    perks.push(`Unlock any ${e.unlocks} Set${e.unlocks === 1 ? '' : 's'}`);
+  }
+  if (e.discountPct) {
+    perks.push(`${e.discountPct}% Discount site-wide`);
+  }
+  perks.push('All content posted to community');
+  return perks;
+}
+
 export const TOKEN_RATE_INR     = 66;
 export const SUPPORT_EMAIL      = 'support@jinaljoshi.in';
 
@@ -155,7 +211,8 @@ export function applyDiscount(baseTokens, discountPct) {
 }
 
 export function guestPrice(baseTokens) {
-  return baseTokens * 2;
+  const mult = guestMultiplier();
+  return mult === null ? null : Math.ceil(baseTokens * mult);
 }
 
 export function bestMemberPrice(baseTokens) {
