@@ -5,7 +5,6 @@ import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
 
-const TOKEN_RATE = 66;
 
 const TIER_ORDER = ['community', 'insider', 'premium', 'supreme'];
 
@@ -17,12 +16,19 @@ const TIER_META = {
 };
 
 
-const DEFAULT_PRICES = { community: 10, insider: 30, premium: 75, supreme: 150 };
-
+// Billing months are Studio-configurable — see Settings → Pricing & Discounts.
 function termMultiplier(termId) {
-  if (termId === 'quarterly') return 2.5;
-  if (termId === 'annual')    return 9;
+  if (termId === 'quarterly') return cfgNum('quarterly_billing_months');
+  if (termId === 'annual')    return cfgNum('annual_billing_months');
   return 1;
+}
+
+// "Save 17%" style labels derived from the same numbers, never written by hand.
+function termSaving(termId) {
+  const charged = termMultiplier(termId);
+  const months  = termMonths(termId);
+  if (charged === null || months <= 1) return null;
+  return `Save ${Math.round((1 - charged / months) * 100)}%`;
 }
 
 function termMonths(termId) {
@@ -34,8 +40,13 @@ function termMonths(termId) {
 export default function Membership() {
   const [selectedTerm,  setSelectedTerm]  = useState('monthly');
   const [status,        setStatus]        = useState(null);
-  const [tierPrices,    setTierPrices]    = useState(DEFAULT_PRICES);
-  const [tokenRate,     setTokenRate]     = useState(TOKEN_RATE);
+  const tokenRate  = cfgNum('token_rate_inr');
+  const tierPrices = {
+    community: cfgNum('community_monthly_cost'),
+    insider:   cfgNum('insider_monthly_cost'),
+    premium:   cfgNum('premium_monthly_cost'),
+    supreme:   cfgNum('supreme_monthly_cost'),
+  };
   const [loading,       setLoading]       = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
   const [error,         setError]         = useState('');
@@ -49,29 +60,24 @@ export default function Membership() {
       api.get('/api/membership/status'),
       fetch(`${import.meta.env.VITE_API_URL || ''}/api/public/config`).then((r) => r.json()),
     ])
-      .then(([statusData, configData]) => {
+      .then(([statusData]) => {
         setStatus(statusData);
-        const c = configData.config || {};
-        setTokenRate(parseInt(c.token_rate_inr || TOKEN_RATE));
-        setTierPrices({
-          community: parseInt(c.community_monthly_cost || DEFAULT_PRICES.community),
-          insider:   parseInt(c.insider_monthly_cost   || DEFAULT_PRICES.insider),
-          premium:   parseInt(c.premium_monthly_cost   || DEFAULT_PRICES.premium),
-          supreme:   parseInt(c.supreme_monthly_cost   || DEFAULT_PRICES.supreme),
-        });
       })
       .catch(() => { loadStatus(); })
       .finally(() => setLoading(false));
   }, []);
 
   const calcCost = (tierId, termId) => {
-    const base = tierPrices[tierId] || DEFAULT_PRICES[tierId];
-    return Math.round(base * termMultiplier(termId));
+    const base = tierPrices[tierId];
+    const mult = termMultiplier(termId);
+    if (base === null || mult === null) return null;
+    return Math.round(base * mult);
   };
 
   const calcUpgradeCost = (fromTier, toTier, daysRemaining) => {
-    const fromBase = tierPrices[fromTier] || DEFAULT_PRICES[fromTier];
-    const toBase   = tierPrices[toTier]   || DEFAULT_PRICES[toTier];
+    const fromBase = tierPrices[fromTier];
+    const toBase   = tierPrices[toTier];
+    if (fromBase === null || toBase === null) return null;
     const fromPerDay = fromBase / 30;
     const toPerDay   = toBase   / 30;
     return Math.max(1, Math.ceil((toPerDay - fromPerDay) * daysRemaining));
@@ -166,8 +172,8 @@ export default function Membership() {
       <div style={termSelector}>
         {[
           { id: 'monthly',   label: 'Monthly',   saving: null },
-          { id: 'quarterly', label: 'Quarterly', saving: 'Save ~17%' },
-          { id: 'annual',    label: 'Annual',    saving: 'Save 25%' },
+          { id: 'quarterly', label: 'Quarterly', saving: termSaving('quarterly') },
+          { id: 'annual',    label: 'Annual',    saving: termSaving('annual') },
         ].map((t) => (
           <button key={t.id} onClick={() => setSelectedTerm(t.id)} style={{ ...termBtn, background: selectedTerm === t.id ? C.accent : 'transparent', color: selectedTerm === t.id ? '#1A1714' : C.muted, border: selectedTerm === t.id ? 'none' : `1px solid ${C.border}` }}>
             {t.label}
