@@ -6,6 +6,7 @@ const pool       = require('../db/pool');
 const authMid    = require('../middleware/auth');
 const artistOnly = require('../middleware/artistOnly');
 const { postSystemMessage } = require('./community');
+const { pushToUser } = require('./push');
 const { applyBlock, liftBlock, setMuted, logModerationAction } = require('../lib/moderation');
 
 router.use(authMid, artistOnly);
@@ -252,6 +253,17 @@ router.post('/dms/:fanId/reply', async (req, res) => {
       [req.user.userId, req.params.fanId, content?.trim() || null, mediaUrl || null, mediaType || null]
     );
     res.json({ ok: true, message: { ...rows[0], is_mine: true } });
+
+    // Fire-and-forget: a push failure must never break sending the message.
+    const preview = content?.trim()
+      ? (content.trim().length > 80 ? content.trim().slice(0, 80) + '...' : content.trim())
+      : (mediaType === 'video' ? 'Sent you a video' : 'Sent you a photo');
+    pushToUser(req.params.fanId, {
+      title: 'New message from Jinal',
+      body:  preview,
+      url:   '/platform/chat',
+      tag:   'dm',
+    }).catch((e) => console.error('DM push failed:', e.message));
   } catch (err) {
     res.status(500).json({ error: 'Failed to send reply' });
   }
