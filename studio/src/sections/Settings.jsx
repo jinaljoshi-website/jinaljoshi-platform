@@ -191,7 +191,7 @@ function PricingSection({ draft, set, config, setConfig, tokenRate }) {
       <Card style={{ marginBottom: 20 }}>
         <T.sectionTitle>Membership monthly cost & discount</T.sectionTitle>
         <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>
-          The monthly price fans pay when purchasing this tier, and the site-wide purchase discount that comes with it (applied to Calls, Merch, and Extras — Gallery unlocks use flat pricing instead).
+          The monthly price fans pay when purchasing this tier, and the site-wide purchase discount that comes with it (applied to Calls, Merchandise, Gallery unlocks, and the auction. Extras are excluded, since fans name their own price there).
         </p>
         {TIERS.map((tier) => (
           <div key={tier} style={{ marginBottom: 20, paddingBottom: 18, borderBottom: `1px solid ${colors.border}` }}>
