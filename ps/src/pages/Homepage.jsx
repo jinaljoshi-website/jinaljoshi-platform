@@ -1,19 +1,8 @@
-import { useEffect, useState } from 'react';
+
 import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
-import { tierPerks } from '../data';
-
-const TOKEN_RATE = 66;
-const API = import.meta.env.VITE_API_URL || '';
-
-// Default fallback prices (tokens per month)
-const DEFAULT_TIER_PRICES = {
-  community: 10,
-  insider:   20,
-  premium:   40,
-  supreme:   110,
-};
+import { tierPerks, cfgNum } from '../data';
 
 const TIER_META = {
   community: { name: 'Community', color: '#C17D4A', description: 'Entry-level membership with community access and a monthly content unlock.' },
@@ -41,39 +30,22 @@ const HOW_IT_WORKS = [
   { title: 'Heavy Discounts',          text: "Memberships bring discounts on every purchase. Tokens can also be bought at a discounted price in bulk: 5% off on 500 tokens, 10% off on 1000. Save more, do more." },
 ];
 
-const DEFAULT_DISCOUNT_CONFIG = { tier1Threshold: 500, tier1Pct: 5, tier2Threshold: 1000, tier2Pct: 10 };
-
 export default function Homepage() {
   const navigate = useNavigate();
-  const [tierPrices, setTierPrices] = useState(DEFAULT_TIER_PRICES);
-  const [tokenRate,  setTokenRate]  = useState(TOKEN_RATE);
-  const [discountCfg, setDiscountCfg] = useState(DEFAULT_DISCOUNT_CONFIG);
-  const [loading,    setLoading]    = useState(true);
 
-  useEffect(() => {
-    fetch(`${API}/api/public/config`)
-      .then((r) => r.json())
-      .then((data) => {
-        const c = data.config || {};
-        setTokenRate(parseInt(c.token_rate_inr || TOKEN_RATE));
-        setTierPrices({
-          community: parseInt(c.community_monthly_cost || DEFAULT_TIER_PRICES.community),
-          insider:   parseInt(c.insider_monthly_cost   || DEFAULT_TIER_PRICES.insider),
-          premium:   parseInt(c.premium_monthly_cost   || DEFAULT_TIER_PRICES.premium),
-          supreme:   parseInt(c.supreme_monthly_cost   || DEFAULT_TIER_PRICES.supreme),
-        });
-        // Same recharge-discount config Jinal sets in Studio → Pricing & Discounts —
-        // this is what actually determines the last two pricing blocks below.
-        setDiscountCfg({
-          tier1Threshold: parseInt(c.recharge_discount_tier1_threshold) || DEFAULT_DISCOUNT_CONFIG.tier1Threshold,
-          tier1Pct:       c.recharge_discount_tier1_pct !== undefined ? parseInt(c.recharge_discount_tier1_pct) : DEFAULT_DISCOUNT_CONFIG.tier1Pct,
-          tier2Threshold: parseInt(c.recharge_discount_tier2_threshold) || DEFAULT_DISCOUNT_CONFIG.tier2Threshold,
-          tier2Pct:       c.recharge_discount_tier2_pct !== undefined ? parseInt(c.recharge_discount_tier2_pct) : DEFAULT_DISCOUNT_CONFIG.tier2Pct,
-        });
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  const tokenRate  = cfgNum('token_rate_inr');
+  const tierPrices = {
+    community: cfgNum('community_monthly_cost'),
+    insider:   cfgNum('insider_monthly_cost'),
+    premium:   cfgNum('premium_monthly_cost'),
+    supreme:   cfgNum('supreme_monthly_cost'),
+  };
+  const discountCfg = {
+    tier1Threshold: cfgNum('recharge_discount_tier1_threshold'),
+    tier1Pct:       cfgNum('recharge_discount_tier1_pct'),
+    tier2Threshold: cfgNum('recharge_discount_tier2_threshold'),
+    tier2Pct:       cfgNum('recharge_discount_tier2_pct'),
+  };
 
   const tokenPackages = [
     { tokens: 10,   inr: 10   * tokenRate,           label: 'A message or two',   saving: null,    highlight: false },
@@ -189,18 +161,22 @@ export default function Homepage() {
           {['community', 'insider', 'premium', 'supreme'].map((id) => {
             const meta   = TIER_META[id];
             const tokens = tierPrices[id];
-            const inr    = tokens * tokenRate;
+            const inr    = (tokens === null || tokenRate === null) ? null : tokens * tokenRate;
             return (
               <div key={id} style={tierCard}>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color, marginBottom: 14 }} />
                 <div style={{ fontFamily: F.display, fontSize: 26, color: C.text, marginBottom: 6 }}>{meta.name}</div>
                 <div style={{ fontFamily: F.sans, fontSize: 13, color: '#9B8F83', marginBottom: 16, lineHeight: 1.6 }}>{meta.description}</div>
-                <div style={{ marginBottom: 2 }}>
-                  <WonderCoinAmount amount={tokens} size={22} textColor={meta.color} fontSize={28} />
-                </div>
-                <div style={{ fontFamily: F.sans, fontSize: 20, color: C.text, fontWeight: 600, marginBottom: 4 }}>
-                  ₹{inr.toLocaleString('en-IN')}
-                </div>
+                {tokens !== null && (
+                  <div style={{ marginBottom: 2 }}>
+                    <WonderCoinAmount amount={tokens} size={22} textColor={meta.color} fontSize={28} />
+                  </div>
+                )}
+                {inr !== null && (
+                  <div style={{ fontFamily: F.sans, fontSize: 20, color: C.text, fontWeight: 600, marginBottom: 4 }}>
+                    ₹{inr.toLocaleString('en-IN')}
+                  </div>
+                )}
                 <div style={{ fontFamily: F.sans, fontSize: 11, color: '#9B8F83', marginBottom: 18 }}>
                   per month · prepaid · no auto-renewal
                 </div>
