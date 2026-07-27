@@ -8,6 +8,32 @@ import TopUpModal from '../components/TopUpModal';
 
 const TIER_ORDER = ['community', 'insider', 'premium', 'supreme'];
 
+// Mirrors addMonthsClamped() on the backend so the date shown here can never
+// disagree with the date actually charged. 31 Jan + 1 month is 28 Feb, not 3 Mar.
+function addMonthsClamped(date, months) {
+  const d         = new Date(date);
+  const targetDay = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(targetDay, lastDay));
+  return d;
+}
+
+// We show the day BEFORE the true expiry. A membership bought at 2pm on the 5th
+// really runs to 2pm on the 5th next month — but promising "the 5th" invites
+// "it said the 5th and it stopped at lunchtime". Showing the 4th means the real
+// cutoff is always later than promised, never earlier.
+function expiryLabel(expiresAt) {
+  const d = new Date(expiresAt);
+  d.setDate(d.getDate() - 1);
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function accessUntilLabel(months) {
+  return expiryLabel(addMonthsClamped(new Date(), months));
+}
+
 const TIER_META = {
   community: { name: 'Community', color: '#C17D4A', description: 'Entry-level membership with community access and a monthly content unlock.' },
   insider:   { name: 'Insider',   color: '#B8860B', description: 'More messages, more unlocks, and a better discount on every purchase.' },
@@ -150,7 +176,7 @@ export default function Membership() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
             <div>
               <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 4 }}>{TIER_META[currentTierId]?.name} — Active</div>
-              <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>Expires {new Date(status.expiresAt).toLocaleDateString()} · {status.daysRemaining} days remaining</div>
+              <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>Access until {expiryLabel(status.expiresAt)} · {status.daysRemaining} days remaining</div>
             </div>
             <button onClick={handleExtend} disabled={actionLoading === 'extend'} style={extendBtn}>
               {actionLoading === 'extend' ? 'Processing…' : 'Extend membership'}
@@ -216,11 +242,21 @@ export default function Membership() {
                   ₹{inrCost.toLocaleString('en-IN')}
                 </div>
               )}
-              <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 18 }}>
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 8 }}>
                 {selectedTerm === 'monthly'   && 'per month · prepaid · no auto-renewal'}
                 {selectedTerm === 'quarterly' && `for 3 months · prepaid · no auto-renewal`}
                 {selectedTerm === 'annual'    && `for 12 months · prepaid · no auto-renewal`}
               </div>
+
+              {canBuy && (
+                <div style={accessNote}>Access until {accessUntilLabel(termMonths(selectedTerm))}</div>
+              )}
+              {canUpgrade && status?.expiresAt && (
+                <div style={accessNote}>Your access until {expiryLabel(status.expiresAt)} is unchanged — you only pay the difference for the days remaining</div>
+              )}
+              {isCurrent && status?.expiresAt && (
+                <div style={accessNote}>Access until {expiryLabel(status.expiresAt)}</div>
+              )}
 
               <ul style={perkList}>{tierPerks(tierId).map((p) => <li key={p}>{p}</li>)}</ul>
 
@@ -254,8 +290,8 @@ export default function Membership() {
         <div style={{ fontFamily: F.display, fontSize: 20, color: C.text, marginBottom: 12 }}>Billing terms</div>
         {[
           { label: 'Monthly',   desc: 'Pay for 1 month, get 1 month access' },
-          { label: 'Quarterly', desc: 'Pay for 2.5 months, get 3 months access' },
-          { label: 'Annual',    desc: 'Pay for 9 months, get 12 months access' },
+          { label: 'Quarterly', desc: `Pay for ${cfgNum('quarterly_billing_months')} months, get 3 months access` },
+          { label: 'Annual',    desc: `Pay for ${cfgNum('annual_billing_months')} months, get 12 months access` },
         ].map((t) => (
           <div key={t.label} style={termRow}>
             <span style={{ fontFamily: F.sans, fontSize: 14, color: C.text }}>{t.label}</span>
@@ -287,6 +323,7 @@ const savingBadge  = { fontSize: 10, background: 'rgba(193,125,74,0.15)', color:
 const tiersGrid    = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px,1fr))', gap: 16, marginBottom: 20 };
 const card         = { background: C.surface, borderRadius: 10, padding: 22, display: 'flex', flexDirection: 'column' };
 const currentBadge = { fontFamily: F.sans, fontSize: 10, padding: '2px 8px', borderRadius: 999, color: '#1A1714' };
+const accessNote = { fontFamily: 'DM Sans, system-ui, sans-serif', fontSize: 11, color: '#C17D4A', lineHeight: 1.5, marginBottom: 16 };
 const perkList     = { fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.9, paddingLeft: 18, margin: '0 0 16px', flexGrow: 1 };
 const discountBadge = { fontFamily: F.sans, fontSize: 12, color: C.accent, background: 'rgba(193,125,74,0.08)', border: `1px solid rgba(193,125,74,0.2)`, borderRadius: 6, padding: '6px 10px', marginBottom: 12, textAlign: 'center' };
 const joinBtn      = { border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '12px 0', borderRadius: 8, cursor: 'pointer', width: '100%' };
