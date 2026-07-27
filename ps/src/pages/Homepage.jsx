@@ -3,6 +3,14 @@ import { C, F } from '../tokens';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 import { tierPerks, cfgNum } from '../data';
 
+// The homepage is public, but a signed-in member should not be invited to join
+// something they already pay for. Guarded because pre-rendering runs in Node,
+// where localStorage does not exist.
+function isSignedIn() {
+  try { return typeof window !== 'undefined' && !!window.localStorage.getItem('jwt'); }
+  catch { return false; }
+}
+
 const TIER_META = {
   community: { name: 'Community', color: '#C17D4A', description: 'Entry-level membership with community access and a monthly content unlock.' },
   insider:   { name: 'Insider',   color: '#B8860B', description: 'More messages, more unlocks, and a better discount on every purchase.' },
@@ -77,8 +85,14 @@ export default function Homepage() {
           <span style={{ fontFamily: F.display, fontSize: 19, color: C.text }}>Personal Space</span>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={() => navigate('/auth?mode=login')}  style={ghostBtn}>Sign in</button>
-          <button onClick={() => navigate('/auth?mode=signup')} style={solidBtn}>Join now</button>
+          {isSignedIn() ? (
+            <button onClick={() => navigate('/platform/landing')} style={solidBtn}>Open Personal Space</button>
+          ) : (
+            <>
+              <button onClick={() => navigate('/auth?mode=login')}  style={ghostBtn}>Sign in</button>
+              <button onClick={() => navigate('/auth?mode=signup')} style={solidBtn}>Join now</button>
+            </>
+          )}
         </div>
       </div>
 
@@ -110,8 +124,14 @@ export default function Homepage() {
           </p>
 
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
-            <button onClick={() => navigate('/auth?mode=signup')} style={solidBtnLg}>Choose a plan &amp; join</button>
-            <button onClick={() => navigate('/auth?mode=login')}  style={ghostBtnLg}>Already a member</button>
+            {isSignedIn() ? (
+              <button onClick={() => navigate('/platform/landing')} style={solidBtnLg}>Open Personal Space</button>
+            ) : (
+              <>
+                <button onClick={() => navigate('/auth?mode=signup')} style={solidBtnLg}>Choose a plan &amp; join</button>
+                <button onClick={() => navigate('/auth?mode=login')}  style={ghostBtnLg}>Already a member</button>
+              </>
+            )}
           </div>
           <div style={{ textAlign: 'center' }}>
             <button onClick={() => navigate('/platform/chat')} style={guestLink}>Explore without a membership →</button>
