@@ -10,6 +10,7 @@ import Refund   from './pages/Refund';
 import Shipping from './pages/Shipping';
 import Contact  from './pages/Contact';
 import Sitemap  from './pages/Sitemap';
+import OutfitsInfo from './pages/OutfitsInfo';
 import { C, F } from './tokens';
 
 function isLoggedIn() {
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="/shipping" element={<Shipping />} />
           <Route path="/contact"  element={<Contact />} />
           <Route path="/sitemap" element={<Sitemap />} />
+          <Route path="/outfits" element={<OutfitsInfo />} />
 
           {/* Landing is its own top-level route — no sidebar/topbar chrome */}
           <Route

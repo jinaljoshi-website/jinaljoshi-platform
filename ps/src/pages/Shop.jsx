@@ -196,6 +196,14 @@ function ShippingModal({ item, price, savedAddress, onClose, onSuccess, onTopUp 
           <WonderCoinAmount amount={price} size={20} fontSize={22} />
         </div>
 
+        <div style={disclosureBox}>
+          <strong style={{ color: C.text }}>Before you order.</strong> Damage claims on physical items
+          require a continuous unboxing video, recorded in one take starting before the parcel is opened.
+          Limited-edition, personalised and one-of-one items cannot be returned or exchanged for any
+          other reason. Full terms in the{' '}
+          <a href="/refund" target="_blank" rel="noopener noreferrer" style={{ color: C.accent }}>Refund Policy</a>.
+        </div>
+
         <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 14, opacity: 0.8 }}>
           All purchases are voluntary, final &amp; non-refundable.
         </div>
@@ -242,4 +250,5 @@ const formGrid = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, mar
 const inp      = { width: '100%', boxSizing: 'border-box', background: '#100F0C', border: `1px solid ${C.border}`, color: C.text, padding: '10px 12px', borderRadius: 8, fontFamily: F.sans, fontSize: 13, outline: 'none' };
 const saveLabel = { display: 'flex', alignItems: 'center', fontFamily: F.sans, fontSize: 13, color: C.muted, cursor: 'pointer', marginBottom: 16 };
 const totalRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, marginBottom: 12 };
+const disclosureBox = { fontFamily: F.sans, fontSize: 12, color: C.muted, lineHeight: 1.6, background: 'rgba(193,125,74,0.06)', border: `1px solid rgba(193,125,74,0.2)`, borderRadius: 8, padding: '10px 12px', marginBottom: 12 };
 const placeBtn = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '13px 0', borderRadius: 8, width: '100%', cursor: 'pointer' };

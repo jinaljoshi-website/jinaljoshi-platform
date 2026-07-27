@@ -12,6 +12,7 @@ import Privacy  from './pages/Privacy';
 import Refund   from './pages/Refund';
 import Shipping from './pages/Shipping';
 import Contact  from './pages/Contact';
+import OutfitsInfo from './pages/OutfitsInfo';
 
 // Re-exported so the pre-render script can inject live pricing before rendering.
 export { setPricing } from './data';
@@ -23,6 +24,7 @@ const PAGES = {
   '/refund':   Refund,
   '/shipping': Shipping,
   '/contact':  Contact,
+  '/outfits':  OutfitsInfo,
 };
 
 export function render(routePath) {

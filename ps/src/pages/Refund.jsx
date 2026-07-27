@@ -87,6 +87,31 @@ export default function Refund() {
 
         <Section title="Items not eligible for cancellation or return">
           <p>Merchandise explicitly marked as limited-edition, personalised, or final sale at the time of purchase is not eligible for cancellation, return, or exchange except in cases of genuine damage or defect.</p>
+          <p>This includes <strong style={{ color: C.text }}>customised items</strong> — anything made to your specification, such as a mug printed with your chosen photograph and text. Production begins on your instruction and the result cannot be resold, so these cannot be cancelled once production has started.</p>
+        </Section>
+
+        <Section title="Part C — One-of-one items (Outfits)">
+          <p>Items listed under Outfits are genuine one-of-one pieces worn by Jinal on a shoot. There is exactly one of each. A clearly stated percentage of the proceeds from every such sale is donated by Jinal to a charity chosen by the buyer, and that donation is made once the sale completes.</p>
+          <p><strong style={{ color: C.text }}>One-of-one items cannot be cancelled, returned, or exchanged.</strong> Because only a single unit exists and a charitable donation is committed against the sale, the only circumstance in which a remedy is available is an item that arrives damaged.</p>
+        </Section>
+
+        <Section title="Damage claims on one-of-one items — unboxing video required">
+          <p>To claim for damage on a one-of-one item you must provide an <strong style={{ color: C.text }}>unboxing video</strong>. This is a condition of purchase and is stated again at checkout before payment.</p>
+          <p>The recording must be:</p>
+          <ul>
+            <li>Continuous and unedited, in a single take</li>
+            <li>Started <strong style={{ color: C.text }}>before</strong> the parcel is opened, showing the sealed packaging and shipping label</li>
+            <li>Continued without interruption through opening the parcel and removing the item</li>
+            <li>Clear enough for the reported damage to be visible</li>
+          </ul>
+          <p>Send it to <a href="mailto:orders@jinaljoshi.in" style={link}>orders@jinaljoshi.in</a> within <strong style={{ color: C.text }}>3 days of delivery</strong>. Without a recording meeting these conditions, a damage claim cannot be assessed, as there is no way to establish whether damage occurred in transit.</p>
+          <p>Where a claim is accepted, a token credit for the item is issued to your balance. As only one unit exists, replacement is not possible. The charitable donation associated with the sale is not reversed.</p>
+        </Section>
+
+        <Section title="Auction purchases">
+          <p>Winning an auction is a commitment to purchase. Tokens are not deducted when you bid, and are only charged when you claim the item you have won.</p>
+          <p>If a winning bid is left unclaimed within the stated window, the item is returned to general sale and no charge is made. Repeatedly leaving winning bids unclaimed may result in temporary suspension of access to future auctions, as each unclaimed bid prevented other members from winning.</p>
+          <p>Once an auction item is claimed and paid for, the one-of-one terms in Part C apply in full.</p>
         </Section>
 
         <Section title="Processing time">

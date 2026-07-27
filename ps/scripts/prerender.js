@@ -19,6 +19,7 @@ const ROUTES = [
   { path: '/refund',   outFile: 'refund/index.html' },
   { path: '/shipping', outFile: 'shipping/index.html' },
   { path: '/contact',  outFile: 'contact/index.html' },
+  { path: '/outfits',  outFile: 'outfits/index.html' },
 ];
 
 const template = fs.readFileSync(path.join(distDir, 'index.html'), 'utf-8');
