@@ -32,6 +32,17 @@ const PUBLIC_KEYS = [
   'recharge_discount_tier1_threshold', 'recharge_discount_tier1_pct',
   'recharge_discount_tier2_threshold', 'recharge_discount_tier2_pct',
 
+  'domestic_gst_rate_pct',
+  'auction_starting_bid_pct',
+  'auction_buynow_bid_multiplier',
+  'auction_buynow_base_multiplier',
+  'auction_duration_hours',
+  'auction_claim_hours',
+  'auction_cooldown_days',
+  'auction_handling_fee',
+  'auction_min_balance_to_bid',
+  'auction_max_bid_balance_multiple',
+
   'quarterly_billing_months', 'annual_billing_months',
 
   'legal_registered_address', 'legal_gstin',
