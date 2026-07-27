@@ -5,9 +5,8 @@ const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
 const { getDmConfigForTier } = require('../lib/config');
 const { assertNotBlocked, assertNotMuted } = require('../lib/moderation');
-const { getLocalDateStr } = require('../lib/time');
+const { getLocalDateStr, getAllotmentPeriodKey } = require('../lib/time');
 
-function currentMonthKey() { return new Date().toISOString().slice(0, 7); }
 
 function toDateStr(val) {
   if (!val) return null;
@@ -154,7 +153,7 @@ router.get('/status', authMid, async (req, res) => {
     const chatDndActive = dndRows[0]?.value === 'true';
 
     const { rows: userRows } = await pool.query(
-      `SELECT u.tier, u.membership_expires_at, u.coin_balance, u.timezone,
+      `SELECT u.tier, u.membership_expires_at, u.membership_started_at, u.coin_balance, u.timezone,
               fs.custom_chat_price, fs.custom_messages_per_token, fs.messages_since_charge,
               COALESCE(fs.can_send_media, FALSE) AS can_send_media,
               COALESCE(fs.personal_chat_bg, pc.value, '') AS chat_bg
@@ -169,7 +168,7 @@ router.get('/status', authMid, async (req, res) => {
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier = isActive ? user.tier : 'guest';
     const config   = await getDmConfigForTier(userTier);
-    const monthKey = currentMonthKey();
+    const monthKey = getAllotmentPeriodKey(user.membership_started_at);
     const dayStr   = getLocalDateStr(user.timezone);
 
     const pricing     = resolveCustomPricing(user, config.overageCost);
@@ -260,7 +259,7 @@ router.post('/send', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: userRows } = await client.query(
-      `SELECT u.tier, u.membership_expires_at, u.coin_balance, u.timezone,
+      `SELECT u.tier, u.membership_expires_at, u.membership_started_at, u.coin_balance, u.timezone,
               fs.custom_chat_price, fs.custom_messages_per_token, fs.messages_since_charge,
               COALESCE(fs.can_send_media, FALSE) AS can_send_media
        FROM users u
@@ -273,7 +272,7 @@ router.post('/send', authMid, async (req, res) => {
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier = isActive ? user.tier : 'guest';
     const config   = await getDmConfigForTier(userTier);
-    const monthKey = currentMonthKey();
+    const monthKey = getAllotmentPeriodKey(user.membership_started_at);
     const dayStr   = getLocalDateStr(user.timezone);
 
     if (mediaUrl && !req.user.isArtist && !user.can_send_media) {

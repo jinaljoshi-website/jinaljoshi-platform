@@ -6,6 +6,7 @@ const { postSystemMessage } = require('./community');
 const { getGuestMultiplier, getDiscountForTier, getGalleryUnlocksForTier } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
 const { roundTokensUp } = require('../lib/pricing');
+const { getAllotmentPeriodKey } = require('../lib/time');
 
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
 const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
@@ -70,7 +71,7 @@ function computeSegments(items, userTier, basePrice, discountPct, isGuest, guest
 router.get('/sets', authMid, async (req, res) => {
   try {
     const { rows: userRows } = await pool.query(
-      `SELECT tier, membership_expires_at, coin_balance FROM users WHERE id = $1`,
+      `SELECT tier, membership_expires_at, membership_started_at, coin_balance FROM users WHERE id = $1`,
       [req.user.userId]
     );
     const user      = userRows[0];
@@ -83,7 +84,7 @@ router.get('/sets', authMid, async (req, res) => {
       isGuest ? 0 : getDiscountForTier(userTier),
     ]);
 
-    const monthKey    = now.toISOString().slice(0, 7);
+    const monthKey    = getAllotmentPeriodKey(user.membership_started_at);
     const maxUnlocks  = await getGalleryUnlocksForTier(userTier);
     let creditsUsed   = 0;
     if (maxUnlocks > 0) {
@@ -208,7 +209,7 @@ router.post('/unlock', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: userRows } = await client.query(
-      `SELECT tier, membership_expires_at, coin_balance, display_name FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT tier, membership_expires_at, membership_started_at, coin_balance, display_name FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user      = userRows[0];
@@ -256,7 +257,7 @@ router.post('/unlock', authMid, async (req, res) => {
     let price = scope === 'tier' ? segments.tierPrice : segments.upsellPrice;
 
     if (scope === 'tier' && segments.tierPortionCount > 0) {
-      const monthKey   = now.toISOString().slice(0, 7);
+      const monthKey   = getAllotmentPeriodKey(user.membership_started_at);
       const maxUnlocks = await getGalleryUnlocksForTier(userTier);
       const { rows: allotRows } = await client.query(
         `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2`,

@@ -5,6 +5,7 @@ const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
 const { getTierPrice, getAllTierPrices, getConfigNumber } = require('../lib/config');
 const { roundTokensUp } = require('../lib/pricing');
+const { addMonthsClamped } = require('../lib/time');
 
 const TIER_ORDER = ['community', 'insider', 'premium', 'supreme'];
 
@@ -99,16 +100,28 @@ router.post('/purchase', authMid, async (req, res) => {
       });
     }
 
-    const expiresAt = new Date(now);
-    expiresAt.setMonth(expiresAt.getMonth() + months);
+    // Buying outright while a membership is still running used to overwrite the
+    // expiry from today, silently destroying paid-for days. Extending or
+    // upgrading are the correct routes, so say so rather than reinterpret.
+    if (user.membership_expires_at && new Date(user.membership_expires_at) > now) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error:   'ALREADY_MEMBER',
+        message: 'You already have an active membership. Use Extend to add time, or Upgrade to move to a higher tier.',
+      });
+    }
+
+    const expiresAt = addMonthsClamped(now, months);
 
     await client.query(
       `UPDATE users SET
          coin_balance           = coin_balance - $1,
          tier                   = $2,
-         membership_expires_at  = $3
+         membership_expires_at  = $3,
+         membership_started_at  = $5,
+         membership_term        = $6
        WHERE id = $4`,
-      [totalCost, tier, expiresAt, req.user.userId]
+      [totalCost, tier, expiresAt, req.user.userId, now, term]
     );
 
     await client.query(
@@ -192,16 +205,17 @@ router.post('/upgrade', authMid, async (req, res) => {
       });
     }
 
-    const newExpiry = new Date(now);
-    newExpiry.setMonth(newExpiry.getMonth() + 1);
+    // The upgrade cost above is pro-rated across daysRemaining. Overwriting the
+    // expiry would charge for those days and then delete them, so the expiry and
+    // the allowance cycle both stay exactly as they were — only the tier moves.
+    const newExpiry = new Date(user.membership_expires_at);
 
     await client.query(
       `UPDATE users SET
          coin_balance          = coin_balance - $1,
-         tier                  = $2,
-         membership_expires_at = $3
-       WHERE id = $4`,
-      [upgradeCost, newTier, newExpiry, req.user.userId]
+         tier                  = $2
+       WHERE id = $3`,
+      [upgradeCost, newTier, req.user.userId]
     );
 
     await client.query(
@@ -275,8 +289,7 @@ router.post('/extend', authMid, async (req, res) => {
       });
     }
 
-    const expiresAt = new Date(user.membership_expires_at);
-    expiresAt.setMonth(expiresAt.getMonth() + months);
+    const expiresAt = addMonthsClamped(user.membership_expires_at, months);
 
     await client.query(
       `UPDATE users SET
@@ -346,12 +359,13 @@ router.post('/gift', authMid, async (req, res) => {
     }
 
     const months    = termMonths(term);
-    const expiresAt = new Date(now);
-    expiresAt.setMonth(expiresAt.getMonth() + months);
+    const expiresAt = addMonthsClamped(now, months);
 
     await client.query(
-      `UPDATE users SET tier = $1, membership_expires_at = $2 WHERE id = $3`,
-      [tier, expiresAt, fan.id]
+      `UPDATE users SET tier = $1, membership_expires_at = $2,
+              membership_started_at = $4, membership_term = $5
+       WHERE id = $3`,
+      [tier, expiresAt, fan.id, now, term]
     );
 
     await client.query(
@@ -408,8 +422,7 @@ router.post('/gift/extend', authMid, async (req, res) => {
     }
 
     const months    = termMonths(term);
-    const expiresAt = new Date(fan.membership_expires_at);
-    expiresAt.setMonth(expiresAt.getMonth() + months);
+    const expiresAt = addMonthsClamped(fan.membership_expires_at, months);
 
     await client.query(
       `UPDATE users SET membership_expires_at = $1 WHERE id = $2`,
@@ -470,8 +483,7 @@ router.post('/gift/change', authMid, async (req, res) => {
     }
 
     const months    = termMonths(term);
-    const expiresAt = new Date(fan.membership_expires_at);
-    expiresAt.setMonth(expiresAt.getMonth() + months);
+    const expiresAt = addMonthsClamped(fan.membership_expires_at, months);
 
     await client.query(
       `UPDATE users SET tier = $1, membership_expires_at = $2 WHERE id = $3`,
