@@ -83,9 +83,9 @@ router.get('/options', authMid, async (req, res) => {
       minLeadHours,
       dndActive,
       options: [
-        { id: 'audio',          title: 'Audio Call',     description: 'An audio session. Schedule at least a few hours ahead.',    coinsPerMin: roundTokensUp(applyPricing(audioRate)    * multiplier) },
-        { id: 'video',          title: 'Video Call',     description: 'A face-to-face video session. Schedule at least a few hours ahead.', coinsPerMin: roundTokensUp(applyPricing(videoRate)    * multiplier) },
-        { id: 'priority-video', title: 'Priority Video', description: 'Calls Jinal right now — no scheduling, connects immediately if she answers.', coinsPerMin: roundTokensUp(applyPricing(priorityRate) * multiplier) },
+        { id: 'audio',          title: 'Scheduled audio',   description: 'A voice call, arranged in advance. Pick a time at least a few hours ahead.', coinsPerMin: roundTokensUp(applyPricing(audioRate)    * multiplier) },
+        { id: 'video',          title: 'Scheduled video',   description: 'A video call, arranged in advance. Pick a time at least a few hours ahead.', coinsPerMin: roundTokensUp(applyPricing(videoRate)    * multiplier) },
+        { id: 'priority-video', title: 'Connect instantly', description: 'No scheduling. Rings Jinal now and connects if she is free to answer.', coinsPerMin: roundTokensUp(applyPricing(priorityRate) * multiplier) },
       ],
     });
   } catch (err) {

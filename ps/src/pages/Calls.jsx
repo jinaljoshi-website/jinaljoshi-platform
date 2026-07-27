@@ -246,10 +246,10 @@ export default function Calls() {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <div style={eyebrow}>Bookings</div>
-        <h1 style={title}>Virtual sessions</h1>
+        <div style={eyebrow}>Calls</div>
+        <h1 style={title}>Video &amp; audio calls</h1>
         <p style={text}>
-          Book an audio or video call with Jinal, or connect right now with Priority Video.
+          Schedule a call with Jinal, or connect instantly if she&rsquo;s free right now.
           {data?.isPrimetime && <strong style={{ color: C.accent }}> Primetime rates active ({data.multiplier}×).</strong>}
         </p>
       </div>
@@ -338,6 +338,22 @@ export default function Calls() {
         </div>
       )}
 
+      <div style={conductBox}>
+        <div style={conductTitle}>Before you call</div>
+        <p style={conductLine}>
+          These are real conversations, and Jinal is on the other end of them. Please treat a call
+          here the way you&rsquo;d treat a video call with anyone whose time you value.
+        </p>
+        <p style={conductLine}>
+          Calls are for conversation. Anything abusive, obscene or sexual in nature ends the call
+          immediately, without a refund, and may cost you access to the platform. Recording or
+          capturing a call in any form is not permitted.
+        </p>
+        <p style={{ ...conductLine, marginBottom: 0, opacity: 0.75 }}>
+          This almost never comes up &mdash; but it&rsquo;s worth saying plainly.
+        </p>
+      </div>
+
       {data?.isUnavailable && (
         <div style={unavailableBanner}>🗓 {data.unavailableMessage}</div>
       )}
@@ -357,17 +373,15 @@ export default function Calls() {
                     ...card,
                     border: isSelectedOption ? `1px solid ${C.accent}` : (option.id === 'priority-video' ? '1px solid rgba(217,164,92,0.4)' : `1px solid ${C.border}`),
                     cursor: (option.id === 'priority-video' && data?.dndActive) ? 'not-allowed' : 'pointer',
-                    opacity: (option.id === 'priority-video' && data?.dndActive) ? 0.5 : 1,
                   }}
                 >
-                  <div style={{ fontFamily: F.display, fontSize: 24, color: C.text, marginBottom: 6 }}>
-                    {option.id === 'priority-video' && '🔴 '}{option.title}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontFamily: F.display, fontSize: 24, color: C.text }}>{option.title}</span>
+                    {option.id === 'priority-video' && !data?.dndActive && <span style={instantBadge}>No waiting</span>}
                   </div>
                   <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, marginBottom: 14, lineHeight: 1.6 }}>{option.description}</div>
                   {option.id === 'priority-video' && data?.dndActive && (
-                    <div style={{ ...nudge, color: '#D9A45C', borderColor: 'rgba(217,164,92,0.25)' }}>
-                      Not available right now — try scheduling instead
-                    </div>
+                    <div style={offlineBadge}>Jinal is offline right now — schedule instead</div>
                   )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                   <WonderCoinAmount amount={option.coinsPerMin} size={16} />
@@ -528,6 +542,11 @@ const errorBox        = { background: 'rgba(156,90,90,0.12)', border: '1px solid
 const grid            = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px,1fr))', gap: 16, marginBottom: 16 };
 const card            = { background: C.surface, borderRadius: 10, padding: 22, display: 'flex', flexDirection: 'column' };
 const historyCard     = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16 };
+const instantBadge    = { fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: C.accent, background: 'rgba(193,125,74,0.12)', border: `1px solid rgba(193,125,74,0.3)`, borderRadius: 4, padding: '3px 7px' };
+const offlineBadge    = { fontFamily: F.sans, fontSize: 12, color: '#D9A45C', background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.25)', borderRadius: 6, padding: '7px 10px', marginBottom: 12 };
+const conductBox      = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '18px 20px', marginBottom: 20 };
+const conductTitle    = { fontFamily: F.mono, fontSize: 10, color: C.accent, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 10 };
+const conductLine     = { fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.7, margin: '0 0 10px' };
 const nudge           = { fontFamily: F.sans, fontSize: 12, color: C.muted, background: 'rgba(193,125,74,0.06)', border: `1px solid rgba(193,125,74,0.15)`, borderRadius: 6, padding: '6px 10px', marginTop: 8 };
 const permBox         = { border: '1px solid', borderRadius: 8, padding: '12px 16px', marginBottom: 16, transition: 'all 0.2s' };
 const bookingPanel    = { background: C.surface, border: `1px solid ${C.accent}`, borderRadius: 10, padding: 24 };
