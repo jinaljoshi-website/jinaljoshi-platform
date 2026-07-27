@@ -315,4 +315,4 @@ const footerLinks   = { display: 'flex', gap: 48, flexWrap: 'wrap' };
 const footerCol     = { display: 'flex', flexDirection: 'column', gap: 10 };
 const footerColTitle = { fontFamily: F.mono, fontSize: 10, color: C.accent, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 4 };
 const footerLink    = { fontFamily: F.sans, fontSize: 13, color: '#6B6560', textDecoration: 'none', cursor: 'pointer' };
-const footerBottom  = { maxWidth: 1100, margin: '0 auto', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 };
+const footerBottom  = { maxWidth: 1100, margin: '0 auto', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 , textAlign: 'center' };
