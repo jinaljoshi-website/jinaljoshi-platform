@@ -268,14 +268,18 @@ async function checkAuctions() {
     );
     for (const item of needsReminder) {
       try {
-        const { sendEmail } = require('./email');
-        await sendEmail({
+        const { sendTransactionalEmail } = require('./email');
+        await sendTransactionalEmail({
           to: item.email,
           subject: `You won "${item.title}" — claim it within 48 hours`,
           html: `<p>Hi ${item.display_name || 'there'},</p><p>You're the winning bidder for "${item.title}" in this week's Shoot Wardrobe auction. Please log in and claim it within the next 48 hours, or it will go back up for sale.</p>`,
         });
-      } catch (e) { console.error('checkAuctions email failed:', e.message); }
-      await client.query(`UPDATE merchandise SET winner_email_sent_at = NOW() WHERE id = $1`, [item.id]);
+        // Only stamp on success. The query above filters on IS NULL, so stamping
+        // after a failed send would permanently suppress this winner's reminder.
+        await client.query(`UPDATE merchandise SET winner_email_sent_at = NOW() WHERE id = $1`, [item.id]);
+      } catch (e) {
+        console.error('checkAuctions reminder email failed, will retry next run:', e.message);
+      }
     }
 
     // 3. Expire unclaimed wins — 72 hours since winning, with no payment

@@ -113,4 +113,17 @@ async function consumeToken(token, purpose) {
   return record.user_id;
 }
 
-module.exports = { sendSignupVerificationEmail, sendPasswordResetEmail, consumeToken };
+// System-initiated mail (auction wins, order updates). Deliberately skips the
+// verification-token machinery and the rate limiter — that exists to stop
+// email-bombing on unauthenticated endpoints, which does not apply to mail we
+// send ourselves to a known member.
+async function sendTransactionalEmail({ to, subject, html }) {
+  return sendViaResend({ to, subject, html });
+}
+
+module.exports = {
+  sendSignupVerificationEmail,
+  sendPasswordResetEmail,
+  sendTransactionalEmail,
+  consumeToken,
+};
