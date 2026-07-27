@@ -2,9 +2,9 @@
 const BASE_URL = import.meta.env.VITE_API_URL;
 
 function handleUnauthorized(message) {
-  sessionStorage.removeItem('jwt');
-  sessionStorage.removeItem('user');
-  sessionStorage.removeItem('streamToken');
+  localStorage.removeItem('jwt');
+  localStorage.removeItem('user');
+  localStorage.removeItem('streamToken');
   // Redirect to login with a message
   const msg = encodeURIComponent(message || 'Your session has ended. Please sign in again.');
   window.location.href = `/auth?mode=login&notice=${msg}`;
@@ -36,7 +36,7 @@ async function parseResponse(response) {
 export const api = {
   async post(path, body = {}, token) {
     const headers = { 'Content-Type': 'application/json' };
-    const saved = token || sessionStorage.getItem('jwt');
+    const saved = token || localStorage.getItem('jwt');
     if (saved) headers.Authorization = `Bearer ${saved}`;
     const response = await fetch(`${BASE_URL}${path}`, {
       method: 'POST',
@@ -48,7 +48,7 @@ export const api = {
 
   async get(path, token) {
     const headers = {};
-    const saved = token || sessionStorage.getItem('jwt');
+    const saved = token || localStorage.getItem('jwt');
     if (saved) headers.Authorization = `Bearer ${saved}`;
     const response = await fetch(`${BASE_URL}${path}`, {
       method: 'GET',
@@ -59,7 +59,7 @@ export const api = {
 
   async patch(path, body = {}, token) {
     const headers = { 'Content-Type': 'application/json' };
-    const saved = token || sessionStorage.getItem('jwt');
+    const saved = token || localStorage.getItem('jwt');
     if (saved) headers.Authorization = `Bearer ${saved}`;
     const response = await fetch(`${BASE_URL}${path}`, {
       method: 'PATCH',
@@ -71,7 +71,7 @@ export const api = {
 
   async delete(path, token) {
     const headers = {};
-    const saved = token || sessionStorage.getItem('jwt');
+    const saved = token || localStorage.getItem('jwt');
     if (saved) headers.Authorization = `Bearer ${saved}`;
     const response = await fetch(`${BASE_URL}${path}`, {
       method: 'DELETE',
@@ -82,25 +82,25 @@ export const api = {
 };
 
 export function saveAuth(jwt, user) {
-  sessionStorage.setItem('jwt', jwt);
-  sessionStorage.setItem('user', JSON.stringify(user));
+  localStorage.setItem('jwt', jwt);
+  localStorage.setItem('user', JSON.stringify(user));
 }
 
 export function saveStreamToken(token) {
-  sessionStorage.setItem('streamToken', token);
+  localStorage.setItem('streamToken', token);
 }
 
 export function getUser() {
   try {
-    return JSON.parse(sessionStorage.getItem('user') || 'null');
+    return JSON.parse(localStorage.getItem('user') || 'null');
   } catch {
     return null;
   }
 }
 
 export function logout() {
-  sessionStorage.removeItem('jwt');
-  sessionStorage.removeItem('user');
-  sessionStorage.removeItem('streamToken');
+  localStorage.removeItem('jwt');
+  localStorage.removeItem('user');
+  localStorage.removeItem('streamToken');
   window.location.href = '/auth?mode=login';
 }

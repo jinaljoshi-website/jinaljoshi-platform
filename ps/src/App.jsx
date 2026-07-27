@@ -14,7 +14,7 @@ import OutfitsInfo from './pages/OutfitsInfo';
 import { C, F } from './tokens';
 
 function isLoggedIn() {
-  return !!sessionStorage.getItem('jwt');
+  return !!localStorage.getItem('jwt');
 }
 
 function Private({ children }) {
