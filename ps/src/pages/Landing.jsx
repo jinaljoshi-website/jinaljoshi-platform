@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { api } from '../api';
+import { WonderCoin } from '../components/WonderCoin';
 
 const SECTIONS = [
   { path: '/platform/community',  icon: '✨', label: 'Public Corner',  desc: 'Live fan space'         },
@@ -12,7 +13,7 @@ const SECTIONS = [
   { path: '/platform/extras',     icon: '🌟', label: 'Extras',     desc: 'Custom requests'        },
   { path: '/platform/calls',      icon: '📞', label: 'Calls',      desc: 'Book a personal call'   },
   { path: '/platform/chat',       icon: '💬', label: 'Messages',   desc: 'Send Jinal a message'   },
-  { path: '/platform/coins',      icon: '🪙', label: 'Coins',      desc: 'J Token wallet'         },
+  { path: '/platform/coins',      icon: 'coin', label: 'Coins',    desc: 'J Token wallet'         },
 ];
 
 const SIGN_NAMES = {
@@ -73,7 +74,9 @@ export default function Landing() {
       <div style={topNavBar}>
         {SECTIONS.map((section) => (
           <button key={section.path} onClick={() => navigate(section.path)} style={topNavBtn} title={section.label}>
-            <span style={{ fontSize: 16 }}>{section.icon}</span>
+            <span style={{ fontSize: 16, display: 'inline-flex', alignItems: 'center' }}>
+              {section.icon === 'coin' ? <WonderCoin size={16} /> : section.icon}
+            </span>
             <span style={topNavLabel}>{section.label}</span>
           </button>
         ))}
@@ -200,7 +203,9 @@ export default function Landing() {
                 gap: 8,
               }}
             >
-              <div style={{ fontSize: 28 }}>{section.icon}</div>
+              <div style={{ fontSize: 28, display: 'flex', alignItems: 'center' }}>
+                {section.icon === 'coin' ? <WonderCoin size={28} /> : section.icon}
+              </div>
               <div style={{ fontFamily: F.display, fontSize: 20, color: C.text }}>{section.label}</div>
               <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{section.desc}</div>
               <div style={{ fontFamily: F.mono, fontSize: 11, color: C.accent, marginTop: 4 }}>Enter →</div>
