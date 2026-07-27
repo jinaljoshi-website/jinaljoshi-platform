@@ -54,7 +54,7 @@ export default function Terms() {
         </Section>
 
         <Section title="Who can join?">
-          <p>Personal Space is an adult-only platform. You must be 18 years of age or older to create an account. By registering, you confirm that you meet this age requirement.</p>
+          <p>You must be 18 years of age or older to create an account. By registering, you confirm that you meet this age requirement.</p>
           <p>Registration is voluntary. Nobody is required to join or make any purchase. All membership and token purchases are made entirely of your own free will.</p>
           <p>To access and use the Platform, you agree to provide true, accurate, and complete information during and after registration, and you are responsible for all activity conducted through your registered account.</p>
         </Section>
@@ -102,7 +102,7 @@ export default function Terms() {
         </Section>
 
         <Section title="Direct messaging and calls">
-          <p>Direct messages sent through the platform are private conversations between you and Jinal. They are not monitored by third parties. However, the platform retains message records for safety and dispute resolution purposes.</p>
+          <p>Direct messages sent through the platform are between you and Jinal, retained for safety, moderation and dispute resolution.</p>
           <p>Call sessions (audio and video) are conducted through the platform. You may not record any call session without explicit consent from Jinal.</p>
           <p>Messaging and call access is subject to fair use. Abusive, threatening, or inappropriate communication will result in immediate account termination.</p>
         </Section>
@@ -148,12 +148,15 @@ export default function Terms() {
         </Section>
 
         <Section title="Contact & grievance officer">
-          <p>For support, questions, or disputes:</p>
+          <p>In accordance with the Information Technology (Intermediary Guidelines and Digital Media Ethics Code) Rules, 2021, the details of the Grievance Officer are published below.</p>
           <p>
+            <strong style={{ color: C.text }}>Grievance Officer:</strong> Jinal Joshi<br />
             <strong style={{ color: C.text }}>Email:</strong> <a href="mailto:grievance@jinaljoshi.in" style={link}>grievance@jinaljoshi.in</a><br />
-            <strong style={{ color: C.text }}>Response time:</strong> Within 7 business days<br />
-            <strong style={{ color: C.text }}>Regd. Office:</strong> {address}
+            <strong style={{ color: C.text }}>Telephone:</strong> <a href="tel:+918689888658" style={link}>+91 86898 88658</a><br />
+            <strong style={{ color: C.text }}>Address:</strong> {address}
           </p>
+          <p>Grievances are acknowledged within 24 hours of receipt and resolved within 15 days, as required under the Rules.</p>
+          <p>For general support, write to <a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a>; for payment or billing queries, <a href="mailto:billing@jinaljoshi.in" style={link}>billing@jinaljoshi.in</a>.</p>
           <p>Personal Space is personally operated by Jinal Joshi and support is handled directly, not by a third-party team.</p>
         </Section>
 

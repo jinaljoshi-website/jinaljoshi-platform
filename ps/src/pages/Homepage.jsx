@@ -14,12 +14,12 @@ const TIER_META = {
 const OFFERINGS = [
   { id: 'community',   title: 'Member Community',      text: "A live space where we are one. All of you and me in one community where we interact daily, in real time." },
   { id: 'gallery',     title: 'Exclusive Content',     text: "There's only so much I can post on social media. Extended videos, alternate edits, more photos. Get all of them here. Only here!" },
-  { id: 'bts',         title: 'Behind the Scenes',     text: "Experience my life behind the lens when I am shooting in a studio, beach, home or anywhere. Be with me at the shoots!" },
+  { id: 'bts',         title: 'Behind the Scenes',     text: "See how the work actually gets made — on set, on location, and everything the final edit leaves out." },
   { id: 'earlyAccess', title: 'Early Access',          text: "Public posts are planned and go live at a pre-decided time. Here, you see what might take a week to come live on social media." },
   { id: 'merchandise', title: 'Official Merchandise',  text: "You get the option to own select merchandise, handcrafted accessories and outfits. Regular drops!" },
   { id: 'extras',      title: 'Personalised Requests', text: "Special days! Get a video from me wishing you or your loved ones on special days." },
   { id: 'messages',    title: 'Direct Messaging',      text: "For those of you who wish to write to me directly. No AI, no representative. You speak with me." },
-  { id: 'calls',       title: 'Virtual Connect',       text: "Book an audio or video session with Jinal. Propose a time, subject to your membership tier's call allowance." },
+  { id: 'calls',       title: 'Video & Audio Calls',   text: "Schedule a call with Jinal at a time that suits you both, or connect instantly when she is free." },
 ];
 
 function howItWorks(discountCfg) {
@@ -315,4 +315,4 @@ const footerLinks   = { display: 'flex', gap: 48, flexWrap: 'wrap' };
 const footerCol     = { display: 'flex', flexDirection: 'column', gap: 10 };
 const footerColTitle = { fontFamily: F.mono, fontSize: 10, color: C.accent, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 4 };
 const footerLink    = { fontFamily: F.sans, fontSize: 13, color: '#6B6560', textDecoration: 'none', cursor: 'pointer' };
-const footerBottom  = { maxWidth: 1100, margin: '0 auto', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 , textAlign: 'center' };
+const footerBottom  = { maxWidth: 1100, margin: '0 auto', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 };

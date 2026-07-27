@@ -47,6 +47,11 @@ export default function OutfitsInfo() {
           </p>
         </div>
 
+        <div style={noticeBox}>
+          <strong style={{ color: C.text }}>Outfits are launching shortly.</strong> This page explains
+          how the section will work so it is clear before anything goes on sale. Nothing is listed yet.
+        </div>
+
         <Section title="One piece, one owner">
           <p>Every item in the Outfits section is a genuine one-of-one. It is the actual garment worn on set, not a reproduction, and there is exactly one of each. Once it sells, it is gone.</p>
           <p>Because of that, each item carries its own photographs and a short note about where it was worn.</p>
@@ -123,6 +128,7 @@ const header       = { marginBottom: 48, paddingBottom: 32, borderBottom: `1px s
 const eyebrow      = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 12, textAlign: 'left' };
 const title        = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(36px,5vw,56px)', color: C.text, margin: '0 0 16px', textAlign: 'left' };
 const subtitle     = { fontFamily: F.sans, fontSize: 16, color: '#9B8F83', lineHeight: 1.7, margin: 0, textAlign: 'left' };
+const noticeBox    = { fontFamily: F.sans, fontSize: 14, color: '#9B8F83', lineHeight: 1.7, background: 'rgba(193,125,74,0.07)', border: `1px solid rgba(193,125,74,0.25)`, borderRadius: 10, padding: '16px 18px', marginBottom: 40 };
 const sectionWrap  = { marginBottom: 40, paddingBottom: 40, borderBottom: `1px solid rgba(242,235,224,0.06)`, textAlign: 'left' };
 const sectionTitle = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(22px,3vw,30px)', color: C.text, margin: '0 0 16px', textAlign: 'left' };
 const sectionBody  = { fontFamily: F.sans, fontSize: 15, color: '#9B8F83', lineHeight: 1.85, textAlign: 'left' };

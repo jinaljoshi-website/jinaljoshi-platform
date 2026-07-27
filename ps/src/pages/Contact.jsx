@@ -43,7 +43,8 @@ export default function Contact() {
             <div style={cardTitle}>General support</div>
             <div style={cardDesc}>For questions about your account, token balance, membership, or anything else on the platform.</div>
             <a href="mailto:support@jinaljoshi.in" style={emailLink}>support@jinaljoshi.in</a>
-            <div style={responseTime}>Response within 5 business days</div>
+            <a href="tel:+918689888658" style={emailLink}>+91 86898 88658</a>
+            <div style={responseTime}>Response within 2 business days</div>
           </div>
 
           <div style={contactCard}>
@@ -51,7 +52,8 @@ export default function Contact() {
             <div style={cardTitle}>Payment & billing</div>
             <div style={cardDesc}>For issues with token purchases, payment failures, or transaction queries.</div>
             <a href="mailto:billing@jinaljoshi.in" style={emailLink}>billing@jinaljoshi.in</a>
-            <div style={responseTime}>Response within 5 business days</div>
+            <a href="tel:+918689888658" style={emailLink}>+91 86898 88658</a>
+            <div style={responseTime}>Response within 2 business days</div>
           </div>
 
           <div style={contactCard}>
@@ -65,9 +67,10 @@ export default function Contact() {
           <div style={contactCard}>
             <div style={cardIcon}>⚖️</div>
             <div style={cardTitle}>Grievance officer</div>
-            <div style={cardDesc}>For formal grievances under the Information Technology Act or consumer protection matters.</div>
+            <div style={cardDesc}>Jinal Joshi, Grievance Officer under the IT (Intermediary Guidelines) Rules, 2021. For formal grievances or consumer protection matters.</div>
             <a href="mailto:grievance@jinaljoshi.in" style={emailLink}>grievance@jinaljoshi.in</a>
-            <div style={responseTime}>Response within 7 business days as required by law</div>
+            <a href="tel:+918689888658" style={emailLink}>+91 86898 88658</a>
+            <div style={responseTime}>Acknowledged within 24 hours · resolved within 15 days</div>
           </div>
         </div>
 
@@ -91,12 +94,20 @@ export default function Contact() {
               <span style={infoVal}><a href="mailto:support@jinaljoshi.in" style={link}>support@jinaljoshi.in</a></span>
             </div>
             <div style={infoRow}>
+              <span style={infoLabel}>Telephone</span>
+              <span style={infoVal}><a href="tel:+918689888658" style={link}>+91 86898 88658</a></span>
+            </div>
+            <div style={infoRow}>
+              <span style={infoLabel}>Grievance Officer</span>
+              <span style={infoVal}>Jinal Joshi</span>
+            </div>
+            <div style={infoRow}>
               <span style={infoLabel}>Regd. Office:</span>
               <span style={{ ...infoVal, textAlign: 'right' }}>{address}</span>
             </div>
             <div style={infoRow}>
               <span style={infoLabel}>Payment processor</span>
-              <span style={infoVal}>Secure, encrypted checkout</span>
+              <span style={{ ...infoVal, textAlign: 'right' }}>Razorpay · card and UPI details are never stored on our servers</span>
             </div>
           </div>
         </div>
