@@ -182,7 +182,7 @@ export default function Coins() {
 
       {showModal && (
         <TopUpModal
-          requiredTokens={modalAmount}
+          exactTokens={modalAmount}
           onClose={() => setShowModal(false)}
           onSuccess={() => { setShowModal(false); load(); }}
         />

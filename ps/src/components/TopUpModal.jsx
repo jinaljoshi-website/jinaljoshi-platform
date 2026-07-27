@@ -8,15 +8,18 @@ import { WonderCoin, WonderCoinAmount } from './WonderCoin';
 import { api } from '../api';
 import { rechargePacks, tokenRateInr, rechargePrice } from '../data';
 
-export default function TopUpModal({ requiredTokens = 0, onClose, onSuccess }) {
+export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClose, onSuccess }) {
   // Find the smallest pack that covers the required amount,
   // or default to the first pack above required
   const packs = rechargePacks();
   const suggestedPack = packs.find((p) => p.tokens >= requiredTokens) || packs[packs.length - 1];
 
+  // requiredTokens means "you need at least this much" — rounding up to the next
+  // pack is correct there. exactTokens means the fan asked for a specific number,
+  // and must never be rounded up: they typed 200, they get 200.
   const [selected,    setSelected]    = useState(suggestedPack?.tokens ?? 0);
-  const [custom,      setCustom]      = useState('');
-  const [useCustom,   setUseCustom]   = useState(false);
+  const [custom,      setCustom]      = useState(exactTokens ? String(exactTokens) : '');
+  const [useCustom,   setUseCustom]   = useState(!!exactTokens);
   const [processing,  setProcessing]  = useState(false);
   const [error,       setError]       = useState('');
   const overlayRef = useRef(null);
