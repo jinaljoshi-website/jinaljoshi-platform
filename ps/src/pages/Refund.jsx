@@ -37,7 +37,7 @@ export default function Refund() {
         </Section>
 
         <Section title="What J Tokens are">
-          <p>J Tokens are single-use digital utility instruments that exist solely within the Personal Space platform. They are used to access digital content, direct messaging, virtual call sessions, merchandise, personalised requests, and membership plans.</p>
+          <p>J Tokens are single-use digital utility instruments that exist solely within the Personal Space platform. They are used to access digital content, direct messaging, calls, merchandise, personalised requests, and membership plans.</p>
           <p><strong style={{ color: C.text }}>J Tokens are not currency.</strong> They cannot be transferred to another account, traded peer-to-peer, withdrawn, or converted back into Indian Rupees or any other currency under any circumstances. They carry no real-world cash value outside of this platform.</p>
           {rate !== null && <p>1 J Token = ₹{rate} incl. GST at the time of purchase. This rate is set by the platform and is subject to change with advance notice.</p>}
         </Section>
