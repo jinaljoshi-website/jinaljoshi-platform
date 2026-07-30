@@ -186,6 +186,20 @@ export default function Calls() {
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
+  // A fan who requested a priority call has already consented to it. Asking them
+  // to "answer" once Jinal picks up is a second, pointless gate — so once we see
+  // Jinal join a call this fan was already waiting on, connect them straight away.
+  const wasWaitingRef = useRef(false);
+  useEffect(() => {
+    const ringing = myCalls.find((c) => c.status === 'ringing');
+    if (!ringing || activeCall) { wasWaitingRef.current = false; return; }
+    if (!ringing.artist_joined_at) { wasWaitingRef.current = true; return; }
+    if (wasWaitingRef.current && !answering) {
+      wasWaitingRef.current = false;
+      joinCall(ringing);
+    }
+  }, [myCalls, activeCall, answering, joinCall]);
+
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading…</div>;
 
   // ── Ringing overlay takes over the whole screen, highest priority ──────────

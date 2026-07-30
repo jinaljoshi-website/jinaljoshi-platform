@@ -72,8 +72,16 @@ function useIsMobile() {
   return isMobile;
 }
 
+// Notifications link to /calls, /merch, /requests and /messages, which match the
+// section ids exactly. Studio has no router, so it reads the path itself and
+// keeps the URL in step — a notification now opens the right section.
+function sectionFromPath() {
+  const seg = window.location.pathname.replace(/^\/+|\/+$/g, '');
+  return SECTIONS[seg] ? seg : 'dashboard';
+}
+
 export default function Studio() {
-  const [active, setActive]     = useState('dashboard');
+  const [active, setActive]     = useState(sectionFromPath);
   const [menuOpen, setMenuOpen] = useState(false);
   const navigate  = useNavigate();
   const user      = getUser();
@@ -86,7 +94,15 @@ export default function Studio() {
   const selectSection = (id) => {
     setActive(id);
     setMenuOpen(false);
+    window.history.pushState({}, '', id === 'dashboard' ? '/' : `/${id}`);
   };
+
+  // Back and forward should move between sections, not out of Studio.
+  useEffect(() => {
+    const onPop = () => setActive(sectionFromPath());
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: bg, color: text, overflow: 'hidden' }}>
@@ -161,7 +177,7 @@ export default function Studio() {
             {NAV.map((item) => (
               <button
                 key={item.id}
-                onClick={() => setActive(item.id)}
+                onClick={() => selectSection(item.id)}
                 style={{
                   background: active === item.id ? 'rgba(193,125,74,0.12)' : 'transparent',
                   border:     active === item.id ? '1px solid rgba(193,125,74,0.2)' : '1px solid transparent',
