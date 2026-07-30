@@ -35,7 +35,20 @@ export default function Outfits() {
   const [bidding,   setBidding]   = useState(false);
 
   const load = () => api.get('/api/shop/auction')
-    .then((d) => { setData(d); setBidAmount(null); setConsent(false); })
+    .then((d) => {
+      setData(d);
+      // Default to the lowest valid bid so "Place bid" is usable straight away —
+      // leaving it null made the button look broken until a chip was clicked.
+      // A fan's own choice is kept across polls unless someone has outbid them,
+      // and consent is deliberately NOT reset here or the 15s refresh would
+      // untick the box while they were reading it.
+      const live = d.items?.find((i) => i.status === 'active');
+      const min  = live ? (live.minNextBid ?? live.startingBid ?? null) : null;
+      setBidAmount((prev) => {
+        if (min === null) return null;
+        return prev === null || prev < min ? min : prev;
+      });
+    })
     .catch((err) => setError(err.message))
     .finally(() => setLoading(false));
 
@@ -58,6 +71,8 @@ export default function Outfits() {
         itemId: live.id, amount: bidAmount, overBalanceConsent: consent,
       });
       setSuccess(`Bid placed at ${d.currentBid} tokens.`);
+      setBidAmount(null);   // load() will set the new minimum
+      setConsent(false);
       load();
     } catch (err) {
       setError(err.message);
@@ -173,7 +188,8 @@ export default function Outfits() {
               {bidAmount !== null && (
                 <>
                   <div style={{ fontFamily: F.sans, fontSize: 13, color: C.text, marginBottom: 8 }}>
-                    Bidding <strong style={{ color: C.accent }}>{bidAmount}</strong> tokens.
+                    Bidding <strong style={{ color: C.accent }}>{bidAmount}</strong> tokens
+                    {live.currentBid ? '' : ' — the opening price'}.
                     {bidAmount + data.handlingFee > data.purchasedBalance && (
                       <span style={{ color: '#D9A45C' }}>
                         {' '}You hold {data.purchasedBalance} — claiming would need{' '}
