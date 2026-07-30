@@ -234,118 +234,143 @@ async function checkMissedCalls() {
 
 async function checkAuctions() {
   const { promoteNextItem } = require('../routes/auction');
+  const { getConfigNumber } = require('./config');
   const client = await pool.connect();
   try {
-    // 1. End any active auction whose 72-hour window has closed
+    const durationHours = (await getConfigNumber('auction_duration_hours')) || 72;
+    const claimHours    = (await getConfigNumber('auction_claim_hours'))    || 24;
+    const banDays       = (await getConfigNumber('auction_ban_days'))       || 30;
+
+    // 1. End any auction whose window has closed. Bidding opens at the reserve, so
+    //    any bid at all is a winning bid — there is no separate reserve to clear.
     const { rows: ended } = await client.query(
       `SELECT * FROM merchandise
        WHERE is_auction_item = TRUE AND auction_status = 'active'
-       AND auction_started_at <= NOW() - INTERVAL '72 hours'`
+         AND auction_started_at <= NOW() - ($1 || ' hours')::interval`,
+      [String(durationHours)]
     );
     for (const item of ended) {
-      if (item.current_highest_bid && item.current_highest_bid >= item.price_coins) {
+      if (item.current_highest_bid && item.current_highest_bidder_id) {
         await client.query(
-          `UPDATE merchandise SET auction_status = 'awaiting_payment', winner_id = $1, won_at = NOW() WHERE id = $2`,
-          [item.current_highest_bidder_id, item.id]
+          `UPDATE merchandise
+           SET auction_status = 'awaiting_payment', winner_id = $1, won_at = NOW(),
+               claim_stage = 0, claim_deadline = NOW() + ($2 || ' hours')::interval
+           WHERE id = $3`,
+          [item.current_highest_bidder_id, String(claimHours), item.id]
         );
-        pushToUser(item.current_highest_bidder_id, { title: '🎉 You won the Shoot Wardrobe auction!', body: `"${item.title}" — claim it within 72 hours to secure it.`, url: '/platform/shop' });
+        pushToUser(item.current_highest_bidder_id, {
+          title: '🎉 You won the auction!',
+          body:  `"${item.title}" is yours — claim it within ${claimHours} hours to secure it.`,
+          url:   '/platform/shop',
+          tag:   'auction',
+        }).catch(() => {});
+        notifyArtist({ title: 'Auction won', body: `"${item.title}" went for ${item.current_highest_bid} tokens.`, url: '/merch' });
       } else {
         await client.query(
-          `UPDATE merchandise SET auction_status = 'queued', went_unsold_at = NOW(), current_highest_bid = NULL, current_highest_bidder_id = NULL WHERE id = $1`,
+          `UPDATE merchandise SET auction_status = 'queued', went_unsold_at = NOW(),
+                  current_highest_bid = NULL, current_highest_bidder_id = NULL WHERE id = $1`,
           [item.id]
         );
+        notifyArtist({ title: 'Auction ended unsold', body: `"${item.title}" received no bids and goes into cooldown.`, url: '/merch' });
       }
     }
 
-    // 2. Send the 24-hour reminder email to anyone who hasn't claimed their win yet
-    const { rows: needsReminder } = await client.query(
-      `SELECT m.*, u.email, u.display_name FROM merchandise m JOIN users u ON u.id = m.winner_id
-       WHERE m.auction_status = 'awaiting_payment' AND m.winner_email_sent_at IS NULL
-       AND m.won_at <= NOW() - INTERVAL '24 hours'`
-    );
-    for (const item of needsReminder) {
-      try {
-        const { sendTransactionalEmail } = require('./email');
-        await sendTransactionalEmail({
-          to: item.email,
-          subject: `You won "${item.title}" — claim it within 48 hours`,
-          html: `<p>Hi ${item.display_name || 'there'},</p><p>You're the winning bidder for "${item.title}" in this week's Shoot Wardrobe auction. Please log in and claim it within the next 48 hours, or it will go back up for sale.</p>`,
-        });
-        // Only stamp on success. The query above filters on IS NULL, so stamping
-        // after a failed send would permanently suppress this winner's reminder.
-        await client.query(`UPDATE merchandise SET winner_email_sent_at = NOW() WHERE id = $1`, [item.id]);
-      } catch (e) {
-        console.error('checkAuctions reminder email failed, will retry next run:', e.message);
+    // 2. The claim ladder. A winner is nudged three times and the deadline moves each
+    //    time, so nobody loses an item to a missed email. Only after the third
+    //    extension lapses is the win forfeited and bidding suspended.
+    //      stage 0 → first nudge at a third of the window
+    //      stage 1 → window reached: extend, and warn about suspension
+    //      stage 2 → final extension: last chance
+    //      stage 3 → forfeited
+    const LADDER = [
+      { stage: 0, dueAfter: claimHours / 3, extendTo: null,
+        subject: (t) => `Claim "${t}" — you won the auction`,
+        line:    (t, h) => `You are the winning bidder for "${t}". Sign in and claim it within ${h} hours of winning to secure it.` },
+      { stage: 1, dueAfter: claimHours, extendTo: claimHours * 2,
+        subject: (t) => `Still waiting on you — "${t}"`,
+        line:    (t) => `Your win of "${t}" is still unclaimed. We have extended the deadline by another ${claimHours} hours. If a winning bid is left unclaimed, access to future auctions may be suspended.` },
+      { stage: 2, dueAfter: claimHours * 2, extendTo: claimHours * 3,
+        subject: (t) => `Last chance to claim "${t}"`,
+        line:    (t) => `This is the final reminder for "${t}". You have ${claimHours} more hours to claim it. After that the item returns to sale and bidding will be suspended on your account for ${banDays} days.` },
+    ];
+
+    for (const step of LADDER) {
+      const { rows: due } = await client.query(
+        `SELECT m.*, u.email, u.display_name FROM merchandise m
+         JOIN users u ON u.id = m.winner_id
+         WHERE m.auction_status = 'awaiting_payment' AND m.claim_stage = $1
+           AND m.won_at <= NOW() - ($2 || ' hours')::interval`,
+        [step.stage, String(step.dueAfter)]
+      );
+      for (const item of due) {
+        try {
+          const { sendTransactionalEmail } = require('./email');
+          await sendTransactionalEmail({
+            to: item.email,
+            subject: step.subject(item.title),
+            html: `<p>Hi ${item.display_name || 'there'},</p><p>${step.line(item.title, claimHours)}</p><p>Sign in at <a href="https://ps.jinaljoshi.in/platform/shop">ps.jinaljoshi.in</a> to claim.</p>`,
+          });
+          // Advance only on a successful send, and extend the deadline in the same
+          // step — otherwise a mail outage would silently cost someone their win.
+          if (step.extendTo) {
+            await client.query(
+              `UPDATE merchandise SET claim_stage = $1,
+                      claim_deadline = won_at + ($2 || ' hours')::interval
+               WHERE id = $3`,
+              [step.stage + 1, String(step.extendTo), item.id]
+            );
+          } else {
+            await client.query(`UPDATE merchandise SET claim_stage = $1 WHERE id = $2`, [step.stage + 1, item.id]);
+          }
+          pushToUser(item.winner_id, {
+            title: 'Claim your auction win',
+            body:  `"${item.title}" is waiting for you.`,
+            url:   '/platform/shop',
+            tag:   'auction',
+          }).catch(() => {});
+        } catch (e) {
+          console.error(`checkAuctions claim reminder (stage ${step.stage}) failed, will retry:`, e.message);
+        }
       }
     }
 
-    // 3. Expire unclaimed wins — 72 hours since winning, with no payment
-    const { rows: expiredWins } = await client.query(
-      `SELECT id, title FROM merchandise
-       WHERE auction_status = 'awaiting_payment' AND won_at <= NOW() - INTERVAL '72 hours'`
+    // 3. Forfeit anything still unclaimed past the final extension, and suspend
+    //    bidding — the item was held out of reach of everyone else meanwhile.
+    const { rows: forfeited } = await client.query(
+      `SELECT id, title, winner_id FROM merchandise
+       WHERE auction_status = 'awaiting_payment' AND claim_stage >= 3
+         AND won_at <= NOW() - ($1 || ' hours')::interval`,
+      [String(claimHours * 3)]
     );
-    for (const item of expiredWins) {
+    for (const item of forfeited) {
       await client.query(
         `UPDATE merchandise SET auction_status = 'queued', went_unsold_at = NOW(),
                 winner_id = NULL, won_at = NULL, winner_email_sent_at = NULL,
+                claim_stage = 0, claim_deadline = NULL,
                 current_highest_bid = NULL, current_highest_bidder_id = NULL WHERE id = $1`,
         [item.id]
       );
+      if (item.winner_id) {
+        await client.query(
+          `UPDATE users SET unclaimed_wins = unclaimed_wins + 1,
+                  auction_banned_until = NOW() + ($1 || ' days')::interval
+           WHERE id = $2`,
+          [String(banDays), item.winner_id]
+        );
+        pushToUser(item.winner_id, {
+          title: 'Auction win forfeited',
+          body:  `"${item.title}" went unclaimed and is back on sale. Bidding is suspended for ${banDays} days.`,
+          url:   '/platform/shop',
+          tag:   'auction',
+        }).catch(() => {});
+      }
+      notifyArtist({ title: 'Win forfeited', body: `"${item.title}" was never claimed and returns to the queue.`, url: '/merch' });
     }
 
     // 4. Always keep exactly one slot active
     await promoteNextItem();
   } catch (err) {
     console.error('scheduler/checkAuctions error:', err.message);
-  } finally {
-    client.release();
-  }
-}
-
-async function expireOldChatMessages() {
-  const client = await pool.connect();
-  try {
-    const { rows } = await client.query(
-      `SELECT id, media_url, locked_media_urls
-       FROM direct_messages
-       WHERE created_at <= NOW() - INTERVAL '30 days'`
-    );
-
-    if (!rows.length) return;
-
-    const r2 = getR2Client();
-    const bucket = process.env.R2_BUCKET_NAME;
-
-    // Collect every R2 key referenced by these messages (single media_url + locked bundles)
-    const keysToDelete = [];
-    for (const row of rows) {
-      const singleKey = extractR2Key(row.media_url);
-      if (singleKey) keysToDelete.push(singleKey);
-
-      if (Array.isArray(row.locked_media_urls)) {
-        for (const item of row.locked_media_urls) {
-          const key = extractR2Key(item.url);
-          if (key) keysToDelete.push(key);
-        }
-      }
-    }
-
-    // Best-effort R2 cleanup — a failed file delete should never block clearing the DB rows,
-    // otherwise one bad object could stall this job from ever completing
-    for (const key of keysToDelete) {
-      try {
-        await r2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
-      } catch (err) {
-        console.error(`scheduler/expireOldChatMessages failed to delete R2 key ${key}:`, err.message);
-      }
-    }
-
-    const ids = rows.map((r) => r.id);
-    await client.query(`DELETE FROM direct_messages WHERE id = ANY($1)`, [ids]);
-
-    console.log(`scheduler/expireOldChatMessages: removed ${rows.length} messages and attempted ${keysToDelete.length} R2 file deletions`);
-  } catch (err) {
-    console.error('scheduler/expireOldChatMessages error:', err.message);
   } finally {
     client.release();
   }
