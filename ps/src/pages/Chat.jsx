@@ -327,7 +327,10 @@ export default function Chat() {
 
     const willBeFree = snap.freeRemaining > 0 && snap.dailyRemaining > 0;
     const cost = willBeFree ? 0 : (snap.overageCost || 1);
-    if (!willBeFree && snap.coinBalance < cost) {
+    // Messages can be paid from either pot, so measure against the spendable total.
+    // Checking the purchased balance alone would block a fan holding only gifted credit.
+    const spendable = snap.spendableBalance ?? snap.coinBalance;
+    if (!willBeFree && spendable < cost) {
       setTopUp(cost);
       return;
     }
@@ -337,14 +340,20 @@ export default function Chat() {
     const newFreeRem  = willBeFree ? Math.max(0, snap.freeRemaining - 1) : snap.freeRemaining;
     const newDailyRem = Math.max(0, snap.dailyRemaining - 1);
     const newIsFree   = newFreeRem > 0 && newDailyRem > 0;
-    const newBalance  = snap.coinBalance - cost;
+    // Mirror the server's order — gifted first, then purchased — so the numbers on
+    // screen match what actually happens.
+    const giftedNow    = snap.giftedBalance ?? 0;
+    const fromGifted   = Math.min(cost, giftedNow);
+    const fromPurchase = cost - fromGifted;
     const newStatus   = {
       ...snap,
-      freeRemaining:  newFreeRem,
-      dailyRemaining: newDailyRem,
-      nextIsFree:     newIsFree,
-      nextCost:       newIsFree ? 0 : snap.overageCost,
-      coinBalance:    newBalance,
+      freeRemaining:    newFreeRem,
+      dailyRemaining:   newDailyRem,
+      nextIsFree:       newIsFree,
+      nextCost:         newIsFree ? 0 : snap.overageCost,
+      coinBalance:      snap.coinBalance - fromPurchase,
+      giftedBalance:    giftedNow - fromGifted,
+      spendableBalance: (snap.spendableBalance ?? snap.coinBalance) - cost,
     };
     setStatus(newStatus);
     statusRef.current = newStatus;
@@ -482,6 +491,13 @@ export default function Chat() {
                   <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>Guest ·</span>
                   <WonderCoinAmount amount={nextCost} size={13} textColor={C.accent} fontSize={13} />
                   <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>per message</span>
+                  {status.giftedBalance > 0 && (
+                    <span style={giftPill}>
+                      🎁 {status.giftedBalance} gifted
+                      {status.giftedExpiresInDays !== null && status.giftedExpiresInDays !== undefined
+                        && ` · ${status.giftedExpiresInDays}d left`}
+                    </span>
+                  )}
                   <button onClick={() => setTopUp(nextCost * 5)} style={topUpBtn}>Top up</button>
                 </div>
                 <GuestNudge compact message="Members message Jinal for less" />
@@ -492,6 +508,13 @@ export default function Chat() {
                 <span style={statItem}><span style={statLabel}>Today</span><span style={{ fontFamily: F.sans, fontSize: 13, color: dailyRemaining > 0 ? C.accent : C.muted }}>{dailyRemaining} / {status.dailyDMCap}</span></span>
                 <span style={statItem}><span style={statLabel}>Next</span>{nextIsFree ? <span style={{ fontFamily: F.sans, fontSize: 13, color: '#8FC88F' }}>Free</span> : <WonderCoinAmount amount={nextCost} size={13} textColor={C.muted} fontSize={13} />}</span>
                 <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>{TIERS[status.tier]?.name} · resets 1st</span>
+                {status.giftedBalance > 0 && (
+                  <span style={giftPill}>
+                    🎁 {status.giftedBalance} gifted
+                    {status.giftedExpiresInDays !== null && status.giftedExpiresInDays !== undefined
+                      && ` · ${status.giftedExpiresInDays}d left`}
+                  </span>
+                )}
                 <button onClick={() => setTopUp(0)} style={topUpBtn}>Top up</button>
               </div>
             )}
@@ -549,6 +572,9 @@ export default function Chat() {
           <div style={costPreview}>
             <WonderCoinAmount amount={nextCost} size={13} textColor={C.muted} fontSize={13} />
             <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>{isGuest ? ' per message' : ' per message (quota used)'}</span>
+            {status?.giftedBalance > 0 && (
+              <span style={{ fontFamily: F.sans, fontSize: 12, color: '#8FC88F' }}>· from your gifted tokens</span>
+            )}
           </div>
         )}
 
@@ -660,6 +686,7 @@ const stickyHeader = { flexShrink: 0, background: 'rgba(13,12,10,1)', borderBott
 const statusBar    = { padding: '8px 12px', background: 'rgba(22,20,16,0.85)', border: `1px solid ${C.border}`, borderRadius: 8 };
 const statItem     = { display: 'flex', flexDirection: 'column', gap: 2 };
 const statLabel    = { fontFamily: F.sans, fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em' };
+const giftPill     = { fontFamily: F.sans, fontSize: 11, color: '#8FC88F', background: 'rgba(100,160,100,0.1)', border: '1px solid rgba(100,160,100,0.28)', borderRadius: 999, padding: '3px 9px', whiteSpace: 'nowrap' };
 const topUpBtn     = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 11, padding: '4px 8px', borderRadius: 6, cursor: 'pointer' };
 const inlineTopUp  = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
 const bubble       = { fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, borderRadius: 10, wordBreak: 'break-word', textAlign: 'left' };

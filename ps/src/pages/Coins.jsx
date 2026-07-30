@@ -7,6 +7,8 @@ import TopUpModal from '../components/TopUpModal';
 
 export default function Coins() {
   const [balance,  setBalance]  = useState(null);
+  const [gifted,   setGifted]   = useState(0);
+  const [giftedDays, setGiftedDays] = useState(null);
   const [ledger,   setLedger]   = useState([]);
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(true);
@@ -21,7 +23,9 @@ export default function Coins() {
     api.get('/api/coins/balance')
       .then((data) => {
         setDiscountConfig(data.discountConfig);
-        setBalance(data.balance ?? 0);
+        setBalance(data.purchasedBalance ?? data.balance ?? 0);
+        setGifted(data.giftedBalance ?? 0);
+        setGiftedDays(data.giftedExpiresInDays ?? null);
         setLedger(data.ledger || []);
       })
       .catch((err) => setError(err.message || 'Could not load coin balance.'))
@@ -59,16 +63,34 @@ export default function Coins() {
         </div>
       </div>
 
-      {/* Balance card */}
+      {/* Balance card — two pots, because they behave differently */}
       <div style={balanceCard}>
-        <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>Current balance</div>
+        <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>Your tokens</div>
         {balance === null
           ? <div style={{ fontFamily: F.display, fontSize: 44, color: C.text }}>—</div>
-          : <WonderCoinAmount amount={balance} size={44} fontSize={52} />
+          : <WonderCoinAmount amount={balance + gifted} size={44} fontSize={52} />
         }
         <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginTop: 8 }}>
-          ≈ ₹{((balance || 0) * rate).toLocaleString('en-IN')} equivalent
+          ≈ ₹{((balance || 0) * rate).toLocaleString('en-IN')} of purchased tokens
         </div>
+
+        {gifted > 0 && (
+          <div style={potsRow}>
+            <div style={pot}>
+              <div style={potLabel}>Purchased</div>
+              <WonderCoinAmount amount={balance || 0} size={18} fontSize={20} />
+              <div style={potNote}>Never expires · use anywhere</div>
+            </div>
+            <div style={{ ...pot, borderColor: 'rgba(100,160,100,0.3)' }}>
+              <div style={{ ...potLabel, color: '#8FC88F' }}>Gifted 🎁</div>
+              <WonderCoinAmount amount={gifted} size={18} fontSize={20} textColor="#8FC88F" />
+              <div style={potNote}>
+                {giftedDays !== null ? `Expires in ${giftedDays} day${giftedDays === 1 ? '' : 's'} · ` : ''}
+                messages &amp; content only
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {error && <div style={errorBox}>{error}</div>}
@@ -169,9 +191,18 @@ export default function Coins() {
                       {entry.type} · {new Date(entry.created_at).toLocaleDateString()}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ fontFamily: F.sans, fontSize: 13, color: isCredit ? '#8FC88F' : C.muted }}>{isCredit ? '+' : '-'}</span>
-                    <WonderCoinAmount amount={entry.amount} size={14} textColor={isCredit ? '#8FC88F' : C.muted} fontSize={14} />
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ fontFamily: F.sans, fontSize: 13, color: isCredit ? '#8FC88F' : C.muted }}>{isCredit ? '+' : '-'}</span>
+                      <WonderCoinAmount amount={entry.amount} size={14} textColor={isCredit ? '#8FC88F' : C.muted} fontSize={14} />
+                    </div>
+                    {entry.from_gifted > 0 && (
+                      <span style={{ fontFamily: F.sans, fontSize: 10, color: '#8FC88F' }}>
+                        {entry.from_purchased > 0
+                          ? `${entry.from_gifted} gifted + ${entry.from_purchased} purchased`
+                          : 'from gifted'}
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -195,6 +226,10 @@ const eyebrow      = { fontFamily: F.mono, fontSize: 11, color: C.accent, letter
 const title        = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(28px,5vw,52px)', margin: '0 0 10px' };
 const text         = { fontFamily: F.sans, color: C.muted, fontSize: 15, lineHeight: 1.75, maxWidth: 720 };
 const sectionLabel = { fontFamily: F.mono, fontSize: 10, color: C.muted, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 10 };
+const potsRow   = { display: 'flex', gap: 12, marginTop: 18, flexWrap: 'wrap' };
+const pot       = { flex: 1, minWidth: 140, background: '#100F0C', border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 14px' };
+const potLabel  = { fontFamily: F.mono, fontSize: 10, color: C.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 };
+const potNote   = { fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 6, lineHeight: 1.5 };
 const balanceCard  = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '28px 24px', marginBottom: 20 };
 const customCard   = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 20, marginBottom: 20 };
 const packsRow     = { display: 'flex', gap: 8, flexWrap: 'wrap' };

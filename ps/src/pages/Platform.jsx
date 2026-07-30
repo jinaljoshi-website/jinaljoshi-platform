@@ -72,7 +72,21 @@ function StatusBadge({ isMobile }) {
         {tierName}
       </span>
       <span style={{ color: C.border }}>·</span>
-      <WonderCoinAmount amount={profile.coin_balance} size={14} fontSize={isMobile ? 11 : 12} textColor={C.text} gap={4} />
+      {/* One number in a cramped bar. It shows everything spendable, with a small gift
+          mark when part of it is gifted credit — the two pots are broken out on Coins. */}
+      <WonderCoinAmount
+        amount={profile.total_balance ?? profile.coin_balance}
+        size={14}
+        fontSize={isMobile ? 11 : 12}
+        textColor={C.text}
+        gap={4}
+      />
+      {profile.gifted_balance > 0 && (
+        <span
+          title={`${profile.gifted_balance} gifted${profile.gifted_expires_in_days != null ? ` · expires in ${profile.gifted_expires_in_days} days` : ''}`}
+          style={{ fontSize: 10, lineHeight: 1 }}
+        >🎁</span>
+      )}
       <button onClick={() => navigate('/platform/coins')} style={topUpMiniBtn}>+</button>
     </div>
   );

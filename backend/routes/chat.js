@@ -6,7 +6,7 @@ const { notifyArtist } = require('../lib/notify');
 const { getDmConfigForTier } = require('../lib/config');
 const { assertNotBlocked, assertNotMuted } = require('../lib/moderation');
 const { getLocalDateStr, getAllotmentPeriodKey } = require('../lib/time');
-const { spendTokens } = require('../lib/tokens');
+const { spendTokens, getBalances } = require('../lib/tokens');
 
 
 function toDateStr(val) {
@@ -178,10 +178,16 @@ router.get('/status', authMid, async (req, res) => {
       return pricing.flatCost;
     };
 
+    // Messages can be paid for from either pot, so the client needs the spendable
+    // total — checking purchased alone would block a fan who holds only gifted credit.
+    const bal = await getBalances(pool, req.user.userId);
+
     if (userTier === 'guest') {
       const overageCost = nextCostUnderCustomPricing();
       return res.json({
         tier: 'guest', coinBalance: user.coin_balance,
+        giftedBalance: bal.gifted, spendableBalance: bal.total,
+        giftedExpiresInDays: bal.giftedExpiresInDays,
         freeDMsPerMonth: 0, dailyDMCap: 0,
         overageCost,
         monthUsed: 0, freeRemaining: 0, todayUsed: 0, dailyRemaining: 0,
@@ -211,6 +217,8 @@ router.get('/status', authMid, async (req, res) => {
 
     res.json({
       tier: userTier, coinBalance: user.coin_balance,
+      giftedBalance: bal.gifted, spendableBalance: bal.total,
+      giftedExpiresInDays: bal.giftedExpiresInDays,
       freeDMsPerMonth: config.freeDMsPerMonth, dailyDMCap: config.dailyDMCap,
       overageCost: hasCustomOverride ? overageCost : overageCost,
       monthUsed, freeRemaining: freeRem,
