@@ -26,6 +26,12 @@ export function Members() {
   const [busy,      setBusy]      = useState(false);
   const [conflict,  setConflict]  = useState(null);
 
+  // Refunds — a fan's spends, loaded on demand when the panel opens
+  const [txns,      setTxns]      = useState([]);
+  const [txnLoading, setTxnLoading] = useState(false);
+  const [refundId,  setRefundId]  = useState(null);
+  const [refundNote, setRefundNote] = useState('');
+
   // Moderation
   const [mutingId,    setMutingId]    = useState(null);
   const [blockingId,  setBlockingId]  = useState(null);
@@ -51,7 +57,30 @@ export function Members() {
   const openPanel = (fanId, kind) => {
     setPanel({ fanId, kind });
     setAmount(''); setReason(''); setNote(''); setConflict(null);
+    setRefundId(null); setRefundNote(''); setTxns([]);
     setError(''); setSuccess('');
+    if (kind === 'refund') {
+      setTxnLoading(true);
+      api.get(`/api/studio/fans/${fanId}/transactions`)
+        .then((d) => setTxns(d.transactions || []))
+        .catch((err) => setError(err.message))
+        .finally(() => setTxnLoading(false));
+    }
+  };
+
+  const issueRefund = async (fanId) => {
+    setError(''); setSuccess(''); setBusy(true);
+    try {
+      const data = await api.post('/api/studio/refund', {
+        ledgerId: refundId,
+        reason:   refundNote.trim() || undefined,
+      });
+      setSuccess(data.message);
+      closePanel();
+      loadFans();
+    } catch (err) {
+      setError(err.message);
+    } finally { setBusy(false); }
   };
   const closePanel = () => { setPanel(null); setConflict(null); };
 
@@ -172,6 +201,10 @@ export function Members() {
                         style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', color: colors.accent }}>
                   {isActive ? 'Extend or change membership' : 'Gift membership'}
                 </button>
+                <button onClick={() => openHere && panel.kind === 'refund' ? closePanel() : openPanel(fan.id, 'refund')}
+                        style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
+                  Refund a transaction
+                </button>
 
                 <button onClick={() => toggleMute(fan.id, fan.is_muted)} disabled={mutingId === fan.id}
                         style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', opacity: mutingId === fan.id ? 0.5 : 1 }}>
@@ -222,6 +255,73 @@ export function Members() {
                     </div>
                   </div>
                   <div style={panelNote}>Expires 30 days from now · messages and content only</div>
+                </div>
+              )}
+
+              {/* Refund panel */}
+              {openHere && panel.kind === 'refund' && (
+                <div style={panelBox}>
+                  <div style={panelTitle}>Refund a transaction for {fan.display_name || fan.email}</div>
+                  {txnLoading ? (
+                    <T.muted>Loading transactions…</T.muted>
+                  ) : txns.length === 0 ? (
+                    <T.muted>This fan has not spent anything yet.</T.muted>
+                  ) : (
+                    <>
+                      <div style={{ display: 'grid', gap: 4, maxHeight: 260, overflowY: 'auto', marginBottom: 12 }}>
+                        {txns.map((t) => {
+                          const done     = !!t.refunded_at;
+                          const selected = refundId === t.id;
+                          return (
+                            <button
+                              key={t.id}
+                              onClick={() => !done && setRefundId(selected ? null : t.id)}
+                              disabled={done}
+                              style={{
+                                ...txnRow,
+                                cursor: done ? 'default' : 'pointer',
+                                opacity: done ? 0.45 : 1,
+                                border: selected ? `1px solid ${colors.accent}` : `1px solid ${colors.border}`,
+                                background: selected ? 'rgba(193,125,74,0.08)' : 'transparent',
+                              }}
+                            >
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontFamily: sans, fontSize: 12, color: colors.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {t.label || t.type}
+                                </div>
+                                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: colors.muted, marginTop: 2 }}>
+                                  {new Date(t.created_at).toLocaleString()} · {t.type}
+                                  {t.from_gifted > 0 && ` · ${t.from_gifted} gifted`}
+                                  {t.from_purchased > 0 && ` · ${t.from_purchased} purchased`}
+                                  {done && ' · already refunded'}
+                                </div>
+                              </div>
+                              <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, flexShrink: 0, marginLeft: 10 }}>
+                                {t.amount}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div style={S.formGrid}>
+                        <Field label="Reason (shown to the fan in their history)">
+                          <input style={S.input} value={refundNote} onChange={(e) => setRefundNote(e.target.value)}
+                                 placeholder="e.g. Call did not connect" />
+                        </Field>
+                        <div style={{ alignSelf: 'flex-end', display: 'flex', gap: 8 }}>
+                          <button onClick={() => issueRefund(fan.id)} disabled={busy || !refundId}
+                                  style={{ ...S.btn, opacity: (busy || !refundId) ? 0.5 : 1 }}>
+                            {busy ? 'Refunding…' : 'Issue refund'}
+                          </button>
+                          <button onClick={closePanel} style={S.ghostBtn}>Cancel</button>
+                        </div>
+                      </div>
+                      <div style={panelNote}>
+                        Each part goes back where it came from — purchased tokens to their balance,
+                        gifted tokens as a fresh 30-day grant. A transaction can only be refunded once.
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -319,6 +419,7 @@ export function Members() {
 
 const mutedPill   = { fontFamily: sans, fontSize: 10, color: '#D9A45C', background: 'rgba(217,164,92,0.1)', border: '1px solid rgba(217,164,92,0.3)', borderRadius: 999, padding: '3px 8px' };
 const blockedPill = { fontFamily: sans, fontSize: 10, color: '#D99A9A', background: 'rgba(156,90,90,0.1)', border: '1px solid rgba(156,90,90,0.3)', borderRadius: 999, padding: '3px 8px' };
+const txnRow      = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', padding: '8px 10px', borderRadius: 6, background: 'transparent' };
 const panelBox    = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: 14, marginTop: 4 };
 const panelTitle  = { fontFamily: sans, fontSize: 13, color: colors.text, marginBottom: 12, fontWeight: 600 };
 const panelNote   = { fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 10, fontStyle: 'italic' };

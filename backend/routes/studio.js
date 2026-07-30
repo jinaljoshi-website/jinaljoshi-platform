@@ -9,7 +9,7 @@ const { postSystemMessage } = require('./community');
 const { pushToUser } = require('./push');
 const { applyBlock, liftBlock, setMuted, logModerationAction } = require('../lib/moderation');
 const { notifyArtist } = require('../lib/notify');
-const { grantGiftedTokens, refundByRelated } = require('../lib/tokens');
+const { grantGiftedTokens, refundByRelated, refundLedgerEntry } = require('../lib/tokens');
 
 router.use(authMid, artistOnly);
 
@@ -182,6 +182,68 @@ router.post('/grant-tokens', async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: 'Failed to grant tokens' });
+  } finally {
+    client.release();
+  }
+});
+
+// ─────────────────────────────────────────────
+// REFUNDS
+// ─────────────────────────────────────────────
+
+// A fan's recent spends, so a refund can be issued against a specific transaction
+// rather than by handing out fresh tokens and hoping the amounts line up.
+router.get('/fans/:fanId/transactions', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, type, amount, label, from_gifted, from_purchased, refunded_at, created_at
+       FROM coin_ledger
+       WHERE user_id = $1 AND direction = 'debit'
+       ORDER BY created_at DESC LIMIT 40`,
+      [req.params.fanId]
+    );
+    res.json({ transactions: rows });
+  } catch (err) {
+    console.error('studio/fan transactions error:', err);
+    res.status(500).json({ error: 'Failed to load transactions' });
+  }
+});
+
+// Reverses one spend, returning each part to the pot it came from. Gifted portions
+// come back as a fresh 30-day grant; purchased goes back to the spendable balance.
+router.post('/refund', async (req, res) => {
+  const { ledgerId, reason } = req.body;
+  if (!ledgerId) return res.status(400).json({ error: 'ledgerId is required' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await refundLedgerEntry(client, {
+      ledgerId,
+      label: reason?.trim() ? `Refund: ${reason.trim()}` : undefined,
+    });
+    await client.query('COMMIT');
+
+    const parts = [];
+    if (result.fromPurchased > 0) parts.push(`${result.fromPurchased} purchased`);
+    if (result.fromGifted > 0)    parts.push(`${result.fromGifted} gifted`);
+
+    res.json({
+      ok: true,
+      ...result,
+      message: `Refunded ${result.amount} tokens (${parts.join(' + ')}).`,
+    });
+
+    pushToUser(result.userId, {
+      title: 'Tokens refunded',
+      body:  `${result.amount} tokens have been returned to your balance.${result.fromGifted > 0 ? ' Gifted tokens come back with a fresh 30-day window.' : ''}`,
+      url:   '/platform/coins',
+      tag:   'refund',
+    }).catch((e) => console.error('Refund push failed:', e.message));
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('studio/refund error:', err.message);
+    res.status(400).json({ error: err.message || 'Failed to issue refund' });
   } finally {
     client.release();
   }
