@@ -6,6 +6,7 @@ const { postSystemMessage } = require('./community');
 const { getTierPrice, getAllTierPrices, getConfigNumber } = require('../lib/config');
 const { roundTokensUp } = require('../lib/pricing');
 const { addMonthsClamped } = require('../lib/time');
+const { spendTokens } = require('../lib/tokens');
 
 const TIER_ORDER = ['community', 'insider', 'premium', 'supreme'];
 
@@ -89,16 +90,6 @@ router.post('/purchase', authMid, async (req, res) => {
     const months    = termMonths(term);
     const totalCost = roundTokensUp(basePrice * mult);
 
-    if (user.coin_balance < totalCost) {
-      await client.query('ROLLBACK');
-      return res.status(402).json({
-        error:     'INSUFFICIENT_TOKENS',
-        message:   `This membership costs ${totalCost} tokens. You have ${user.coin_balance}.`,
-        required:  totalCost,
-        available: user.coin_balance,
-        shortBy:   totalCost - user.coin_balance,
-      });
-    }
 
     // Buying outright while a membership is still running used to overwrite the
     // expiry from today, silently destroying paid-for days. Extending or
@@ -115,20 +106,32 @@ router.post('/purchase', authMid, async (req, res) => {
 
     await client.query(
       `UPDATE users SET
-         coin_balance           = coin_balance - $1,
-         tier                   = $2,
-         membership_expires_at  = $3,
-         membership_started_at  = $5,
-         membership_term        = $6
-       WHERE id = $4`,
-      [totalCost, tier, expiresAt, req.user.userId, now, term]
+         tier                   = $1,
+         membership_expires_at  = $2,
+         membership_started_at  = $4,
+         membership_term        = $5
+       WHERE id = $3`,
+      [tier, expiresAt, req.user.userId, now, term]
     );
 
-    await client.query(
-      `INSERT INTO coin_ledger (user_id, type, direction, amount, label)
-       VALUES ($1, 'membership_purchase', 'debit', $2, $3)`,
-      [req.user.userId, totalCost, `${tier} membership — ${term}`]
-    );
+    // Membership is bought with purchased tokens. Gifting a membership is its own
+    // deliberate act in Studio, not something a token grant should quietly enable.
+    try {
+      await spendTokens(client, {
+        userId:      req.user.userId,
+        amount:      totalCost,
+        type:        'membership_purchase',
+        label:       `${tier} membership — ${term}`,
+        allowGifted: false,
+      });
+    } catch (err) {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
+        await client.query('ROLLBACK');
+        return res.status(402).json(err.httpBody);
+      }
+      throw err;
+    }
+
 
     await client.query('COMMIT');
 
@@ -194,16 +197,6 @@ router.post('/upgrade', authMid, async (req, res) => {
     const newPerDay       = TIER_PRICES[newTier]     / daysInMonth;
     const upgradeCost     = Math.max(1, Math.ceil((newPerDay - currentPerDay) * daysRemaining));
 
-    if (user.coin_balance < upgradeCost) {
-      await client.query('ROLLBACK');
-      return res.status(402).json({
-        error:     'INSUFFICIENT_TOKENS',
-        message:   `Upgrade costs ${upgradeCost} tokens. You have ${user.coin_balance}.`,
-        required:  upgradeCost,
-        available: user.coin_balance,
-        shortBy:   upgradeCost - user.coin_balance,
-      });
-    }
 
     // The upgrade cost above is pro-rated across daysRemaining. Overwriting the
     // expiry would charge for those days and then delete them, so the expiry and
@@ -211,18 +204,28 @@ router.post('/upgrade', authMid, async (req, res) => {
     const newExpiry = new Date(user.membership_expires_at);
 
     await client.query(
-      `UPDATE users SET
-         coin_balance          = coin_balance - $1,
-         tier                  = $2
-       WHERE id = $3`,
-      [upgradeCost, newTier, req.user.userId]
+      `UPDATE users SET tier = $1 WHERE id = $2`,
+      [newTier, req.user.userId]
     );
 
-    await client.query(
-      `INSERT INTO coin_ledger (user_id, type, direction, amount, label)
-       VALUES ($1, 'membership_upgrade', 'debit', $2, $3)`,
-      [req.user.userId, upgradeCost, `Upgrade from ${user.tier} to ${newTier}`]
-    );
+    // Membership is bought with purchased tokens. Gifting a membership is its own
+    // deliberate act in Studio, not something a token grant should quietly enable.
+    try {
+      await spendTokens(client, {
+        userId:      req.user.userId,
+        amount:      upgradeCost,
+        type:        'membership_upgrade',
+        label:       `Upgrade from ${user.tier} to ${newTier}`,
+        allowGifted: false,
+      });
+    } catch (err) {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
+        await client.query('ROLLBACK');
+        return res.status(402).json(err.httpBody);
+      }
+      throw err;
+    }
+
 
     await client.query('COMMIT');
 
@@ -278,32 +281,32 @@ router.post('/extend', authMid, async (req, res) => {
     const months    = termMonths(term);
     const totalCost = roundTokensUp(basePrice * mult);
 
-    if (user.coin_balance < totalCost) {
-      await client.query('ROLLBACK');
-      return res.status(402).json({
-        error:     'INSUFFICIENT_TOKENS',
-        message:   `Extension costs ${totalCost} tokens. You have ${user.coin_balance}.`,
-        required:  totalCost,
-        available: user.coin_balance,
-        shortBy:   totalCost - user.coin_balance,
-      });
-    }
 
     const expiresAt = addMonthsClamped(user.membership_expires_at, months);
 
     await client.query(
-      `UPDATE users SET
-         coin_balance          = coin_balance - $1,
-         membership_expires_at = $2
-       WHERE id = $3`,
-      [totalCost, expiresAt, req.user.userId]
+      `UPDATE users SET membership_expires_at = $1 WHERE id = $2`,
+      [expiresAt, req.user.userId]
     );
 
-    await client.query(
-      `INSERT INTO coin_ledger (user_id, type, direction, amount, label)
-       VALUES ($1, 'membership_extend', 'debit', $2, $3)`,
-      [req.user.userId, totalCost, `${user.tier} membership extended — ${term}`]
-    );
+    // Membership is bought with purchased tokens. Gifting a membership is its own
+    // deliberate act in Studio, not something a token grant should quietly enable.
+    try {
+      await spendTokens(client, {
+        userId:      req.user.userId,
+        amount:      totalCost,
+        type:        'membership_extend',
+        label:       `${user.tier} membership extended — ${term}`,
+        allowGifted: false,
+      });
+    } catch (err) {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
+        await client.query('ROLLBACK');
+        return res.status(402).json(err.httpBody);
+      }
+      throw err;
+    }
+
 
     await client.query('COMMIT');
 

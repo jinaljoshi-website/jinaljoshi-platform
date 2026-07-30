@@ -7,6 +7,7 @@ const { postSystemMessage } = require('./community');
 const { getDiscountForTier, getGuestMultiplier } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
 const { roundTokensUp } = require('../lib/pricing');
+const { spendTokens } = require('../lib/tokens');
 
 // ─────────────────────────────────────────────
 // GET /api/shop/items
@@ -116,22 +117,6 @@ router.post('/buy', authMid, async (req, res) => {
       price = roundTokensUp(price * (1 - discountPct / 100));
     }
 
-    if (user.coin_balance < price) {
-      await client.query('ROLLBACK');
-      return res.status(402).json({
-        error:     'INSUFFICIENT_TOKENS',
-        message:   `This item costs ${price} tokens. You have ${user.coin_balance}.`,
-        required:  price,
-        available: user.coin_balance,
-        shortBy:   price - user.coin_balance,
-      });
-    }
-
-    await client.query(
-      `UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`,
-      [price, req.user.userId]
-    );
-
     await client.query(
       `UPDATE merchandise SET remaining = remaining - 1 WHERE id = $1`,
       [merchId]
@@ -154,11 +139,23 @@ router.post('/buy', authMid, async (req, res) => {
       [req.user.userId, merchId, price, JSON.stringify(shipping)]
     );
 
-    await client.query(
-      `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-       VALUES ($1, 'merch_purchase', 'debit', $2, $3, $4)`,
-      [req.user.userId, price, `Merchandise: ${item.title}`, orderRows[0].id]
-    );
+    // Physical goods carry a real cost, so gifted credit cannot be used here.
+    try {
+      await spendTokens(client, {
+        userId:      req.user.userId,
+        amount:      price,
+        type:        'merch_purchase',
+        label:       `Merchandise: ${item.title}`,
+        relatedId:   orderRows[0].id,
+        allowGifted: false,
+      });
+    } catch (err) {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
+        await client.query('ROLLBACK');
+        return res.status(402).json(err.httpBody);
+      }
+      throw err;
+    }
 
     await client.query(
       `INSERT INTO artist_notifications (type, fan_id, payload)

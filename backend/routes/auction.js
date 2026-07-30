@@ -9,6 +9,7 @@ const { postSystemMessage } = require('./community');
 const { getDiscountForTier, getGuestMultiplier, getConfigNumber, getConfigValue } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
 const { roundTokensUp } = require('../lib/pricing');
+const { spendTokens } = require('../lib/tokens');
 
 // Smallest of the 5 / 10 / 20 / 50 increments the fan chooses from in the UI.
 // Not a price, so it stays here rather than in Studio.
@@ -218,6 +219,7 @@ router.post('/bid', authMid, async (req, res) => {
     }
     // Tokens are not held at bid time, so we check the bidder could actually
     // honour it. This is why bidding is closed to guests.
+    // Gifted tokens cannot buy an outfit, so a bid is measured against purchased credit only.
     if (user.coin_balance < amount + cfg.fee) {
       await client.query('ROLLBACK');
       return res.status(402).json({
@@ -336,7 +338,6 @@ router.post('/buy-now', authMid, async (req, res) => {
     const wasActive       = item.auction_status === 'active';
     const outbidBidderId  = item.current_highest_bidder_id;
 
-    await client.query(`UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`, [finalPrice, req.user.userId]);
     await client.query(
       `UPDATE merchandise
        SET auction_status = 'sold', sold_price_coins = $1, sold_via = 'buy_now',
@@ -357,10 +358,22 @@ router.post('/buy-now', authMid, async (req, res) => {
       `INSERT INTO orders (user_id, merch_id, coins_charged, shipping_address) VALUES ($1, $2, $3, $4) RETURNING id`,
       [req.user.userId, itemId, finalPrice, JSON.stringify(shipping)]
     );
-    await client.query(
-      `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id) VALUES ($1, 'merch_purchase', 'debit', $2, $3, $4)`,
-      [req.user.userId, finalPrice, `Shoot Wardrobe (Buy Now): ${item.title}`, orderRows[0].id]
-    );
+    try {
+      await spendTokens(client, {
+        userId:      req.user.userId,
+        amount:      finalPrice,
+        type:        'merch_purchase',
+        label:       `Shoot Wardrobe (Buy Now): ${item.title}`,
+        relatedId:   orderRows[0].id,
+        allowGifted: false,
+      });
+    } catch (err) {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
+        await client.query('ROLLBACK');
+        return res.status(402).json(err.httpBody);
+      }
+      throw err;
+    }
 
     await client.query('COMMIT');
 
@@ -455,7 +468,6 @@ router.post('/claim', authMid, async (req, res) => {
     );
     const winningBid = bidRows[0] || {};
 
-    await client.query(`UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`, [finalPrice, req.user.userId]);
     await client.query(
       `UPDATE merchandise
        SET auction_status = 'sold', sold_price_coins = $1, sold_via = 'bid', remaining = 0,
@@ -475,10 +487,22 @@ router.post('/claim', authMid, async (req, res) => {
       `INSERT INTO orders (user_id, merch_id, coins_charged, shipping_address) VALUES ($1, $2, $3, $4) RETURNING id`,
       [req.user.userId, itemId, finalPrice, JSON.stringify(shipping)]
     );
-    await client.query(
-      `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id) VALUES ($1, 'merch_purchase', 'debit', $2, $3, $4)`,
-      [req.user.userId, finalPrice, `Shoot Wardrobe (winning bid): ${item.title}`, orderRows[0].id]
-    );
+    try {
+      await spendTokens(client, {
+        userId:      req.user.userId,
+        amount:      finalPrice,
+        type:        'merch_purchase',
+        label:       `Shoot Wardrobe (winning bid): ${item.title}`,
+        relatedId:   orderRows[0].id,
+        allowGifted: false,
+      });
+    } catch (err) {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
+        await client.query('ROLLBACK');
+        return res.status(402).json(err.httpBody);
+      }
+      throw err;
+    }
 
     await client.query('COMMIT');
 

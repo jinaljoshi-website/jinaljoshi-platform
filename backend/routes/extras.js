@@ -5,6 +5,7 @@ const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
 const { postSystemMessage } = require('./community');
 const { assertNotBlocked } = require('../lib/moderation');
+const { spendTokens, refundByRelated } = require('../lib/tokens');
 
 // ─────────────────────────────────────────────
 // GET /api/extras/options
@@ -107,19 +108,6 @@ router.post('/request', authMid, async (req, res) => {
     }
     const price = Math.ceil(offeredPrice);
 
-    if (user.coin_balance < price) {
-      await client.query('ROLLBACK');
-      return res.status(402).json({
-        error:     'INSUFFICIENT_TOKENS',
-        message:   `You offered ${price} tokens but only have ${user.coin_balance}.`,
-        required:  price,
-        available: user.coin_balance,
-        shortBy:   price - user.coin_balance,
-      });
-    }
-
-    await client.query(`UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`, [price, req.user.userId]);
-
     const { rows: requestRows } = await client.query(
       `INSERT INTO custom_requests
          (user_id, type, topic, details, reference_url, reference_image_key, expected_delivery_date,
@@ -131,11 +119,23 @@ router.post('/request', authMid, async (req, res) => {
        deliveryChannel, deliveryEmail?.trim() || null, deliveryWhatsapp?.trim() || null]
     );
 
-    await client.query(
-      `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-       VALUES ($1, 'custom_request', 'debit', $2, $3, $4)`,
-      [req.user.userId, price, `${itemTitle}: ${topic.trim()}`, requestRows[0].id]
-    );
+    // A personalised request is Jinal's own work, so it takes purchased tokens.
+    try {
+      await spendTokens(client, {
+        userId:      req.user.userId,
+        amount:      price,
+        type:        'custom_request',
+        label:       `${itemTitle}: ${topic.trim()}`,
+        relatedId:   requestRows[0].id,
+        allowGifted: false,
+      });
+    } catch (err) {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
+        await client.query('ROLLBACK');
+        return res.status(402).json(err.httpBody);
+      }
+      throw err;
+    }
 
     await client.query(
       `INSERT INTO artist_notifications (type, fan_id, payload)
@@ -199,12 +199,13 @@ router.post('/requests/:id/respond-to-counter', authMid, async (req, res) => {
     }
 
     if (action === 'decline') {
-      await client.query(`UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`, [request.coins_charged, req.user.userId]);
-      await client.query(
-        `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-         VALUES ($1, 'request_refund', 'credit', $2, $3, $4)`,
-        [req.user.userId, request.coins_charged, `Declined counter-offer: ${request.topic}`, request.id]
-      );
+      await refundByRelated(client, {
+        userId:     req.user.userId,
+        type:       'custom_request',
+        relatedId:  request.id,
+        label:      `Declined counter-offer: ${request.topic}`,
+        refundType: 'request_refund',
+      });
       await client.query(`UPDATE custom_requests SET status = 'cancelled' WHERE id = $1`, [request.id]);
       await client.query('COMMIT');
       notifyArtist({ title: 'Counter-offer declined', body: `Fan declined the counter for "${request.topic}". Tokens refunded.`, url: '/requests' });
@@ -216,22 +217,23 @@ router.post('/requests/:id/respond-to-counter', authMid, async (req, res) => {
     const { rows: userRows } = await client.query(`SELECT coin_balance FROM users WHERE id = $1 FOR UPDATE`, [req.user.userId]);
     const user = userRows[0];
 
-    if (additionalDue > 0 && user.coin_balance < additionalDue) {
-      await client.query('ROLLBACK');
-      return res.status(402).json({
-        error: 'INSUFFICIENT_TOKENS',
-        message: `Accepting this costs ${additionalDue} more tokens. You have ${user.coin_balance}.`,
-        required: additionalDue, available: user.coin_balance,
-      });
-    }
-
     if (additionalDue > 0) {
-      await client.query(`UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`, [additionalDue, req.user.userId]);
-      await client.query(
-        `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-         VALUES ($1, 'custom_request', 'debit', $2, $3, $4)`,
-        [req.user.userId, additionalDue, `Accepted counter-offer: ${request.topic}`, request.id]
-      );
+      try {
+        await spendTokens(client, {
+          userId:      req.user.userId,
+          amount:      additionalDue,
+          type:        'custom_request',
+          label:       `Accepted counter-offer: ${request.topic}`,
+          relatedId:   request.id,
+          allowGifted: false,
+        });
+      } catch (err) {
+        if (err.code === 'INSUFFICIENT_TOKENS') {
+          await client.query('ROLLBACK');
+          return res.status(402).json(err.httpBody);
+        }
+        throw err;
+      }
     }
 
     await client.query(
