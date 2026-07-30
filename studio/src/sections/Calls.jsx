@@ -4,13 +4,12 @@ import { api } from '../api';
 import { T, S, Eyebrow, Badge, colors } from '../ui';
 import { CallTimer } from '../components/CallTimer';
 import { IncomingCallOverlay } from '../components/IncomingCallOverlay';
+import CallStage from '../components/CallStage';
 
 import {
   StreamVideo,
   StreamVideoClient,
   StreamCall,
-  CallControls,
-  SpeakerLayout,
   StreamTheme,
 } from '@stream-io/video-react-sdk';
 import '@stream-io/video-react-sdk/dist/css/styles.css';
@@ -178,22 +177,16 @@ export function Calls() {
       <StreamVideo client={activeCall.client}>
         <StreamCall call={activeCall.call}>
           <StreamTheme>
-            <div style={{ height: '80vh', display: 'flex', flexDirection: 'column', borderRadius: 12, overflow: 'hidden', border: `1px solid ${colors.border}` }}>
-              <div style={{ padding: 10, display: 'flex', justifyContent: 'center' }}>
+            <CallStage
+              onLeave={leaveCall}
+              timerNode={
                 <CallTimer
                   callStartedAt={activeCallRecord?.call_started_at}
                   durationMinutes={durationMinutes}
                   onExpire={leaveCall}
                 />
-              </div>
-              <SpeakerLayout />
-              <div style={{ padding: 16, background: colors.surface, display: 'flex', justifyContent: 'center', gap: 12 }}>
-                <CallControls />
-                <button onClick={leaveCall} style={{ background: '#9C5A5A', border: 'none', color: '#fff', fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, fontWeight: 700, padding: '10px 20px', borderRadius: 8, cursor: 'pointer' }}>
-                  End & leave
-                </button>
-              </div>
-            </div>
+              }
+            />
           </StreamTheme>
         </StreamCall>
       </StreamVideo>

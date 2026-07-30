@@ -6,11 +6,11 @@ import TopUpModal from '../components/TopUpModal';
 import GuestNudge from '../components/GuestNudge';
 import CallTimer from '../components/CallTimer';
 import IncomingCallOverlay from '../components/IncomingCallOverlay';
+import CallStage from '../components/CallStage';
 import NotificationNudge from '../components/NotificationNudge';
 
 import {
-  StreamVideo, StreamVideoClient, StreamCall,
-  CallControls, SpeakerLayout, StreamTheme,
+  StreamVideo, StreamVideoClient, StreamCall, StreamTheme,
 } from '@stream-io/video-react-sdk';
 import '@stream-io/video-react-sdk/dist/css/styles.css';
 
@@ -208,22 +208,16 @@ export default function Calls() {
       <StreamVideo client={activeCall.client}>
         <StreamCall call={activeCall.call}>
           <StreamTheme>
-            <div style={{ height: '80vh', display: 'flex', flexDirection: 'column', borderRadius: 12, overflow: 'hidden', border: `1px solid ${C.border}` }}>
-              <div style={{ padding: 10, display: 'flex', justifyContent: 'center' }}>
+            <CallStage
+              onLeave={leaveCall}
+              timerNode={
                 <CallTimer
                   callStartedAt={activeCallRecord?.call_started_at}
                   durationMinutes={durationMinutes}
                   onExpire={leaveCall}
                 />
-              </div>
-              <SpeakerLayout />
-              <div style={{ padding: 16, background: C.surface, display: 'flex', justifyContent: 'center', gap: 12 }}>
-                <CallControls />
-                <button onClick={leaveCall} style={{ background: '#9C5A5A', border: 'none', color: '#fff', fontFamily: F.sans, fontSize: 13, fontWeight: 700, padding: '10px 20px', borderRadius: 8, cursor: 'pointer' }}>
-                  Leave call
-                </button>
-              </div>
-            </div>
+              }
+            />
           </StreamTheme>
         </StreamCall>
       </StreamVideo>
