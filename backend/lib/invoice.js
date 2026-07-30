@@ -152,14 +152,9 @@ async function issueInvoiceForPurchase(params) {
     const invoice = await buildInvoiceRecord(client, params);
     await client.query('COMMIT');
 
-    // PDF + email happen after commit, so the invoice record exists regardless of what happens next
-    try {
-      const pdfBuffer = await generateInvoicePdfBuffer(invoice);
-      await sendInvoiceEmail(invoice, pdfBuffer);
-      await pool.query(`UPDATE invoices SET emailed_at = NOW() WHERE id = $1`, [invoice.id]);
-    } catch (err) {
-      console.error('invoice/issueInvoiceForPurchase email/pdf error:', err.message);
-    }
+    // Invoices are not emailed. They are recorded here and viewed in Studio, so a
+    // mail outage can never affect a purchase. emailed_at stays null until an
+    // invoice is actually sent, which makes "not yet sent" queryable.
 
     return invoice;
   } catch (err) {
