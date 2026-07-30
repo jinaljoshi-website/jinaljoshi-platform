@@ -203,6 +203,27 @@ export function Merch() {
           )}
         </div>
 
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: colors.muted, marginBottom: 6 }}>
+            Product photo
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input ref={imgRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImgPick} />
+            <button onClick={() => imgRef.current?.click()} style={S.ghostBtn}>
+              {imgPreview ? 'Change photo' : 'Choose photo'}
+            </button>
+            {imgPreview && (
+              <>
+                <img src={imgPreview} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}` }} />
+                <button onClick={() => { setImgFile(null); setImgPreview(''); }} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
+                  Remove
+                </button>
+              </>
+            )}
+            {imgUploading && <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: colors.muted }}>Uploading…</span>}
+          </div>
+        </div>
+
         <label style={auctionToggle}>
           <input type="checkbox" checked={form.is_auction_item}
                  onChange={(e) => setForm({ ...form, is_auction_item: e.target.checked })} />
@@ -415,7 +436,9 @@ function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, 
             <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: colors.muted, marginBottom: 6 }}>Product image</div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <input ref={editImgRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleEditImgPick} />
-              <button onClick={() => editImgRef.current?.click()} style={S.ghostBtn}>Change photo</button>
+              <button onClick={() => editImgRef.current?.click()} style={S.ghostBtn}>
+                {editImgPreview ? 'Change photo' : 'Add photo'}
+              </button>
               {editImgPreview && <img src={editImgPreview} alt="" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}` }} />}
             </div>
           </div>
