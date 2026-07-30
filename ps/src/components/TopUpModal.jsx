@@ -14,12 +14,14 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
   const packs = rechargePacks();
   const suggestedPack = packs.find((p) => p.tokens >= requiredTokens) || packs[packs.length - 1];
 
-  // requiredTokens means "you need at least this much" — rounding up to the next
-  // pack is correct there. exactTokens means the fan asked for a specific number,
-  // and must never be rounded up: they typed 200, they get 200.
+  // Whether the fan asked for a specific number (exactTokens) or fell short of one
+  // (requiredTokens), the amount is pre-filled exactly. Rounding silently up to the
+  // next pack charges more than was asked for. The packs stay visible and one click
+  // away for anyone who would rather buy more.
+  const prefill = exactTokens || requiredTokens || 0;
   const [selected,    setSelected]    = useState(suggestedPack?.tokens ?? 0);
-  const [custom,      setCustom]      = useState(exactTokens ? String(exactTokens) : '');
-  const [useCustom,   setUseCustom]   = useState(!!exactTokens);
+  const [custom,      setCustom]      = useState(prefill ? String(prefill) : '');
+  const [useCustom,   setUseCustom]   = useState(!!prefill);
   const [processing,  setProcessing]  = useState(false);
   const [error,       setError]       = useState('');
   const overlayRef = useRef(null);
@@ -129,8 +131,8 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
             {requiredTokens > 0 && (
               <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>
                 You need{' '}
-                <strong style={{ color: C.accent }}>{requiredTokens} tokens</strong>
-                {' '}to continue
+                <strong style={{ color: C.accent }}>{requiredTokens} more token{requiredTokens === 1 ? '' : 's'}</strong>
+                {' '}to complete this purchase
               </div>
             )}
           </div>
