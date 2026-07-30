@@ -5,6 +5,7 @@ import GuestNudge from '../components/GuestNudge';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
+import Outfits from './Outfits';
 
 export default function Shop() {
   const [data,      setData]      = useState(null);
@@ -14,6 +15,7 @@ export default function Shop() {
   const [topUp,     setTopUp]     = useState(null);
   const [checkout,  setCheckout]  = useState(null); // item being purchased
   const [purchased, setPurchased] = useState([]);
+  const [tab,       setTab]       = useState('merch');
 
   const load = () => api.get('/api/shop/items')
     .then(setData)
@@ -49,6 +51,26 @@ export default function Shop() {
         </div>
       </div>
 
+      {/* Two very different things live here: repeatable merchandise, and one-of-one
+          pieces sold through the wardrobe. Keeping them apart stops the shop grid
+          implying an outfit can be restocked. */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        {[{ key: 'merch', label: 'Merchandise' }, { key: 'outfits', label: 'Outfits' }].map((t) => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            style={{
+              fontFamily: F.sans, fontSize: 13, padding: '8px 18px', borderRadius: 999, cursor: 'pointer',
+              background: tab === t.key ? 'rgba(193,125,74,0.12)' : 'transparent',
+              border:     tab === t.key ? `1px solid ${C.accent}` : `1px solid ${C.border}`,
+              color:      tab === t.key ? C.accent : C.muted,
+            }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'outfits' && <Outfits />}
+
+      {tab === 'merch' && <>
       {error   && <div style={errorBox}>{error} <button onClick={() => setTopUp(0)} style={inlineTopUp}>Top up</button></div>}
       {success && <div style={successBox}>{success}</div>}
 
@@ -109,6 +131,8 @@ export default function Shop() {
           );
         })}
       </div>
+
+      </>}
 
       {/* Checkout / shipping modal */}
       {checkout && (
