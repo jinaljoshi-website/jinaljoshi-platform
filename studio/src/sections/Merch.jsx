@@ -106,7 +106,7 @@ export function Merch() {
 
   const startEdit = (item) => {
     setEditing(item.id);
-    setEditForm({ title: item.title, description: item.description, price_coins: item.price_coins, remaining: item.remaining, visible: item.visible });
+    setEditForm({ title: item.title, description: item.description, price_coins: item.price_coins, remaining: item.remaining, visible: item.visible, csr_pct: item.csr_pct ?? '' });
     setEditImages((item.images || (item.img_key ? [item.img_key] : [])).map((url) => ({ url })));
   };
 
@@ -126,7 +126,10 @@ export function Merch() {
       const data = await api.patch(`/api/studio/merch/${id}`, {
         ...editForm,
         price_coins: parseInt(editForm.price_coins),
-        remaining:   parseInt(editForm.remaining),
+        // An outfit is always quantity 1, so its stock is never edited — sending
+        // NaN here would wipe the remaining count.
+        remaining:   Number.isNaN(parseInt(editForm.remaining)) ? undefined : parseInt(editForm.remaining),
+        csr_pct:     editForm.csr_pct === '' || editForm.csr_pct === undefined ? undefined : parseFloat(editForm.csr_pct),
         images:      photoUrls,
       });
       setItems((prev) => prev.map((i) => i.id === id ? data.item : i));
@@ -272,8 +275,56 @@ export function Merch() {
             {outfits.length === 0 && <T.muted>No outfits listed yet. Tick "This is a one-of-one Outfit" above to add one.</T.muted>}
             {outfits.map((item) => (
               <div key={item.id} style={S.card}>
+                {editing === item.id ? (
+                  <div>
+                    <div style={S.formGrid}>
+                      <Field label="Title">
+                        <input style={S.input} value={editForm.title || ''} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
+                      </Field>
+                      <Field label="Description">
+                        <input style={S.input} value={editForm.description || ''} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+                      </Field>
+                      <TokenField label="Listed price (tokens)" value={editForm.price_coins}
+                                  onChange={(v) => setEditForm({ ...editForm, price_coins: v })} tokenRateInr={tokenRate} />
+                      <Field label="Charity share (%)">
+                        <input style={S.input} type="number" min={0} max={100} step="0.5"
+                               value={editForm.csr_pct ?? ''}
+                               onChange={(e) => setEditForm({ ...editForm, csr_pct: e.target.value })} />
+                      </Field>
+                    </div>
+
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: colors.muted, marginBottom: 6 }}>Photos</div>
+                      <PhotoManager list={editImages} setList={setEditImages} inputRef={editImgRef}
+                                    onPick={handleEditImgPick} uploading={imgUploading} compact />
+                    </div>
+
+                    {item.auction_status === 'active' && (
+                      <div style={{ ...S.rowSub, color: '#D9A45C', marginTop: 12, lineHeight: 1.6 }}>
+                        This piece is live in the auction. Changing the listed price also changes the
+                        opening bid and the buy-out price for anyone watching it right now.
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <label style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: colors.muted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={!!editForm.visible} onChange={(e) => setEditForm({ ...editForm, visible: e.target.checked })} />
+                        Visible to fans
+                      </label>
+                      <button onClick={() => handleUpdate(item.id)} style={S.btn}>Save</button>
+                      <button onClick={() => { setEditing(null); setEditImages([]); }} style={S.ghostBtn}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                  {item.img_key && <img src={item.img_key} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}` }} />}
+                  {item.img_key && (
+                    <div style={{ position: 'relative', flexShrink: 0 }}>
+                      <img src={item.img_key} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}` }} />
+                      {(item.images?.length || 0) > 1 && (
+                        <span style={photoCount}>{item.images.length}</span>
+                      )}
+                    </div>
+                  )}
                   <div style={{ flex: 1, minWidth: 180 }}>
                     <div style={S.rowTitle}>{item.title}</div>
                     <div style={S.rowSub}>
@@ -299,6 +350,7 @@ export function Merch() {
                     <button onClick={() => startEdit(item)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Edit</button>
                   </div>
                 </div>
+                )}
               </div>
             ))}
           </div>
@@ -461,6 +513,7 @@ function moveIn(list, setList, from, to) {
   setList(next);
 }
 
+const photoCount = { position: 'absolute', bottom: -4, right: -4, background: colors.accent, color: '#1A1714', fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 9, fontWeight: 700, borderRadius: 999, padding: '1px 5px' };
 const tinyBtn = { background: 'transparent', border: `1px solid ${colors.border}`, color: colors.muted, fontSize: 10, lineHeight: 1, padding: '2px 5px', borderRadius: 3, cursor: 'pointer' };
 
 function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, onCancelEdit, onUpdate, onRestock, editImgRef, editImages, setEditImages, handleEditImgPick, tokenRate, imgUploading }) {
