@@ -7,6 +7,7 @@ const pool     = require('../db/pool');
 const authMid  = require('../middleware/auth');
 const { sendSignupVerificationEmail, sendPasswordResetEmail, consumeToken } = require('../lib/email');
 const { lookupIpCountry, getClientIp } = require('../lib/geoip');
+const { getBalances } = require('../lib/tokens');
 
 async function logAccessEvent(userId, req, eventType) {
   try {
@@ -318,7 +319,15 @@ router.get('/profile', authMid, async (req, res) => {
       [req.user.userId]
     );
     if (!rows.length) return res.status(404).json({ error: 'User not found' });
-    res.json({ user: rows[0] });
+    const balances = await getBalances(pool, req.user.userId);
+    res.json({
+      user: {
+        ...rows[0],
+        gifted_balance:         balances.gifted,
+        total_balance:          balances.total,
+        gifted_expires_in_days: balances.giftedExpiresInDays,
+      },
+    });
   } catch (err) {
     console.error('profile/get error:', err);
     res.status(500).json({ error: 'Failed to load profile' });

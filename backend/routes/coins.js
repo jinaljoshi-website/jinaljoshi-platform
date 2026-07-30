@@ -7,6 +7,7 @@ const { getClientIp, lookupIpCountry } = require('../lib/geoip');
 const { issueInvoiceForPurchase } = require('../lib/invoice');
 const payments = require('../lib/payments');
 const { getConfigNumber } = require('../lib/config');
+const { getBalances } = require('../lib/tokens');
 
 
 async function getDiscountConfig() {
@@ -44,18 +45,25 @@ async function calcPrice(tokens) {
 
 router.get('/balance', authMid, async (req, res) => {
   try {
-    const { rows: userRows } = await pool.query(
-      `SELECT coin_balance FROM users WHERE id = $1`,
-      [req.user.userId]
-    );
+    const balances = await getBalances(pool, req.user.userId);
     const { rows: ledger } = await pool.query(
-      `SELECT id, type, direction, amount, label, created_at
+      `SELECT id, type, direction, amount, label, created_at, from_gifted, from_purchased
        FROM coin_ledger WHERE user_id = $1
        ORDER BY created_at DESC LIMIT 30`,
       [req.user.userId]
     );
     const discountConfig = await getDiscountConfig();
-    res.json({ balance: userRows[0]?.coin_balance || 0, ledger, discountConfig });
+    res.json({
+      // `balance` stays as the purchased pot so nothing that already reads it breaks;
+      // the two pots and the expiry countdown are additional.
+      balance:             balances.purchased,
+      purchasedBalance:    balances.purchased,
+      giftedBalance:       balances.gifted,
+      totalBalance:        balances.total,
+      giftedExpiresInDays: balances.giftedExpiresInDays,
+      ledger,
+      discountConfig,
+    });
   } catch (err) {
     console.error('coins/balance error:', err);
     res.status(500).json({ error: 'Failed to load balance' });
