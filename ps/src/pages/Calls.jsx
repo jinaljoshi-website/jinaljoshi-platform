@@ -485,17 +485,23 @@ export default function Calls() {
             </div>
           </div>
           {!canAfford && (
-            <div style={{ ...errorBox, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>You need {totalCost - (data?.coinBalance || 0)} more tokens.</span>
-              <button onClick={() => setTopUp(totalCost)} style={inlineTopUp}>Top up now</button>
+            <div style={{ ...errorBox, marginBottom: 12 }}>
+              {totalCost - (data?.coinBalance || 0)} tokens short — topping up takes a moment.
             </div>
           )}
+          {/* Short of tokens opens the top-up with the exact difference. Only the
+              things that genuinely prevent a call — no time chosen, no camera
+              permission — keep the button disabled. */}
           <button
-            onClick={handleBook}
-            disabled={booking || !canAfford || (!isPriority && !proposedTime) || permStatus?.denied || permStatus?.checking}
-            style={{ ...bookBtn, opacity: (booking || !canAfford || (!isPriority && !proposedTime) || permStatus?.denied || permStatus?.checking) ? 0.5 : 1, cursor: (booking || !canAfford) ? 'default' : 'pointer' }}
+            onClick={() => canAfford ? handleBook() : setTopUp(totalCost - (data?.coinBalance || 0))}
+            disabled={booking || (!isPriority && !proposedTime) || permStatus?.denied || permStatus?.checking}
+            style={{ ...bookBtn, opacity: (booking || (!isPriority && !proposedTime) || permStatus?.denied || permStatus?.checking) ? 0.5 : 1, cursor: booking ? 'default' : 'pointer' }}
           >
-            {booking ? (isPriority ? 'Calling…' : 'Booking…') : permStatus?.denied ? 'Allow camera/mic access first' : (!isPriority && !proposedTime) ? 'Propose a time first' : isPriority ? `Call now & pay ${totalCost} tokens` : `Book & pay ${totalCost} tokens`}
+            {booking ? (isPriority ? 'Calling…' : 'Booking…')
+              : permStatus?.denied ? 'Allow camera/mic access first'
+              : (!isPriority && !proposedTime) ? 'Propose a time first'
+              : !canAfford ? `Top up to ${isPriority ? 'call' : 'book'}`
+              : isPriority ? `Call now & pay ${totalCost} tokens` : `Book & pay ${totalCost} tokens`}
           </button>
           <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 8 }}>
             {isPriority

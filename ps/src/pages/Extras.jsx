@@ -244,19 +244,20 @@ export default function Extras() {
           </div>
 
           {offeredNum > 0 && !canAfford && (
-            <div style={{ ...errorBox, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>You need {offeredNum - (data?.coinBalance || 0)} more tokens.</span>
-              <button onClick={() => setTopUp(offeredNum)} style={inlineTopUp}>Top up now</button>
+            <div style={{ ...errorBox, marginBottom: 12 }}>
+              {offeredNum - (data?.coinBalance || 0)} tokens short — topping up takes a moment.
             </div>
           )}
 
           <div style={{ display: 'flex', gap: 10 }}>
+            {/* Being short of tokens opens the top-up with the exact difference rather
+                than leaving a dead button. Everything else still genuinely blocks. */}
             <button
-              onClick={handleSubmit}
-              disabled={submitting || uploading || !topic.trim() || !details.trim() || !offeredNum || !allConsented || !canAfford || !deliveryContactFilled}
-              style={{ ...submitBtn, opacity: (submitting || uploading || !topic.trim() || !details.trim() || !offeredNum || !allConsented || !canAfford || !deliveryContactFilled) ? 0.5 : 1 }}
+              onClick={() => canAfford ? handleSubmit() : setTopUp(offeredNum - (data?.coinBalance || 0))}
+              disabled={submitting || uploading || !topic.trim() || !details.trim() || !offeredNum || !allConsented || !deliveryContactFilled}
+              style={{ ...submitBtn, opacity: (submitting || uploading || !topic.trim() || !details.trim() || !offeredNum || !allConsented || !deliveryContactFilled) ? 0.5 : 1 }}
             >
-              {uploading ? 'Uploading image…' : submitting ? 'Sending…' : !canAfford ? 'Insufficient balance' : 'Send request'}
+              {uploading ? 'Uploading image…' : submitting ? 'Sending…' : !canAfford ? 'Top up to send' : 'Send request'}
             </button>
             <button onClick={resetForm} style={cancelBtn}>Cancel</button>
           </div>
