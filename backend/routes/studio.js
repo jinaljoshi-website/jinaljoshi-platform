@@ -702,6 +702,130 @@ router.post('/auction/:id/donation-confirmed', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// DONATIONS — monthly reconciliation
+// ─────────────────────────────────────────────
+
+const CHARITY_NAMES = {
+  cry:                   'CRY — Child Rights and You',
+  akshaya_patra:         'Akshaya Patra Foundation',
+  smile_foundation:      'Smile Foundation',
+  pmnrf:                 "Prime Minister's National Relief Fund",
+  national_defence_fund: 'National Defence Fund',
+};
+
+// What is owed, to whom, for which month.
+//
+// The donation is worked out on the value of the goods, not the sticker price:
+// token prices include GST, so the tax is stripped first and the item's own
+// percentage applied to what remains. The handling fee never enters this — it is
+// cost recovery, not proceeds — and sold_price_coins already excludes it.
+//
+// The list token rate is used deliberately, not the discounted rate a fan may
+// have paid in a bulk recharge. It is simpler to explain publicly and errs
+// slightly in the charities' favour, which is the right way to be wrong.
+router.get('/donations', async (req, res) => {
+  try {
+    const [rateRow, gstRow] = await Promise.all([
+      pool.query(`SELECT value FROM platform_config WHERE key = 'token_rate_inr'`),
+      pool.query(`SELECT value FROM platform_config WHERE key = 'domestic_gst_rate_pct'`),
+    ]);
+    const tokenRate = parseFloat(rateRow.rows[0]?.value);
+    const gstPct    = parseFloat(gstRow.rows[0]?.value);
+    if (Number.isNaN(tokenRate) || Number.isNaN(gstPct)) {
+      return res.status(503).json({ error: 'Token rate or GST rate is not configured' });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT m.id, m.title, m.sold_price_coins, m.csr_pct, m.charity_key,
+              m.donation_confirmed_at, m.donation_reference, m.display_winner_name,
+              u.display_name, u.email,
+              COALESCE(o.created_at, m.won_at) AS sold_at
+       FROM merchandise m
+       LEFT JOIN users u ON u.id = m.winner_id
+       LEFT JOIN orders o ON o.merch_id = m.id AND o.user_id = m.winner_id
+       WHERE m.is_auction_item = TRUE AND m.auction_status = 'sold'
+         AND m.csr_pct IS NOT NULL AND m.sold_price_coins IS NOT NULL
+       ORDER BY COALESCE(o.created_at, m.won_at) DESC`
+    );
+
+    const months = {};
+    let outstandingTotal = 0;
+    let settledTotal     = 0;
+
+    for (const r of rows) {
+      const soldAt   = r.sold_at ? new Date(r.sold_at) : new Date();
+      const monthKey = `${soldAt.getFullYear()}-${String(soldAt.getMonth() + 1).padStart(2, '0')}`;
+      const grossInr = r.sold_price_coins * tokenRate;
+      const exGst    = grossInr / (1 + gstPct / 100);
+      const donation = Math.round(exGst * (parseFloat(r.csr_pct) / 100) * 100) / 100;
+      const settled  = !!r.donation_confirmed_at;
+
+      months[monthKey] ||= {
+        month: monthKey,
+        label: soldAt.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }),
+        charities: {}, outstanding: 0, settled: 0, salesCount: 0,
+      };
+      const M = months[monthKey];
+      M.salesCount += 1;
+      if (settled) { M.settled += donation; settledTotal += donation; }
+      else         { M.outstanding += donation; outstandingTotal += donation; }
+
+      const key = r.charity_key || 'unassigned';
+      M.charities[key] ||= { key, name: CHARITY_NAMES[key] || 'Not yet chosen', outstanding: 0, settled: 0, sales: [] };
+      const CH = M.charities[key];
+      if (settled) CH.settled += donation; else CH.outstanding += donation;
+      CH.sales.push({
+        id: r.id, title: r.title, soldPriceCoins: r.sold_price_coins,
+        csrPct: parseFloat(r.csr_pct), grossInr: Math.round(grossInr * 100) / 100,
+        exGstInr: Math.round(exGst * 100) / 100, donationInr: donation,
+        settled, reference: r.donation_reference,
+        confirmedAt: r.donation_confirmed_at,
+        buyer: r.display_winner_name ? (r.display_name || r.email) : null,
+        soldAt: r.sold_at,
+      });
+    }
+
+    const list = Object.values(months)
+      .map((m) => ({
+        ...m,
+        outstanding: Math.round(m.outstanding * 100) / 100,
+        settled:     Math.round(m.settled * 100) / 100,
+        charities:   Object.values(m.charities).map((c) => ({
+          ...c,
+          outstanding: Math.round(c.outstanding * 100) / 100,
+          settled:     Math.round(c.settled * 100) / 100,
+        })),
+      }))
+      .sort((a, b) => b.month.localeCompare(a.month));
+
+    res.json({
+      months: list,
+      tokenRate, gstPct,
+      outstandingTotal: Math.round(outstandingTotal * 100) / 100,
+      settledTotal:     Math.round(settledTotal * 100) / 100,
+    });
+  } catch (err) {
+    console.error('studio/donations error:', err);
+    res.status(500).json({ error: 'Failed to build the donation summary' });
+  }
+});
+
+// Posts a summary to the community. Deliberately takes the finished text rather
+// than generating it here — this is a public statement about money, and it can
+// not be unsent, so Jinal reads and edits it before it goes out.
+router.post('/donations/publish', async (req, res) => {
+  const { content } = req.body;
+  if (!content?.trim()) return res.status(400).json({ error: 'Nothing to publish' });
+  try {
+    await postSystemMessage(content.trim());
+    res.json({ ok: true, message: 'Posted to the community.' });
+  } catch (err) {
+    console.error('studio/donations/publish error:', err);
+    res.status(500).json({ error: 'Failed to publish' });
+  }
+});
+
+// ─────────────────────────────────────────────
 // EXTRAS (personalised request catalog)
 // ─────────────────────────────────────────────
 

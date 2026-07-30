@@ -20,6 +20,9 @@ export function Merch() {
   const [sales,   setSales]   = useState([]);
   const [tab,     setTab]     = useState('merch');   // 'merch' | 'outfits' | 'fulfilment'
   const [donationRef, setDonationRef] = useState({});
+  const [donations,   setDonations]   = useState(null);
+  const [draft,       setDraft]       = useState('');
+  const [publishing,  setPublishing]  = useState(false);
   const [imgFiles,    setImgFiles]    = useState([]);   // [{ file, preview }]
   const [editImages,  setEditImages]  = useState([]);   // [{ url }] or [{ file, preview }]
   const [imgUploading, setImgUploading] = useState(false);
@@ -42,6 +45,7 @@ export function Merch() {
       .then(([merchData, cfgData]) => {
         setItems(merchData.items || []);
         api.get('/api/studio/auction/fulfilment').then((d) => setSales(d.sales || [])).catch(() => {});
+        api.get('/api/studio/donations').then(setDonations).catch(() => {});
         const rate = parseFloat(cfgData.config?.token_rate_inr);
         if (Number.isNaN(rate)) setConfigErr(true); else setTokenRate(rate);
       })
@@ -167,6 +171,32 @@ export function Merch() {
   const soldOut    = merchItems.filter((i) => i.remaining <= 0);
   const pendingDonations = sales.filter((s) => !s.donation_confirmed_at).length;
 
+  const reloadDonations = () => api.get('/api/studio/donations').then(setDonations).catch(() => {});
+
+  const buildDraft = (month) => {
+    const rupees = (n) => `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+    const lines = month.charities
+      .filter((c) => c.outstanding + c.settled > 0)
+      .map((c) => `· ${c.name} — ${rupees(c.outstanding + c.settled)}`);
+    const total = month.outstanding + month.settled;
+    setDraft(
+      `💛 ${month.label} — where your Outfits purchases went\n\n` +
+      `${month.salesCount} piece${month.salesCount === 1 ? '' : 's'} found a new home this month, and a share of every sale goes to a charity chosen by the buyer.\n\n` +
+      lines.join('\n') +
+      `\n\nTotal donated: ${rupees(total)}\n\n` +
+      `Thank you for making this possible. — Jinal`
+    );
+  };
+
+  const publishSummary = async () => {
+    setError(''); setPublishing(true);
+    try {
+      const d = await api.post('/api/studio/donations/publish', { content: draft });
+      setSuccess(d.message);
+      setDraft('');
+    } catch (err) { setError(err.message); } finally { setPublishing(false); }
+  };
+
   const confirmDonation = async (saleId) => {
     setError('');
     try {
@@ -175,6 +205,7 @@ export function Merch() {
       });
       const d = await api.get('/api/studio/auction/fulfilment');
       setSales(d.sales || []);
+      reloadDonations();
       setSuccess('Donation recorded.');
     } catch (err) { setError(err.message); }
   };
@@ -253,7 +284,10 @@ export function Merch() {
         {[
           { key: 'merch',      label: `Merchandise (${merchItems.length})` },
           { key: 'outfits',    label: `Outfits (${outfits.length})` },
-          { key: 'fulfilment', label: `Fulfilment (${sales.length})${pendingDonations ? ` · ${pendingDonations} to donate` : ''}` },
+          { key: 'fulfilment', label: `Fulfilment (${sales.length})` },
+          { key: 'donations',  label: donations?.outstandingTotal
+              ? `Donations · ₹${Math.round(donations.outstandingTotal).toLocaleString('en-IN')} owed`
+              : 'Donations' },
         ].map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)}
             style={{
@@ -354,6 +388,101 @@ export function Merch() {
               </div>
             ))}
           </div>
+        </>
+      )}
+
+      {tab === 'donations' && (
+        <>
+          {!donations ? <T.muted>Loading donation summary…</T.muted> : (
+            <>
+              <div style={S.statsRow}>
+                <div style={S.statCard}>
+                  <div style={dLabel}>Owed right now</div>
+                  <div style={{ ...dValue, color: donations.outstandingTotal > 0 ? '#D9A45C' : colors.success }}>
+                    ₹{donations.outstandingTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  </div>
+                  <div style={dSub}>across all months, not yet marked donated</div>
+                </div>
+                <div style={S.statCard}>
+                  <div style={dLabel}>Already donated</div>
+                  <div style={dValue}>₹{donations.settledTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</div>
+                  <div style={dSub}>confirmed with a reference</div>
+                </div>
+                <div style={S.statCard}>
+                  <div style={dLabel}>Worked out at</div>
+                  <div style={{ ...dValue, fontSize: 22 }}>₹{donations.tokenRate}/token</div>
+                  <div style={dSub}>less {donations.gstPct}% GST · handling fee excluded</div>
+                </div>
+              </div>
+
+              {donations.months.length === 0 && <T.muted>No outfit sales with a charity share yet.</T.muted>}
+
+              {donations.months.map((month) => (
+                <Card key={month.month} style={{ marginBottom: 18 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                    <div>
+                      <T.sectionTitle>{month.label}</T.sectionTitle>
+                      <div style={S.rowSub}>{month.salesCount} sale{month.salesCount === 1 ? '' : 's'}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      {month.outstanding > 0 && (
+                        <div style={{ fontFamily: sans, fontSize: 18, color: '#D9A45C' }}>
+                          ₹{month.outstanding.toLocaleString('en-IN', { maximumFractionDigits: 0 })} to pay
+                        </div>
+                      )}
+                      {month.settled > 0 && (
+                        <div style={{ fontFamily: sans, fontSize: 12, color: colors.success, marginTop: 2 }}>
+                          ₹{month.settled.toLocaleString('en-IN', { maximumFractionDigits: 0 })} already sent
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {month.charities.map((c) => (
+                    <div key={c.key} style={charityBlock}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                        <span style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{c.name}</span>
+                        <span style={{ fontFamily: sans, fontSize: 14, color: c.outstanding > 0 ? '#D9A45C' : colors.success }}>
+                          ₹{(c.outstanding + c.settled).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          {c.outstanding > 0 ? '' : ' · sent'}
+                        </span>
+                      </div>
+                      {c.sales.map((s) => (
+                        <div key={s.id} style={saleLine}>
+                          {s.title} — {s.soldPriceCoins} tokens ({s.csrPct}%) ·
+                          ₹{s.grossInr.toLocaleString('en-IN', { maximumFractionDigits: 0 })} gross,
+                          ₹{s.exGstInr.toLocaleString('en-IN', { maximumFractionDigits: 0 })} ex-GST →
+                          <strong style={{ color: colors.text }}> ₹{s.donationInr.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</strong>
+                          {s.settled && <span style={{ color: colors.success }}> · sent{s.reference ? ` (${s.reference})` : ''}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+
+                  <button onClick={() => buildDraft(month)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', marginTop: 10 }}>
+                    Draft the community post
+                  </button>
+                </Card>
+              ))}
+
+              {draft && (
+                <Card>
+                  <T.sectionTitle>Community post — read before publishing</T.sectionTitle>
+                  <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 10, lineHeight: 1.6 }}>
+                    This goes out publicly and cannot be unsent. Edit anything you like first.
+                  </p>
+                  <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={12}
+                            style={{ ...S.input, width: '100%', fontFamily: sans, lineHeight: 1.6, resize: 'vertical' }} />
+                  <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+                    <button onClick={publishSummary} disabled={publishing} style={{ ...S.btn, opacity: publishing ? 0.5 : 1 }}>
+                      {publishing ? 'Posting…' : 'Publish to community'}
+                    </button>
+                    <button onClick={() => setDraft('')} style={S.ghostBtn}>Discard</button>
+                  </div>
+                </Card>
+              )}
+            </>
+          )}
         </>
       )}
 
@@ -513,6 +642,11 @@ function moveIn(list, setList, from, to) {
   setList(next);
 }
 
+const dLabel       = { fontFamily: "'DM Mono', monospace", fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 };
+const dValue       = { fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 30, color: colors.text, fontWeight: 300 };
+const dSub         = { fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 11, color: colors.muted, marginTop: 6, lineHeight: 1.5 };
+const charityBlock = { borderTop: `1px solid ${colors.border}`, paddingTop: 10, marginTop: 10 };
+const saleLine     = { fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 11, color: colors.muted, marginTop: 5, lineHeight: 1.6 };
 const photoCount = { position: 'absolute', bottom: -4, right: -4, background: colors.accent, color: '#1A1714', fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 9, fontWeight: 700, borderRadius: 999, padding: '1px 5px' };
 const tinyBtn = { background: 'transparent', border: `1px solid ${colors.border}`, color: colors.muted, fontSize: 10, lineHeight: 1, padding: '2px 5px', borderRadius: 3, cursor: 'pointer' };
 
