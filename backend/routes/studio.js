@@ -528,27 +528,45 @@ router.get('/merch', async (req, res) => {
 });
 
 router.post('/merch', async (req, res) => {
-  const { title, description, price_coins, total_stock, visible = false, img_key } = req.body;
+  const { title, description, price_coins, total_stock, visible = false, img_key,
+          is_auction_item = false, csr_pct } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
   if (!price_coins)   return res.status(400).json({ error: 'Price is required' });
-  if (!total_stock)   return res.status(400).json({ error: 'Stock quantity is required' });
+
+  const isAuction = !!is_auction_item;
+  // One-of-one by definition, so stock is fixed at 1 and never asked for.
+  const stock = isAuction ? 1 : parseInt(total_stock);
+  if (!isAuction && !stock) return res.status(400).json({ error: 'Stock quantity is required' });
+
+  const csr = isAuction ? parseFloat(csr_pct) : null;
+  if (isAuction && (Number.isNaN(csr) || csr < 0 || csr > 100)) {
+    return res.status(400).json({ error: 'Charity percentage must be between 0 and 100' });
+  }
+
   try {
     const { rows } = await pool.query(
-      `INSERT INTO merchandise (title, description, price_coins, total_stock, remaining, visible, img_key)
-       VALUES ($1, $2, $3, $4, $4, $5, $6) RETURNING *`,
-      [title.trim(), description || '', price_coins, total_stock, visible, img_key || null]
+      `INSERT INTO merchandise
+         (title, description, price_coins, total_stock, remaining, visible, img_key,
+          is_auction_item, csr_pct, auction_status)
+       VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [title.trim(), description || '', price_coins, stock, visible, img_key || null,
+       isAuction, csr, isAuction ? 'queued' : null]
     );
-    if (visible) {
+    if (visible && !isAuction) {
       postSystemMessage(`🛍️ Jinal just dropped "${title.trim()}"! Check the Shop!`);
+    }
+    if (visible && isAuction) {
+      postSystemMessage(`👗 A new Shoot Wardrobe piece just joined the queue: "${title.trim()}"`);
     }
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
+    console.error('studio/merch create error:', err);
     res.status(500).json({ error: 'Failed to create merchandise' });
   }
 });
 
 router.patch('/merch/:id', async (req, res) => {
-  const { title, description, price_coins, remaining, visible, img_key } = req.body;
+  const { title, description, price_coins, remaining, visible, img_key, csr_pct } = req.body;
   try {
     const { rows: currentRows } = await pool.query(
       `SELECT title, visible FROM merchandise WHERE id = $1`, [req.params.id]
@@ -563,9 +581,11 @@ router.patch('/merch/:id', async (req, res) => {
          price_coins = COALESCE($3, price_coins),
          remaining   = COALESCE($4, remaining),
          visible     = COALESCE($5, visible),
-         img_key     = COALESCE($6, img_key)
-       WHERE id = $7 RETURNING *`,
-      [title, description, price_coins, remaining, visible, img_key, req.params.id]
+         img_key     = COALESCE($6, img_key),
+         csr_pct     = COALESCE($7, csr_pct)
+       WHERE id = $8 RETURNING *`,
+      [title, description, price_coins, remaining, visible, img_key,
+       csr_pct === undefined || csr_pct === '' ? null : parseFloat(csr_pct), req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Item not found' });
 
@@ -576,6 +596,52 @@ router.patch('/merch/:id', async (req, res) => {
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update merchandise' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// AUCTION FULFILMENT
+// ─────────────────────────────────────────────
+
+// Everything sold from the Shoot Wardrobe, with who bought it, where it goes, and
+// which charity is owed a share — the working list for actually shipping and donating.
+router.get('/auction/fulfilment', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT m.id, m.title, m.img_key, m.price_coins, m.sold_price_coins, m.sold_via,
+              m.csr_pct, m.charity_key, m.display_winner_name, m.donation_confirmed_at,
+              m.won_at, m.auction_status,
+              u.email, u.display_name,
+              o.id AS order_id, o.shipping_address, o.coins_charged, o.created_at AS ordered_at
+       FROM merchandise m
+       LEFT JOIN users u ON u.id = m.winner_id
+       LEFT JOIN orders o ON o.merch_id = m.id AND o.user_id = m.winner_id
+       WHERE m.is_auction_item = TRUE AND m.auction_status = 'sold'
+       ORDER BY o.created_at DESC NULLS LAST`
+    );
+    res.json({ sales: rows });
+  } catch (err) {
+    console.error('studio/auction/fulfilment error:', err);
+    res.status(500).json({ error: 'Failed to load fulfilment queue' });
+  }
+});
+
+// Records that the donation for a sale has actually been made.
+router.post('/auction/:id/donation-confirmed', async (req, res) => {
+  const { reference } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE merchandise
+       SET donation_confirmed_at = NOW(),
+           donation_reference = COALESCE($1, donation_reference)
+       WHERE id = $2 AND is_auction_item = TRUE RETURNING id, title, donation_confirmed_at`,
+      [reference?.trim() || null, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Sale not found' });
+    res.json({ ok: true, sale: rows[0] });
+  } catch (err) {
+    console.error('studio/auction/donation error:', err);
+    res.status(500).json({ error: 'Failed to record donation' });
   }
 });
 

@@ -16,7 +16,10 @@ export function Merch() {
   const [tokenRate, setTokenRate] = useState(null);
   const [loading,   setLoading]   = useState(true);
   const [configErr, setConfigErr] = useState(false);
-  const [form,    setForm]    = useState({ title: '', description: '', price_coins: '', total_stock: '', visible: false });
+  const [form,    setForm]    = useState({ title: '', description: '', price_coins: '', total_stock: '', visible: false, is_auction_item: false, csr_pct: '' });
+  const [sales,   setSales]   = useState([]);
+  const [tab,     setTab]     = useState('merch');   // 'merch' | 'outfits' | 'fulfilment'
+  const [donationRef, setDonationRef] = useState({});
   const [imgFile,    setImgFile]    = useState(null);
   const [imgPreview, setImgPreview] = useState('');
   const [imgUploading, setImgUploading] = useState(false);
@@ -40,6 +43,7 @@ export function Merch() {
     ])
       .then(([merchData, cfgData]) => {
         setItems(merchData.items || []);
+        api.get('/api/studio/auction/fulfilment').then((d) => setSales(d.sales || [])).catch(() => {});
         const rate = parseFloat(cfgData.config?.token_rate_inr);
         if (Number.isNaN(rate)) setConfigErr(true); else setTokenRate(rate);
       })
@@ -65,15 +69,17 @@ export function Merch() {
         setImgUploading(false);
       }
       const data = await api.post('/api/studio/merch', {
-        title:       form.title,
-        description: form.description,
-        price_coins: parseInt(form.price_coins) || 0,
-        total_stock: parseInt(form.total_stock) || 0,
-        visible:     form.visible,
-        img_key:     imgKey,
+        title:           form.title,
+        description:     form.description,
+        price_coins:     parseInt(form.price_coins) || 0,
+        total_stock:     form.is_auction_item ? 1 : (parseInt(form.total_stock) || 0),
+        visible:         form.visible,
+        img_key:         imgKey,
+        is_auction_item: form.is_auction_item,
+        csr_pct:         form.is_auction_item ? parseFloat(form.csr_pct) : undefined,
       });
       setItems((prev) => [data.item, ...prev]);
-      setForm({ title: '', description: '', price_coins: '', total_stock: '', visible: false });
+      setForm({ title: '', description: '', price_coins: '', total_stock: '', visible: false, is_auction_item: false, csr_pct: '' });
       setImgFile(null); setImgPreview('');
       setSuccess('Item created.');
     } catch (err) {
@@ -141,8 +147,23 @@ export function Merch() {
     return <div style={S.error}>Could not load the current token rate, so prices cannot be shown. Refresh to try again.</div>;
   }
 
-  const inStock  = items.filter((i) => i.remaining > 0);
-  const soldOut  = items.filter((i) => i.remaining <= 0);
+  const merchItems = items.filter((i) => !i.is_auction_item);
+  const outfits    = items.filter((i) =>  i.is_auction_item);
+  const inStock    = merchItems.filter((i) => i.remaining > 0);
+  const soldOut    = merchItems.filter((i) => i.remaining <= 0);
+  const pendingDonations = sales.filter((s) => !s.donation_confirmed_at).length;
+
+  const confirmDonation = async (saleId) => {
+    setError('');
+    try {
+      await api.post(`/api/studio/auction/${saleId}/donation-confirmed`, {
+        reference: donationRef[saleId]?.trim() || undefined,
+      });
+      const d = await api.get('/api/studio/auction/fulfilment');
+      setSales(d.sales || []);
+      setSuccess('Donation recorded.');
+    } catch (err) { setError(err.message); }
+  };
 
   return (
     <div>
@@ -168,21 +189,158 @@ export function Merch() {
             onChange={(v) => setForm({ ...form, price_coins: v })}
             tokenRateInr={tokenRate}
           />
-          <Field label="Stock quantity">
-            <input style={S.input} type="number" min={1} value={form.total_stock} onChange={(e) => setForm({ ...form, total_stock: e.target.value })} placeholder="e.g. 50" />
-          </Field>
+          {form.is_auction_item ? (
+            <Field label="Charity share (%)">
+              <input style={S.input} type="number" min={0} max={100} step="0.5"
+                     value={form.csr_pct}
+                     onChange={(e) => setForm({ ...form, csr_pct: e.target.value })}
+                     placeholder="e.g. 20" />
+            </Field>
+          ) : (
+            <Field label="Stock quantity">
+              <input style={S.input} type="number" min={1} value={form.total_stock} onChange={(e) => setForm({ ...form, total_stock: e.target.value })} placeholder="e.g. 50" />
+            </Field>
+          )}
         </div>
+
+        <label style={auctionToggle}>
+          <input type="checkbox" checked={form.is_auction_item}
+                 onChange={(e) => setForm({ ...form, is_auction_item: e.target.checked })} />
+          <span>
+            <strong style={{ color: colors.text }}>This is a one-of-one Outfit</strong>
+            <span style={{ display: 'block', fontSize: 11, marginTop: 2 }}>
+              Shoot-worn, quantity 1, sold through the Shoot Wardrobe with a share to charity.
+              It joins the auction queue rather than the normal shop grid.
+            </span>
+          </span>
+        </label>
         <div style={{ display: 'flex', gap: 12, marginTop: 14, alignItems: 'center' }}>
           <label style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: colors.muted, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
             <input type="checkbox" checked={form.visible} onChange={(e) => setForm({ ...form, visible: e.target.checked })} />
             Publish immediately
           </label>
-          <button onClick={handleCreate} disabled={saving || !form.title.trim() || !form.price_coins} style={{ ...S.btn, opacity: (saving || !form.title.trim() || !form.price_coins) ? 0.5 : 1 }}>
-            {saving ? 'Creating…' : 'Add item'}
+          <button onClick={handleCreate}
+                  disabled={saving || !form.title.trim() || !form.price_coins || (form.is_auction_item && form.csr_pct === '')}
+                  style={{ ...S.btn, opacity: (saving || !form.title.trim() || !form.price_coins || (form.is_auction_item && form.csr_pct === '')) ? 0.5 : 1 }}>
+            {saving ? 'Creating…' : form.is_auction_item ? 'Add to wardrobe queue' : 'Add item'}
           </button>
         </div>
       </Card>
 
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+        {[
+          { key: 'merch',      label: `Merchandise (${merchItems.length})` },
+          { key: 'outfits',    label: `Outfits (${outfits.length})` },
+          { key: 'fulfilment', label: `Fulfilment (${sales.length})${pendingDonations ? ` · ${pendingDonations} to donate` : ''}` },
+        ].map((t) => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            style={{
+              background: tab === t.key ? 'rgba(193,125,74,0.12)' : 'transparent',
+              border:     tab === t.key ? '1px solid rgba(193,125,74,0.3)' : `1px solid ${colors.border}`,
+              color:      tab === t.key ? colors.accent : colors.muted,
+              fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12,
+              padding: '6px 14px', borderRadius: 999, cursor: 'pointer',
+            }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'outfits' && (
+        <>
+          <T.sectionTitle>Shoot Wardrobe ({outfits.length})</T.sectionTitle>
+          <div style={{ display: 'grid', gap: 12, marginBottom: 32 }}>
+            {outfits.length === 0 && <T.muted>No outfits listed yet. Tick "This is a one-of-one Outfit" above to add one.</T.muted>}
+            {outfits.map((item) => (
+              <div key={item.id} style={S.card}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  {item.img_key && <img src={item.img_key} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}` }} />}
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <div style={S.rowTitle}>{item.title}</div>
+                    <div style={S.rowSub}>
+                      Listed at {item.price_coins} tokens (₹{(item.price_coins * tokenRate).toLocaleString('en-IN')})
+                      {item.csr_pct != null && ` · ${item.csr_pct}% to charity`}
+                    </div>
+                    {item.auction_status === 'active' && (
+                      <div style={{ ...S.rowSub, color: colors.accent, marginTop: 4 }}>
+                        Live now · {item.current_highest_bid ? `highest bid ${item.current_highest_bid}` : 'no bids yet'}
+                      </div>
+                    )}
+                    {item.auction_status === 'awaiting_payment' && (
+                      <div style={{ ...S.rowSub, color: '#D9A45C', marginTop: 4 }}>Won — awaiting claim</div>
+                    )}
+                    {item.went_unsold_at && item.auction_status === 'queued' && (
+                      <div style={{ ...S.rowSub, marginTop: 4 }}>Cooling off since {new Date(item.went_unsold_at).toLocaleDateString()}</div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 11, color: colors.muted, textTransform: 'capitalize' }}>
+                      {item.auction_status || 'queued'}
+                    </span>
+                    <button onClick={() => startEdit(item)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Edit</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {tab === 'fulfilment' && (
+        <>
+          <T.sectionTitle>Sold outfits ({sales.length})</T.sectionTitle>
+          <div style={{ display: 'grid', gap: 12, marginBottom: 32 }}>
+            {sales.length === 0 && <T.muted>Nothing sold yet.</T.muted>}
+            {sales.map((s) => {
+              const ship = typeof s.shipping_address === 'string' ? JSON.parse(s.shipping_address || '{}') : (s.shipping_address || {});
+              return (
+                <div key={s.id} style={S.card}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 220 }}>
+                      <div style={S.rowTitle}>{s.title}</div>
+                      <div style={S.rowSub}>
+                        {s.sold_price_coins} tokens via {s.sold_via === 'bid' ? 'winning bid' : 'buy now'} ·{' '}
+                        {s.display_name || s.email}
+                      </div>
+                      {ship.name && (
+                        <div style={{ ...S.rowSub, marginTop: 6, lineHeight: 1.6 }}>
+                          {ship.name} · {ship.phone}<br />
+                          {ship.line1}, {ship.city}, {ship.state} {ship.pincode}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ minWidth: 220 }}>
+                      <div style={{ ...S.rowSub, color: colors.accent }}>
+                        {s.csr_pct != null ? `${s.csr_pct}% to ` : 'Charity: '}{s.charity_key || '—'}
+                      </div>
+                      {s.donation_confirmed_at ? (
+                        <div style={{ ...S.rowSub, color: colors.success, marginTop: 6 }}>
+                          Donated {new Date(s.donation_confirmed_at).toLocaleDateString()}
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                          <input
+                            value={donationRef[s.id] || ''}
+                            onChange={(e) => setDonationRef({ ...donationRef, [s.id]: e.target.value })}
+                            placeholder="Reference number"
+                            style={{ ...S.input, width: 150, padding: '5px 10px', fontSize: 11 }}
+                          />
+                          <button onClick={() => confirmDonation(s.id)} style={{ ...S.btn, fontSize: 11, padding: '5px 10px' }}>
+                            Mark donated
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {tab === 'merch' && <>
       {/* In stock items */}
       <T.sectionTitle>In stock ({inStock.length})</T.sectionTitle>
       <div style={{ display: 'grid', gap: 12, marginBottom: 32 }}>
@@ -229,9 +387,12 @@ export function Merch() {
           />
         ))}
       </div>
+      </>}
     </div>
   );
 }
+
+const auctionToggle = { display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 14, padding: '12px 14px', background: 'rgba(193,125,74,0.05)', border: '1px solid rgba(193,125,74,0.2)', borderRadius: 8, fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: '#9B8F83', cursor: 'pointer', lineHeight: 1.5 };
 
 function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, onCancelEdit, onUpdate, onRestock, editImgRef, editImgPreview, handleEditImgPick, tokenRate }) {
   return (
