@@ -8,6 +8,8 @@ const artistOnly = require('../middleware/artistOnly');
 const { postSystemMessage } = require('./community');
 const { pushToUser } = require('./push');
 const { applyBlock, liftBlock, setMuted, logModerationAction } = require('../lib/moderation');
+const { notifyArtist } = require('../lib/notify');
+const { grantGiftedTokens, refundByRelated } = require('../lib/tokens');
 
 router.use(authMid, artistOnly);
 
@@ -152,23 +154,28 @@ router.post('/grant-tokens', async (req, res) => {
       return res.status(404).json({ error: 'No account found for this email' });
     }
     const userId = rows[0].id;
-    await client.query(`UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`, [amount, userId]);
-    await client.query(
-      `INSERT INTO coin_ledger (user_id, type, direction, amount, label)
-       VALUES ($1, 'grant', 'credit', $2, $3)`,
-      [userId, amount, reason || 'Token grant from Jinal']
-    );
+    // A gift goes into the gifted pot: spendable on messages and content, expiring,
+    // and never usable for merchandise, outfits, calls or membership. Crediting
+    // coin_balance here would quietly hand out purchased-equivalent tokens.
+    const grant = await grantGiftedTokens(client, {
+      userId,
+      amount,
+      source: 'artist_gift',
+      note:   reason || null,
+      label:  reason || 'Token gift from Jinal',
+    });
     await client.query(
       `INSERT INTO artist_notifications (type, fan_id, payload)
        VALUES ('token_grant', $1, $2)`,
       [userId, JSON.stringify({ amount, reason })]
     );
     await client.query('COMMIT');
-    res.json({ ok: true, message: `${amount} tokens sent to ${email}` });
+    const expiryDate = new Date(grant.expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    res.json({ ok: true, message: `${amount} gifted tokens sent to ${email} — they expire on ${expiryDate}` });
 
     pushToUser(userId, {
       title: 'Jinal sent you tokens',
-      body:  `${amount} tokens have been added to your balance.`,
+      body:  `${amount} gifted tokens added — use them on messages and content before ${expiryDate}.`,
       url:   '/platform/coins',
       tag:   'grant',
     }).catch((e) => console.error('Grant push failed:', e.message));
@@ -624,15 +631,13 @@ router.patch('/calls/:id', async (req, res) => {
     const isNewRejection = status === 'rejected' && current.status !== 'rejected';
 
     if (isNewRejection) {
-      await client.query(
-        `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
-        [current.coins_charged, current.user_id]
-      );
-      await client.query(
-        `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-         VALUES ($1, 'call_refund', 'credit', $2, $3, $4)`,
-        [current.user_id, current.coins_charged, `Refund: ${current.call_type} call declined`, current.id]
-      );
+      await refundByRelated(client, {
+        userId:     current.user_id,
+        type:       'call_charge',
+        relatedId:  current.id,
+        label:      `Refund: ${current.call_type} call declined`,
+        refundType: 'call_refund',
+      });
       await client.query(
         `INSERT INTO artist_notifications (type, fan_id, payload)
          VALUES ('call_rejected', $1, $2)`,
@@ -687,15 +692,13 @@ router.patch('/requests/:id', async (req, res) => {
     const isNewRejection = status === 'rejected' && current.status !== 'rejected';
 
     if (isNewRejection) {
-      await client.query(
-        `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
-        [current.coins_charged, current.user_id]
-      );
-      await client.query(
-        `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-         VALUES ($1, 'request_refund', 'credit', $2, $3, $4)`,
-        [current.user_id, current.coins_charged, `Refund: ${current.type} request declined`, current.id]
-      );
+      await refundByRelated(client, {
+        userId:     current.user_id,
+        type:       'custom_request',
+        relatedId:  current.id,
+        label:      `Refund: ${current.type} request declined`,
+        refundType: 'request_refund',
+      });
       await client.query(
         `INSERT INTO artist_notifications (type, fan_id, payload)
          VALUES ('request_rejected', $1, $2)`,
@@ -757,10 +760,13 @@ router.post('/requests/:id/counter', async (req, res) => {
       // Auto-applies — strictly fan-favorable, no confirmation needed
       const refundAmount = current.coins_charged - price;
       if (refundAmount > 0) {
+        // Only part of the original spend comes back, so this cannot go through
+        // refundByRelated, which reverses a whole transaction. Custom requests are
+        // always paid for with purchased tokens, so the refund is purchased too.
         await client.query(`UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`, [refundAmount, current.user_id]);
         await client.query(
-          `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-           VALUES ($1, 'request_refund', 'credit', $2, $3, $4)`,
+          `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id, from_gifted, from_purchased)
+           VALUES ($1, 'request_refund', 'credit', $2, $3, $4, 0, $2)`,
           [current.user_id, refundAmount, `Price adjusted for: ${current.topic}`, current.id]
         );
       }
