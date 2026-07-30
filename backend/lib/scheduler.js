@@ -5,6 +5,7 @@
 const cron    = require('node-cron');
 const pool    = require('../db/pool');
 const { notifyArtist } = require('./notify');
+const { refundByRelated } = require('./tokens');
 const { pushToUser } = require('../routes/push');
 const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 
@@ -88,15 +89,13 @@ async function checkNoShows() {
     for (const call of rows) {
       await client.query('BEGIN');
       try {
-        await client.query(
-          `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
-          [call.coins_charged, call.user_id]
-        );
-        await client.query(
-          `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-           VALUES ($1, 'call_refund', 'credit', $2, $3, $4)`,
-          [call.user_id, call.coins_charged, `Refund: Jinal was unavailable for scheduled call`, call.id]
-        );
+        await refundByRelated(client, {
+          userId:     call.user_id,
+          type:       'call_charge',
+          relatedId:  call.id,
+          label:      'Refund: Jinal was unavailable for scheduled call',
+          refundType: 'call_refund',
+        });
         await client.query(
           `UPDATE call_requests SET status = 'rejected', rejection_reason = $1 WHERE id = $2`,
           ['Jinal was unavailable due to unavoidable circumstances. Your tokens have been refunded automatically.', call.id]
@@ -178,15 +177,13 @@ async function checkMissedCalls() {
     for (const call of rows) {
       try {
         await client.query('BEGIN');
-        await client.query(
-          `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
-          [call.coins_charged, call.user_id]
-        );
-        await client.query(
-          `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-           VALUES ($1, 'call_refund', 'credit', $2, $3, $4)`,
-          [call.user_id, call.coins_charged, 'Refund: call not answered in time', call.id]
-        );
+        await refundByRelated(client, {
+          userId:     call.user_id,
+          type:       'call_charge',
+          relatedId:  call.id,
+          label:      'Refund: call not answered in time',
+          refundType: 'call_refund',
+        });
         await client.query(
           `UPDATE call_requests SET status = 'missed', rejection_reason = $1 WHERE id = $2`,
           ['No answer — the call was not picked up in time. Your tokens have been refunded automatically.', call.id]

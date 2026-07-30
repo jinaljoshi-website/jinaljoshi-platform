@@ -7,6 +7,7 @@ const artistOnly = require('../middleware/artistOnly');
 const { notifyArtist } = require('../lib/notify');
 const { pushToUser } = require('./push');
 const { getCallRingWindowSeconds } = require('../lib/config');
+const { refundByRelated } = require('../lib/tokens');
 
 const MAX_NEGOTIATION_ROUND = 4;
 
@@ -155,15 +156,13 @@ router.post('/:id/decline', authMid, async (req, res) => {
     const declinedBy = req.user.isArtist ? 'Jinal' : 'The fan';
     const reason = `${declinedBy} was unable to answer.`;
 
-    await client.query(
-      `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
-      [call.coins_charged, call.user_id]
-    );
-    await client.query(
-      `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-       VALUES ($1, 'call_refund', 'credit', $2, $3, $4)`,
-      [call.user_id, call.coins_charged, `Refund: call declined`, call.id]
-    );
+    await refundByRelated(client, {
+      userId:     call.user_id,
+      type:       'call_charge',
+      relatedId:  call.id,
+      label:      'Refund: call declined',
+      refundType: 'call_refund',
+    });
     await client.query(
       `UPDATE call_requests SET status = 'missed', rejection_reason = $1 WHERE id = $2`,
       [reason, call.id]
@@ -243,15 +242,13 @@ router.post('/:id/artist-respond', authMid, artistOnly, async (req, res) => {
     }
 
     if (action === 'reject') {
-      await client.query(
-        `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
-        [call.coins_charged, call.user_id]
-      );
-      await client.query(
-        `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-         VALUES ($1, 'call_refund', 'credit', $2, $3, $4)`,
-        [call.user_id, call.coins_charged, `Refund: call declined`, call.id]
-      );
+      await refundByRelated(client, {
+        userId:     call.user_id,
+        type:       'call_charge',
+        relatedId:  call.id,
+        label:      'Refund: call declined by Jinal',
+        refundType: 'call_refund',
+      });
       await client.query(
         `UPDATE call_requests SET status = 'rejected', rejection_reason = $1 WHERE id = $2`,
         [reason || 'Declined by Jinal.', call.id]

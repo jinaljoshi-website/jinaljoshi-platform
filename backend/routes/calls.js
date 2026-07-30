@@ -8,6 +8,7 @@ const { postSystemMessage } = require('./community');
 const { getConfigNumber, getDiscountForTier, getGuestMultiplier, getCallMinLeadHours, getCallRingWindowSeconds, getDndEnabled } = require('../lib/config');
 const { assertNotBlocked, assertNotMuted } = require('../lib/moderation');
 const { roundTokensUp } = require('../lib/pricing');
+const { spendTokens, refundByRelated } = require('../lib/tokens');
 
 const MAX_NEGOTIATION_ROUND = 4;
 
@@ -184,26 +185,24 @@ router.post('/book', authMid, async (req, res) => {
 
     const totalCost = perMin * durationMinutes;
 
-    if (user.coin_balance < totalCost) {
-      await client.query('ROLLBACK');
-      return res.status(402).json({
-        error:     'INSUFFICIENT_TOKENS',
-        message:   `This call costs ${totalCost} tokens. You have ${user.coin_balance}.`,
-        required:  totalCost,
-        available: user.coin_balance,
-        shortBy:   totalCost - user.coin_balance,
+    // Calls are Jinal's time, so they must be paid for with purchased tokens.
+    // Gifted credit is for messages and content only.
+    let spend;
+    try {
+      spend = await spendTokens(client, {
+        userId:      req.user.userId,
+        amount:      totalCost,
+        type:        'call_charge',
+        label:       `${callType} call — ${durationMinutes} min`,
+        allowGifted: false,
       });
+    } catch (err) {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
+        await client.query('ROLLBACK');
+        return res.status(402).json(err.httpBody);
+      }
+      throw err;
     }
-
-    await client.query(
-      `UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`,
-      [totalCost, req.user.userId]
-    );
-    await client.query(
-      `INSERT INTO coin_ledger (user_id, type, direction, amount, label)
-       VALUES ($1, 'call_charge', 'debit', $2, $3)`,
-      [req.user.userId, totalCost, `${callType} call — ${durationMinutes} min`]
-    );
 
     let callRow;
 
@@ -245,6 +244,10 @@ router.post('/book', authMid, async (req, res) => {
       );
       callRow = rows[0];
     }
+
+    // The ledger row is written before the call exists, so link it now — refunds
+    // look the original spend up by call id.
+    await client.query(`UPDATE coin_ledger SET related_id = $1 WHERE id = $2`, [callRow.id, spend.ledgerId]);
 
     await client.query(
       `INSERT INTO artist_notifications (type, fan_id, payload)
@@ -334,15 +337,13 @@ router.post('/:id/respond', authMid, async (req, res) => {
     }
 
     if (action === 'reject') {
-      await client.query(
-        `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
-        [call.coins_charged, call.user_id]
-      );
-      await client.query(
-        `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-         VALUES ($1, 'call_refund', 'credit', $2, $3, $4)`,
-        [call.user_id, call.coins_charged, `Refund: proposed call time declined`, call.id]
-      );
+      await refundByRelated(client, {
+        userId:     call.user_id,
+        type:       'call_charge',
+        relatedId:  call.id,
+        label:      'Refund: proposed call time declined',
+        refundType: 'call_refund',
+      });
       await client.query(
         `UPDATE call_requests SET status = 'rejected', rejection_reason = $1 WHERE id = $2`,
         ['Fan declined the proposed time.', call.id]

@@ -182,6 +182,21 @@ async function refundLedgerEntry(client, { ledgerId, label, type = 'refund' }) {
   return { fromGifted, fromPurchased, userId: original.user_id, amount: original.amount };
 }
 
+// Most refunds start from the thing being refunded — a call, a request, an order —
+// rather than a ledger id. This finds the original spend for that thing and reverses
+// it, so callers never have to store ledger ids alongside their own records.
+async function refundByRelated(client, { userId, type, relatedId, label, refundType = 'refund' }) {
+  const { rows } = await client.query(
+    `SELECT id FROM coin_ledger
+     WHERE user_id = $1 AND type = $2 AND related_id = $3
+       AND direction = 'debit' AND refunded_at IS NULL
+     ORDER BY created_at DESC LIMIT 1`,
+    [userId, type, relatedId]
+  );
+  if (!rows.length) return null;   // nothing to reverse — already refunded, or never charged
+  return refundLedgerEntry(client, { ledgerId: rows[0].id, label, type: refundType });
+}
+
 module.exports = {
   GIFT_ELIGIBLE,
   giftEligible,
@@ -189,4 +204,5 @@ module.exports = {
   spendTokens,
   grantGiftedTokens,
   refundLedgerEntry,
+  refundByRelated,
 };
