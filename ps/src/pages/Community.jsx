@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { C, F } from '../tokens';
 import { api, getUser } from '../api';
+import { useNavigate } from 'react-router-dom';
 
 const ARTIST_ID = import.meta.env.VITE_ARTIST_USER_ID;
 
@@ -17,6 +18,9 @@ export default function Community() {
   const [error,   setError]   = useState('');
   const [communityBg, setCommunityBg] = useState('');
   const [hideSystemPosts, setHideSystemPosts] = useState(false);
+  const [isMember,      setIsMember]      = useState(true);
+  const [freeRemaining, setFreeRemaining] = useState(null);
+  const navigate = useNavigate();
   const [reportingId, setReportingId] = useState(null);
   const [reportReason, setReportReason] = useState('');
   const [reportSending, setReportSending] = useState(false);
@@ -85,6 +89,10 @@ export default function Community() {
     .then((d) => {
       setCommunityBg(d.communityBg || '');
       setHideSystemPosts(!!d.hideSystemPosts);
+      // Members post without limit. Guests get a daily allowance, and should see
+      // it before they hit it rather than discovering it as a red error.
+      setIsMember(!!(d.isArtist || d.isMember || d.unlimited));
+      setFreeRemaining(typeof d.freeRemaining === 'number' ? d.freeRemaining : null);
     })
     .catch(() => {});
 
@@ -118,6 +126,7 @@ export default function Community() {
       setMessage('');
       isAtBottom.current = true;
       load(true);
+      loadStatus();
     } catch (err) {
       setError(err.message);
     } finally { setSending(false); }
@@ -219,6 +228,16 @@ export default function Community() {
       </div>
 
       <div style={{ ...composer, padding: '10px 16px', flexShrink: 0 }}>
+        {!isMember && freeRemaining !== null && (
+          <div style={guestNote}>
+            {freeRemaining > 0
+              ? `${freeRemaining} free message${freeRemaining === 1 ? '' : 's'} left today. `
+              : `You've used today's free message. `}
+            <span onClick={() => navigate('/platform/membership')} style={joinLink}>
+              Join a membership to post as much as you like →
+            </span>
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <textarea
             value={message}
@@ -230,8 +249,8 @@ export default function Community() {
           />
           <button
             onClick={handleSend}
-            disabled={sending || !message.trim()}
-            style={{ ...sendBtn, opacity: (sending || !message.trim()) ? 0.5 : 1 }}
+            disabled={sending || !message.trim() || (!isMember && freeRemaining === 0)}
+            style={{ ...sendBtn, opacity: (sending || !message.trim() || (!isMember && freeRemaining === 0)) ? 0.5 : 1 }}
           >
             {sending ? '…' : 'Send'}
           </button>
@@ -312,6 +331,8 @@ const systemBubble = { fontFamily: F.sans, fontSize: 12, color: C.muted, backgro
 const timestamp    = { fontFamily: F.sans, fontSize: 10, color: C.muted, marginTop: 3 };
 const errorBox     = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: 12, borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
 const successBox   = { background: 'rgba(100,160,100,0.1)', border: '1px solid rgba(100,160,100,0.3)', color: '#8FC88F', padding: 12, borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
+const guestNote    = { fontFamily: F.sans, fontSize: 12, color: C.muted, lineHeight: 1.6, marginBottom: 8 };
+const joinLink     = { color: C.accent, cursor: 'pointer', textDecoration: 'underline' };
 const composer     = { flexShrink: 0, borderTop: `1px solid ${C.border}`, background: 'rgba(13,12,10,1)' };
 const composerInput = { flex: 1, width: '100%', background: 'rgba(22,20,16,0.9)', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 16, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', lineHeight: 1.5, boxSizing: 'border-box' };
 const sendBtn      = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '10px 20px', borderRadius: 8, flexShrink: 0, cursor: 'pointer' };
