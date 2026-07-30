@@ -150,6 +150,7 @@ router.get('/status', authMid, async (req, res) => {
 
     const { rows: userRows } = await pool.query(
       `SELECT u.tier, u.membership_expires_at, u.membership_started_at, u.coin_balance, u.timezone,
+              u.display_name, u.email,
               fs.custom_chat_price, fs.custom_messages_per_token, fs.messages_since_charge,
               COALESCE(fs.can_send_media, FALSE) AS can_send_media,
               COALESCE(fs.personal_chat_bg, pc.value, '') AS chat_bg
@@ -264,6 +265,7 @@ router.post('/send', authMid, async (req, res) => {
 
     const { rows: userRows } = await client.query(
       `SELECT u.tier, u.membership_expires_at, u.membership_started_at, u.coin_balance, u.timezone,
+              u.display_name, u.email,
               fs.custom_chat_price, fs.custom_messages_per_token, fs.messages_since_charge,
               COALESCE(fs.can_send_media, FALSE) AS can_send_media
        FROM users u
@@ -377,9 +379,16 @@ router.post('/send', authMid, async (req, res) => {
     const { rows: dndCheckRows } = await pool.query(`SELECT value FROM platform_config WHERE key = 'dnd_chat_enabled'`);
     const chatDndActive = dndCheckRows[0]?.value === 'true';
     if (!chatDndActive) {
+      // Name the sender. "A supreme member sent you a message" tells Jinal nothing
+      // about who to reply to, and she cannot find out without opening every thread.
+      const fanLabel = user.display_name?.trim()
+        || user.email?.split('@')[0]
+        || (userTier === 'guest' ? 'A guest' : `A ${userTier} member`);
       notifyArtist({
-        title: 'New message',
-        body:  `A ${userTier === 'guest' ? 'guest' : userTier + ' member'} sent you a message`,
+        title: `${fanLabel} · ${userTier === 'guest' ? 'guest' : userTier}`,
+        body:  content?.trim()
+          ? (content.trim().length > 90 ? content.trim().slice(0, 90) + '…' : content.trim())
+          : 'Sent you media',
         url:   '/messages',
       });
     }
