@@ -3,8 +3,6 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { T, S, Card, Eyebrow, Field, TokenField, colors } from '../ui';
 
-const TOKEN_RATE = 66;
-
 async function uploadImage(file) {
   const { uploadUrl, publicUrl } = await api.post('/api/upload/presign', {
     filename: file.name, contentType: file.type, context: 'content',
@@ -14,8 +12,10 @@ async function uploadImage(file) {
 }
 
 export function Merch() {
-  const [items,   setItems]   = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [items,     setItems]     = useState([]);
+  const [tokenRate, setTokenRate] = useState(null);
+  const [loading,   setLoading]   = useState(true);
+  const [configErr, setConfigErr] = useState(false);
   const [form,    setForm]    = useState({ title: '', description: '', price_coins: '', total_stock: '', visible: false });
   const [imgFile,    setImgFile]    = useState(null);
   const [imgPreview, setImgPreview] = useState('');
@@ -30,8 +30,21 @@ export function Merch() {
   const imgRef = useRef(null);
   const editImgRef = useRef(null);
 
+  // The rupee figures shown here must match what fans are actually charged, so the
+  // rate comes from platform_config rather than a constant. Rendering waits for it —
+  // pricing merchandise against a stale rate is worse than a moment's delay.
   useEffect(() => {
-    api.get('/api/studio/merch').then((d) => setItems(d.items || [])).finally(() => setLoading(false));
+    Promise.all([
+      api.get('/api/studio/merch'),
+      api.get('/api/studio/config'),
+    ])
+      .then(([merchData, cfgData]) => {
+        setItems(merchData.items || []);
+        const rate = parseFloat(cfgData.config?.token_rate_inr);
+        if (Number.isNaN(rate)) setConfigErr(true); else setTokenRate(rate);
+      })
+      .catch(() => setConfigErr(true))
+      .finally(() => setLoading(false));
   }, []);
 
   const handleImgPick = (e) => {
@@ -124,6 +137,9 @@ export function Merch() {
   };
 
   if (loading) return <T.muted>Loading merchandise…</T.muted>;
+  if (configErr || tokenRate === null) {
+    return <div style={S.error}>Could not load the current token rate, so prices cannot be shown. Refresh to try again.</div>;
+  }
 
   const inStock  = items.filter((i) => i.remaining > 0);
   const soldOut  = items.filter((i) => i.remaining <= 0);
@@ -150,7 +166,7 @@ export function Merch() {
             label="Price (tokens)"
             value={form.price_coins}
             onChange={(v) => setForm({ ...form, price_coins: v })}
-            tokenRateInr={TOKEN_RATE}
+            tokenRateInr={tokenRate}
           />
           <Field label="Stock quantity">
             <input style={S.input} type="number" min={1} value={form.total_stock} onChange={(e) => setForm({ ...form, total_stock: e.target.value })} placeholder="e.g. 50" />
@@ -185,6 +201,7 @@ export function Merch() {
             editImgRef={editImgRef}
             editImgPreview={editImgPreview}
             handleEditImgPick={handleEditImgPick}
+            tokenRate={tokenRate}
           />
         ))}
       </div>
@@ -208,6 +225,7 @@ export function Merch() {
             editImgRef={editImgRef}
             editImgPreview={editImgPreview}
             handleEditImgPick={handleEditImgPick}
+            tokenRate={tokenRate}
           />
         ))}
       </div>
@@ -215,7 +233,7 @@ export function Merch() {
   );
 }
 
-function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, onCancelEdit, onUpdate, onRestock, editImgRef, editImgPreview, handleEditImgPick }) {
+function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, onCancelEdit, onUpdate, onRestock, editImgRef, editImgPreview, handleEditImgPick, tokenRate }) {
   return (
     <div style={{ ...S.card, ...(soldOut ? { border: '1px solid rgba(156,90,90,0.3)' } : {}) }}>
       {editing ? (
@@ -227,7 +245,7 @@ function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, 
             <Field label="Description">
               <input style={S.input} value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
             </Field>
-            <TokenField label="Price (tokens)" value={editForm.price_coins} onChange={(v) => setEditForm({ ...editForm, price_coins: v })} tokenRateInr={TOKEN_RATE} />
+            <TokenField label="Price (tokens)" value={editForm.price_coins} onChange={(v) => setEditForm({ ...editForm, price_coins: v })} tokenRateInr={tokenRate} />
             <Field label="Remaining stock">
               <input style={S.input} type="number" min={0} value={editForm.remaining} onChange={(e) => setEditForm({ ...editForm, remaining: e.target.value })} />
             </Field>
@@ -258,7 +276,7 @@ function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, 
             <div style={S.rowTitle}>{item.title}</div>
             {item.description && <div style={{ ...S.rowSub, marginBottom: 4 }}>{item.description}</div>}
             <div style={S.rowSub}>
-              {item.price_coins} tokens (₹{(item.price_coins * TOKEN_RATE).toLocaleString('en-IN')}) ·{' '}
+              {item.price_coins} tokens (₹{(item.price_coins * tokenRate).toLocaleString('en-IN')}) ·{' '}
               {soldOut ? <span style={{ color: '#D99A9A' }}>0/{item.total_stock} remaining</span> : `${item.remaining}/${item.total_stock} remaining`}
             </div>
           </div>
