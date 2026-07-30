@@ -125,7 +125,13 @@ export default function Outfits() {
             <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>
               incl. {data.handlingFee} handling &amp; packaging
             </span>
-            <button onClick={() => setCheckout({ item: myWin, mode: 'claim' })} style={primaryBtn}>Claim it</button>
+            <button
+              onClick={() => data.purchasedBalance >= myWin.claimPrice
+                ? setCheckout({ item: myWin, mode: 'claim' })
+                : setTopUp(myWin.claimPrice - data.purchasedBalance)}
+              style={primaryBtn}>
+              {data.purchasedBalance >= myWin.claimPrice ? 'Claim it' : 'Top up to claim'}
+            </button>
           </div>
         </div>
       )}
@@ -215,7 +221,11 @@ export default function Outfits() {
                         style={{ ...primaryBtn, opacity: (bidding || !bidAmount || (bidAmount + data.handlingFee > data.purchasedBalance && !consent)) ? 0.5 : 1 }}>
                   {bidding ? 'Placing…' : 'Place bid'}
                 </button>
-                <button onClick={() => setCheckout({ item: live, mode: 'buy' })} style={ghostBtn}>
+                <button
+                  onClick={() => data.purchasedBalance >= live.buyNowPrice + data.handlingFee
+                    ? setCheckout({ item: live, mode: 'buy' })
+                    : setTopUp(live.buyNowPrice + data.handlingFee - data.purchasedBalance)}
+                  style={ghostBtn}>
                   Buy now for {live.buyNowPrice}
                 </button>
               </div>
@@ -248,14 +258,18 @@ export default function Outfits() {
                   </div>
                   {!affordable && (
                     <div style={{ fontFamily: F.sans, fontSize: 11, color: '#D99A9A', marginBottom: 6 }}>
-                      Need {item.buyNowPrice + data.handlingFee - data.purchasedBalance} more tokens ·{' '}
-                      <button onClick={() => setTopUp(item.buyNowPrice + data.handlingFee - data.purchasedBalance)}
-                              style={inlineLink}>Top up</button>
+                      {item.buyNowPrice + data.handlingFee - data.purchasedBalance} tokens short
                     </div>
                   )}
-                  <button onClick={() => setCheckout({ item, mode: 'buy' })} disabled={!affordable}
-                          style={{ ...primaryBtn, opacity: affordable ? 1 : 0.5, marginTop: 'auto' }}>
-                    Buy now
+                  {/* Never a dead button. Short of tokens opens the top-up with the
+                      exact difference already filled in, rather than greying out and
+                      leaving the fan to work out what to do. */}
+                  <button
+                    onClick={() => affordable
+                      ? setCheckout({ item, mode: 'buy' })
+                      : setTopUp(item.buyNowPrice + data.handlingFee - data.purchasedBalance)}
+                    style={{ ...primaryBtn, marginTop: 'auto' }}>
+                    {affordable ? 'Buy now' : 'Top up to buy'}
                   </button>
                 </div>
               );

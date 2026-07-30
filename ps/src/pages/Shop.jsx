@@ -113,19 +113,22 @@ export default function Shop() {
               )}
               {!canAfford && !outOfStock && (
                 <div style={{ fontFamily: F.sans, fontSize: 11, color: '#D99A9A', marginBottom: 6 }}>
-                  Need {price - (data?.coinBalance || 0)} more tokens ·{' '}
-                  <button onClick={() => setTopUp(price)} style={{ background: 'none', border: 'none', color: C.accent, fontFamily: F.sans, fontSize: 11, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>Top up</button>
+                  {price - (data?.coinBalance || 0)} tokens short
                 </div>
               )}
               {isBought ? (
                 <div style={{ fontFamily: F.sans, fontSize: 13, color: '#8FC88F', padding: '8px 0' }}>✓ Order placed</div>
               ) : (
+                // Being short of tokens is not a dead end — it opens the top-up with the
+                // exact shortfall. Only genuinely unavailable items stay disabled.
                 <button
-                  onClick={() => setCheckout(item)}
-                  disabled={outOfStock || !canAfford || price === null}
-                  style={{ ...buyBtn, opacity: (outOfStock || !canAfford || price === null) ? 0.5 : 1, cursor: (outOfStock || !canAfford || price === null) ? 'default' : 'pointer', marginTop: 10 }}
+                  onClick={() => canAfford
+                    ? setCheckout(item)
+                    : setTopUp(price - (data?.coinBalance || 0))}
+                  disabled={outOfStock || price === null}
+                  style={{ ...buyBtn, opacity: (outOfStock || price === null) ? 0.5 : 1, cursor: (outOfStock || price === null) ? 'default' : 'pointer', marginTop: 10 }}
                 >
-                  {outOfStock ? 'Out of stock' : 'Buy now'}
+                  {outOfStock ? 'Out of stock' : canAfford ? 'Buy now' : 'Top up to buy'}
                 </button>
               )}
             </div>
