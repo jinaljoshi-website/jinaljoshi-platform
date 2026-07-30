@@ -194,9 +194,17 @@ router.post('/grant-tokens', async (req, res) => {
 router.get('/fans', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, email, display_name, tier, membership_expires_at, coin_balance, created_at,
-              is_muted, blocked_until, block_count
-       FROM users WHERE is_artist = FALSE ORDER BY created_at DESC`
+      `SELECT u.id, u.email, u.display_name, u.tier, u.membership_expires_at,
+              u.coin_balance, u.created_at, u.is_muted, u.blocked_until, u.block_count,
+              COALESCE((
+                SELECT SUM(g.remaining) FROM gifted_grants g
+                WHERE g.user_id = u.id AND g.remaining > 0 AND g.expires_at > NOW()
+              ), 0)::int AS gifted_balance,
+              (
+                SELECT MIN(g.expires_at) FROM gifted_grants g
+                WHERE g.user_id = u.id AND g.remaining > 0 AND g.expires_at > NOW()
+              ) AS gifted_expires_at
+       FROM users u WHERE u.is_artist = FALSE ORDER BY u.created_at DESC`
     );
     res.json({ fans: rows });
   } catch (err) {
