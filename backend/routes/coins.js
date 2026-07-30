@@ -241,6 +241,7 @@ router.post('/recharge/webhook', async (req, res) => {
 
   const event   = req.body;
   const payment = event?.payload?.payment?.entity;
+  console.log(`Razorpay webhook OK: ${event?.event} · payment ${payment?.id}`);
 
   if (event.event !== 'payment.captured' || !payment) {
     return res.json({ ok: true });
