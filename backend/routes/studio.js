@@ -518,18 +518,47 @@ router.post('/content/:id/delete', async (req, res) => {
 // MERCHANDISE
 // ─────────────────────────────────────────────
 
+// Replaces an item's photo set wholesale. The first image is also written back to
+// merchandise.img_key as the cover, so anything still reading that single column
+// keeps working rather than silently losing the picture.
+async function setMerchImages(client, merchId, urls) {
+  await client.query(`DELETE FROM merchandise_images WHERE merch_id = $1`, [merchId]);
+  const clean = (urls || []).filter(Boolean);
+  for (let i = 0; i < clean.length; i++) {
+    await client.query(
+      `INSERT INTO merchandise_images (merch_id, url, position) VALUES ($1, $2, $3)`,
+      [merchId, clean[i], i]
+    );
+  }
+  await client.query(`UPDATE merchandise SET img_key = $1 WHERE id = $2`, [clean[0] || null, merchId]);
+  return clean;
+}
+
+async function attachImages(items) {
+  if (!items.length) return items;
+  const { rows } = await pool.query(
+    `SELECT merch_id, url FROM merchandise_images
+     WHERE merch_id = ANY($1) ORDER BY merch_id, position ASC`,
+    [items.map((i) => i.id)]
+  );
+  const byItem = {};
+  rows.forEach((r) => { (byItem[r.merch_id] ||= []).push(r.url); });
+  return items.map((i) => ({ ...i, images: byItem[i.id] || (i.img_key ? [i.img_key] : []) }));
+}
+
 router.get('/merch', async (req, res) => {
   try {
     const { rows } = await pool.query(`SELECT * FROM merchandise ORDER BY created_at DESC`);
-    res.json({ items: rows });
+    res.json({ items: await attachImages(rows) });
   } catch (err) {
+    console.error('studio/merch error:', err);
     res.status(500).json({ error: 'Failed to load merchandise' });
   }
 });
 
 router.post('/merch', async (req, res) => {
   const { title, description, price_coins, total_stock, visible = false, img_key,
-          is_auction_item = false, csr_pct } = req.body;
+          is_auction_item = false, csr_pct, images } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
   if (!price_coins)   return res.status(400).json({ error: 'Price is required' });
 
@@ -543,30 +572,39 @@ router.post('/merch', async (req, res) => {
     return res.status(400).json({ error: 'Charity percentage must be between 0 and 100' });
   }
 
+  const photoList = Array.isArray(images) && images.length ? images : (img_key ? [img_key] : []);
+
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+    const { rows } = await client.query(
       `INSERT INTO merchandise
          (title, description, price_coins, total_stock, remaining, visible, img_key,
           is_auction_item, csr_pct, auction_status)
        VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [title.trim(), description || '', price_coins, stock, visible, img_key || null,
+      [title.trim(), description || '', price_coins, stock, visible, photoList[0] || null,
        isAuction, csr, isAuction ? 'queued' : null]
     );
+    await setMerchImages(client, rows[0].id, photoList);
+    await client.query('COMMIT');
     if (visible && !isAuction) {
       postSystemMessage(`🛍️ Jinal just dropped "${title.trim()}"! Check the Shop!`);
     }
     if (visible && isAuction) {
       postSystemMessage(`👗 A new Shoot Wardrobe piece just joined the queue: "${title.trim()}"`);
     }
-    res.json({ ok: true, item: rows[0] });
+    res.json({ ok: true, item: { ...rows[0], img_key: photoList[0] || null, images: photoList } });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('studio/merch create error:', err);
     res.status(500).json({ error: 'Failed to create merchandise' });
+  } finally {
+    client.release();
   }
 });
 
 router.patch('/merch/:id', async (req, res) => {
-  const { title, description, price_coins, remaining, visible, img_key, csr_pct } = req.body;
+  const { title, description, price_coins, remaining, visible, img_key, csr_pct, images } = req.body;
   try {
     const { rows: currentRows } = await pool.query(
       `SELECT title, visible FROM merchandise WHERE id = $1`, [req.params.id]
@@ -589,11 +627,29 @@ router.patch('/merch/:id', async (req, res) => {
     );
     if (!rows.length) return res.status(404).json({ error: 'Item not found' });
 
+    let photoList = null;
+    if (Array.isArray(images)) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        photoList = await setMerchImages(client, req.params.id, images);
+        await client.query('COMMIT');
+      } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
+      }
+    }
+
     if (wasHidden && becomingVisible) {
       postSystemMessage(`🛍️ Jinal just dropped new merch: "${rows[0].title}"! Check the Shop!`);
     }
 
-    res.json({ ok: true, item: rows[0] });
+    const [withImages] = await attachImages([
+      photoList ? { ...rows[0], img_key: photoList[0] || null } : rows[0],
+    ]);
+    res.json({ ok: true, item: withImages });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update merchandise' });
   }

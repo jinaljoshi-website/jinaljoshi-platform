@@ -20,14 +20,12 @@ export function Merch() {
   const [sales,   setSales]   = useState([]);
   const [tab,     setTab]     = useState('merch');   // 'merch' | 'outfits' | 'fulfilment'
   const [donationRef, setDonationRef] = useState({});
-  const [imgFile,    setImgFile]    = useState(null);
-  const [imgPreview, setImgPreview] = useState('');
+  const [imgFiles,    setImgFiles]    = useState([]);   // [{ file, preview }]
+  const [editImages,  setEditImages]  = useState([]);   // [{ url }] or [{ file, preview }]
   const [imgUploading, setImgUploading] = useState(false);
   const [saving,  setSaving]  = useState(false);
   const [editing, setEditing] = useState(null);
   const [editForm, setEditForm] = useState({});
-  const [editImgFile,    setEditImgFile]    = useState(null);
-  const [editImgPreview, setEditImgPreview] = useState('');
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
   const imgRef = useRef(null);
@@ -52,20 +50,37 @@ export function Merch() {
   }, []);
 
   const handleImgPick = (e) => {
-    const file = e.target.files?.[0];
+    const picked = [...(e.target.files || [])];
     e.target.value = '';
-    if (!file) return;
-    setImgFile(file);
-    setImgPreview(URL.createObjectURL(file));
+    if (!picked.length) return;
+    setImgFiles((prev) => [...prev, ...picked.map((file) => ({ file, preview: URL.createObjectURL(file) }))]);
+  };
+
+  const moveImage = (list, setList, from, to) => {
+    if (to < 0 || to >= list.length) return;
+    const next = [...list];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    setList(next);
+  };
+
+  // Uploads anything not already on R2, and returns the final ordered URL list.
+  // The first entry becomes the cover.
+  const resolveUrls = async (list) => {
+    const out = [];
+    for (const entry of list) {
+      out.push(entry.url ? entry.url : await uploadImage(entry.file));
+    }
+    return out;
   };
 
   const handleCreate = async () => {
     setError(''); setSuccess(''); setSaving(true);
     try {
-      let imgKey = null;
-      if (imgFile) {
+      let photoUrls = [];
+      if (imgFiles.length) {
         setImgUploading(true);
-        imgKey = await uploadImage(imgFile);
+        photoUrls = await resolveUrls(imgFiles);
         setImgUploading(false);
       }
       const data = await api.post('/api/studio/merch', {
@@ -74,13 +89,13 @@ export function Merch() {
         price_coins:     parseInt(form.price_coins) || 0,
         total_stock:     form.is_auction_item ? 1 : (parseInt(form.total_stock) || 0),
         visible:         form.visible,
-        img_key:         imgKey,
+        images:          photoUrls,
         is_auction_item: form.is_auction_item,
         csr_pct:         form.is_auction_item ? parseFloat(form.csr_pct) : undefined,
       });
       setItems((prev) => [data.item, ...prev]);
       setForm({ title: '', description: '', price_coins: '', total_stock: '', visible: false, is_auction_item: false, csr_pct: '' });
-      setImgFile(null); setImgPreview('');
+      setImgFiles([]);
       setSuccess('Item created.');
     } catch (err) {
       setError(err.message);
@@ -92,35 +107,31 @@ export function Merch() {
   const startEdit = (item) => {
     setEditing(item.id);
     setEditForm({ title: item.title, description: item.description, price_coins: item.price_coins, remaining: item.remaining, visible: item.visible });
-    setEditImgFile(null); setEditImgPreview(item.img_key || '');
+    setEditImages((item.images || (item.img_key ? [item.img_key] : [])).map((url) => ({ url })));
   };
 
   const handleEditImgPick = (e) => {
-    const file = e.target.files?.[0];
+    const picked = [...(e.target.files || [])];
     e.target.value = '';
-    if (!file) return;
-    setEditImgFile(file);
-    setEditImgPreview(URL.createObjectURL(file));
+    if (!picked.length) return;
+    setEditImages((prev) => [...prev, ...picked.map((file) => ({ file, preview: URL.createObjectURL(file) }))]);
   };
 
   const handleUpdate = async (id) => {
     setError('');
     try {
-      let imgKey = undefined;
-      if (editImgFile) {
-        setImgUploading(true);
-        imgKey = await uploadImage(editImgFile);
-        setImgUploading(false);
-      }
+      setImgUploading(true);
+      const photoUrls = await resolveUrls(editImages);
+      setImgUploading(false);
       const data = await api.patch(`/api/studio/merch/${id}`, {
         ...editForm,
         price_coins: parseInt(editForm.price_coins),
         remaining:   parseInt(editForm.remaining),
-        ...(imgKey ? { img_key: imgKey } : {}),
+        images:      photoUrls,
       });
       setItems((prev) => prev.map((i) => i.id === id ? data.item : i));
       setEditing(null);
-      setEditImgFile(null); setEditImgPreview('');
+      setEditImages([]);
       setSuccess('Item updated.');
     } catch (err) {
       setError(err.message);
@@ -205,23 +216,9 @@ export function Merch() {
 
         <div style={{ marginTop: 14 }}>
           <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: colors.muted, marginBottom: 6 }}>
-            Product photo
+            Product photos
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input ref={imgRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleImgPick} />
-            <button onClick={() => imgRef.current?.click()} style={S.ghostBtn}>
-              {imgPreview ? 'Change photo' : 'Choose photo'}
-            </button>
-            {imgPreview && (
-              <>
-                <img src={imgPreview} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}` }} />
-                <button onClick={() => { setImgFile(null); setImgPreview(''); }} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
-                  Remove
-                </button>
-              </>
-            )}
-            {imgUploading && <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: colors.muted }}>Uploading…</span>}
-          </div>
+          <PhotoManager list={imgFiles} setList={setImgFiles} inputRef={imgRef} onPick={handleImgPick} uploading={imgUploading} />
         </div>
 
         <label style={auctionToggle}>
@@ -378,9 +375,11 @@ export function Merch() {
             onUpdate={() => handleUpdate(item.id)}
             onRestock={(amt) => quickRestock(item, amt)}
             editImgRef={editImgRef}
-            editImgPreview={editImgPreview}
+            editImages={editImages}
+            setEditImages={setEditImages}
             handleEditImgPick={handleEditImgPick}
             tokenRate={tokenRate}
+            imgUploading={imgUploading}
           />
         ))}
       </div>
@@ -402,9 +401,11 @@ export function Merch() {
             onUpdate={() => handleUpdate(item.id)}
             onRestock={(amt) => quickRestock(item, amt)}
             editImgRef={editImgRef}
-            editImgPreview={editImgPreview}
+            editImages={editImages}
+            setEditImages={setEditImages}
             handleEditImgPick={handleEditImgPick}
             tokenRate={tokenRate}
+            imgUploading={imgUploading}
           />
         ))}
       </div>
@@ -415,7 +416,54 @@ export function Merch() {
 
 const auctionToggle = { display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 14, padding: '12px 14px', background: 'rgba(193,125,74,0.05)', border: '1px solid rgba(193,125,74,0.2)', borderRadius: 8, fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: '#9B8F83', cursor: 'pointer', lineHeight: 1.5 };
 
-function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, onCancelEdit, onUpdate, onRestock, editImgRef, editImgPreview, handleEditImgPick, tokenRate }) {
+function PhotoManager({ list, setList, inputRef, onPick, uploading, compact }) {
+  const size = compact ? 52 : 64;
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: list.length ? 8 : 0 }}>
+        <input ref={inputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={onPick} />
+        <button onClick={() => inputRef.current?.click()} style={S.ghostBtn}>
+          {list.length ? 'Add more photos' : 'Choose photos'}
+        </button>
+        {uploading && <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: colors.muted }}>Uploading…</span>}
+        {list.length > 1 && (
+          <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 11, color: colors.muted }}>
+            First photo is the cover
+          </span>
+        )}
+      </div>
+      {list.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {list.map((entry, n) => (
+            <div key={n} style={{ position: 'relative' }}>
+              <img src={entry.url || entry.preview} alt="" style={{
+                width: size, height: size, objectFit: 'cover', borderRadius: 6,
+                border: n === 0 ? `2px solid ${colors.accent}` : `1px solid ${colors.border}`,
+              }} />
+              <div style={{ display: 'flex', gap: 2, marginTop: 3, justifyContent: 'center' }}>
+                <button onClick={() => moveIn(list, setList, n, n - 1)} disabled={n === 0} style={tinyBtn} title="Move left">←</button>
+                <button onClick={() => setList(list.filter((_, k) => k !== n))} style={{ ...tinyBtn, color: '#D99A9A' }} title="Remove">×</button>
+                <button onClick={() => moveIn(list, setList, n, n + 1)} disabled={n === list.length - 1} style={tinyBtn} title="Move right">→</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function moveIn(list, setList, from, to) {
+  if (to < 0 || to >= list.length) return;
+  const next = [...list];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  setList(next);
+}
+
+const tinyBtn = { background: 'transparent', border: `1px solid ${colors.border}`, color: colors.muted, fontSize: 10, lineHeight: 1, padding: '2px 5px', borderRadius: 3, cursor: 'pointer' };
+
+function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, onCancelEdit, onUpdate, onRestock, editImgRef, editImages, setEditImages, handleEditImgPick, tokenRate, imgUploading }) {
   return (
     <div style={{ ...S.card, ...(soldOut ? { border: '1px solid rgba(156,90,90,0.3)' } : {}) }}>
       {editing ? (
@@ -433,14 +481,8 @@ function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, 
             </Field>
           </div>
           <div style={{ marginTop: 12 }}>
-            <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: colors.muted, marginBottom: 6 }}>Product image</div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <input ref={editImgRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleEditImgPick} />
-              <button onClick={() => editImgRef.current?.click()} style={S.ghostBtn}>
-                {editImgPreview ? 'Change photo' : 'Add photo'}
-              </button>
-              {editImgPreview && <img src={editImgPreview} alt="" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}` }} />}
-            </div>
+            <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: colors.muted, marginBottom: 6 }}>Product photos</div>
+            <PhotoManager list={editImages} setList={setEditImages} inputRef={editImgRef} onPick={handleEditImgPick} uploading={imgUploading} compact />
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
             <label style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: colors.muted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>

@@ -6,6 +6,7 @@ import { WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
 import Outfits from './Outfits';
+import PhotoStrip from '../components/PhotoStrip';
 
 export default function Shop() {
   const [data,      setData]      = useState(null);
@@ -96,7 +97,7 @@ export default function Shop() {
 
           return (
             <div key={item.id} style={card}>
-              {item.img_key && <img src={item.img_key} alt={item.title} style={{ width: '100%', height: 200, objectFit: 'cover', borderRadius: 6, marginBottom: 12 }} />}
+              <PhotoStrip images={item.images?.length ? item.images : (item.img_key ? [item.img_key] : [])} alt={item.title} />
               <div style={{ ...stockBadge, color: item.remaining <= 5 ? '#D99A9A' : C.muted, borderColor: item.remaining <= 5 ? 'rgba(156,90,90,0.3)' : C.border }}>
                 {outOfStock ? 'Out of stock' : `${item.remaining} remaining`}
               </div>

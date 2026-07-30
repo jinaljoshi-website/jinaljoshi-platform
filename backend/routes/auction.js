@@ -68,22 +68,26 @@ async function auctionConfig() {
   };
 }
 
-function buyNowPrice(item, cfg) {
-  // Whichever is higher. Taking 3x the bid alone would let someone place a minimum
-  // bid to pull the Buy Now price DOWN below the no-bid price, then buy it out.
-  const fromBase = roundTokensUp(item.price_coins * cfg.baseMult);
-  const fromBid  = item.current_highest_bid ? roundTokensUp(item.current_highest_bid * cfg.bidMult) : 0;
-  const base     = Math.max(fromBase, fromBid);
-  // The blanket promotional discount only ever applies to queued items, never the
-  // live auction item, whose Buy Now price is already derived from real bids.
-  if (item.auction_status !== 'active' && cfg.discountEnabled && cfg.merchDiscountPct > 0) {
-    return roundTokensUp(base * (1 - cfg.merchDiscountPct / 100));
-  }
-  return base;
-}
-
 function startingBid(item, cfg) {
   return roundTokensUp(item.price_coins * (cfg.startPct / 100));
+}
+
+// A queued piece simply costs its listed price — nobody is being jumped ahead of.
+// Buying out the LIVE piece ends the auction for everyone still bidding, so it is
+// priced off whatever the auction has already reached: a multiple of the highest
+// bid, or of the opening price if nobody has bid yet. Anchoring to the auction
+// rather than the list price means the buy-out price only ever rises.
+function buyNowPrice(item, cfg) {
+  if (item.auction_status !== 'active') {
+    const listed = roundTokensUp(item.price_coins);
+    if (cfg.discountEnabled && cfg.merchDiscountPct > 0) {
+      return roundTokensUp(listed * (1 - cfg.merchDiscountPct / 100));
+    }
+    return listed;
+  }
+  const anchor = item.current_highest_bid || startingBid(item, cfg);
+  const mult   = item.current_highest_bid ? cfg.bidMult : cfg.baseMult;
+  return roundTokensUp(anchor * mult);
 }
 
 async function loadBuyer(client, userId) {
@@ -124,7 +128,12 @@ router.get('/', authMid, async (req, res) => {
     const { rows: items } = await pool.query(
       `SELECT id, title, description, img_key, price_coins, csr_pct, auction_status,
               current_highest_bid, current_highest_bidder_id, auction_started_at,
-              winner_id, won_at
+              winner_id, won_at,
+              COALESCE(
+                (SELECT json_agg(mi.url ORDER BY mi.position)
+                 FROM merchandise_images mi WHERE mi.merch_id = merchandise.id),
+                CASE WHEN img_key IS NULL THEN '[]'::json ELSE json_build_array(img_key) END
+              ) AS images
        FROM merchandise
        WHERE is_auction_item = TRUE AND visible = TRUE AND auction_status <> 'sold'
          AND (
@@ -142,8 +151,10 @@ router.get('/', authMid, async (req, res) => {
     const shaped = items.map((item) => {
       const isLive = item.auction_status === 'active';
       return {
-        id: item.id, title: item.title, description: item.description, img_key: item.img_key,
+        id: item.id, title: item.title, description: item.description,
+        img_key: item.img_key, images: item.images || [],
         csrPct: item.csr_pct, status: item.auction_status,
+        listPrice: applyGuestRate(roundTokensUp(item.price_coins)),
         currentBid: item.current_highest_bid,
         startingBid: isLive && !item.current_highest_bid ? startingBid(item, cfg) : null,
         minNextBid: isLive

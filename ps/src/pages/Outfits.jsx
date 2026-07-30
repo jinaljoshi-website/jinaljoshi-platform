@@ -5,6 +5,7 @@ import { C, F } from '../tokens';
 import { api } from '../api';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import TopUpModal from '../components/TopUpModal';
+import PhotoStrip from '../components/PhotoStrip';
 
 function useCountdown(seconds) {
   const [left, setLeft] = useState(seconds);
@@ -86,9 +87,11 @@ export default function Outfits() {
         <h2 style={h2}>Outfits</h2>
         <p style={text}>
           Genuine one-of-one pieces worn on set. A clearly stated share of every sale goes
-          to a charity you pick at checkout.{' '}
-          <a href="/outfits" target="_blank" rel="noopener noreferrer" style={link}>How it works →</a>
+          to a charity you pick at checkout.
         </p>
+        <a href="/outfits" target="_blank" rel="noopener noreferrer" style={howBtn}>
+          How the wardrobe works →
+        </a>
       </div>
 
       {error   && <div style={errorBox}>{error}</div>}
@@ -116,7 +119,7 @@ export default function Outfits() {
       {live && (
         <div style={featureCard}>
           <div style={liveTag}>Live now{countdown ? ` · ${countdown} left` : ''}</div>
-          {live.img_key && <img src={live.img_key} alt={live.title} style={featureImg} />}
+          <PhotoStrip images={live.images?.length ? live.images : (live.img_key ? [live.img_key] : [])} alt={live.title} height={320} />
           <div style={featureTitle}>{live.title}</div>
           {live.description && <p style={{ ...text, marginBottom: 10 }}>{live.description}</p>}
           {live.csrPct != null && (
@@ -132,6 +135,9 @@ export default function Outfits() {
             <div style={{ textAlign: 'right' }}>
               <div style={smallLabel}>Buy it outright</div>
               <WonderCoinAmount amount={live.buyNowPrice} size={20} fontSize={22} />
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 4 }}>
+                ends the auction · rises with each bid
+              </div>
             </div>
           </div>
 
@@ -216,13 +222,13 @@ export default function Outfits() {
               const affordable = data.purchasedBalance >= item.buyNowPrice + data.handlingFee;
               return (
                 <div key={item.id} style={card}>
-                  {item.img_key && <img src={item.img_key} alt={item.title} style={{ width: '100%', height: 200, objectFit: 'cover', borderRadius: 6, marginBottom: 12 }} />}
+                  <PhotoStrip images={item.images?.length ? item.images : (item.img_key ? [item.img_key] : [])} alt={item.title} height={180} showThumbs={false} />
                   <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 4 }}>{item.title}</div>
                   {item.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>{item.description}</div>}
                   {item.csrPct != null && <div style={{ ...csrPill, fontSize: 11 }}>{item.csrPct}% to charity</div>}
                   <div style={{ margin: '10px 0 4px' }}><WonderCoinAmount amount={item.buyNowPrice} size={18} /></div>
                   <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 8 }}>
-                    plus {data.handlingFee} handling &amp; packaging
+                    listed price · plus {data.handlingFee} handling
                   </div>
                   {!affordable && (
                     <div style={{ fontFamily: F.sans, fontSize: 11, color: '#D99A9A', marginBottom: 6 }}>
@@ -369,6 +375,7 @@ const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterS
 const h2          = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(24px,4vw,38px)', margin: '0 0 8px', color: C.text };
 const text        = { fontFamily: F.sans, color: C.muted, fontSize: 14, lineHeight: 1.7, maxWidth: 640, margin: 0 };
 const link        = { color: C.accent, textDecoration: 'none' };
+const howBtn      = { display: 'inline-block', marginTop: 10, fontFamily: F.sans, fontSize: 13, color: C.accent, textDecoration: 'none', border: `1px solid rgba(193,125,74,0.35)`, borderRadius: 999, padding: '7px 16px' };
 const smallLabel  = { fontFamily: F.mono, fontSize: 10, color: C.muted, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 };
 const featureCard = { background: C.surface, border: `1px solid rgba(193,125,74,0.35)`, borderRadius: 12, padding: 22, marginBottom: 20 };
 const featureImg  = { width: '100%', maxHeight: 320, objectFit: 'cover', borderRadius: 8, marginBottom: 14, display: 'block' };
@@ -381,7 +388,7 @@ const chipOn      = { color: C.accent, borderColor: C.accent, background: 'rgba(
 const consentBox  = { display: 'flex', gap: 10, alignItems: 'flex-start', fontFamily: F.sans, fontSize: 12, color: C.muted, lineHeight: 1.6, background: 'rgba(217,164,92,0.07)', border: '1px solid rgba(217,164,92,0.28)', borderRadius: 8, padding: '10px 12px', marginBottom: 10, cursor: 'pointer' };
 const lockedBox   = { fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.7, background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}`, borderRadius: 8, padding: '12px 14px' };
 const footNote    = { fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 10, lineHeight: 1.6 };
-const grid        = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px,1fr))', gap: 16 };
+const grid        = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 240px))', gap: 16, justifyContent: 'start' };
 const card        = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, display: 'flex', flexDirection: 'column' };
 const primaryBtn  = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 13, fontWeight: 700, padding: '11px 20px', borderRadius: 8, cursor: 'pointer' };
 const ghostBtn    = { background: 'transparent', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 13, padding: '11px 20px', borderRadius: 8, cursor: 'pointer' };

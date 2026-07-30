@@ -29,9 +29,15 @@ router.get('/items', authMid, async (req, res) => {
     const discountPct = isActive ? await getDiscountForTier(userTier) : 0;
 
     const { rows: items } = await pool.query(
-      `SELECT id, title, description, price_coins, remaining, img_key
-       FROM merchandise WHERE visible = TRUE AND remaining > 0 AND is_auction_item = FALSE
-       ORDER BY created_at DESC`
+      `SELECT m.id, m.title, m.description, m.price_coins, m.remaining, m.img_key,
+              COALESCE(
+                (SELECT json_agg(mi.url ORDER BY mi.position)
+                 FROM merchandise_images mi WHERE mi.merch_id = m.id),
+                CASE WHEN m.img_key IS NULL THEN '[]'::json ELSE json_build_array(m.img_key) END
+              ) AS images
+       FROM merchandise m
+       WHERE m.visible = TRUE AND m.remaining > 0 AND m.is_auction_item = FALSE
+       ORDER BY m.created_at DESC`
     );
 
     const bal = await getBalances(pool, req.user.userId);
