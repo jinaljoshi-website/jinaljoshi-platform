@@ -14,7 +14,6 @@ import Membership from './Membership';
 import Community  from './Community';
 import Calls      from './Calls';
 import Shop       from './Shop';
-import Extras     from './Extras';
 import Coins      from './Coins';
 import Profile    from './Profile';
 
@@ -23,7 +22,6 @@ const navItems = [
   { to: '/platform/gallery',    label: 'Gallery'    },
   { to: '/platform/membership', label: 'Membership' },
   { to: '/platform/shop',       label: 'Shop'       },
-  { to: '/platform/extras',     label: 'Extras'     },
   { to: '/platform/calls',      label: 'Calls'      },
   { to: '/platform/chat',       label: 'Messages'   },
   { to: '/platform/coins',      label: 'Coins'      },
@@ -189,7 +187,9 @@ export default function Platform() {
             <Route path="community"  element={<Community />}  />
             <Route path="calls"      element={<Calls />}      />
             <Route path="shop"       element={<Shop />}       />
-            <Route path="extras"     element={<Extras />}     />
+            {/* Custom requests moved into Shop. Request notifications still link
+                here, so this redirects rather than 404s. */}
+            <Route path="extras"     element={<Navigate to="/platform/shop?tab=requests" replace />} />
             <Route path="coins"      element={<Coins />}      />
             <Route path="profile"    element={<Profile />}    />
             <Route path="*"          element={<Navigate to="chat" replace />} />
@@ -222,7 +222,9 @@ export default function Platform() {
                 <Route path="community"  element={<Community />}  />
                 <Route path="calls"      element={<Calls />}      />
                 <Route path="shop"       element={<Shop />}       />
-                <Route path="extras"     element={<Extras />}     />
+                {/* Custom requests moved into Shop. Request notifications still link
+                here, so this redirects rather than 404s. */}
+            <Route path="extras"     element={<Navigate to="/platform/shop?tab=requests" replace />} />
                 <Route path="coins"      element={<Coins />}      />
                 <Route path="profile"    element={<Profile />}    />
                 <Route path="*"          element={<Navigate to="chat" replace />} />

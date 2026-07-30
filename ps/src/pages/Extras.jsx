@@ -135,8 +135,8 @@ export default function Extras() {
     <div>
       <div style={{ marginBottom: 24 }}>
         <div style={eyebrow}>Custom requests</div>
-        <h1 style={title}>Personalised extras</h1>
-        <p style={text}>Birthday greetings, anniversary messages, custom video, and more — browse Jinal's listings below, then send your own request with the details and price you'd like to offer.</p>
+        <h2 style={sectionHeading}>Ask Jinal for something</h2>
+        <p style={text}>Birthday greetings, anniversary messages, a custom video — browse what Jinal offers below, then send your own request with the details and the price you would like to offer.</p>
       </div>
 
       {data?.isGuest && <GuestNudge message="You're browsing as a guest — members get discounted rates on custom requests." />}
@@ -325,6 +325,7 @@ function statusColor(status) {
 }
 
 const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 12 };
+const sectionHeading = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(24px,4vw,38px)', margin: '0 0 8px', color: C.text };
 const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(28px,5vw,52px)', margin: '0 0 10px' };
 const text        = { fontFamily: F.sans, color: C.muted, fontSize: 15, lineHeight: 1.75, maxWidth: 720 };
 const grid        = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px,1fr))', gap: 16, marginBottom: 16 };

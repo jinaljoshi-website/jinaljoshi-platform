@@ -6,6 +6,7 @@ import { WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
 import Outfits from './Outfits';
+import Extras  from './Extras';
 import PhotoStrip from '../components/PhotoStrip';
 
 export default function Shop() {
@@ -16,7 +17,12 @@ export default function Shop() {
   const [topUp,     setTopUp]     = useState(null);
   const [checkout,  setCheckout]  = useState(null); // item being purchased
   const [purchased, setPurchased] = useState([]);
-  const [tab,       setTab]       = useState('merch');
+  // Notification links still point at /platform/extras, and Platform redirects those
+  // here with ?tab=requests — so the tab has to be readable from the URL.
+  const [tab, setTab] = useState(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return ['merch', 'outfits', 'requests'].includes(t) ? t : 'outfits';
+  });
 
   const load = () => api.get('/api/shop/items')
     .then(setData)
@@ -41,11 +47,12 @@ export default function Shop() {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <div style={eyebrow}>Merchandise</div>
+        <div style={eyebrow}>Shop</div>
         <h1 style={title}>Official shop</h1>
         <p style={text}>
-          Limited drops, outfits and accessories. All purchases in J Tokens.
-          {data?.isGuest && bestDiscountPct() > 0 && ` Members get up to ${bestDiscountPct()}% off.`}
+          One-of-one pieces from set, limited merchandise drops, and things made just for you.
+          All purchases in J Tokens.
+          {data?.isGuest && bestDiscountPct() > 0 && ` Members get up to ${bestDiscountPct()}% off merchandise.`}
         </p>
         <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 8, opacity: 0.8 }}>
           All purchases are voluntary, final &amp; non-refundable.
@@ -56,7 +63,11 @@ export default function Shop() {
           pieces sold through the wardrobe. Keeping them apart stops the shop grid
           implying an outfit can be restocked. */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        {[{ key: 'merch', label: 'Merchandise' }, { key: 'outfits', label: 'Outfits' }].map((t) => (
+        {[
+          { key: 'outfits',  label: 'Outfits' },
+          { key: 'merch',    label: 'Merchandise' },
+          { key: 'requests', label: 'Custom Requests' },
+        ].map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)}
             style={{
               fontFamily: F.sans, fontSize: 13, padding: '8px 18px', borderRadius: 999, cursor: 'pointer',
@@ -69,7 +80,8 @@ export default function Shop() {
         ))}
       </div>
 
-      {tab === 'outfits' && <Outfits />}
+      {tab === 'outfits'  && <Outfits />}
+      {tab === 'requests' && <Extras />}
 
       {tab === 'merch' && <>
       {error   && <div style={errorBox}>{error} <button onClick={() => setTopUp(0)} style={inlineTopUp}>Top up</button></div>}
