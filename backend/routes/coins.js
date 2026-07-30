@@ -235,7 +235,7 @@ router.post('/recharge/webhook', async (req, res) => {
   const signature = req.headers['x-razorpay-signature'];
   const { verifyWebhookSignature } = payments.providers.razorpay;
 
-  if (!verifyWebhookSignature(JSON.stringify(req.body), signature)) {
+  if (!verifyWebhookSignature(req.rawBody || JSON.stringify(req.body), signature)) {
     return res.status(400).json({ error: 'Invalid webhook signature' });
   }
 

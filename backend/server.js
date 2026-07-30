@@ -20,7 +20,9 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json());
+// Razorpay signs the exact bytes it sends, so the webhook needs the raw body.
+// Re-serialising the parsed object is not guaranteed to reproduce them.
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 
 // Public routes (no auth)
 app.use('/api/public',       require('./routes/public'));
