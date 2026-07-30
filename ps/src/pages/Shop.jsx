@@ -83,6 +83,11 @@ export default function Shop() {
               <div style={{ marginBottom: 6 }}><WonderCoinAmount amount={price} size={18} /></div>
               {data?.discountPct > 0 && <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 4 }}>{data.discountPct}% member discount</div>}
               {data?.isGuest && <GuestNudge compact message={`Members pay ${nudge} tokens with Supreme`} />}
+              {!canAfford && !outOfStock && data?.giftedBalance > 0 && (
+                <div style={{ fontFamily: F.sans, fontSize: 11, color: '#8FC88F', marginBottom: 4, lineHeight: 1.5 }}>
+                  Your {data.giftedBalance} gifted tokens are for messages and content — merchandise needs purchased tokens.
+                </div>
+              )}
               {!canAfford && !outOfStock && (
                 <div style={{ fontFamily: F.sans, fontSize: 11, color: '#D99A9A', marginBottom: 6 }}>
                   Need {price - (data?.coinBalance || 0)} more tokens ·{' '}

@@ -7,7 +7,7 @@ const { postSystemMessage } = require('./community');
 const { getDiscountForTier, getGuestMultiplier } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
 const { roundTokensUp } = require('../lib/pricing');
-const { spendTokens } = require('../lib/tokens');
+const { spendTokens, getBalances } = require('../lib/tokens');
 
 // ─────────────────────────────────────────────
 // GET /api/shop/items
@@ -34,11 +34,17 @@ router.get('/items', authMid, async (req, res) => {
        ORDER BY created_at DESC`
     );
 
+    const bal = await getBalances(pool, req.user.userId);
+
     res.json({
       items,
       discountPct,
       isGuest:     userTier === 'guest',
-      coinBalance: user.coin_balance,
+      // Merchandise takes purchased tokens only, so coinBalance stays the purchased
+      // figure. The gifted balance is sent alongside purely so the shop can explain
+      // why a fan holding gifted credit still cannot buy anything here.
+      coinBalance:   user.coin_balance,
+      giftedBalance: bal.gifted,
       savedAddress: user.shipping_name ? {
         name:    user.shipping_name,
         phone:   user.shipping_phone,

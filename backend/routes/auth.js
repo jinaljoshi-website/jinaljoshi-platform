@@ -7,7 +7,8 @@ const pool     = require('../db/pool');
 const authMid  = require('../middleware/auth');
 const { sendSignupVerificationEmail, sendPasswordResetEmail, consumeToken } = require('../lib/email');
 const { lookupIpCountry, getClientIp } = require('../lib/geoip');
-const { getBalances } = require('../lib/tokens');
+const { getBalances, grantGiftedTokens } = require('../lib/tokens');
+const { getConfigNumber } = require('../lib/config');
 
 async function logAccessEvent(userId, req, eventType) {
   try {
@@ -156,6 +157,42 @@ router.post('/verify-email', async (req, res) => {
       [userId]
     );
     if (!rows.length) return res.status(404).json({ error: 'Account not found' });
+
+    // Welcome gift. Granted here rather than at signup because an unverified account
+    // cannot sign in anyway — so the fan's experience is identical, and abandoned
+    // signups never leave grant rows behind. Guarded so it can only ever happen once,
+    // even if a second verification link is issued and used.
+    try {
+      const amount = await getConfigNumber('welcome_gift_tokens');
+      if (amount > 0) {
+        const { rows: existing } = await pool.query(
+          `SELECT 1 FROM gifted_grants WHERE user_id = $1 AND source = 'welcome' LIMIT 1`,
+          [userId]
+        );
+        if (!existing.length) {
+          const client = await pool.connect();
+          try {
+            await client.query('BEGIN');
+            await grantGiftedTokens(client, {
+              userId,
+              amount,
+              source: 'welcome',
+              note:   'Welcome to Personal Space',
+              label:  `Welcome gift — ${amount} tokens to get you started`,
+            });
+            await client.query('COMMIT');
+          } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+          } finally {
+            client.release();
+          }
+        }
+      }
+    } catch (err) {
+      // A failed gift must never block someone from finishing registration.
+      console.error('welcome gift error:', err.message);
+    }
 
     try {
       const { postSystemMessage } = require('./community');
