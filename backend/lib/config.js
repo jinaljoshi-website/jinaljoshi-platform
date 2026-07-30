@@ -1,56 +1,71 @@
 // backend/lib/config.js
-// Centralized reads for all Studio-configurable pricing and limits, with sensible fallbacks
+// Every Studio-configurable value is read here.
+//
+// There are deliberately NO fallbacks for anything that decides what a fan is
+// charged. A hardcoded price copy drifts the moment Jinal changes one in Studio,
+// and it does so silently — the platform would keep charging an old number with
+// no error anywhere. Instead, a missing price throws: the request fails visibly,
+// nothing is debited, and the cause is in the logs.
+//
+// Operational settings that merely affect timing keep defaults, because a wrong
+// ring window is a nuisance where a wrong price is a refund.
 
 const pool = require('../db/pool');
 
+// Timing and behaviour only. Nothing here decides an amount of money.
 const DEFAULTS = {
-  token_rate_inr: 66,
-
-  guest_price_multiplier: 2,
-
-  community_monthly_cost: 10,
-  insider_monthly_cost:   30,
-  premium_monthly_cost:   75,
-  supreme_monthly_cost:   150,
-
-  community_discount_pct: 5,
-  insider_discount_pct:   10,
-  premium_discount_pct:   15,
-  supreme_discount_pct:   20,
-
-  community_daily_free_messages:       1,
-  community_tokens_per_credit_block:   1,
-  community_messages_per_credit_block: 3,
-
-  gallery_unlocks_community: 1,
-  gallery_unlocks_insider:   4,
-  gallery_unlocks_premium:   7,
-  gallery_unlocks_supreme:   10,
-
-  call_audio_per_min:    8,
-  call_video_per_min:    15,
-  call_priority_per_min: 22,
   call_ring_window_seconds: 60,
-  call_min_lead_hours: 6,
-
-  domestic_gst_rate_pct: 18,
-  fx_buffer_pct: 3,
-
-  dm_free_per_month_community: 5,
-  dm_free_per_month_insider:   30,
-  dm_free_per_month_premium:   100,
-  dm_free_per_month_supreme:   250,
-
-  dm_daily_cap_community: 2,
-  dm_daily_cap_insider:   3,
-  dm_daily_cap_premium:   5,
-  dm_daily_cap_supreme:   10,
-
-  dm_overage_cost_community: 2,
-  dm_overage_cost_insider:   1,
-  dm_overage_cost_premium:   1,
-  dm_overage_cost_supreme:   1,
+  call_min_lead_hours:      6,
+  fx_buffer_pct:            3,
 };
+
+// If any of these is missing, we refuse to price rather than guess. The startup
+// check reports them all at once so a bad deploy is obvious immediately.
+const REQUIRED_PRICING = new Set([
+  'token_rate_inr',
+  'guest_price_multiplier',
+  'domestic_gst_rate_pct',
+  'community_monthly_cost', 'insider_monthly_cost', 'premium_monthly_cost', 'supreme_monthly_cost',
+  'community_discount_pct', 'insider_discount_pct', 'premium_discount_pct', 'supreme_discount_pct',
+  'gallery_unlocks_community', 'gallery_unlocks_insider', 'gallery_unlocks_premium', 'gallery_unlocks_supreme',
+  'call_audio_per_min', 'call_video_per_min', 'call_priority_per_min',
+  'dm_free_per_month_community', 'dm_free_per_month_insider', 'dm_free_per_month_premium', 'dm_free_per_month_supreme',
+  'dm_daily_cap_community', 'dm_daily_cap_insider', 'dm_daily_cap_premium', 'dm_daily_cap_supreme',
+  'dm_overage_cost_community', 'dm_overage_cost_insider', 'dm_overage_cost_premium', 'dm_overage_cost_supreme',
+]);
+
+function missingPricingError(key) {
+  const err = new Error(`Pricing config missing: ${key}`);
+  err.code = 'CONFIG_MISSING';
+  err.configKey = key;
+  return err;
+}
+
+// Reports every missing required key in one pass. Called at boot so config drift
+// surfaces on deploy rather than on a fan's first purchase.
+async function checkPricingConfig() {
+  try {
+    const { rows } = await pool.query(
+      `SELECT key FROM platform_config WHERE key = ANY($1)`,
+      [[...REQUIRED_PRICING]]
+    );
+    const present = new Set(rows.map((r) => r.key));
+    const missing = [...REQUIRED_PRICING].filter((k) => !present.has(k));
+    if (missing.length) {
+      console.error('─'.repeat(70));
+      console.error(`CONFIG WARNING: ${missing.length} required pricing key(s) missing from platform_config.`);
+      console.error('Anything priced from these will fail rather than guess a value:');
+      missing.forEach((k) => console.error(`  · ${k}`));
+      console.error('─'.repeat(70));
+    } else {
+      console.log(`Pricing config OK — all ${REQUIRED_PRICING.size} required keys present.`);
+    }
+    return missing;
+  } catch (err) {
+    console.error('checkPricingConfig failed:', err.message);
+    return null;
+  }
+}
 
 async function getConfigValue(key) {
   try {
@@ -58,36 +73,40 @@ async function getConfigValue(key) {
     if (rows[0]) return rows[0].value;
   } catch (err) {
     console.error(`config/getConfigValue error for ${key}:`, err.message);
+    if (REQUIRED_PRICING.has(key)) throw missingPricingError(key);
   }
+  if (REQUIRED_PRICING.has(key)) throw missingPricingError(key);
   return DEFAULTS[key] !== undefined ? String(DEFAULTS[key]) : null;
 }
 
 async function getConfigNumber(key) {
   const raw = await getConfigValue(key);
   const num = parseFloat(raw);
-  return isNaN(num) ? DEFAULTS[key] : num;
+  if (isNaN(num)) {
+    if (REQUIRED_PRICING.has(key)) throw missingPricingError(key);
+    return DEFAULTS[key];
+  }
+  return num;
 }
 
 async function getConfigNumbers(keys) {
-  try {
-    const { rows } = await pool.query(
-      `SELECT key, value FROM platform_config WHERE key = ANY($1)`,
-      [keys]
-    );
-    const map = {};
-    rows.forEach((r) => { map[r.key] = r.value; });
-    const result = {};
-    keys.forEach((k) => {
-      const num = map[k] !== undefined ? parseFloat(map[k]) : NaN;
-      result[k] = isNaN(num) ? DEFAULTS[k] : num;
-    });
-    return result;
-  } catch (err) {
-    console.error('config/getConfigNumbers error:', err.message);
-    const result = {};
-    keys.forEach((k) => { result[k] = DEFAULTS[k]; });
-    return result;
-  }
+  const { rows } = await pool.query(
+    `SELECT key, value FROM platform_config WHERE key = ANY($1)`,
+    [keys]
+  );
+  const map = {};
+  rows.forEach((r) => { map[r.key] = r.value; });
+  const result = {};
+  keys.forEach((k) => {
+    const num = map[k] !== undefined ? parseFloat(map[k]) : NaN;
+    if (isNaN(num)) {
+      if (REQUIRED_PRICING.has(k)) throw missingPricingError(k);
+      result[k] = DEFAULTS[k];
+    } else {
+      result[k] = num;
+    }
+  });
+  return result;
 }
 
 const DISCOUNT_KEYS = {
@@ -155,7 +174,7 @@ async function getDmConfigForTier(tier) {
     };
   }
   if (!DM_TIER_KEYS.includes(tier)) {
-    return { freeDMsPerMonth: 0, dailyDMCap: 0, overageCost: DEFAULTS.dm_overage_cost_community };
+    return { freeDMsPerMonth: 0, dailyDMCap: 0, overageCost: await getConfigNumber('dm_overage_cost_community') };
   }
   const vals = await getConfigNumbers([
     `dm_free_per_month_${tier}`,
@@ -197,6 +216,8 @@ async function setDndEnabled(enabled) {
 
 module.exports = {
   DEFAULTS,
+  REQUIRED_PRICING,
+  checkPricingConfig,
   getConfigValue,
   getConfigNumber,
   getConfigNumbers,

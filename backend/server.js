@@ -38,6 +38,7 @@ app.use('/api/stream-calls', require('./routes/streamcalls'));
 app.use('/api/stream-chat',  require('./routes/streamchat'));
 app.use('/api/gallery',      require('./routes/gallery'));
 app.use('/api/landing',     require('./routes/landing'));
+app.use('/api/shop/auction', require('./routes/auction').router);
 app.use('/api/shop',         require('./routes/shop'));
 app.use('/api/extras',       require('./routes/extras'));
 app.use('/api/push',         require('./routes/push'));
@@ -45,7 +46,7 @@ app.use('/api/studio/analytics', require('./routes/analytics'));
 app.use('/api/studio',       require('./routes/studio'));
 app.use('/api/upload',       require('./routes/upload'));
 app.use('/api/portfolio', require('./routes/portfolio'));
-app.use('/api/shop/auction', require('./routes/auction').router);
+
 
 app.get('/api/health', (req, res) => res.json({ ok: true, service: 'backend' }));
 app.get('/',           (req, res) => res.json({ message: 'Backend is running.' }));
@@ -53,5 +54,8 @@ app.get('/',           (req, res) => res.json({ message: 'Backend is running.' }
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Backend running on port ${PORT}`);
+  // Report any missing pricing config on boot, so a bad deploy is obvious
+  // immediately rather than on a fan's first purchase.
+  require('./lib/config').checkPricingConfig();
   startScheduler();
 });
