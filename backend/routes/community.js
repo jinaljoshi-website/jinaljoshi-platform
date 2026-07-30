@@ -2,10 +2,13 @@
 const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
-const { getConfigNumber, getGuestMultiplier } = require('../lib/config');
+const { getConfigNumber } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
 const { getLocalDateStr } = require('../lib/time');
-const { roundTokensUp } = require('../lib/pricing');
+
+// Community chat is free. Members post without limit; guests get one message a
+// day at no cost, as a taste of the space. Nothing here costs tokens, so the old
+// message-credit system is gone entirely.
 
 // ── Helper: post a system message ────────────────────────────────────────────
 async function postSystemMessage(content) {
@@ -55,37 +58,38 @@ router.get('/status', authMid, async (req, res) => {
     );
     const communityBg = bgRows[0]?.value || '';
 
-    const [freeDailyLimit, messagesPerBlock] = await Promise.all([
-      getConfigNumber('community_daily_free_messages'),
-      getConfigNumber('community_messages_per_credit_block'),
-    ]);
-
     if (req.user.isArtist) {
       return res.json({ isArtist: true, unlimited: true, communityBg });
     }
 
+    const guestDailyLimit = await getConfigNumber('community_guest_daily_messages');
+
     const { rows: userRows } = await pool.query(
-      `SELECT community_message_credits, tier, membership_expires_at, timezone, hide_system_posts FROM users WHERE id = $1`,
+      `SELECT tier, membership_expires_at, timezone, hide_system_posts FROM users WHERE id = $1`,
       [req.user.userId]
     );
     const user = userRows[0];
-    const now  = new Date();
-    const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
+    const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > new Date();
+
+    if (isActive) {
+      return res.json({
+        isArtist: false, isMember: true, unlimited: true,
+        communityBg, hideSystemPosts: !!user.hide_system_posts,
+      });
+    }
 
     const { rows: usageRows } = await pool.query(
       `SELECT posts_used FROM community_daily_usage WHERE user_id = $1 AND day_key = $2`,
       [req.user.userId, getLocalDateStr(user.timezone)]
     );
     const usedToday = usageRows[0]?.posts_used || 0;
-    const freeRemaining = Math.max(0, freeDailyLimit - usedToday);
 
     res.json({
-      isArtist:       false,
-      isMember:       isActive,
-      freeRemaining,
-      freeDailyLimit,
-      messageCredits: user.community_message_credits,
-      messagesPerTokenBlock: messagesPerBlock,
+      isArtist:      false,
+      isMember:      false,
+      unlimited:     false,
+      freeRemaining: Math.max(0, guestDailyLimit - usedToday),
+      freeDailyLimit: guestDailyLimit,
       communityBg,
       hideSystemPosts: !!user.hide_system_posts,
     });
@@ -115,51 +119,36 @@ router.post('/post', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     if (!req.user.isArtist) {
-      const { rows: tzRows } = await client.query(`SELECT timezone FROM users WHERE id = $1`, [req.user.userId]);
-      const freeDailyLimit = await getConfigNumber('community_daily_free_messages');
-      const day = getLocalDateStr(tzRows[0]?.timezone);
-
-      const { rows: usageRows } = await client.query(
-        `SELECT posts_used FROM community_daily_usage WHERE user_id = $1 AND day_key = $2 FOR UPDATE`,
-        [req.user.userId, day]
+      const { rows: uRows } = await client.query(
+        `SELECT timezone, membership_expires_at FROM users WHERE id = $1`, [req.user.userId]
       );
-      const usedToday = usageRows[0]?.posts_used || 0;
+      const isMember = uRows[0]?.membership_expires_at && new Date(uRows[0].membership_expires_at) > new Date();
+      const day = getLocalDateStr(uRows[0]?.timezone);
 
-      if (usedToday < freeDailyLimit) {
-        await client.query(
-          `INSERT INTO community_daily_usage (user_id, day_key, posts_used)
-           VALUES ($1, $2, 1)
-           ON CONFLICT (user_id, day_key)
-           DO UPDATE SET posts_used = community_daily_usage.posts_used + 1`,
+      // Members post freely. Guests get a daily allowance and are invited to join
+      // rather than sold message credits.
+      if (!isMember) {
+        const guestDailyLimit = await getConfigNumber('community_guest_daily_messages');
+        const { rows: usageRows } = await client.query(
+          `SELECT posts_used FROM community_daily_usage WHERE user_id = $1 AND day_key = $2 FOR UPDATE`,
           [req.user.userId, day]
         );
-      } else {
-        const { rows: userRows } = await client.query(
-          `SELECT community_message_credits FROM users WHERE id = $1 FOR UPDATE`,
-          [req.user.userId]
-        );
-        const credits = userRows[0]?.community_message_credits || 0;
-
-        if (credits < 1) {
+        if ((usageRows[0]?.posts_used || 0) >= guestDailyLimit) {
           await client.query('ROLLBACK');
           return res.status(429).json({
-            error:   'NO_MESSAGES_LEFT',
-            message: `You've used today's free community message. Buy more messages with tokens, or come back tomorrow.`,
+            error:   'GUEST_DAILY_LIMIT',
+            message: `Guests can post once a day here. Join any membership to post as much as you like.`,
           });
         }
-
-        await client.query(
-          `UPDATE users SET community_message_credits = community_message_credits - 1 WHERE id = $1`,
-          [req.user.userId]
-        );
-        await client.query(
-          `INSERT INTO community_daily_usage (user_id, day_key, posts_used)
-           VALUES ($1, $2, 1)
-           ON CONFLICT (user_id, day_key)
-           DO UPDATE SET posts_used = community_daily_usage.posts_used + 1`,
-          [req.user.userId, day]
-        );
       }
+
+      await client.query(
+        `INSERT INTO community_daily_usage (user_id, day_key, posts_used)
+         VALUES ($1, $2, 1)
+         ON CONFLICT (user_id, day_key)
+         DO UPDATE SET posts_used = community_daily_usage.posts_used + 1`,
+        [req.user.userId, day]
+      );
     }
 
     const { rows } = await client.query(
@@ -175,83 +164,6 @@ router.post('/post', authMid, async (req, res) => {
     await client.query('ROLLBACK');
     console.error('community/post error:', err);
     res.status(500).json({ error: 'Failed to post' });
-  } finally {
-    client.release();
-  }
-});
-
-// ─────────────────────────────────────────────
-// POST /api/community/buy-credits
-// ─────────────────────────────────────────────
-
-router.post('/buy-credits', authMid, async (req, res) => {
-  const { tokens } = req.body;
-  const amount = parseInt(tokens);
-
-  if (!amount || amount < 1) return res.status(400).json({ error: 'Token amount is required' });
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
-    const { rows: statusRows } = await client.query(
-      `SELECT membership_expires_at FROM users WHERE id = $1`,
-      [req.user.userId]
-    );
-    const isGuest = !statusRows[0]?.membership_expires_at || new Date(statusRows[0].membership_expires_at) <= new Date();
-
-    const [messagesPerBlock, guestMultiplier] = await Promise.all([
-      getConfigNumber('community_messages_per_credit_block'),
-      isGuest ? getGuestMultiplier() : 1,
-    ]);
-
-    const { rows: userRows } = await client.query(
-      `SELECT coin_balance FROM users WHERE id = $1 FOR UPDATE`,
-      [req.user.userId]
-    );
-    const user = userRows[0];
-
-    const actualCost = isGuest ? roundTokensUp(amount * guestMultiplier) : amount;
-
-    if (user.coin_balance < actualCost) {
-      await client.query('ROLLBACK');
-      return res.status(402).json({
-        error:     'INSUFFICIENT_TOKENS',
-        message:   `This costs ${actualCost} tokens. You have ${user.coin_balance}.`,
-        required:  actualCost,
-        available: user.coin_balance,
-        shortBy:   actualCost - user.coin_balance,
-      });
-    }
-
-    const creditsToAdd = amount * messagesPerBlock;
-
-    await client.query(
-      `UPDATE users SET
-         coin_balance               = coin_balance - $1,
-         community_message_credits  = community_message_credits + $2
-       WHERE id = $3`,
-      [actualCost, creditsToAdd, req.user.userId]
-    );
-
-    await client.query(
-      `INSERT INTO coin_ledger (user_id, type, direction, amount, label)
-       VALUES ($1, 'community_credits', 'debit', $2, $3)`,
-      [req.user.userId, actualCost, `Bought ${creditsToAdd} community messages${isGuest ? ' (guest rate)' : ''}`]
-    );
-
-    await client.query('COMMIT');
-
-    res.json({
-      ok:            true,
-      creditsAdded:  creditsToAdd,
-      tokensSpent:   actualCost,
-      message:       `${creditsToAdd} community messages added to your account.`,
-    });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('community/buy-credits error:', err);
-    res.status(500).json({ error: 'Failed to buy message credits' });
   } finally {
     client.release();
   }

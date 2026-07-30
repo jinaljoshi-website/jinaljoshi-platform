@@ -7,6 +7,7 @@ const { getGuestMultiplier, getDiscountForTier, getGalleryUnlocksForTier } = req
 const { assertNotBlocked } = require('../lib/moderation');
 const { roundTokensUp } = require('../lib/pricing');
 const { getAllotmentPeriodKey } = require('../lib/time');
+const { spendTokens } = require('../lib/tokens');
 
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
 const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
@@ -277,22 +278,22 @@ router.post('/unlock', authMid, async (req, res) => {
       }
     }
 
-    if (price > 0 && user.coin_balance < price) {
-      await client.query('ROLLBACK');
-      return res.status(402).json({
-        error: 'INSUFFICIENT_TOKENS',
-        message: `Unlocking this costs ${price} tokens. You have ${user.coin_balance}.`,
-        required: price, available: user.coin_balance,
-      });
-    }
-
     if (price > 0) {
-      await client.query(`UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`, [price, req.user.userId]);
-      await client.query(
-        `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-         VALUES ($1, 'content_unlock', 'debit', $2, $3, $4)`,
-        [req.user.userId, price, `Content unlock: ${set.title} (${scope})`, setId]
-      );
+      try {
+        await spendTokens(client, {
+          userId:    req.user.userId,
+          amount:    price,
+          type:      'content_unlock',
+          label:     `Content unlock: ${set.title} (${scope})`,
+          relatedId: setId,
+        });
+      } catch (err) {
+        if (err.code === 'INSUFFICIENT_TOKENS') {
+          await client.query('ROLLBACK');
+          return res.status(402).json(err.httpBody);
+        }
+        throw err;
+      }
     }
 
     const grantType = useCredit ? 'unlock_credit' : 'token_purchase';

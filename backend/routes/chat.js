@@ -6,6 +6,7 @@ const { notifyArtist } = require('../lib/notify');
 const { getDmConfigForTier } = require('../lib/config');
 const { assertNotBlocked, assertNotMuted } = require('../lib/moderation');
 const { getLocalDateStr, getAllotmentPeriodKey } = require('../lib/time');
+const { spendTokens } = require('../lib/tokens');
 
 
 function toDateStr(val) {
@@ -98,29 +99,24 @@ router.post('/messages/:id/unlock', authMid, async (req, res) => {
       return res.status(409).json({ error: 'Already unlocked', lockedMediaUrls: message.locked_media_urls });
     }
 
-    const { rows: userRows } = await client.query(
-      `SELECT coin_balance FROM users WHERE id = $1 FOR UPDATE`,
-      [req.user.userId]
-    );
-    const user = userRows[0];
     const price = message.unlock_price_coins;
 
-    if (price > 0 && user.coin_balance < price) {
-      await client.query('ROLLBACK');
-      return res.status(402).json({
-        error: 'INSUFFICIENT_TOKENS',
-        message: `Unlocking this costs ${price} tokens. You have ${user.coin_balance}.`,
-        required: price, available: user.coin_balance,
-      });
-    }
-
     if (price > 0) {
-      await client.query(`UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`, [price, req.user.userId]);
-      await client.query(
-        `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id)
-         VALUES ($1, 'chat_media_unlock', 'debit', $2, $3, $4)`,
-        [req.user.userId, price, 'Unlocked media in chat', message.id]
-      );
+      try {
+        await spendTokens(client, {
+          userId:    req.user.userId,
+          amount:    price,
+          type:      'chat_media_unlock',
+          label:     'Unlocked media in chat',
+          relatedId: message.id,
+        });
+      } catch (err) {
+        if (err.code === 'INSUFFICIENT_TOKENS') {
+          await client.query('ROLLBACK');
+          return res.status(402).json(err.httpBody);
+        }
+        throw err;
+      }
     }
     const { rows: updated } = await client.query(
       `UPDATE direct_messages SET unlocked_at = NOW() WHERE id = $1 RETURNING locked_media_urls`,
@@ -336,24 +332,23 @@ router.post('/send', authMid, async (req, res) => {
       );
     }
 
-    if (tokensCharged > 0 && user.coin_balance < tokensCharged) {
-      await client.query('ROLLBACK');
-      return res.status(402).json({
-        error: 'INSUFFICIENT_TOKENS',
-        message: `This message costs ${tokensCharged} token${tokensCharged > 1 ? 's' : ''}. You have ${user.coin_balance}.`,
-        required: tokensCharged, available: user.coin_balance,
-      });
-    }
-
     let newBalance = user.coin_balance;
     if (tokensCharged > 0) {
-      await client.query(`UPDATE users SET coin_balance = coin_balance - $1 WHERE id = $2`, [tokensCharged, req.user.userId]);
-      await client.query(
-        `INSERT INTO coin_ledger (user_id, type, direction, amount, label)
-         VALUES ($1, 'dm_charge', 'debit', $2, $3)`,
-        [req.user.userId, tokensCharged, userTier === 'guest' ? 'Direct message — guest rate' : 'Direct message — overage']
-      );
-      newBalance = user.coin_balance - tokensCharged;
+      try {
+        const spend = await spendTokens(client, {
+          userId: req.user.userId,
+          amount: tokensCharged,
+          type:   'dm_charge',
+          label:  userTier === 'guest' ? 'Direct message — guest rate' : 'Direct message — overage',
+        });
+        newBalance = spend.newPurchased;
+      } catch (err) {
+        if (err.code === 'INSUFFICIENT_TOKENS') {
+          await client.query('ROLLBACK');
+          return res.status(402).json(err.httpBody);
+        }
+        throw err;
+      }
     }
 
     const { rows: msgRows } = await client.query(
