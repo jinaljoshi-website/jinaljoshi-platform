@@ -25,7 +25,10 @@ router.get('/dashboard', async (req, res) => {
       pool.query(`SELECT cr.*, u.email, u.display_name, u.tier FROM custom_requests cr JOIN users u ON u.id = cr.user_id WHERE cr.status = 'pending' ORDER BY cr.created_at DESC`),
       pool.query(`SELECT id, email, display_name, tier, membership_expires_at, coin_balance, created_at FROM users WHERE tier != 'guest' AND membership_expires_at > NOW() ORDER BY created_at DESC LIMIT 10`),
       pool.query(`SELECT dm.*, u.email, u.display_name, u.tier FROM direct_messages dm JOIN users u ON u.id = dm.sender_id WHERE dm.recipient_id = $1 AND dm.read = FALSE ORDER BY dm.created_at DESC LIMIT 20`, [req.user.userId]),
-      pool.query(`SELECT * FROM merchandise WHERE visible = TRUE AND remaining <= 5 ORDER BY remaining ASC LIMIT 10`),
+      // One-of-one outfits are excluded: quantity 1 is the whole point, so they
+      // would sit in a "running low" list forever and train the eye to ignore it.
+      pool.query(`SELECT * FROM merchandise WHERE visible = TRUE AND remaining <= 5
+                    AND is_auction_item = FALSE ORDER BY remaining ASC LIMIT 10`),
       pool.query(
         `SELECT cr.id, cr.reason, cr.created_at, cp.id AS post_id, cp.content AS post_content,
                 author.display_name AS author_name, author.email AS author_email,

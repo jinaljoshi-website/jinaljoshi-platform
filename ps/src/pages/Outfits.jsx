@@ -6,6 +6,7 @@ import { api } from '../api';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import TopUpModal from '../components/TopUpModal';
 import PhotoStrip from '../components/PhotoStrip';
+import GuestNudge from '../components/GuestNudge';
 
 function useCountdown(seconds) {
   const [left, setLeft] = useState(seconds);
@@ -142,7 +143,7 @@ export default function Outfits() {
           <div style={liveTag}>Live now{countdown ? ` · ${countdown} left` : ''}</div>
           <PhotoStrip images={live.images?.length ? live.images : (live.img_key ? [live.img_key] : [])} alt={live.title} height={320} />
           <div style={featureTitle}>{live.title}</div>
-          {live.description && <p style={{ ...text, marginBottom: 10 }}>{live.description}</p>}
+          <Clamped text={live.description} lines={3} style={{ ...text, margin: 0 }} />
           {live.csrPct != null && (
             <div style={csrPill}>{live.csrPct}% of the proceeds go to a charity you choose</div>
           )}
@@ -164,8 +165,15 @@ export default function Outfits() {
 
           {data.isGuest ? (
             <div style={lockedBox}>
-              Bidding and buying the live piece are for members. Everything else below is open to
-              everyone — or join a membership to take part in the auction.
+              Bidding and buying the live piece are for members.
+              {live.memberBuyNowPrice < live.buyNowPrice && (
+                <> Members would pay <strong style={{ color: C.accent }}>{live.memberBuyNowPrice} tokens</strong> to
+                buy this outright, against {live.buyNowPrice} as a guest.</>
+              )}
+              {' '}Everything below is open to everyone.
+              <div style={{ marginTop: 10 }}>
+                <GuestNudge compact message="Join a membership to bid on shoot-worn pieces" />
+              </div>
             </div>
           ) : (
             <>
@@ -250,12 +258,16 @@ export default function Outfits() {
                 <div key={item.id} style={card}>
                   <PhotoStrip images={item.images?.length ? item.images : (item.img_key ? [item.img_key] : [])} alt={item.title} height={180} showThumbs={false} />
                   <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 4 }}>{item.title}</div>
-                  {item.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>{item.description}</div>}
+                  <Clamped text={item.description} lines={2}
+                           style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6 }} />
                   {item.csrPct != null && <div style={{ ...csrPill, fontSize: 11 }}>{item.csrPct}% to charity</div>}
                   <div style={{ margin: '10px 0 4px' }}><WonderCoinAmount amount={item.buyNowPrice} size={18} /></div>
                   <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 8 }}>
                     listed price · plus {data.handlingFee} handling
                   </div>
+                  {data.isGuest && item.memberBuyNowPrice < item.buyNowPrice && (
+                    <GuestNudge compact message={`Members pay ${item.memberBuyNowPrice} tokens for this`} />
+                  )}
                   {!affordable && (
                     <div style={{ fontFamily: F.sans, fontSize: 11, color: '#D99A9A', marginBottom: 6 }}>
                       {item.buyNowPrice + data.handlingFee - data.purchasedBalance} tokens short
@@ -289,6 +301,52 @@ export default function Outfits() {
       )}
       {topUp !== null && (
         <TopUpModal requiredTokens={topUp} onClose={() => setTopUp(null)} onSuccess={() => { setTopUp(null); load(); }} />
+      )}
+    </div>
+  );
+}
+
+// Descriptions can run long, and a wall of text pushes the price and the bid
+// controls off the screen. Show a few lines and let the reader ask for the rest.
+// Only offers "Show more" when the text is genuinely cut off — measured, not
+// guessed from length, since line breaks depend on the container width.
+function Clamped({ text, lines = 3, style }) {
+  const [open, setOpen]           = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setOverflows(el.scrollHeight > el.clientHeight + 2);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text, open]);
+
+  if (!text) return null;
+
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div
+        ref={ref}
+        style={{
+          ...style,
+          ...(open ? {} : {
+            display: '-webkit-box',
+            WebkitLineClamp: lines,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }),
+        }}
+      >
+        {text}
+      </div>
+      {(overflows || open) && (
+        <button onClick={() => setOpen((v) => !v)} style={moreBtn}>
+          {open ? 'Show less' : 'Show more'}
+        </button>
       )}
     </div>
   );
@@ -422,6 +480,7 @@ const grid        = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, m
 const card        = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, display: 'flex', flexDirection: 'column' };
 const primaryBtn  = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 13, fontWeight: 700, padding: '11px 20px', borderRadius: 8, cursor: 'pointer' };
 const ghostBtn    = { background: 'transparent', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 13, padding: '11px 20px', borderRadius: 8, cursor: 'pointer' };
+const moreBtn     = { background: 'none', border: 'none', color: C.accent, fontFamily: F.sans, fontSize: 12, cursor: 'pointer', padding: '4px 0 0', textDecoration: 'underline' };
 const inlineLink  = { background: 'none', border: 'none', color: C.accent, fontFamily: F.sans, fontSize: 11, cursor: 'pointer', padding: 0, textDecoration: 'underline' };
 const errorBox    = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, marginBottom: 14, fontFamily: F.sans, fontSize: 13 };
 const successBox  = { background: 'rgba(100,160,100,0.1)', border: '1px solid rgba(100,160,100,0.3)', color: '#8FC88F', padding: 12, borderRadius: 8, marginBottom: 16, fontFamily: F.sans, fontSize: 14 };

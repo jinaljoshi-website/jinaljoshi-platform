@@ -155,6 +155,9 @@ router.get('/', authMid, async (req, res) => {
         img_key: item.img_key, images: item.images || [],
         csrPct: item.csr_pct, status: item.auction_status,
         listPrice: applyGuestRate(roundTokensUp(item.price_coins)),
+        // The undiscounted member price, sent so a guest can be shown what the
+        // same piece would cost them as a member rather than just a higher number.
+        memberBuyNowPrice: roundTokensUp(buyNowPrice(item, cfg)),
         currentBid: item.current_highest_bid,
         startingBid: isLive && !item.current_highest_bid ? startingBid(item, cfg) : null,
         minNextBid: isLive
