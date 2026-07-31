@@ -46,24 +46,32 @@ async function getNextNumber(client, kind) {
 //   outside India        → zero-rated export under LUT
 //   same state as us     → CGST + SGST, half each
 //   elsewhere in India   → IGST, the full rate
+//   state not known      → the supplier's own location, so CGST + SGST
+//
+// That last case is the one that catches people out. Under s.12(2)(b) of the
+// IGST Act, where the recipient is unregistered and no address is on record,
+// the place of supply is where the supplier is. Treating an unknown state as
+// inter-state would charge IGST on what is legally an intra-state supply.
 function computeTax({ lineItems, recipientCountry, placeOfSupply, gstRatePct, isExportOverride }) {
   const taxable = lineItems.reduce((sum, li) => sum + (parseFloat(li.amount) || 0), 0);
   const outsideIndia = recipientCountry && recipientCountry.trim().toLowerCase() !== 'india';
   const isExport = isExportOverride !== undefined ? !!isExportOverride : outsideIndia;
 
   if (isExport) {
-    return { taxable, cgst: 0, sgst: 0, igst: 0, total: taxable, isExport: true, appliedRate: 0 };
+    return { taxable, cgst: 0, sgst: 0, igst: 0, total: taxable, isExport: true, appliedRate: 0, placeOfSupply: placeOfSupply || null };
   }
 
-  const rate = parseFloat(gstRatePct) || 0;
-  const sameState = (placeOfSupply || '').trim().toLowerCase() === SUPPLIER.state.toLowerCase();
+  const rate  = parseFloat(gstRatePct) || 0;
+  const known = (placeOfSupply || '').trim();
+  const place = known || SUPPLIER.state;
+  const sameState = place.toLowerCase() === SUPPLIER.state.toLowerCase();
   const tax = Math.round(taxable * rate) / 100;
 
   if (sameState) {
     const half = Math.round(tax * 50) / 100;
-    return { taxable, cgst: half, sgst: tax - half, igst: 0, total: taxable + tax, isExport: false, appliedRate: rate };
+    return { taxable, cgst: half, sgst: tax - half, igst: 0, total: taxable + tax, isExport: false, appliedRate: rate, placeOfSupply: place };
   }
-  return { taxable, cgst: 0, sgst: 0, igst: tax, total: taxable + tax, isExport: false, appliedRate: rate };
+  return { taxable, cgst: 0, sgst: 0, igst: tax, total: taxable + tax, isExport: false, appliedRate: rate, placeOfSupply: place };
 }
 
 const ONES = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve',
