@@ -5,18 +5,39 @@
 
 const pool = require('../db/pool');
 const PDFDocument = require('pdfkit');
+const { getConfigValue } = require('./config');
 
-const SUPPLIER = {
-  name:    'Jinal Joshi',
-  address: 'A-14/103, Broadway Avenue Society, Jay Gopal Lal Road, Nr Jangid Circle,\nMira Road East, Mira Bhayandar, Thane, Maharashtra 401107, India',
-  gstin:   '27AVBPJ4823E1ZV',
-  state:   'Maharashtra',
-  stateCode: '27',
-  udyam:   'UDYAM-MH-33-0792419',
-  iec:     'AVBPJ4823E',
-  email:   'billing@jinaljoshi.in',
-  phone:   '+91 86898 88658',
-};
+// Read from Studio, never hardcoded. The registered address is changing with the
+// GST migration, and a copy in code would keep printing the old one on every
+// invoice long after the legal pages had moved on.
+async function getSupplier() {
+  const keys = ['legal_business_name', 'legal_registered_address', 'legal_gstin',
+                'legal_state', 'legal_udyam', 'legal_iec', 'legal_billing_email', 'legal_phone'];
+  const { rows } = await pool.query(
+    `SELECT key, value FROM platform_config WHERE key = ANY($1)`, [keys]
+  );
+  const c = {};
+  rows.forEach((r) => { c[r.key] = r.value; });
+
+  const missing = ['legal_business_name', 'legal_registered_address', 'legal_gstin', 'legal_state']
+    .filter((k) => !c[k]?.trim());
+  if (missing.length) {
+    const err = new Error(`Supplier details missing from Studio: ${missing.join(', ')}`);
+    err.code = 'SUPPLIER_CONFIG_MISSING';
+    throw err;
+  }
+
+  return {
+    name:    c.legal_business_name.trim(),
+    address: c.legal_registered_address.trim(),
+    gstin:   c.legal_gstin.trim(),
+    state:   c.legal_state.trim(),
+    udyam:   c.legal_udyam?.trim()         || null,
+    iec:     c.legal_iec?.trim()           || null,
+    email:   c.legal_billing_email?.trim() || null,
+    phone:   c.legal_phone?.trim()         || null,
+  };
+}
 
 const PREFIX = { manual: 'MI', b2b: 'JJ' };
 
@@ -52,7 +73,7 @@ async function getNextNumber(client, kind) {
 // IGST Act, where the recipient is unregistered and no address is on record,
 // the place of supply is where the supplier is. Treating an unknown state as
 // inter-state would charge IGST on what is legally an intra-state supply.
-function computeTax({ lineItems, recipientCountry, placeOfSupply, gstRatePct, isExportOverride }) {
+function computeTax({ lineItems, recipientCountry, placeOfSupply, gstRatePct, isExportOverride, supplierState }) {
   const taxable = lineItems.reduce((sum, li) => sum + (parseFloat(li.amount) || 0), 0);
   const outsideIndia = recipientCountry && recipientCountry.trim().toLowerCase() !== 'india';
   const isExport = isExportOverride !== undefined ? !!isExportOverride : outsideIndia;
@@ -63,8 +84,9 @@ function computeTax({ lineItems, recipientCountry, placeOfSupply, gstRatePct, is
 
   const rate  = parseFloat(gstRatePct) || 0;
   const known = (placeOfSupply || '').trim();
-  const place = known || SUPPLIER.state;
-  const sameState = place.toLowerCase() === SUPPLIER.state.toLowerCase();
+  const home  = supplierState || 'Maharashtra';
+  const place = known || home;
+  const sameState = place.toLowerCase() === home.toLowerCase();
   const tax = Math.round(taxable * rate) / 100;
 
   if (sameState) {
@@ -115,7 +137,7 @@ function money(n, currency = 'INR') {
   return sym + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function generatePdf(inv, account) {
+function generatePdf(inv, account, SUPPLIER) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 44 });
     const chunks = [];
@@ -131,8 +153,9 @@ function generatePdf(inv, account) {
     doc.fontSize(8).font('Helvetica').fillColor('#555')
        .text('ACTOR  ·  PRODUCER  ·  CREATOR', L, 68, { characterSpacing: 1.4 });
     doc.fontSize(8).fillColor('#333').text(SUPPLIER.address, L, 84, { width: 300 });
-    doc.text(`GSTIN: ${SUPPLIER.gstin}   ·   Udyam: ${SUPPLIER.udyam}`, L, 116);
-    doc.text(`${SUPPLIER.phone}   ·   ${SUPPLIER.email}`, L, 128);
+    doc.text([`GSTIN: ${SUPPLIER.gstin}`, SUPPLIER.udyam && `Udyam: ${SUPPLIER.udyam}`]
+               .filter(Boolean).join('   ·   '), L, 116);
+    doc.text([SUPPLIER.phone, SUPPLIER.email].filter(Boolean).join('   ·   '), L, 128);
 
     doc.fontSize(15).font('Helvetica-Bold').fillColor('#111')
        .text(inv.kind === 'b2b' ? 'TAX INVOICE' : 'INVOICE', 340, 46, { width: 211, align: 'right' });
@@ -240,4 +263,4 @@ function generatePdf(inv, account) {
   });
 }
 
-module.exports = { SUPPLIER, PREFIX, getNextNumber, computeTax, amountInWords, generatePdf };
+module.exports = { getSupplier, PREFIX, getNextNumber, computeTax, amountInWords, generatePdf };

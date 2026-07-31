@@ -5,7 +5,7 @@ const router     = require('express').Router();
 const pool       = require('../db/pool');
 const authMid    = require('../middleware/auth');
 const artistOnly = require('../middleware/artistOnly');
-const { getNextNumber, computeTax, generatePdf, SUPPLIER } = require('../lib/issuedInvoice');
+const { getNextNumber, computeTax, generatePdf, getSupplier } = require('../lib/issuedInvoice');
 
 router.use(authMid, artistOnly);
 
@@ -102,12 +102,20 @@ router.post('/issued', async (req, res) => {
     });
   if (!clean.length) return res.status(400).json({ error: 'Every line item needs a description' });
 
+  let supplier;
+  try {
+    supplier = await getSupplier();
+  } catch (err) {
+    return res.status(503).json({ error: err.message });
+  }
+
   const tax = computeTax({
     lineItems:        clean,
     recipientCountry: recipientCountry || 'India',
     placeOfSupply,
     gstRatePct:       gstRatePct ?? 18,
     isExportOverride: isExport,
+    supplierState:    supplier.state,
   });
 
   const client = await pool.connect();
@@ -158,7 +166,8 @@ router.get('/issued/:id/pdf', async (req, res) => {
       account = a[0] || null;
     }
 
-    const pdf = await generatePdf(inv, account);
+    const supplier = await getSupplier();
+    const pdf = await generatePdf(inv, account, supplier);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition',
       `attachment; filename="${inv.invoice_number.replace(/\//g, '-')}.pdf"`);
@@ -228,7 +237,7 @@ router.get('/platform', async (req, res) => {
       months: Object.values(months)
         .map((m) => ({ ...m, taxable: round(m.taxable), gst: round(m.gst), total: round(m.total), exportValue: round(m.exportValue) }))
         .sort((a, b) => b.month.localeCompare(a.month)),
-      supplier: SUPPLIER,
+      supplier: await getSupplier().catch(() => null),
     });
   } catch (err) {
     console.error('invoicing/platform error:', err);

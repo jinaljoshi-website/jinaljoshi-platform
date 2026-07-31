@@ -7,7 +7,6 @@ const { getClientIp, lookupIpCountry } = require('../lib/geoip');
 const { issueInvoiceForPurchase } = require('../lib/invoice');
 const payments = require('../lib/payments');
 const { getConfigNumber } = require('../lib/config');
-const { getBalances } = require('../lib/tokens');
 
 
 async function getDiscountConfig() {
@@ -45,25 +44,18 @@ async function calcPrice(tokens) {
 
 router.get('/balance', authMid, async (req, res) => {
   try {
-    const balances = await getBalances(pool, req.user.userId);
+    const { rows: userRows } = await pool.query(
+      `SELECT coin_balance FROM users WHERE id = $1`,
+      [req.user.userId]
+    );
     const { rows: ledger } = await pool.query(
-      `SELECT id, type, direction, amount, label, created_at, from_gifted, from_purchased
+      `SELECT id, type, direction, amount, label, created_at
        FROM coin_ledger WHERE user_id = $1
        ORDER BY created_at DESC LIMIT 30`,
       [req.user.userId]
     );
     const discountConfig = await getDiscountConfig();
-    res.json({
-      // `balance` stays as the purchased pot so nothing that already reads it breaks;
-      // the two pots and the expiry countdown are additional.
-      balance:             balances.purchased,
-      purchasedBalance:    balances.purchased,
-      giftedBalance:       balances.gifted,
-      totalBalance:        balances.total,
-      giftedExpiresInDays: balances.giftedExpiresInDays,
-      ledger,
-      discountConfig,
-    });
+    res.json({ balance: userRows[0]?.coin_balance || 0, ledger, discountConfig });
   } catch (err) {
     console.error('coins/balance error:', err);
     res.status(500).json({ error: 'Failed to load balance' });
@@ -90,12 +82,21 @@ router.post('/recharge/initiate', authMid, async (req, res) => {
   const priceINR    = await calcPrice(amount);
   const discountPct = await calcDiscount(amount);
 
+  // Captured here, at the only moment the fan's own request reaches us. The
+  // webhook is a server-to-server call from Razorpay with no fan IP attached, so
+  // without carrying these through the order they would be lost on any payment
+  // credited that way — and country is what decides zero-rating for exports.
+  const clientIp = getClientIp(req);
+  const { country: ipCountry } = await lookupIpCountry(clientIp);
+
   try {
     const order = await payments.createOrder({
       amountInr:   priceINR,
       tokens:      amount,
       discountPct,
       userId:      req.user.userId,
+      clientIp,
+      userCountry: ipCountry,
     });
 
     res.json({
@@ -208,6 +209,7 @@ router.post('/recharge/verify', authMid, async (req, res) => {
         userId: req.user.userId,
         userEmail,
         userCountry,
+        ipAddress: clientIp,
         coinLedgerId,
         tokensPurchased: amount,
         amountInrEquivalent: priceINR,
@@ -283,7 +285,10 @@ router.post('/recharge/webhook', async (req, res) => {
       await issueInvoiceForPurchase({
         userId,
         userEmail: userRows[0]?.email,
-        userCountry: null,
+        // Recovered from the order notes. Previously null here, which meant every
+        // webhook-credited payment lost the country that decides export status.
+        userCountry: payment.notes?.user_country || null,
+        ipAddress:   payment.notes?.client_ip || null,
         coinLedgerId: ledgerRows[0].id,
         tokensPurchased: tokens,
         amountInrEquivalent: priceINR,
