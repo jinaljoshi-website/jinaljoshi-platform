@@ -206,6 +206,7 @@ router.get('/platform', async (req, res) => {
       `SELECT invoice_number, user_email, user_country, ip_address, currency,
               amount_in_currency, amount_inr_equivalent, tokens_purchased,
               is_export, gst_rate_pct, gst_amount_inr, taxable_amount_inr,
+              cgst_amount_inr, sgst_amount_inr, igst_amount_inr, place_of_supply,
               sac_code, payment_method_display, issued_at
        FROM invoices
        ${year ? `WHERE date_part('year', issued_at) = $1` : ''}
