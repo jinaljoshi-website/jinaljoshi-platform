@@ -43,6 +43,7 @@ app.use('/api/shop',         require('./routes/shop'));
 app.use('/api/extras',       require('./routes/extras'));
 app.use('/api/push',         require('./routes/push'));
 app.use('/api/studio/analytics', require('./routes/analytics'));
+app.use('/api/studio/invoicing', require('./routes/invoicing'));
 app.use('/api/studio',       require('./routes/studio'));
 app.use('/api/upload',       require('./routes/upload'));
 app.use('/api/portfolio', require('./routes/portfolio'));
