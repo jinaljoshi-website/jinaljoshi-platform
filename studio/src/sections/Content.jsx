@@ -98,6 +98,43 @@ export function Content() {
 
   const totalFileCount = Object.values(filesByCategory).reduce((sum, arr) => sum + arr.length, 0);
 
+  // Reviewing an existing set: its actual items, loaded on demand.
+  const [reviewSet,     setReviewSet]     = useState(null);
+  const [reviewItems,   setReviewItems]   = useState([]);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [deletingItem,  setDeletingItem]  = useState(null);
+  const [lightbox,      setLightbox]      = useState(null);
+
+  const openReview = async (set) => {
+    setReviewSet(set); setReviewItems([]); setReviewLoading(true); setError('');
+    try {
+      const d = await api.get(`/api/studio/content/${set.id}/items`);
+      setReviewItems(d.items || []);
+    } catch (err) { setError(err.message); } finally { setReviewLoading(false); }
+  };
+
+  const deleteItem = async (item) => {
+    setDeletingItem(item.id); setError('');
+    try {
+      const d = await api.delete(`/api/studio/content/item/${item.id}`);
+      setReviewItems((prev) => prev.filter((i) => i.id !== item.id));
+      setSets((prev) => prev.map((s) => s.id === item.set_id
+        ? { ...s, categoryCounts: { ...s.categoryCounts, [item.tier_category]: Math.max(0, (s.categoryCounts?.[item.tier_category] || 1) - 1) } }
+        : s));
+      setSuccess(`Removed. ${d.remaining} item${d.remaining === 1 ? '' : 's'} left in this set.`);
+      setLightbox(null);
+    } catch (err) { setError(err.message); } finally { setDeletingItem(null); }
+  };
+
+  const retierItem = async (item, tierCategory) => {
+    setError('');
+    try {
+      const d = await api.patch(`/api/studio/content/item/${item.id}`, { tierCategory });
+      setReviewItems((prev) => prev.map((i) => i.id === item.id ? d.item : i));
+      setSuccess('Moved.');
+    } catch (err) { setError(err.message); }
+  };
+
   const handleCategoryFilePick = (categoryKey, e) => {
     const picked = Array.from(e.target.files || []);
     e.target.value = '';
@@ -434,9 +471,11 @@ export function Content() {
                       rows={2}
                     />
                   </div>
-                  <p style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 10 }}>
-                    Adding or re-categorizing individual items isn't supported here yet — delete and recreate the set if item categories need to change.
-                  </p>
+                  <div style={{ marginBottom: 10 }}>
+                    <button onClick={() => openReview(set)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
+                      Review photos in this set
+                    </button>
+                  </div>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                     <label style={{ fontFamily: sans, fontSize: 13, color: colors.muted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
                       <input type="checkbox" checked={editForm.visible} onChange={(e) => setEditForm({ ...editForm, visible: e.target.checked })} />
@@ -472,6 +511,7 @@ export function Content() {
                     <span style={{ fontFamily: sans, fontSize: 12, color: set.visible ? colors.success : colors.muted }}>
                       {set.visible ? 'Live' : 'Hidden'}
                     </span>
+                    <button onClick={() => openReview(set)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Review</button>
                     <button onClick={() => startEdit(set)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Edit</button>
                     <button onClick={() => setConfirmDelete(set.id)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A', borderColor: 'rgba(156,90,90,0.35)' }}>Delete</button>
                   </div>
@@ -481,9 +521,95 @@ export function Content() {
           );
         })}
       </div>
+
+      {reviewSet && (
+        <ReviewPanel
+          set={reviewSet}
+          items={reviewItems}
+          loading={reviewLoading}
+          onClose={() => { setReviewSet(null); setLightbox(null); }}
+          onDelete={deleteItem}
+          onRetier={retierItem}
+          deletingItem={deletingItem}
+          lightbox={lightbox}
+          setLightbox={setLightbox}
+          mediaUrl={toUrl}
+          categories={CATEGORIES}
+        />
+      )}
     </div>
   );
 }
+
+function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletingItem, lightbox, setLightbox, mediaUrl, categories }) {
+  const byTier = {};
+  items.forEach((i) => { (byTier[i.tier_category] ||= []).push(i); });
+
+  return (
+    <div style={reviewOverlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div style={reviewModal}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, gap: 12 }}>
+          <div>
+            <div style={{ fontFamily: display, fontSize: 22, color: colors.text }}>{set.title}</div>
+            <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 3 }}>
+              {items.length} item{items.length === 1 ? '' : 's'} · tap any photo to view it full size
+            </div>
+          </div>
+          <button onClick={onClose} style={{ ...S.ghostBtn, fontSize: 14, padding: '6px 12px' }}>✕</button>
+        </div>
+
+        {loading ? <div style={{ fontFamily: sans, fontSize: 13, color: colors.muted }}>Loading…</div>
+         : items.length === 0 ? <div style={{ fontFamily: sans, fontSize: 13, color: colors.muted }}>This set has no items yet.</div>
+         : categories.filter((cat) => byTier[cat.key]?.length).map((cat) => (
+          <div key={cat.key} style={{ marginBottom: 20 }}>
+            <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
+              {cat.label} · {byTier[cat.key].length}
+            </div>
+            <div style={reviewGrid}>
+              {byTier[cat.key].map((item) => (
+                <div key={item.id} style={{ position: 'relative' }}>
+                  {item.media_type === 'video' || item.type === 'video' ? (
+                    <div onClick={() => setLightbox(item)} style={{ ...reviewThumb, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, cursor: 'pointer' }}>🎬</div>
+                  ) : (
+                    <img src={mediaUrl(item.r2_key)} alt="" onClick={() => setLightbox(item)} style={{ ...reviewThumb, cursor: 'pointer' }} />
+                  )}
+                  <button onClick={() => onDelete(item)} disabled={deletingItem === item.id}
+                          title="Remove this item"
+                          style={{ ...itemDeleteBtn, opacity: deletingItem === item.id ? 0.5 : 1 }}>
+                    {deletingItem === item.id ? '…' : '×'}
+                  </button>
+                  <select value={item.tier_category} onChange={(e) => onRetier(item, e.target.value)} style={tierSelect}>
+                    {categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        {lightbox && (
+          <div style={lightboxOverlay} onClick={() => setLightbox(null)}>
+            {lightbox.media_type === 'video' || lightbox.type === 'video'
+              ? <video src={mediaUrl(lightbox.r2_key)} controls autoPlay style={lightboxMedia} onClick={(e) => e.stopPropagation()} />
+              : <img src={mediaUrl(lightbox.r2_key)} alt="" style={lightboxMedia} onClick={(e) => e.stopPropagation()} />}
+            <button onClick={(e) => { e.stopPropagation(); onDelete(lightbox); }}
+                    style={lightboxDelete}>Remove this item</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const reviewOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
+const reviewModal   = { width: '100%', maxWidth: 900, maxHeight: '88vh', overflowY: 'auto', background: '#161410', border: `1px solid ${colors.border}`, borderRadius: 14, padding: 24 };
+const reviewGrid    = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 10 };
+const reviewThumb   = { width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}`, background: 'rgba(255,255,255,0.03)', display: 'block' };
+const itemDeleteBtn = { position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.7)', color: '#D99A9A', fontSize: 14, lineHeight: 1, cursor: 'pointer', padding: 0 };
+const tierSelect    = { width: '100%', marginTop: 4, background: '#100F0C', border: `1px solid ${colors.border}`, color: colors.muted, fontFamily: sans, fontSize: 10, padding: '3px 4px', borderRadius: 4, outline: 'none' };
+const lightboxOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 400, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 20 };
+const lightboxMedia = { maxWidth: '92vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: 8 };
+const lightboxDelete = { background: '#9C5A5A', border: 'none', color: '#fff', fontFamily: sans, fontSize: 13, fontWeight: 700, padding: '10px 20px', borderRadius: 8, cursor: 'pointer' };
 
 const fieldLabel = { fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 6 };
 const fileGrid   = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 6 };

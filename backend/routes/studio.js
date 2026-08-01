@@ -440,6 +440,87 @@ router.post('/content', async (req, res) => {
 
 const VALID_TIER_CATEGORIES = ['free', 'community', 'insider', 'premium', 'supreme', 'purchase_only'];
 
+// Everything inside a set, so Jinal can look through it the way a fan would
+// rather than trusting a count. Without this, a single bad photo in a large set
+// means deleting and rebuilding the whole thing.
+router.get('/content/:id/items', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, set_id, type, media_type, r2_key, position, tier_category, created_at
+       FROM set_items WHERE set_id = $1
+       ORDER BY tier_category, position ASC, created_at ASC`,
+      [req.params.id]
+    );
+    res.json({ items: rows });
+  } catch (err) {
+    console.error('studio/content/items error:', err);
+    res.status(500).json({ error: 'Failed to load set items' });
+  }
+});
+
+// Move a single item to a different tier. The whole-set category lock exists so a
+// set is either tier-segmented or purchase-only; this respects that by refusing a
+// change that would put the set on both sides at once.
+router.patch('/content/item/:itemId', async (req, res) => {
+  const { tierCategory } = req.body;
+  if (!VALID_TIER_CATEGORIES.includes(tierCategory)) {
+    return res.status(400).json({ error: 'Invalid tier category' });
+  }
+  try {
+    const { rows: current } = await pool.query(
+      `SELECT set_id, tier_category FROM set_items WHERE id = $1`, [req.params.itemId]
+    );
+    if (!current.length) return res.status(404).json({ error: 'Item not found' });
+    const setId = current[0].set_id;
+
+    const { rows: others } = await pool.query(
+      `SELECT DISTINCT tier_category FROM set_items WHERE set_id = $1 AND id <> $2`,
+      [setId, req.params.itemId]
+    );
+    const movingToPurchase = tierCategory === 'purchase_only';
+    const hasTiered  = others.some((o) => o.tier_category !== 'purchase_only');
+    const hasPurchase = others.some((o) => o.tier_category === 'purchase_only');
+    if ((movingToPurchase && hasTiered) || (!movingToPurchase && hasPurchase)) {
+      return res.status(409).json({
+        error: 'CATEGORY_LOCKED',
+        message: 'A set is either tier-segmented or purchase-only, never both. Move the other items first.',
+      });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE set_items SET tier_category = $1 WHERE id = $2 RETURNING *`,
+      [tierCategory, req.params.itemId]
+    );
+    res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    console.error('studio/content/item patch error:', err);
+    res.status(500).json({ error: 'Failed to update item' });
+  }
+});
+
+router.delete('/content/item/:itemId', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM set_items WHERE id = $1 RETURNING id, set_id, r2_key`, [req.params.itemId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Item not found' });
+
+    // If this was the set's cover, clear it rather than leave a broken image.
+    await pool.query(
+      `UPDATE sets SET cover_key = NULL WHERE id = $1 AND cover_key = $2`,
+      [rows[0].set_id, rows[0].r2_key]
+    );
+
+    const { rows: remaining } = await pool.query(
+      `SELECT count(*)::int AS n FROM set_items WHERE set_id = $1`, [rows[0].set_id]
+    );
+    res.json({ ok: true, deleted: rows[0].id, remaining: remaining[0].n });
+  } catch (err) {
+    console.error('studio/content/item delete error:', err);
+    res.status(500).json({ error: 'Failed to delete item' });
+  }
+});
+
 router.post('/content/item', async (req, res) => {
   const { setId, type, r2Key, position, tierCategory = 'community' } = req.body;
   if (!setId || !type || !r2Key) {
