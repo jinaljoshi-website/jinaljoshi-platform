@@ -4,7 +4,6 @@ import { api } from '../api';
 import { T, S, Card, Eyebrow, Field, TokenField, colors } from '../ui';
 
 const TOKEN_RATE   = 66;
-const MAX_ITEMS    = 100;
 const MAX_IMG_PX   = 2048;
 const JPEG_Q       = 0.85;
 const MAX_VIDEO_MB = 500;
@@ -102,10 +101,6 @@ export function Content() {
   const handleCategoryFilePick = (categoryKey, e) => {
     const picked = Array.from(e.target.files || []);
     e.target.value = '';
-    if (picked.length + totalFileCount > MAX_ITEMS) {
-      setError(`Maximum ${MAX_ITEMS} items per set, across all categories.`);
-      return;
-    }
     const newFiles = picked.map((f) => ({
       file: f,
       preview:  f.type.startsWith('image/') ? URL.createObjectURL(f) : null,
@@ -310,7 +305,9 @@ export function Content() {
 
         {/* Category-tagged upload zones */}
         <div style={{ marginBottom: 16 }}>
-          <div style={fieldLabel}>Media by tier ({totalFileCount} / {MAX_ITEMS} total)</div>
+          <div style={fieldLabel}>
+            Media by tier ({totalFileCount} {totalFileCount === 1 ? 'item' : 'items'})
+          </div>
           <p style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 10, lineHeight: 1.5 }}>
             A set is either tier-segmented (Free through Supreme) or Purchase-only, never both — adding a file to one side locks the other, so the base price never gets split unexpectedly.
           </p>
@@ -338,8 +335,8 @@ export function Content() {
                     />
                     <button
                       onClick={() => categoryRefs.current[cat.key]?.click()}
-                      disabled={totalFileCount >= MAX_ITEMS || isLocked}
-                      style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', opacity: (totalFileCount >= MAX_ITEMS || isLocked) ? 0.5 : 1 }}
+                      disabled={isLocked}
+                      style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', opacity: isLocked ? 0.5 : 1 }}
                     >
                       + Add {cat.label}
                     </button>
