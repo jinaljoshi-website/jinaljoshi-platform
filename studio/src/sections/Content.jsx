@@ -26,7 +26,9 @@ const CONTENT_CATEGORIES = [
   { key: 'photos_videos',     label: 'Photos & Videos' },
 ];
 
-const sans = "'DM Sans', system-ui, sans-serif";
+const sans    = "'DM Sans', system-ui, sans-serif";
+const mono    = "'DM Mono', 'Courier New', monospace";
+const display = "'Cormorant Garamond', Georgia, serif";
 
 function toUrl(key) {
   if (!key) return null;
@@ -34,33 +36,77 @@ function toUrl(key) {
   return `${R2_PUBLIC_URL}/${key}`;
 }
 
+// How many files move at once. Most of the time per file is spent waiting on two
+// round trips to the backend, not transferring bytes — so running several in
+// parallel fills that dead time. Capped at 5: beyond that a home upload
+// connection saturates and requests start timing out, which is worse than slow.
+const UPLOAD_CONCURRENCY = 5;
+const UPLOAD_RETRIES     = 2;
+
+// createImageBitmap decodes off the main thread and is hardware-accelerated,
+// so it is several times faster than the old Image + canvas.drawImage path and
+// does not freeze the tab while a large photo is processed.
 async function compressImage(file) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const { width, height } = img;
-      const scale  = Math.min(1, MAX_IMG_PX / Math.max(width, height));
-      const canvas = document.createElement('canvas');
-      canvas.width  = Math.round(width  * scale);
-      canvas.height = Math.round(height * scale);
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob(
-        (blob) => resolve(new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' })),
-        'image/jpeg', JPEG_Q
-      );
-    };
-    img.src = url;
-  });
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale  = Math.min(1, MAX_IMG_PX / Math.max(bitmap.width, bitmap.height));
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+
+    const canvas = typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(w, h)
+      : Object.assign(document.createElement('canvas'), { width: w, height: h });
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+
+    const blob = canvas.convertToBlob
+      ? await canvas.convertToBlob({ type: 'image/jpeg', quality: JPEG_Q })
+      : await new Promise((res) => canvas.toBlob(res, 'image/jpeg', JPEG_Q));
+
+    return new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
+  } catch {
+    // Some formats (HEIC on older browsers) cannot be decoded this way. Sending
+    // the original is better than failing the upload.
+    return file;
+  }
 }
 
 async function uploadFile(file, context = 'content') {
   const { uploadUrl, publicUrl } = await api.post('/api/upload/presign', {
     filename: file.name, contentType: file.type, context,
   });
-  await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
+  const res = await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
+  // A failed PUT used to pass silently, leaving a database row pointing at an
+  // object that was never stored — a broken image with no error anywhere.
+  if (!res.ok) throw new Error(`Upload failed (${res.status})`);
   return publicUrl;
+}
+
+// A transient network blip should not permanently cost a photo.
+async function withRetry(fn, attempts = UPLOAD_RETRIES) {
+  let lastErr;
+  for (let n = 0; n <= attempts; n++) {
+    try { return await fn(); }
+    catch (err) {
+      lastErr = err;
+      if (n < attempts) await new Promise((r) => setTimeout(r, 600 * (n + 1)));
+    }
+  }
+  throw lastErr;
+}
+
+// Runs tasks with a fixed number in flight. Workers pull from a shared index, so
+// a slow file holds up only itself rather than a whole batch.
+async function runPool(tasks, limit, onEach) {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, tasks.length) }, async () => {
+    while (next < tasks.length) {
+      const i = next++;
+      await tasks[i]();
+      onEach?.();
+    }
+  });
+  await Promise.all(workers);
 }
 
 function emptyCategoryFiles() {
@@ -90,11 +136,9 @@ export function Content() {
   const coverRef = useRef(null);
   const categoryRefs = useRef({});
 
-  useEffect(() => {
-    api.get('/api/studio/content')
-      .then((d) => setSets(d.sets || []))
-      .finally(() => setLoading(false));
-  }, []);
+  const loadSets = () => api.get('/api/studio/content').then((d) => setSets(d.sets || []));
+
+  useEffect(() => { loadSets().finally(() => setLoading(false)); }, []);
 
   const totalFileCount = Object.values(filesByCategory).reduce((sum, arr) => sum + arr.length, 0);
 
@@ -104,6 +148,43 @@ export function Content() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [deletingItem,  setDeletingItem]  = useState(null);
   const [lightbox,      setLightbox]      = useState(null);
+
+  // Adding to a set that already exists — the recovery path when an upload was
+  // interrupted, and the normal way to extend a set later.
+  const [addingTo, setAddingTo] = useState(null);
+
+  // An upload in progress is the one thing worth interrupting a tab close for.
+  useEffect(() => {
+    if (!uploadProgress) return;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [uploadProgress]);
+
+  const handleAddToSet = async (set) => {
+    setError(''); setSuccess(''); setCreating(true);
+    try {
+      const existing = Object.values(set.categoryCounts || {}).reduce((a, b) => a + b, 0);
+      const { uploaded, failed, firstImageUrl } = await uploadAllPending(set.id, existing);
+
+      if (!set.cover_key && firstImageUrl) {
+        await api.patch(`/api/studio/content/${set.id}`, { cover_key: firstImageUrl });
+      }
+      setUploadProgress('');
+      setSuccess(failed
+        ? `Added ${uploaded}. ${failed} failed — the ones still showing an error can be retried.`
+        : `Added ${uploaded} item${uploaded === 1 ? '' : 's'} to "${set.title}".`);
+
+      if (!failed) {
+        setFilesByCategory(emptyCategoryFiles());
+        setAddingTo(null);
+      }
+      loadSets();
+    } catch (err) {
+      setError(err.message);
+      setUploadProgress('');
+    } finally { setCreating(false); }
+  };
 
   const openReview = async (set) => {
     setReviewSet(set); setReviewItems([]); setReviewLoading(true); setError('');
@@ -166,6 +247,61 @@ export function Content() {
     setCoverPreview(URL.createObjectURL(f));
   };
 
+  // Shared by set creation and by adding to an existing set. Uploads run several
+  // at a time and each file is retried, so a blip costs a moment rather than a
+  // photo. Every file that lands is saved immediately, so an interrupted run
+  // leaves a valid set that can simply be topped up.
+  const uploadAllPending = async (setId, startPosition) => {
+    const queue = [];
+    CATEGORIES.forEach((cat) => {
+      (filesByCategory[cat.key] || []).forEach((item, i) => {
+        if (item.status === 'done') return;
+        queue.push({ cat: cat.key, catLabel: cat.label, i, item });
+      });
+    });
+
+    const total = queue.length;
+    let done = 0;
+    let firstImageUrl = null;
+    let uploaded = 0;
+
+    const mark = (cat, i, patch) => setFilesByCategory((prev) => {
+      const upd = { ...prev, [cat]: [...prev[cat]] };
+      upd[cat][i] = { ...upd[cat][i], ...patch };
+      return upd;
+    });
+
+    const tasks = queue.map(({ cat, i, item }, n) => async () => {
+      if (item.isVideo && parseFloat(item.sizeMB) > MAX_VIDEO_MB) {
+        mark(cat, i, { status: 'skipped', error: `File too large (max ${MAX_VIDEO_MB}MB)` });
+        return;
+      }
+      mark(cat, i, { status: 'uploading' });
+      try {
+        const publicUrl = await withRetry(async () => {
+          const fileToUpload = item.isVideo ? item.file : await compressImage(item.file);
+          return uploadFile(fileToUpload, 'content');
+        });
+        await withRetry(() => api.post('/api/studio/content/item', {
+          setId, type: item.isVideo ? 'video' : 'image', r2Key: publicUrl,
+          position: startPosition + n, tierCategory: cat,
+        }));
+        if (!firstImageUrl && !item.isVideo) firstImageUrl = publicUrl;
+        uploaded += 1;
+        mark(cat, i, { status: 'done', publicUrl });
+      } catch (err) {
+        mark(cat, i, { status: 'error', error: err.message });
+      }
+    });
+
+    await runPool(tasks, UPLOAD_CONCURRENCY, () => {
+      done += 1;
+      setUploadProgress(`Uploaded ${done} of ${total}…`);
+    });
+
+    return { uploaded, firstImageUrl, failed: total - uploaded };
+  };
+
   const handleCreate = async () => {
     setError(''); setSuccess(''); setCreating(true);
     try {
@@ -186,53 +322,12 @@ export function Content() {
         await api.patch(`/api/studio/content/${setId}`, { cover_key: coverUrl });
       }
 
-      let position = 0;
-      let uploadedFirstImage = false;
-
-      for (const cat of CATEGORIES) {
-        const items = filesByCategory[cat.key];
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i];
-          setUploadProgress(`Uploading ${cat.label} item ${i + 1} of ${items.length}…`);
-
-          if (item.isVideo && parseFloat(item.sizeMB) > MAX_VIDEO_MB) {
-            setFilesByCategory((prev) => {
-              const upd = { ...prev, [cat.key]: [...prev[cat.key]] };
-              upd[cat.key][i] = { ...upd[cat.key][i], status: 'skipped', error: `File too large (max ${MAX_VIDEO_MB}MB)` };
-              return upd;
-            });
-            continue;
-          }
-
-          try {
-            const fileToUpload = item.isVideo ? item.file : await compressImage(item.file);
-            const publicUrl = await uploadFile(fileToUpload, 'content');
-
-            await api.post('/api/studio/content/item', {
-              setId, type: item.isVideo ? 'video' : 'image', r2Key: publicUrl,
-              position: position++, tierCategory: cat.key,
-            });
-
-            if (!uploadedFirstImage && !coverUrl && !item.isVideo) {
-              coverUrl = publicUrl;
-              uploadedFirstImage = true;
-              await api.patch(`/api/studio/content/${setId}`, { cover_key: publicUrl });
-            }
-
-            setFilesByCategory((prev) => {
-              const upd = { ...prev, [cat.key]: [...prev[cat.key]] };
-              upd[cat.key][i] = { ...upd[cat.key][i], status: 'done', publicUrl };
-              return upd;
-            });
-          } catch (err) {
-            setFilesByCategory((prev) => {
-              const upd = { ...prev, [cat.key]: [...prev[cat.key]] };
-              upd[cat.key][i] = { ...upd[cat.key][i], status: 'error', error: err.message };
-              return upd;
-            });
-          }
-        }
+      const { uploaded, firstImageUrl } = await uploadAllPending(setId, 0);
+      if (!coverUrl && firstImageUrl) {
+        coverUrl = firstImageUrl;
+        await api.patch(`/api/studio/content/${setId}`, { cover_key: firstImageUrl });
       }
+      const position = uploaded;
 
       setUploadProgress('');
       setSuccess(`"${form.title}" created with ${position} item${position !== 1 ? 's' : ''}.`);
@@ -433,6 +528,60 @@ export function Content() {
           const contentCatLabel = CONTENT_CATEGORIES.find((c) => c.key === set.category)?.label;
           return (
             <div key={set.id} style={S.card}>
+              {addingTo === set.id && (
+                <div style={addPanel}>
+                  <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, marginBottom: 4 }}>
+                    Add photos to "{set.title}"
+                  </div>
+                  <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 12, lineHeight: 1.6 }}>
+                    New items are appended to the tier you choose. Existing items are untouched, so
+                    this is also how you finish a set whose upload was interrupted.
+                  </div>
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {CATEGORIES.filter((cat) => {
+                      // Respect the same lock as creation: a set is tier-segmented
+                      // or purchase-only, never both.
+                      const hasPurchase = (counts.purchase_only || 0) > 0;
+                      const hasTiered   = CATEGORIES.some((c2) => c2.key !== 'purchase_only' && counts[c2.key] > 0);
+                      if (hasPurchase) return cat.key === 'purchase_only';
+                      if (hasTiered)   return cat.key !== 'purchase_only';
+                      return true;
+                    }).map((cat) => (
+                      <div key={cat.key} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <input
+                          ref={(el) => { categoryRefs.current[`add-${set.id}-${cat.key}`] = el; }}
+                          type="file" accept="image/*,video/*" multiple style={{ display: 'none' }}
+                          onChange={(e) => handleCategoryFilePick(cat.key, e)}
+                        />
+                        <button onClick={() => categoryRefs.current[`add-${set.id}-${cat.key}`]?.click()}
+                                style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', minWidth: 130, textAlign: 'left' }}>
+                          + Add {cat.label}
+                        </button>
+                        <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
+                          {counts[cat.key] || 0} already · {(filesByCategory[cat.key] || []).length} queued
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {uploadProgress && (
+                    <div style={{ fontFamily: mono, fontSize: 12, color: colors.accent, marginTop: 12 }}>{uploadProgress}</div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                    <button onClick={() => handleAddToSet(set)}
+                            disabled={creating || totalFileCount === 0}
+                            style={{ ...S.btn, opacity: (creating || totalFileCount === 0) ? 0.5 : 1 }}>
+                      {creating ? 'Uploading…' : `Upload ${totalFileCount} item${totalFileCount === 1 ? '' : 's'}`}
+                    </button>
+                    <button onClick={() => { setAddingTo(null); setFilesByCategory(emptyCategoryFiles()); }}
+                            disabled={creating} style={S.ghostBtn}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {confirmDelete === set.id ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ fontFamily: sans, fontSize: 14, color: '#D99A9A' }}>
@@ -511,6 +660,10 @@ export function Content() {
                     <span style={{ fontFamily: sans, fontSize: 12, color: set.visible ? colors.success : colors.muted }}>
                       {set.visible ? 'Live' : 'Hidden'}
                     </span>
+                    <button onClick={() => { setAddingTo(addingTo === set.id ? null : set.id); setFilesByCategory(emptyCategoryFiles()); }}
+                            style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
+                      {addingTo === set.id ? 'Cancel' : 'Add photos'}
+                    </button>
                     <button onClick={() => openReview(set)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Review</button>
                     <button onClick={() => startEdit(set)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Edit</button>
                     <button onClick={() => setConfirmDelete(set.id)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A', borderColor: 'rgba(156,90,90,0.35)' }}>Delete</button>
@@ -610,6 +763,8 @@ const tierSelect    = { width: '100%', marginTop: 4, background: '#100F0C', bord
 const lightboxOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 400, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 20 };
 const lightboxMedia = { maxWidth: '92vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: 8 };
 const lightboxDelete = { background: '#9C5A5A', border: 'none', color: '#fff', fontFamily: sans, fontSize: 13, fontWeight: 700, padding: '10px 20px', borderRadius: 8, cursor: 'pointer' };
+
+const addPanel = { background: 'rgba(193,125,74,0.05)', border: '1px solid rgba(193,125,74,0.2)', borderRadius: 8, padding: 16, marginBottom: 14 };
 
 const fieldLabel = { fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 6 };
 const fileGrid   = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: 6 };
