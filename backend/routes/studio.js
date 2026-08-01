@@ -623,13 +623,33 @@ router.post('/content/:id/delete', async (req, res) => {
 router.get('/storage/orphans', async (req, res) => {
   try {
     const report = await findOrphans({ minAgeHours: 24 });
+
+    // Grouped by where the file came from — background, chat_media, content and
+    // so on. A filename list is useless at this size; knowing that most of the
+    // waste is replaced chat backgrounds versus failed content uploads is not.
+    const byPrefix = {};
+    report.orphans.forEach((o) => {
+      const p = o.key.includes('/') ? o.key.split('/')[0] : 'other';
+      byPrefix[p] ||= { prefix: p, count: 0, bytes: 0 };
+      byPrefix[p].count += 1;
+      byPrefix[p].bytes += o.sizeMB * 1048576;
+    });
+
     res.json({
-      ...report,
-      orphanCount: report.orphans.length,
-      orphanMB: +(report.orphanBytes / 1048576).toFixed(1),
-      orphans: report.orphans.slice(0, 200),
+      totalObjects: report.totalObjects,
+      referenced:   report.referenced,
+      recentSkipped: report.recentSkipped,
+      orphanCount:  report.orphans.length,
+      orphanMB:     +(report.orphanBytes / 1048576).toFixed(1),
+      byPrefix: Object.values(byPrefix)
+        .map((g) => ({ prefix: g.prefix, count: g.count, mb: +(g.bytes / 1048576).toFixed(1) }))
+        .sort((a, b) => b.count - a.count),
+      orphans: report.orphans.slice(0, 50),
     });
   } catch (err) {
+    if (err.code === 'UNCOVERED_REFERENCES') {
+      return res.status(409).json({ error: err.message });
+    }
     console.error('studio/storage/orphans error:', err);
     res.status(500).json({ error: 'Failed to scan storage' });
   }
@@ -651,6 +671,9 @@ router.post('/storage/orphans/purge', async (req, res) => {
       message: `Removed ${result.deleted} unused file${result.deleted === 1 ? '' : 's'}, freeing ${(report.orphanBytes / 1048576).toFixed(1)} MB.`,
     });
   } catch (err) {
+    if (err.code === 'UNCOVERED_REFERENCES') {
+      return res.status(409).json({ error: err.message });
+    }
     console.error('studio/storage/purge error:', err);
     res.status(500).json({ error: 'Failed to remove unused files' });
   }

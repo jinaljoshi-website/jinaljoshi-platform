@@ -730,6 +730,15 @@ export function Content() {
                 <div style={{ fontFamily: sans, fontSize: 14, color: '#D9A45C', marginTop: 8 }}>
                   {storage.orphanCount} unused file{storage.orphanCount === 1 ? '' : 's'} · {storage.orphanMB} MB
                 </div>
+                {(storage.byPrefix || []).length > 0 && (
+                  <div style={{ marginTop: 8, display: 'grid', gap: 3 }}>
+                    {storage.byPrefix.map((g) => (
+                      <div key={g.prefix} style={{ fontFamily: mono, fontSize: 11, color: colors.muted }}>
+                        {PREFIX_LABELS[g.prefix] || g.prefix} — {g.count} file{g.count === 1 ? '' : 's'} · {g.mb} MB
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <button onClick={purgeStorage} disabled={purging}
                         style={{ ...S.btn, fontSize: 12, padding: '7px 14px', marginTop: 10, background: '#8B3A3A', opacity: purging ? 0.6 : 1 }}>
                   {purging ? 'Removing…' : `Delete ${storage.orphanCount} unused file${storage.orphanCount === 1 ? '' : 's'} permanently`}
@@ -915,6 +924,15 @@ const lbActions    = { display: 'flex', gap: 14, alignItems: 'center', flexWrap:
 const lbSelect     = { background: '#100F0C', border: '1px solid rgba(255,255,255,0.18)', color: '#E8E1D8', fontFamily: sans, fontSize: 12, padding: '6px 10px', borderRadius: 6, outline: 'none' };
 const lightboxMedia = { maxWidth: 'min(92vw, 900px)', maxHeight: '70vh', objectFit: 'contain', borderRadius: 8, display: 'block' };
 const lightboxDelete = { background: '#9C5A5A', border: 'none', color: '#fff', fontFamily: sans, fontSize: 13, fontWeight: 700, padding: '9px 18px', borderRadius: 8, cursor: 'pointer' };
+
+// What each storage folder actually is, so the report reads as something other
+// than internal path names.
+const PREFIX_LABELS = {
+  background:  'Chat backgrounds replaced over time',
+  chat_media:  'Chat media past its 30-day expiry',
+  content:     'Gallery uploads with no set entry',
+  merch_image: 'Product photos no longer used',
+};
 
 const storageBox = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, marginTop: 28 };
 
