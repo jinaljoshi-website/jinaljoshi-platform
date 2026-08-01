@@ -153,6 +153,27 @@ export function Content() {
   // interrupted, and the normal way to extend a set later.
   const [addingTo, setAddingTo] = useState(null);
 
+  // Storage housekeeping. Deleting a photo now clears the file too, but years of
+  // earlier deletions left objects behind, and a failed cleanup can still leave one.
+  const [storage,  setStorage]  = useState(null);
+  const [scanning, setScanning] = useState(false);
+  const [purging,  setPurging]  = useState(false);
+
+  const scanStorage = async () => {
+    setScanning(true); setError(''); setStorage(null);
+    try { setStorage(await api.get('/api/studio/storage/orphans')); }
+    catch (err) { setError(err.message); } finally { setScanning(false); }
+  };
+
+  const purgeStorage = async () => {
+    setPurging(true); setError('');
+    try {
+      const d = await api.post('/api/studio/storage/orphans/purge', {});
+      setSuccess(d.message);
+      setStorage(null);
+    } catch (err) { setError(err.message); } finally { setPurging(false); }
+  };
+
   // An upload in progress is the one thing worth interrupting a tab close for.
   useEffect(() => {
     if (!uploadProgress) return;
@@ -194,7 +215,7 @@ export function Content() {
     } catch (err) { setError(err.message); } finally { setReviewLoading(false); }
   };
 
-  const deleteItem = async (item) => {
+  const deleteItem = async (item, opts = {}) => {
     setDeletingItem(item.id); setError('');
     try {
       const d = await api.delete(`/api/studio/content/item/${item.id}`);
@@ -203,7 +224,9 @@ export function Content() {
         ? { ...s, categoryCounts: { ...s.categoryCounts, [item.tier_category]: Math.max(0, (s.categoryCounts?.[item.tier_category] || 1) - 1) } }
         : s));
       setSuccess(`Removed. ${d.remaining} item${d.remaining === 1 ? '' : 's'} left in this set.`);
-      setLightbox(null);
+      // Deleting from the large view keeps you in it — the reviewer decides where
+      // to land next, since the indexes shift underneath.
+      if (!opts.keepLightbox) setLightbox(null);
     } catch (err) { setError(err.message); } finally { setDeletingItem(null); }
   };
 
@@ -675,6 +698,48 @@ export function Content() {
         })}
       </div>
 
+      {/* Storage housekeeping */}
+      <div style={storageBox}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>Unused files</div>
+            <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 3, lineHeight: 1.6, maxWidth: 560 }}>
+              Deleting a photo now removes the stored file as well. This finds anything left over
+              from earlier deletions. Files uploaded in the last day are never touched, in case an
+              upload is still running.
+            </div>
+          </div>
+          <button onClick={scanStorage} disabled={scanning}
+                  style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', opacity: scanning ? 0.5 : 1 }}>
+            {scanning ? 'Scanning…' : 'Scan storage'}
+          </button>
+        </div>
+
+        {storage && (
+          <div style={{ marginTop: 12, borderTop: `1px solid ${colors.border}`, paddingTop: 12 }}>
+            <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, lineHeight: 1.7 }}>
+              {storage.totalObjects} files in storage · {storage.referenced} in use
+              {storage.recentSkipped > 0 && ` · ${storage.recentSkipped} too recent to judge`}
+            </div>
+            {storage.orphanCount === 0 ? (
+              <div style={{ fontFamily: sans, fontSize: 13, color: colors.success, marginTop: 8 }}>
+                Nothing to clean up.
+              </div>
+            ) : (
+              <>
+                <div style={{ fontFamily: sans, fontSize: 14, color: '#D9A45C', marginTop: 8 }}>
+                  {storage.orphanCount} unused file{storage.orphanCount === 1 ? '' : 's'} · {storage.orphanMB} MB
+                </div>
+                <button onClick={purgeStorage} disabled={purging}
+                        style={{ ...S.btn, fontSize: 12, padding: '7px 14px', marginTop: 10, background: '#8B3A3A', opacity: purging ? 0.6 : 1 }}>
+                  {purging ? 'Removing…' : `Delete ${storage.orphanCount} unused file${storage.orphanCount === 1 ? '' : 's'} permanently`}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
       {reviewSet && (
         <ReviewPanel
           set={reviewSet}
@@ -695,8 +760,55 @@ export function Content() {
 }
 
 function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletingItem, lightbox, setLightbox, mediaUrl, categories }) {
+  // Grouped for the grid, but navigation runs across the whole set in the order
+  // shown. A shoot produces near-identical frames, so being able to step through
+  // them without leaving the large view is the only way to tell them apart.
   const byTier = {};
   items.forEach((i) => { (byTier[i.tier_category] ||= []).push(i); });
+  const ordered = categories.flatMap((cat) => byTier[cat.key] || []);
+
+  const at = typeof lightbox === 'number' ? lightbox : -1;
+  const current = at >= 0 ? ordered[at] : null;
+
+  const go = (delta) => {
+    if (at < 0) return;
+    const next = at + delta;
+    if (next >= 0 && next < ordered.length) setLightbox(next);
+  };
+
+  // Arrow keys to move, Escape to leave. Deliberately no keyboard shortcut for
+  // deleting — moving fast through similar photos is exactly when an accidental
+  // keypress would remove the wrong one.
+  useEffect(() => {
+    if (at < 0) return;
+    const onKey = (e) => {
+      if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); go(-1); }
+      if (e.key === 'Escape')     { e.preventDefault(); setLightbox(null); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [at, ordered.length]);
+
+  // Warm the neighbours so stepping through feels instant rather than blank.
+  useEffect(() => {
+    if (at < 0) return;
+    [ordered[at + 1], ordered[at + 2], ordered[at - 1]].forEach((it) => {
+      if (it && it.media_type !== 'video') { const img = new Image(); img.src = mediaUrl(it.r2_key); }
+    });
+  }, [at]);
+
+  // Deleting from the large view should keep you where you are rather than
+  // throwing you back to the grid — the point is to work through a set in a pass.
+  const deleteHere = async () => {
+    if (!current) return;
+    const wasLast = at >= ordered.length - 1;
+    await onDelete(current, { keepLightbox: true });
+    if (ordered.length <= 1) setLightbox(null);
+    else if (wasLast) setLightbox(at - 1);
+  };
+
+  const tierLabel = (key) => categories.find((c2) => c2.key === key)?.label || key;
 
   return (
     <div style={reviewOverlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -705,7 +817,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
           <div>
             <div style={{ fontFamily: display, fontSize: 22, color: colors.text }}>{set.title}</div>
             <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 3 }}>
-              {items.length} item{items.length === 1 ? '' : 's'} · tap any photo to view it full size
+              {items.length} item{items.length === 1 ? '' : 's'} · tap any photo to open the reviewer
             </div>
           </div>
           <button onClick={onClose} style={{ ...S.ghostBtn, fontSize: 14, padding: '6px 12px' }}>✕</button>
@@ -722,9 +834,11 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
               {byTier[cat.key].map((item) => (
                 <div key={item.id} style={{ position: 'relative' }}>
                   {item.media_type === 'video' || item.type === 'video' ? (
-                    <div onClick={() => setLightbox(item)} style={{ ...reviewThumb, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, cursor: 'pointer' }}>🎬</div>
+                    <div onClick={() => setLightbox(ordered.indexOf(item))} style={{ ...reviewThumb, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, cursor: 'pointer' }}>🎬</div>
                   ) : (
-                    <img src={mediaUrl(item.r2_key)} alt="" onClick={() => setLightbox(item)} style={{ ...reviewThumb, cursor: 'pointer' }} />
+                    <img src={mediaUrl(item.r2_key)} alt="" loading="lazy"
+                         onClick={() => setLightbox(ordered.indexOf(item))}
+                         style={{ ...reviewThumb, cursor: 'pointer' }} />
                   )}
                   <button onClick={() => onDelete(item)} disabled={deletingItem === item.id}
                           title="Remove this item"
@@ -740,13 +854,45 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
           </div>
         ))}
 
-        {lightbox && (
-          <div style={lightboxOverlay} onClick={() => setLightbox(null)}>
-            {lightbox.media_type === 'video' || lightbox.type === 'video'
-              ? <video src={mediaUrl(lightbox.r2_key)} controls autoPlay style={lightboxMedia} onClick={(e) => e.stopPropagation()} />
-              : <img src={mediaUrl(lightbox.r2_key)} alt="" style={lightboxMedia} onClick={(e) => e.stopPropagation()} />}
-            <button onClick={(e) => { e.stopPropagation(); onDelete(lightbox); }}
-                    style={lightboxDelete}>Remove this item</button>
+        {current && (
+          <div style={lightboxOverlay} onClick={(e) => e.target === e.currentTarget && setLightbox(null)}>
+            <div style={lbBar}>
+              <span style={{ fontFamily: mono, fontSize: 12, color: '#B8AFA4' }}>
+                {at + 1} of {ordered.length} · {tierLabel(current.tier_category)}
+              </span>
+              <button onClick={() => setLightbox(null)} style={lbClose}>✕</button>
+            </div>
+
+            <div style={lbStage}>
+              <button onClick={() => go(-1)} disabled={at === 0}
+                      style={{ ...lbArrow, left: 8, opacity: at === 0 ? 0.25 : 1 }} aria-label="Previous">‹</button>
+
+              {current.media_type === 'video' || current.type === 'video'
+                ? <video key={current.id} src={mediaUrl(current.r2_key)} controls style={lightboxMedia} />
+                : <img key={current.id} src={mediaUrl(current.r2_key)} alt="" style={lightboxMedia} />}
+
+              <button onClick={() => go(1)} disabled={at >= ordered.length - 1}
+                      style={{ ...lbArrow, right: 8, opacity: at >= ordered.length - 1 ? 0.25 : 1 }} aria-label="Next">›</button>
+            </div>
+
+            <div style={lbActions}>
+              <label style={{ fontFamily: sans, fontSize: 12, color: '#B8AFA4', display: 'flex', alignItems: 'center', gap: 8 }}>
+                Access level
+                <select value={current.tier_category}
+                        onChange={(e) => onRetier(current, e.target.value)}
+                        style={lbSelect}>
+                  {categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>)}
+                </select>
+              </label>
+              <button onClick={deleteHere} disabled={deletingItem === current.id}
+                      style={{ ...lightboxDelete, opacity: deletingItem === current.id ? 0.5 : 1 }}>
+                {deletingItem === current.id ? 'Removing…' : 'Remove this photo'}
+              </button>
+            </div>
+
+            <div style={{ fontFamily: sans, fontSize: 11, color: '#7C736A' }}>
+              Arrow keys to move · Esc to close
+            </div>
           </div>
         )}
       </div>
@@ -760,9 +906,17 @@ const reviewGrid    = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill,
 const reviewThumb   = { width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}`, background: 'rgba(255,255,255,0.03)', display: 'block' };
 const itemDeleteBtn = { position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.7)', color: '#D99A9A', fontSize: 14, lineHeight: 1, cursor: 'pointer', padding: 0 };
 const tierSelect    = { width: '100%', marginTop: 4, background: '#100F0C', border: `1px solid ${colors.border}`, color: colors.muted, fontFamily: sans, fontSize: 10, padding: '3px 4px', borderRadius: 4, outline: 'none' };
-const lightboxOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 400, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 20 };
-const lightboxMedia = { maxWidth: '92vw', maxHeight: '78vh', objectFit: 'contain', borderRadius: 8 };
-const lightboxDelete = { background: '#9C5A5A', border: 'none', color: '#fff', fontFamily: sans, fontSize: 13, fontWeight: 700, padding: '10px 20px', borderRadius: 8, cursor: 'pointer' };
+const lightboxOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.94)', zIndex: 400, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '16px 20px' };
+const lbBar        = { width: '100%', maxWidth: 900, display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
+const lbClose      = { background: 'transparent', border: '1px solid rgba(255,255,255,0.18)', color: '#E8E1D8', fontSize: 14, padding: '5px 11px', borderRadius: 8, cursor: 'pointer' };
+const lbStage      = { position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', flex: 1, minHeight: 0 };
+const lbArrow      = { position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.12)', color: '#fff', fontSize: 24, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, zIndex: 2 };
+const lbActions    = { display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' };
+const lbSelect     = { background: '#100F0C', border: '1px solid rgba(255,255,255,0.18)', color: '#E8E1D8', fontFamily: sans, fontSize: 12, padding: '6px 10px', borderRadius: 6, outline: 'none' };
+const lightboxMedia = { maxWidth: 'min(92vw, 900px)', maxHeight: '70vh', objectFit: 'contain', borderRadius: 8, display: 'block' };
+const lightboxDelete = { background: '#9C5A5A', border: 'none', color: '#fff', fontFamily: sans, fontSize: 13, fontWeight: 700, padding: '9px 18px', borderRadius: 8, cursor: 'pointer' };
+
+const storageBox = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, marginTop: 28 };
 
 const addPanel = { background: 'rgba(193,125,74,0.05)', border: '1px solid rgba(193,125,74,0.2)', borderRadius: 8, padding: 16, marginBottom: 14 };
 

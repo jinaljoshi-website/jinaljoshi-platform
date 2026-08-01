@@ -10,6 +10,7 @@ const { pushToUser } = require('./push');
 const { applyBlock, liftBlock, setMuted, logModerationAction } = require('../lib/moderation');
 const { notifyArtist } = require('../lib/notify');
 const { grantGiftedTokens, refundByRelated, refundLedgerEntry } = require('../lib/tokens');
+const { deleteObjects, findOrphans } = require('../lib/r2');
 
 router.use(authMid, artistOnly);
 
@@ -514,6 +515,12 @@ router.delete('/content/item/:itemId', async (req, res) => {
     const { rows: remaining } = await pool.query(
       `SELECT count(*)::int AS n FROM set_items WHERE set_id = $1`, [rows[0].set_id]
     );
+
+    // Storage is cleared only after the row is gone, so a failure here leaves an
+    // unreferenced file rather than a broken image. Not awaited — the fan-facing
+    // effect is already done, and R2 being slow should not hold up the response.
+    deleteObjects([rows[0].r2_key]).catch((e) => console.error('r2 cleanup:', e.message));
+
     res.json({ ok: true, deleted: rows[0].id, remaining: remaining[0].n });
   } catch (err) {
     console.error('studio/content/item delete error:', err);
@@ -584,10 +591,19 @@ router.post('/content/:id/delete', async (req, res) => {
     const { rows: items } = await client.query(
       `SELECT r2_key FROM set_items WHERE set_id = $1`, [id]
     );
+    const { rows: coverRows } = await client.query(
+      `SELECT cover_key FROM sets WHERE id = $1`, [id]
+    );
     await client.query(`DELETE FROM set_items WHERE set_id = $1`, [id]);
     await client.query(`DELETE FROM access_grants WHERE set_id = $1`, [id]);
     await client.query(`DELETE FROM sets WHERE id = $1`, [id]);
     await client.query('COMMIT');
+
+    // Only once the transaction has committed — if it had rolled back, the files
+    // would still be needed.
+    deleteObjects([...items.map((i) => i.r2_key), coverRows[0]?.cover_key])
+      .catch((e) => console.error('r2 cleanup:', e.message));
+
     res.json({ ok: true, deletedItems: items.length });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -595,6 +611,48 @@ router.post('/content/:id/delete', async (req, res) => {
     res.status(500).json({ error: 'Failed to delete set' });
   } finally {
     client.release();
+  }
+});
+
+// ─────────────────────────────────────────────
+// STORAGE HOUSEKEEPING
+// ─────────────────────────────────────────────
+
+// Reports what is in the bucket but referenced by nothing. Read-only — deleting
+// is a separate, deliberate call, because a mistake here destroys originals.
+router.get('/storage/orphans', async (req, res) => {
+  try {
+    const report = await findOrphans({ minAgeHours: 24 });
+    res.json({
+      ...report,
+      orphanCount: report.orphans.length,
+      orphanMB: +(report.orphanBytes / 1048576).toFixed(1),
+      orphans: report.orphans.slice(0, 200),
+    });
+  } catch (err) {
+    console.error('studio/storage/orphans error:', err);
+    res.status(500).json({ error: 'Failed to scan storage' });
+  }
+});
+
+router.post('/storage/orphans/purge', async (req, res) => {
+  try {
+    // Re-scanned rather than trusting a list the browser sends back. Between the
+    // scan and the click a set could have been created referencing one of these,
+    // and acting on a stale list would delete a file that is now in use.
+    const report = await findOrphans({ minAgeHours: 24 });
+    if (!report.orphans.length) return res.json({ ok: true, deleted: 0, message: 'Nothing to clean up.' });
+
+    const result = await deleteObjects(report.orphans.map((o) => o.key));
+    res.json({
+      ok: true,
+      ...result,
+      freedMB: +(report.orphanBytes / 1048576).toFixed(1),
+      message: `Removed ${result.deleted} unused file${result.deleted === 1 ? '' : 's'}, freeing ${(report.orphanBytes / 1048576).toFixed(1)} MB.`,
+    });
+  } catch (err) {
+    console.error('studio/storage/purge error:', err);
+    res.status(500).json({ error: 'Failed to remove unused files' });
   }
 });
 
