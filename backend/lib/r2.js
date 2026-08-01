@@ -86,7 +86,45 @@ const REFERENCE_QUERIES = [
   `SELECT value AS v FROM platform_config WHERE value LIKE 'http%'`,
   `SELECT image_key AS v FROM portfolio_hero_slides WHERE image_key IS NOT NULL`,
   `SELECT image_key AS v FROM portfolio_works WHERE image_key IS NOT NULL`,
+  // A fan's own upload attached to a custom request. Easy to overlook, and the
+  // one file here that belongs to someone else.
+  `SELECT reference_image_key AS v FROM custom_requests WHERE reference_image_key IS NOT NULL`,
 ];
+
+// A hand-written list of columns will drift the moment a feature adds one, and
+// the cost of missing a column is deleting a file that is still in use. So the
+// list above is cross-checked against every text column in the database that
+// actually holds a URL. Anything found here but not covered above aborts the
+// scan rather than risking a wrong deletion.
+async function findUncoveredUrlColumns() {
+  const covered = new Set([
+    'merchandise.img_key', 'merchandise_images.url', 'set_items.r2_key', 'sets.cover_key',
+    'direct_messages.media_url', 'direct_messages.locked_media_urls',
+    'fan_settings.personal_chat_bg', 'platform_config.value',
+    'portfolio_hero_slides.image_key', 'portfolio_works.image_key',
+    'custom_requests.reference_image_key',
+  ]);
+
+  const { rows: cols } = await pool.query(
+    `SELECT table_name, column_name FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND data_type IN ('text', 'character varying', 'jsonb', 'json')`
+  );
+
+  const uncovered = [];
+  for (const c of cols) {
+    const name = `${c.table_name}.${c.column_name}`;
+    if (covered.has(name)) continue;
+    try {
+      const { rows } = await pool.query(
+        `SELECT 1 FROM "${c.table_name}" WHERE "${c.column_name}"::text LIKE '%media.jinaljoshi.in%'
+            OR "${c.column_name}"::text LIKE '%r2.dev%' LIMIT 1`
+      );
+      if (rows.length) uncovered.push(name);
+    } catch { /* a column that cannot be cast to text cannot hold a URL */ }
+  }
+  return uncovered;
+}
 
 async function collectReferencedKeys() {
   const referenced = new Set();
@@ -103,6 +141,16 @@ async function collectReferencedKeys() {
 // files first and writing rows as each lands, so a file mid-upload is briefly
 // unreferenced and would otherwise be deleted out from under an active upload.
 async function findOrphans({ minAgeHours = 24 } = {}) {
+  const uncovered = await findUncoveredUrlColumns();
+  if (uncovered.length) {
+    const err = new Error(
+      `Storage scan aborted: ${uncovered.join(', ')} contain${uncovered.length === 1 ? 's' : ''} file references the scan does not know about. ` +
+      `Deleting now could remove files still in use.`
+    );
+    err.code = 'UNCOVERED_REFERENCES';
+    throw err;
+  }
+
   const [objects, referenced] = await Promise.all([listAllObjects(), collectReferencedKeys()]);
   const cutoff = Date.now() - minAgeHours * 3600 * 1000;
 
@@ -122,4 +170,4 @@ async function findOrphans({ minAgeHours = 24 } = {}) {
   };
 }
 
-module.exports = { deleteObjects, findOrphans, keyFromUrl, listAllObjects };
+module.exports = { deleteObjects, findOrphans, keyFromUrl, listAllObjects, findUncoveredUrlColumns };
