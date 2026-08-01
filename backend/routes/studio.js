@@ -656,19 +656,31 @@ router.get('/storage/orphans', async (req, res) => {
 });
 
 router.post('/storage/orphans/purge', async (req, res) => {
+  const { prefixes } = req.body;
   try {
     // Re-scanned rather than trusting a list the browser sends back. Between the
     // scan and the click a set could have been created referencing one of these,
     // and acting on a stale list would delete a file that is now in use.
     const report = await findOrphans({ minAgeHours: 24 });
-    if (!report.orphans.length) return res.json({ ok: true, deleted: 0, message: 'Nothing to clean up.' });
 
-    const result = await deleteObjects(report.orphans.map((o) => o.key));
+    // Cleared one category at a time. The categories differ in how confident we
+    // can be about them — stranded gallery uploads are plainly waste, while
+    // replaced portfolio images are public marketing files worth a second look.
+    // Lumping them into one button forces an all-or-nothing decision.
+    const wanted = Array.isArray(prefixes) && prefixes.length ? new Set(prefixes) : null;
+    const target = wanted
+      ? report.orphans.filter((o) => wanted.has(o.key.includes('/') ? o.key.split('/')[0] : 'other'))
+      : report.orphans;
+
+    if (!target.length) return res.json({ ok: true, deleted: 0, message: 'Nothing to clean up.' });
+
+    const bytes = target.reduce((s2, o) => s2 + o.sizeMB * 1048576, 0);
+    const result = await deleteObjects(target.map((o) => o.key));
     res.json({
       ok: true,
       ...result,
-      freedMB: +(report.orphanBytes / 1048576).toFixed(1),
-      message: `Removed ${result.deleted} unused file${result.deleted === 1 ? '' : 's'}, freeing ${(report.orphanBytes / 1048576).toFixed(1)} MB.`,
+      freedMB: +(bytes / 1048576).toFixed(1),
+      message: `Removed ${result.deleted} unused file${result.deleted === 1 ? '' : 's'}, freeing ${(bytes / 1048576).toFixed(1)} MB.`,
     });
   } catch (err) {
     if (err.code === 'UNCOVERED_REFERENCES') {

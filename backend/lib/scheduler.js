@@ -393,10 +393,11 @@ function startScheduler() {
     checkMissedCalls();
   }, 15000);
 
-  // Once a day at 4am server time: expired chat message cleanup (low-traffic window)
-  cron.schedule('0 4 * * *', () => {
-    expireOldChatMessages();
-  });
+  // Chat message expiry is not built yet — the retention decision was deferred.
+  // The schedule below called a function that was never written, so every night
+  // at 4am it threw a ReferenceError. Removed until the policy is actually decided;
+  // note that fan-facing copy already promises 30-day deletion, so this is a
+  // commitment currently going unmet rather than a feature merely missing.
 
   // Every minute: auction lifecycle (ending auctions, reminder emails, expiring unclaimed wins, queue promotion)
   cron.schedule('* * * * *', () => {

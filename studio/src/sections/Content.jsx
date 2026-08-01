@@ -165,13 +165,17 @@ export function Content() {
     catch (err) { setError(err.message); } finally { setScanning(false); }
   };
 
-  const purgeStorage = async () => {
-    setPurging(true); setError('');
+  // One category at a time. Stranded uploads are plainly waste; replaced
+  // portfolio images are public marketing files. A single button would force
+  // those two very different judgements into one decision.
+  const purgeStorage = async (prefix) => {
+    setPurging(prefix);
+    setError('');
     try {
-      const d = await api.post('/api/studio/storage/orphans/purge', {});
+      const d = await api.post('/api/studio/storage/orphans/purge', { prefixes: [prefix] });
       setSuccess(d.message);
-      setStorage(null);
-    } catch (err) { setError(err.message); } finally { setPurging(false); }
+      setStorage(await api.get('/api/studio/storage/orphans'));
+    } catch (err) { setError(err.message); } finally { setPurging(null); }
   };
 
   // An upload in progress is the one thing worth interrupting a tab close for.
@@ -730,19 +734,26 @@ export function Content() {
                 <div style={{ fontFamily: sans, fontSize: 14, color: '#D9A45C', marginTop: 8 }}>
                   {storage.orphanCount} unused file{storage.orphanCount === 1 ? '' : 's'} · {storage.orphanMB} MB
                 </div>
-                {(storage.byPrefix || []).length > 0 && (
-                  <div style={{ marginTop: 8, display: 'grid', gap: 3 }}>
-                    {storage.byPrefix.map((g) => (
-                      <div key={g.prefix} style={{ fontFamily: mono, fontSize: 11, color: colors.muted }}>
-                        {PREFIX_LABELS[g.prefix] || g.prefix} — {g.count} file{g.count === 1 ? '' : 's'} · {g.mb} MB
+                <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+                  {(storage.byPrefix || []).map((g) => {
+                    const meta = PREFIX_LABELS[g.prefix] || { label: g.prefix, note: '' };
+                    return (
+                      <div key={g.prefix} style={prefixRow}>
+                        <div style={{ flex: 1, minWidth: 200 }}>
+                          <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{meta.label}</div>
+                          <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 2 }}>
+                            {g.count} file{g.count === 1 ? '' : 's'} · {g.mb} MB{meta.note ? ` · ${meta.note}` : ''}
+                          </div>
+                        </div>
+                        <button onClick={() => purgeStorage(g.prefix)} disabled={!!purging}
+                                style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', color: '#D99A9A',
+                                         borderColor: 'rgba(156,90,90,0.35)', opacity: purging ? 0.5 : 1 }}>
+                          {purging === g.prefix ? 'Removing…' : 'Clear these'}
+                        </button>
                       </div>
-                    ))}
-                  </div>
-                )}
-                <button onClick={purgeStorage} disabled={purging}
-                        style={{ ...S.btn, fontSize: 12, padding: '7px 14px', marginTop: 10, background: '#8B3A3A', opacity: purging ? 0.6 : 1 }}>
-                  {purging ? 'Removing…' : `Delete ${storage.orphanCount} unused file${storage.orphanCount === 1 ? '' : 's'} permanently`}
-                </button>
+                    );
+                  })}
+                </div>
               </>
             )}
           </div>
@@ -928,11 +939,14 @@ const lightboxDelete = { background: '#9C5A5A', border: 'none', color: '#fff', f
 // What each storage folder actually is, so the report reads as something other
 // than internal path names.
 const PREFIX_LABELS = {
-  background:  'Chat backgrounds replaced over time',
-  chat_media:  'Chat media past its 30-day expiry',
-  content:     'Gallery uploads with no set entry',
-  merch_image: 'Product photos no longer used',
+  content:     { label: 'Gallery uploads that never joined a set',   note: 'Stranded by the upload bug — safe to clear' },
+  background:  { label: 'Chat backgrounds replaced since',           note: 'Superseded by newer ones' },
+  chat_media:  { label: 'Chat media from deleted accounts',          note: 'Left behind when test users were removed' },
+  merch_image: { label: 'Product photos no longer used',             note: '' },
+  portfolio:   { label: 'Portfolio images replaced since',           note: 'Public marketing files — check the site first' },
 };
+
+const prefixRow = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 12px' };
 
 const storageBox = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, marginTop: 28 };
 
