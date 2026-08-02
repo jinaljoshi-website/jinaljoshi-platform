@@ -779,6 +779,33 @@ export function Content() {
   );
 }
 
+// A grid of 271 thumbnails would otherwise fire 271 requests for full-size
+// originals at once — around 120MB to fill boxes 60px wide. The browser's own
+// lazy loading barely defers anything inside a scrolling modal, so the image is
+// held back until it is actually near view, and kept once loaded so scrolling
+// back is instant.
+function LazyThumb({ src, alt, onClick, style }) {
+  const ref = useRef(null);
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || show) return;
+    const io = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setShow(true); io.disconnect(); } },
+      // A generous margin so images are ready before they scroll into view
+      // rather than popping in underneath the cursor.
+      { root: el.closest('[data-review-scroll]') || null, rootMargin: '600px 0px' }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [show]);
+
+  return show
+    ? <img ref={ref} src={src} alt={alt} onClick={onClick} style={style} />
+    : <div ref={ref} onClick={onClick} style={{ ...style, background: 'rgba(255,255,255,0.04)' }} />;
+}
+
 function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletingItem, lightbox, setLightbox, mediaUrl, categories }) {
   // Grouped for the grid, but navigation runs across the whole set in the order
   // shown. A shoot produces near-identical frames, so being able to step through
@@ -810,12 +837,19 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
     return () => window.removeEventListener('keydown', onKey);
   }, [at, ordered.length]);
 
-  // Warm the neighbours so stepping through feels instant rather than blank.
+  // Warm the next image so stepping forward feels instant. Deliberately modest:
+  // holding down the arrow key through a few hundred photos would otherwise
+  // queue up more requests than the connection can finish, and the picture you
+  // are actually looking at ends up behind them all. Delayed slightly so a fast
+  // scroll past a photo does not fetch it at all.
   useEffect(() => {
     if (at < 0) return;
-    [ordered[at + 1], ordered[at + 2], ordered[at - 1]].forEach((it) => {
-      if (it && it.media_type !== 'video') { const img = new Image(); img.src = mediaUrl(it.r2_key); }
-    });
+    const t = setTimeout(() => {
+      [ordered[at + 1], ordered[at - 1]].forEach((it) => {
+        if (it && it.media_type !== 'video') { const img = new Image(); img.src = mediaUrl(it.r2_key); }
+      });
+    }, 250);
+    return () => clearTimeout(t);
   }, [at]);
 
   // Deleting from the large view should keep you where you are rather than
@@ -832,7 +866,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
 
   return (
     <div style={reviewOverlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div style={reviewModal}>
+      <div style={reviewModal} data-review-scroll>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, gap: 12 }}>
           <div>
             <div style={{ fontFamily: display, fontSize: 22, color: colors.text }}>{set.title}</div>
@@ -856,9 +890,9 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
                   {item.media_type === 'video' || item.type === 'video' ? (
                     <div onClick={() => setLightbox(ordered.indexOf(item))} style={{ ...reviewThumb, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, cursor: 'pointer' }}>🎬</div>
                   ) : (
-                    <img src={mediaUrl(item.r2_key)} alt="" loading="lazy"
-                         onClick={() => setLightbox(ordered.indexOf(item))}
-                         style={{ ...reviewThumb, cursor: 'pointer' }} />
+                    <LazyThumb src={mediaUrl(item.r2_key)} alt=""
+                               onClick={() => setLightbox(ordered.indexOf(item))}
+                               style={{ ...reviewThumb, cursor: 'pointer' }} />
                   )}
                   <button onClick={() => onDelete(item)} disabled={deletingItem === item.id}
                           title="Remove this item"
@@ -889,7 +923,9 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
 
               {current.media_type === 'video' || current.type === 'video'
                 ? <video key={current.id} src={mediaUrl(current.r2_key)} controls style={lightboxMedia} />
-                : <img key={current.id} src={mediaUrl(current.r2_key)} alt="" style={lightboxMedia} />}
+                : <img key={current.id} src={mediaUrl(current.r2_key)} alt=""
+                       onLoad={(e) => { e.target.style.opacity = 1; }}
+                       style={{ ...lightboxMedia, opacity: 0, transition: 'opacity 0.15s' }} />}
 
               <button onClick={() => go(1)} disabled={at >= ordered.length - 1}
                       style={{ ...lbArrow, right: 8, opacity: at >= ordered.length - 1 ? 0.25 : 1 }} aria-label="Next">›</button>
