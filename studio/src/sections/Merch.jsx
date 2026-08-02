@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { T, S, Card, Eyebrow, Field, TokenField, colors } from '../ui';
 
+const sans = "'DM Sans', system-ui, sans-serif";
+
 async function uploadImage(file) {
   const { uploadUrl, publicUrl } = await api.post('/api/upload/presign', {
     filename: file.name, contentType: file.type, context: 'content',
@@ -20,6 +22,19 @@ export function Merch() {
   const [sales,   setSales]   = useState([]);
   const [tab,     setTab]     = useState('merch');   // 'merch' | 'outfits' | 'fulfilment'
   const [donationRef, setDonationRef] = useState({});
+
+  // Proving the print partner connection before anything depends on it.
+  const [fulfilment, setFulfilment] = useState(null);
+  const [pinging,    setPinging]    = useState(false);
+
+  const pingFulfilment = async () => {
+    setPinging(true); setError(''); setFulfilment(null);
+    try {
+      setFulfilment(await api.get('/api/studio/fulfilment/ping'));
+    } catch (err) {
+      setFulfilment({ ok: false, error: err.message });
+    } finally { setPinging(false); }
+  };
   const [donations,   setDonations]   = useState(null);
   const [draft,       setDraft]       = useState('');
   const [publishing,  setPublishing]  = useState(false);
@@ -488,6 +503,39 @@ export function Merch() {
 
       {tab === 'fulfilment' && (
         <>
+          <div style={partnerBox}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>Print partner</div>
+                <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 3, lineHeight: 1.6, maxWidth: 520 }}>
+                  Checks that Qikink accepts our credentials. Nothing is ordered.
+                </div>
+              </div>
+              <button onClick={pingFulfilment} disabled={pinging}
+                      style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', opacity: pinging ? 0.5 : 1 }}>
+                {pinging ? 'Checking…' : 'Test connection'}
+              </button>
+            </div>
+
+            {fulfilment && (
+              <div style={{ marginTop: 12, borderTop: `1px solid ${colors.border}`, paddingTop: 12,
+                            fontFamily: sans, fontSize: 12, lineHeight: 1.7,
+                            color: fulfilment.ok ? colors.success : '#D99A9A' }}>
+                {fulfilment.ok ? (
+                  <>
+                    Connected to <strong>{fulfilment.environment}</strong> · {fulfilment.base}
+                    <div style={{ color: colors.muted, marginTop: 2 }}>
+                      Access token valid for {fulfilment.tokenValidForMinutes} minutes
+                      {fulfilment.environment === 'sandbox' && ' · test orders only, nothing will be printed'}
+                    </div>
+                  </>
+                ) : (
+                  <>Could not connect: {fulfilment.error}</>
+                )}
+              </div>
+            )}
+          </div>
+
           <T.sectionTitle>Sold outfits ({sales.length})</T.sectionTitle>
           <div style={{ display: 'grid', gap: 12, marginBottom: 32 }}>
             {sales.length === 0 && <T.muted>Nothing sold yet.</T.muted>}
@@ -594,6 +642,8 @@ export function Merch() {
     </div>
   );
 }
+
+const partnerBox = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, marginBottom: 20 };
 
 const auctionToggle = { display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 14, padding: '12px 14px', background: 'rgba(193,125,74,0.05)', border: '1px solid rgba(193,125,74,0.2)', borderRadius: 8, fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: '#9B8F83', cursor: 'pointer', lineHeight: 1.5 };
 

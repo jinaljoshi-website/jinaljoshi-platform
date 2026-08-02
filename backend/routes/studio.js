@@ -665,6 +665,35 @@ router.post('/content/:id/delete', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// FULFILMENT — Qikink
+// ─────────────────────────────────────────────
+
+// Authenticates and returns nothing else. Enough to prove the credentials and
+// the base URL are right, without creating anything that would need cancelling.
+router.get('/fulfilment/ping', async (req, res) => {
+  try {
+    const { ping, BASE } = require('../lib/qikink');
+    const missing = ['QIKINK_CLIENT_ID', 'QIKINK_CLIENT_SECRET'].filter((k) => !process.env[k]);
+    if (missing.length) {
+      return res.status(503).json({ error: `Not configured: ${missing.join(', ')} missing from the backend service` });
+    }
+    const result = await ping();
+    res.json({
+      ok: true,
+      environment: /sandbox/i.test(BASE) ? 'sandbox' : 'live',
+      base: BASE,
+      tokenLength: result.tokenLength,
+      tokenValidForMinutes: Math.round(result.expiresInMs / 60000),
+    });
+  } catch (err) {
+    // The message matters here — a 401 means wrong credentials, a network error
+    // means the wrong base URL, and those need different fixes.
+    console.error('qikink ping failed:', err.message);
+    res.status(502).json({ error: err.message, status: err.status || null });
+  }
+});
+
+// ─────────────────────────────────────────────
 // STORAGE HOUSEKEEPING
 // ─────────────────────────────────────────────
 
