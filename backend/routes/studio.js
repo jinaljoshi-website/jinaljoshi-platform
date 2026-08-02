@@ -11,6 +11,9 @@ const { applyBlock, liftBlock, setMuted, logModerationAction } = require('../lib
 const { notifyArtist } = require('../lib/notify');
 const { grantGiftedTokens, refundByRelated, refundLedgerEntry } = require('../lib/tokens');
 const { deleteObjects, findOrphans } = require('../lib/r2');
+const { getBalances } = require('../lib/tokens');
+const { getDmConfigForTier } = require('../lib/config');
+const { getLocalDateStr, getAllotmentPeriodKey } = require('../lib/time');
 
 router.use(authMid, artistOnly);
 
@@ -315,7 +318,9 @@ router.get('/dms/:fanId', async (req, res) => {
       [req.params.fanId, req.user.userId]
     );
     const { rows: fanRows } = await pool.query(
-      `SELECT u.id, u.email, u.display_name, u.tier, u.coin_balance, fs.personal_chat_bg,
+      `SELECT u.id, u.email, u.display_name, u.tier, u.coin_balance,
+              u.membership_expires_at, u.membership_started_at, u.timezone,
+              fs.personal_chat_bg,
               fs.custom_chat_price, fs.custom_messages_per_token, fs.can_send_media,
               u.is_muted, u.blocked_until, u.block_count,
               COALESCE(fs.personal_chat_bg, pc.value, '') AS effective_chat_bg
@@ -325,7 +330,52 @@ router.get('/dms/:fanId', async (req, res) => {
        WHERE u.id = $1`,
       [req.params.fanId]
     );
-    res.json({ messages: rows, fan: fanRows[0] || null });
+
+    // What this fan has left, so Jinal can see whether a quiet week means they
+    // are out of free messages rather than out of interest — and whether a long
+    // reply is about to cost them.
+    let quota = null;
+    const fan = fanRows[0];
+    if (fan) {
+      const isActive = fan.membership_expires_at && new Date(fan.membership_expires_at) > new Date();
+      const tier     = isActive ? fan.tier : 'guest';
+      const [cfg, bal] = await Promise.all([
+        getDmConfigForTier(tier),
+        getBalances(pool, fan.id),
+      ]);
+
+      let monthUsed = 0, todayUsed = 0;
+      if (tier !== 'guest') {
+        const { rows: allot } = await pool.query(
+          `SELECT free_dms_used, free_dms_today, dms_date
+           FROM monthly_allotments WHERE user_id = $1 AND month_key = $2`,
+          [fan.id, getAllotmentPeriodKey(fan.membership_started_at)]
+        );
+        const a = allot[0];
+        if (a) {
+          monthUsed = a.free_dms_used || 0;
+          const dayStr = getLocalDateStr(fan.timezone);
+          const rowDay = a.dms_date ? new Date(a.dms_date).toISOString().slice(0, 10) : null;
+          todayUsed = rowDay === dayStr ? (a.free_dms_today || 0) : 0;
+        }
+      }
+
+      quota = {
+        tier,
+        isActive: !!isActive,
+        freeDMsPerMonth: tier === 'guest' ? 0 : cfg.freeDMsPerMonth,
+        freeRemaining:   tier === 'guest' ? 0 : Math.max(0, cfg.freeDMsPerMonth - monthUsed),
+        dailyDMCap:      tier === 'guest' ? 0 : cfg.dailyDMCap,
+        dailyRemaining:  tier === 'guest' ? 0 : Math.max(0, cfg.dailyDMCap - todayUsed),
+        overageCost:     cfg.overageCost,
+        purchasedBalance: fan.coin_balance,
+        giftedBalance:    bal.gifted,
+        spendableBalance: bal.total,
+        giftedExpiresInDays: bal.giftedExpiresInDays,
+      };
+    }
+
+    res.json({ messages: rows, fan: fan || null, quota });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load conversation' });
   }

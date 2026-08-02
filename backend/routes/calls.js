@@ -2,7 +2,7 @@
 const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
-const { notifyArtist } = require('../lib/notify');
+const { notifyArtist, ringArtist } = require('../lib/notify');
 const { pushToUser } = require('./push');
 const { postSystemMessage } = require('./community');
 const { getConfigNumber, getDiscountForTier, getGuestMultiplier, getCallMinLeadHours, getCallRingWindowSeconds, getDndEnabled } = require('../lib/config');
@@ -258,20 +258,30 @@ router.post('/book', authMid, async (req, res) => {
 
     await client.query('COMMIT');
 
+    // Who is calling, what they pay for and what it cost them — enough for Jinal
+    // to decide whether to answer without opening anything.
+    const tierLabel = isGuest ? 'Guest' : user.tier.charAt(0).toUpperCase() + user.tier.slice(1);
+
     if (isPriority) {
-      notifyArtist({
-        title: '🔴 Priority call — ringing now!',
-        body:  `${fanLabel} is calling you right now. Answer within a minute.`,
+      ringArtist({
+        title: `📞 ${fanLabel} is calling`,
+        body:  `${tierLabel} · ${durationMinutes} min · ${totalCost} tokens`,
         url:   '/calls',
-        vibrate: [200, 100, 200, 100, 200, 100, 400],
-        requireInteraction: true,
-        tag: `priority-ring-${callRow.id}`,
-      });
+        tag:   `priority-ring-${callRow.id}`,
+        // Repeats stop the moment the call is answered or times out, so
+        // picking up quickly does not leave the phone chiming.
+        stillRinging: async () => {
+          const { rows } = await pool.query(
+            `SELECT status FROM call_requests WHERE id = $1`, [callRow.id]
+          );
+          return rows[0]?.status === 'ringing';
+        },
+      }, { times: 6, gapMs: 2000 });
       postSystemMessage(`🔴 ${fanLabel} just started a priority call with Jinal!`);
     } else {
       notifyArtist({
-        title: 'New call request 📞',
-        body:  `${callType} call requested for ${durationMinutes} min · proposed ${proposedDate.toLocaleString()}`,
+        title: `📞 Call request from ${fanLabel}`,
+        body:  `${tierLabel} · ${callType} · ${durationMinutes} min · ${totalCost} tokens · proposed ${proposedDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`,
         url:   '/calls',
       });
       postSystemMessage(`📞 ${fanLabel} just booked a call with Jinal!`);

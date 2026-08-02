@@ -47,6 +47,9 @@ export function Messages() {
   const [selected, setSelected] = useState(null);
   const [thread,   setThread]   = useState([]);
   const [fan,      setFan]      = useState(null);
+  // What this fan has left to spend and to say — so a quiet week reads as
+  // "out of free messages" rather than "lost interest".
+  const [quota,    setQuota]    = useState(null);
   const [reply,    setReply]    = useState('');
   const [sending,  setSending]  = useState(false);
   const [loading,  setLoading]  = useState(true);
@@ -181,6 +184,7 @@ export function Messages() {
     const data = await api.get(`/api/studio/dms/${fanId}`);
     setThread(data.messages || []);
     setFan(data.fan || null);
+    setQuota(data.quota || null);
     setBgPreview(data.fan?.personal_chat_bg || '');
     setEffectiveBg(data.fan?.effective_chat_bg || '');
     setMediaEnabled(data.fan?.can_send_media || false);
@@ -514,6 +518,11 @@ export function Messages() {
   if (loading) return <T.muted>Loading messages…</T.muted>;
 
   const sans = "'DM Sans', system-ui, sans-serif";
+  const quotaChip = {
+    fontFamily: sans, fontSize: 10, color: colors.muted,
+    background: 'rgba(255,255,255,0.04)', border: `1px solid ${colors.border}`,
+    borderRadius: 999, padding: '3px 9px', whiteSpace: 'nowrap',
+  };
   const showList   = !isMobile || !selected;
   const showThread = !isMobile || !!selected;
   const fanCurrentlyBlocked = isCurrentlyBlocked(fanBlockedUntil);
@@ -595,7 +604,21 @@ export function Messages() {
                     )}
                     <div style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20, color: colors.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fan?.display_name || fan?.email}</div>
                     {fan && <Badge tier={fan.tier} />}
-                    {fan && !isMobile && <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: colors.muted }}>{fan.coin_balance} tokens</span>}
+                    {fan && !isMobile && quota && (
+                      <span style={quotaChip} title="Free messages left this period and today, then what a further message costs them">
+                        {quota.tier === 'guest'
+                          ? `Guest · ${quota.overageCost}/msg`
+                          : `${quota.freeRemaining}/${quota.freeDMsPerMonth} free · ${quota.dailyRemaining}/${quota.dailyDMCap} today`}
+                      </span>
+                    )}
+                    {fan && !isMobile && (
+                      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: colors.muted }}>
+                        {quota ? quota.purchasedBalance : fan.coin_balance} tokens
+                        {quota?.giftedBalance > 0 && (
+                          <span style={{ color: '#8FC88F' }}> + {quota.giftedBalance} gifted</span>
+                        )}
+                      </span>
+                    )}
                     {fanMuted && (
                       <span style={{ fontFamily: sans, fontSize: 10, color: '#D9A45C', background: 'rgba(217,164,92,0.1)', border: '1px solid rgba(217,164,92,0.3)', borderRadius: 999, padding: '3px 8px' }}>Muted</span>
                     )}
@@ -608,6 +631,15 @@ export function Messages() {
                       </span>
                     )}
                   </div>
+                  {isMobile && quota && (
+                    <div style={{ ...quotaChip, width: '100%', boxSizing: 'border-box', textAlign: 'center' }}>
+                      {quota.tier === 'guest'
+                        ? `Guest · ${quota.overageCost} per message`
+                        : `${quota.freeRemaining} free left · ${quota.dailyRemaining} today`}
+                      {' · '}{quota.purchasedBalance} tokens
+                      {quota.giftedBalance > 0 && ` + ${quota.giftedBalance} gifted`}
+                    </div>
+                  )}
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button onClick={() => setPanel(panel === 'grant' ? null : 'grant')} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 10px', color: panel === 'grant' ? colors.accent : colors.muted }}>Send tokens</button>
                     <button onClick={() => setPanel(panel === 'settings' ? null : 'settings')} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 10px', color: panel === 'settings' ? colors.accent : colors.muted }}>Chat settings</button>

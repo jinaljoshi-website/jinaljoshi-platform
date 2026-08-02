@@ -88,4 +88,45 @@ async function notifyArtist({ title, body, url = '/', ...rest }) {
   return pushToUser(artistId, { title, body, url, ...rest });
 }
 
-module.exports = { notifyArtist, pushToUser, sendToSubscriptions, subscriptionIsDead };
+// A single push makes one notification sound and is easy to sleep through. A
+// ringing call needs to keep asking, so the same notification is re-sent a few
+// times a couple of seconds apart. Each send re-alerts because renotify is set
+// with a stable tag, so it stays ONE notification in the tray that chimes again
+// rather than a pile of them to dismiss.
+//
+// Worth being clear about the limit: a web push cannot play a chosen ringtone.
+// The Notification API's sound property was dropped and no browser honours it;
+// a custom sound needs a real installed app with its own notification channel.
+// What is available is the system notification sound, repetition, and vibration.
+async function ringArtist(payload, { times = 5, gapMs = 2000 } = {}) {
+  const artistId = process.env.ARTIST_USER_ID;
+  if (!artistId) return { sent: 0 };
+
+  const ring = {
+    ...payload,
+    tag: payload.tag || 'incoming-call',
+    renotify: true,
+    requireInteraction: true,
+    vibrate: payload.vibrate || [400, 200, 400, 200, 400],
+  };
+
+  const first = await pushToUser(artistId, ring);
+
+  // The rest are fired without holding up the caller — the fan is waiting on a
+  // response, and a ring that is still repeating must not delay it.
+  (async () => {
+    for (let i = 1; i < times; i++) {
+      await new Promise((r) => setTimeout(r, gapMs));
+      // Stop if the call is no longer ringing, so answering quickly does not
+      // leave the phone chiming for another ten seconds.
+      if (typeof payload.stillRinging === 'function') {
+        try { if (!(await payload.stillRinging())) return; } catch { /* keep ringing */ }
+      }
+      await pushToUser(artistId, { ...ring, body: `${ring.body} · still ringing` });
+    }
+  })().catch((e) => console.error('ringArtist repeat failed:', e.message));
+
+  return first;
+}
+
+module.exports = { notifyArtist, pushToUser, ringArtist, sendToSubscriptions, subscriptionIsDead };
