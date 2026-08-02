@@ -136,11 +136,19 @@ export default function Gallery() {
                     ? `Unlock ${openSet.tierPortionCount} more using your credit`
                     : `Unlock ${openSet.tierPortionCount} more for ${openSet.tierPrice} tokens`}
               </div>
-              {openSet.tierLapsed && (
+              {openSet.tierLapsed ? (
                 <div style={unlockFrameSub}>
                   Your membership unlocked this — renew to view again, or tap to unlock permanently
                 </div>
-              )}
+              ) : openSet.tierPrice === 0 ? (
+                // Said before the credit is spent, not after it lapses. A member
+                // who unlocks a dozen sets on their monthly allowance and then
+                // lets membership end loses all of them, and until now nothing
+                // told them that at the moment it mattered.
+                <div style={unlockFrameSub}>
+                  Included with your membership · stays available while your membership is active
+                </div>
+              ) : null}
             </div>
           )}
 

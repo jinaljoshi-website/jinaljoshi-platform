@@ -10,14 +10,38 @@ function handleUnauthorized(message) {
   window.location.href = `/auth?mode=login&notice=${msg}`;
 }
 
+// Reads the expiry out of the JWT without verifying it — the server does the
+// verifying. This is only used to answer one question: is the token actually
+// expired, or did a single endpoint return 401 for some other reason?
+function tokenHasExpired() {
+  const jwt = localStorage.getItem('jwt');
+  if (!jwt) return true;
+  try {
+    const payload = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if (!payload.exp) return false;
+    // A minute of slack, so a clock a few seconds out does not sign someone out.
+    return Date.now() >= (payload.exp * 1000) - 60000;
+  } catch {
+    return true;   // unreadable token is no token
+  }
+}
+
 async function parseResponse(response) {
-  // Handle session errors globally — redirect to login
+  // A 401 used to sign the fan out of everything, instantly, from anywhere.
+  // One misbehaving endpoint would end a session mid-purchase with nothing but
+  // "your session has ended" to explain it. Now the session only ends when the
+  // token is genuinely gone or expired; any other 401 surfaces as an ordinary
+  // error the page can show and recover from.
   if (response.status === 401) {
     const text = await response.text();
     let data = {};
     try { data = text ? JSON.parse(text) : {}; } catch { data = { message: text }; }
-    handleUnauthorized(data.message || data.error);
-    return; // never resolves — redirect happens
+
+    if (tokenHasExpired()) {
+      handleUnauthorized(data.message || data.error);
+      return; // never resolves — redirect happens
+    }
+    throw new Error(data.message || data.error || 'You are not allowed to do that.');
   }
 
   const text = await response.text();

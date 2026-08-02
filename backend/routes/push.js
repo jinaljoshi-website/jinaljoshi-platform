@@ -3,44 +3,12 @@ const router     = require('express').Router();
 const pool       = require('../db/pool');
 const authMid    = require('../middleware/auth');
 const artistOnly = require('../middleware/artistOnly');
-const webpush    = require('web-push');
 
-webpush.setVapidDetails(
-  'mailto:support@jinaljoshi.in',
-  process.env.VAPID_PUBLIC,
-  process.env.VAPID_PRIVATE
-);
-
-// ── Helper: send to a specific user's subscriptions ──────────────────────────
-async function pushToUser(userId, payload) {
-  const { rows: subs } = await pool.query(
-    `SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1`,
-    [userId]
-  );
-  if (!subs.length) return;
-  const expired = [];
-  await Promise.allSettled(subs.map(async (sub) => {
-    try {
-      await webpush.sendNotification(
-        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        JSON.stringify(payload)
-      );
-    } catch (err) {
-      console.error('pushToUser send failed:', {
-        endpoint: sub.endpoint.slice(0, 60) + '...',
-        statusCode: err.statusCode,
-        body: err.body,
-        message: err.message,
-      });
-      if (err.statusCode === 410) expired.push(sub.endpoint);
-    }
-  }));
-  if (expired.length) {
-    await pool.query(`DELETE FROM push_subscriptions WHERE endpoint = ANY($1)`, [expired]);
-  }
-}
-
-// Export for use in other routes
+// VAPID is configured once, in lib/notify.js.
+// Sending lives in lib/notify.js so there is one implementation and one
+// definition of a dead subscription. Re-exported here because several routes
+// already import pushToUser from this module.
+const { pushToUser, sendToSubscriptions } = require('../lib/notify');
 module.exports.pushToUser = pushToUser;
 
 // ─────────────────────────────────────────────
@@ -124,42 +92,12 @@ router.post('/send', authMid, artistOnly, async (req, res) => {
 
     if (!subs.length) return res.json({ ok: true, sent: 0, message: 'No subscribers found' });
 
-    const payload = JSON.stringify({
+    const { sent, failed, removed } = await sendToSubscriptions(subs, {
       title, body, url: url || '/',
       icon: '/wonder-coin-192.png', badge: '/wonder-coin-192.png',
     });
 
-    let sent = 0, failed = 0;
-    const expired = [];
-
-    await Promise.allSettled(subs.map(async (sub) => {
-      try {
-        await webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          payload
-        );
-        sent++;
-      } catch (err) {
-        failed++;
-        // Previously silent for anything other than 410 — meaning every real failure
-        // reason (bad VAPID keys, malformed subscription, an auth error from the push
-        // service) was being discarded with zero trace, which is exactly why nothing
-        // ever showed up in the logs despite repeated failed sends.
-        console.error('push send failed:', {
-          endpoint: sub.endpoint.slice(0, 60) + '...',
-          statusCode: err.statusCode,
-          body: err.body,
-          message: err.message,
-        });
-        if (err.statusCode === 410) expired.push(sub.endpoint);
-      }
-    }));
-
-    if (expired.length) {
-      await pool.query(`DELETE FROM push_subscriptions WHERE endpoint = ANY($1)`, [expired]);
-    }
-
-    res.json({ ok: true, sent, failed, expiredRemoved: expired.length });
+    res.json({ ok: true, sent, failed, expiredRemoved: removed });
   } catch (err) {
     console.error('push/send error:', err);
     res.status(500).json({ error: 'Failed to send notifications' });

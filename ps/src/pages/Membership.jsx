@@ -20,11 +20,12 @@ function addMonthsClamped(date, months) {
   return d;
 }
 
-// We show the day BEFORE the true expiry. A membership bought at 2pm on the 5th
-// really runs to 2pm on the 5th next month — but promising "the 5th" invites
-// "it said the 5th and it stopped at lunchtime". Showing the 4th means the real
-// cutoff is always later than promised, never earlier.
-function expiryLabel(expiresAt) {
+// The backend now decides this, so the date shown is the one the server holds
+// rather than a second computation in the browser's timezone. Kept as a fallback
+// for anything the server has not labelled — and it stays deliberately one day
+// early, so the real cutoff is always later than promised, never earlier.
+function expiryLabel(expiresAt, serverLabel) {
+  if (serverLabel) return serverLabel;
   const d = new Date(expiresAt);
   d.setDate(d.getDate() - 1);
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -176,7 +177,7 @@ export default function Membership() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
             <div>
               <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 4 }}>{TIER_META[currentTierId]?.name} — Active</div>
-              <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>Access until {expiryLabel(status.expiresAt)} · {status.daysRemaining} days remaining</div>
+              <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>Access until {expiryLabel(status.expiresAt, status.expiresAtLabel)} · {status.daysRemaining} days remaining</div>
             </div>
             <button onClick={handleExtend} disabled={actionLoading === 'extend'} style={extendBtn}>
               {actionLoading === 'extend' ? 'Processing…' : 'Extend membership'}
@@ -252,10 +253,10 @@ export default function Membership() {
                 <div style={accessNote}>Access until {accessUntilLabel(termMonths(selectedTerm))}</div>
               )}
               {canUpgrade && status?.expiresAt && (
-                <div style={accessNote}>Your access until {expiryLabel(status.expiresAt)} is unchanged — you only pay the difference for the days remaining</div>
+                <div style={accessNote}>Your access until {expiryLabel(status.expiresAt, status.expiresAtLabel)} is unchanged — you only pay the difference for the days remaining</div>
               )}
               {isCurrent && status?.expiresAt && (
-                <div style={accessNote}>Access until {expiryLabel(status.expiresAt)}</div>
+                <div style={accessNote}>Access until {expiryLabel(status.expiresAt, status.expiresAtLabel)}</div>
               )}
 
               <ul style={perkList}>{tierPerks(tierId).map((p) => <li key={p}>{p}</li>)}</ul>

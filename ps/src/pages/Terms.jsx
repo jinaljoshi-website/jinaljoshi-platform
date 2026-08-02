@@ -105,6 +105,8 @@ export default function Terms() {
           <p>Direct messages sent through the platform are between you and Jinal, retained for safety, moderation and dispute resolution.</p>
           <p>Call sessions (audio and video) are conducted through the platform. You may not record any call session without explicit consent from Jinal.</p>
           <p>Messaging and call access is subject to fair use. Abusive, threatening, or inappropriate communication will result in immediate account termination.</p>
+          <p>The following applies to every call, and is shown to you before you book one. Calls are a conversation, not a performance to direction. Jinal decides what is discussed, shown or done, and may decline any request without explanation. Nudity, sexual content and sexually explicit requests are not permitted from either party. You must be appropriately dressed and in a suitable setting. Recording, screenshots and screen capture are prohibited.</p>
+          <p>Jinal may end a call immediately if any of the above is breached, or for any conduct she considers inappropriate. A call ended for that reason is not refundable, and the account may be restricted or terminated. Tokens are refunded only where a call does not take place for reasons set out in our <a href="/refund" style={link}>Refund &amp; Cancellation Policy</a>.</p>
         </Section>
 
         <Section title="Merchandise and shipping">

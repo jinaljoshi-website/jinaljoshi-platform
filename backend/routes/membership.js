@@ -6,6 +6,24 @@ const { postSystemMessage } = require('./community');
 const { getTierPrice, getAllTierPrices, getConfigNumber } = require('../lib/config');
 const { roundTokensUp } = require('../lib/pricing');
 const { addMonthsClamped } = require('../lib/time');
+
+// The date a fan is shown, decided here rather than recomputed in the browser.
+// Two copies of the same month arithmetic will drift, and the browser works in
+// local time while expiry is stamped in UTC — so a purchase made late in the
+// evening IST could be shown a day out.
+//
+// Deliberately the day BEFORE true expiry: a membership bought at 2pm really
+// runs to 2pm a month later, but promising "the 5th" invites "it said the 5th
+// and it stopped at lunchtime". Showing the 4th means the real cutoff is always
+// later than promised, never earlier.
+function displayExpiry(expiresAt) {
+  if (!expiresAt) return null;
+  const d = new Date(expiresAt);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toLocaleDateString('en-IN', {
+    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
+  });
+}
 const { spendTokens } = require('../lib/tokens');
 
 const TIER_ORDER = ['community', 'insider', 'premium', 'supreme'];
@@ -45,6 +63,7 @@ router.get('/status', authMid, async (req, res) => {
       isActive,
       tier:           isActive ? user.tier : 'guest',
       expiresAt:      user.membership_expires_at,
+      expiresAtLabel: displayExpiry(user.membership_expires_at),
       daysRemaining,
       coinBalance:    user.coin_balance,
     });
