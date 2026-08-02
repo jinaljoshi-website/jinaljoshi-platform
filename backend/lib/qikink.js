@@ -5,7 +5,14 @@
 // is the same for both — so switching over is an environment variable change,
 // not a code change.
 
-const BASE = (process.env.QIKINK_BASE_URL || 'https://sandbox.qikink.com').replace(/\/+$/, '');
+// The documented host is https://sandbox.qikink.com with paths under /api. A
+// base URL that already ends in /api is an easy thing to configure and produces
+// /api/api/token, which returns a bare 404 that looks like an auth failure. So
+// the trailing /api is stripped if present and every path adds its own.
+const BASE = (process.env.QIKINK_BASE_URL || 'https://sandbox.qikink.com')
+  .trim()
+  .replace(/\/+$/, '')
+  .replace(/\/api$/i, '');
 
 // "Previous token will be overwritten when new token is generated." So a token
 // must be cached and shared, not fetched per request: two concurrent calls each
@@ -29,7 +36,14 @@ async function getToken() {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body,
     });
-    if (!res.ok) throw new Error(`Qikink auth failed (${res.status})`);
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => '')).slice(0, 200);
+      throw new Error(
+        `Qikink auth failed (${res.status}) calling ${BASE}/api/token` +
+        (res.status === 404 ? ' — check QIKINK_BASE_URL is the host only, with no /api' : '') +
+        (detail ? ` · ${detail}` : '')
+      );
+    }
     const data = await res.json();
     if (!data.Accesstoken) throw new Error('Qikink returned no access token');
 
