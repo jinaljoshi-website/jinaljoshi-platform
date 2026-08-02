@@ -4,9 +4,8 @@
 
 const cron    = require('node-cron');
 const pool    = require('../db/pool');
-const { notifyArtist } = require('./notify');
+const { notifyArtist, pushToUser } = require('./notify');
 const { refundByRelated } = require('./tokens');
-const { pushToUser } = require('../routes/push');
 const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 
 function getStreamClient() {
@@ -377,6 +376,73 @@ async function checkAuctions() {
 }
 
 // ─────────────────────────────────────────────
+// Membership expiry reminders
+// ─────────────────────────────────────────────
+
+// Nudged three days out and again on the last day. Chosen over auto-renewal:
+// unexpected charges are the largest single source of chargebacks, and a dispute
+// spike against the only working gateway is not a risk worth taking. A reminder
+// solves forgetting, which is the actual problem, and tells us the renewal rate
+// before anyone decides whether automatic billing is worth its compliance cost.
+//
+// membership_reminders records what has already been sent, so a fan is never
+// nudged twice for the same expiry — and the row is written only after the push
+// resolves, so a failure means a retry tomorrow rather than a silent miss.
+async function checkMembershipExpiry() {
+  const client = await pool.connect();
+  try {
+    const stages = [
+      { key: '3day', days: 3, title: 'Your membership ends in 3 days',
+        body: (t) => `Your ${t} membership ends on the ${''}. Renew to keep your allowances and everything you have unlocked with them.` },
+      { key: '1day', days: 1, title: 'Your membership ends tomorrow',
+        body: (t) => `Your ${t} membership ends tomorrow. Renew to keep your allowances and the sets you unlocked with them.` },
+    ];
+
+    for (const stage of stages) {
+      const { rows } = await client.query(
+        `SELECT u.id, u.email, u.display_name, u.tier, u.membership_expires_at
+         FROM users u
+         WHERE u.is_artist = FALSE
+           AND u.membership_expires_at IS NOT NULL
+           AND u.membership_expires_at > NOW()
+           AND u.membership_expires_at <= NOW() + ($1 || ' days')::interval
+           AND u.membership_expires_at > NOW() + ($2 || ' days')::interval
+           AND NOT EXISTS (
+             SELECT 1 FROM membership_reminders r
+             WHERE r.user_id = u.id AND r.stage = $3
+               AND r.expires_at = u.membership_expires_at
+           )`,
+        [String(stage.days), String(stage.days - 1), stage.key]
+      );
+
+      for (const u of rows) {
+        const when = new Date(u.membership_expires_at)
+          .toLocaleDateString('en-IN', { day: 'numeric', month: 'long' });
+        try {
+          await pushToUser(u.id, {
+            title: stage.title,
+            body:  `Your ${u.tier} membership ends on ${when}. Renew to keep your allowances and the sets you unlocked with them.`,
+            url:   '/platform/membership',
+            tag:   'membership-expiry',
+          });
+          await client.query(
+            `INSERT INTO membership_reminders (user_id, stage, expires_at) VALUES ($1, $2, $3)
+             ON CONFLICT DO NOTHING`,
+            [u.id, stage.key, u.membership_expires_at]
+          );
+        } catch (err) {
+          console.error(`membership reminder (${stage.key}) failed for ${u.email}, will retry:`, err.message);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('scheduler/checkMembershipExpiry error:', err.message);
+  } finally {
+    client.release();
+  }
+}
+
+// ─────────────────────────────────────────────
 // Start all scheduled jobs
 // ─────────────────────────────────────────────
 
@@ -404,7 +470,13 @@ function startScheduler() {
     checkAuctions();
   });
 
-  console.log('Scheduler started: reminders + no-show checks + auction lifecycle every minute, duration cutoff + missed-call checks every 15s, chat expiry daily at 4am');
+  // Once a day at 10am IST — a renewal nudge is not urgent, and nobody wants a
+  // push about billing at three in the morning.
+  cron.schedule('30 4 * * *', () => {
+    checkMembershipExpiry();
+  });
+
+  console.log('Scheduler started: reminders, no-show checks and auction lifecycle every minute; duration cutoff and missed-call checks every 15s; membership expiry reminders daily');
 }
 
 module.exports = { startScheduler };
