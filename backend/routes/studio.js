@@ -471,21 +471,33 @@ router.get('/content', async (req, res) => {
 });
 
 router.post('/content', async (req, res) => {
-  const { title, description, type = 'photo_set', price_coins = 0, visible = false, category } = req.body;
+  const { title, description, type = 'photo_set', price_coins = 0, visible = false, category,
+          photographerName } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
+
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
-      `INSERT INTO sets (title, description, type, price_coins, visible, category)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [title.trim(), description || null, type, price_coins, visible, category || null]
+    await client.query('BEGIN');
+
+    const photographerId = await resolvePhotographer(client, photographerName);
+
+    const { rows } = await client.query(
+      `INSERT INTO sets (title, description, type, price_coins, visible, category, photographer_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [title.trim(), description || null, type, price_coins, visible, category || null, photographerId]
     );
+    await client.query('COMMIT');
+
     if (visible) {
       postSystemMessage(`📸 Jinal just dropped "${title.trim()}"! Check the Gallery!`);
     }
     res.json({ ok: true, set: rows[0] });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('studio/content error:', err);
     res.status(500).json({ error: 'Failed to create content' });
+  } finally {
+    client.release();
   }
 });
 
@@ -602,6 +614,321 @@ router.post('/content/items/move', async (req, res) => {
     await client.query('ROLLBACK');
     console.error('studio/content/items/move error:', err);
     res.status(500).json({ error: 'Could not move those items' });
+  } finally { client.release(); }
+});
+
+// The whole set's order in one call. The client sends the sequence it is
+// showing, so what Jinal arranged is exactly what gets stored — no merging of
+// partial moves, no drift between what she sees and what a fan will.
+// ─────────────────────────────────────────────
+// PHOTOGRAPHERS
+// ─────────────────────────────────────────────
+
+router.get('/photographers', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.id, p.name, p.contact, p.active,
+              (SELECT count(*)::int FROM sets s WHERE s.photographer_id = p.id) AS sets
+       FROM photographers p WHERE p.active = TRUE ORDER BY p.name`
+    );
+    res.json({ photographers: rows });
+  } catch (err) {
+    console.error('studio/photographers error:', err);
+    res.status(500).json({ error: 'Failed to load photographers' });
+  }
+});
+
+// Finds an existing photographer by name or creates one. Matching is
+// case-insensitive so a name typed slightly differently does not become a
+// second person with their own separate earnings.
+async function resolvePhotographer(client, name) {
+  const clean = String(name || '').trim();
+  if (!clean) return null;
+  const { rows: found } = await client.query(
+    `SELECT id FROM photographers WHERE lower(name) = lower($1)`, [clean]
+  );
+  if (found.length) return found[0].id;
+  const { rows } = await client.query(
+    `INSERT INTO photographers (name) VALUES ($1) RETURNING id`, [clean]
+  );
+  return rows[0].id;
+}
+
+// What a photographer's work has been worth, and what has been paid so far.
+//
+// Two things count, and one deliberately does not:
+//
+//   Direct        purchased tokens spent unlocking the set. Money in.
+//   Allowance     an unlock taken on a membership allowance is not free — the
+//                 member paid for it as part of their fee. A share of that fee
+//                 is attributed to it: 35% of the monthly cost is deemed to be
+//                 for set access, divided by that tier's monthly allowance to
+//                 give a fixed per-unlock value. A Supreme unlock is worth more
+//                 than a Community one because Supreme paid more for it.
+//   Gifted        excluded. Those tokens were Jinal's own gift; treating them
+//                 as revenue would count the same money twice.
+//
+// Nothing here calculates what a photographer should receive. That is a token of
+// appreciation Jinal decides at the time, looking at what the work actually did
+// — not a rate applied to a number. The platform's job is to show the figure
+// honestly and record what was sent.
+router.get('/photographers/earnings', async (req, res) => {
+  try {
+    const { rows: cfgRows } = await pool.query(
+      `SELECT key, value FROM platform_config
+       WHERE key = 'token_rate_inr' OR key = 'membership_set_share_pct'
+          OR key LIKE '%_monthly_cost' OR key LIKE 'gallery_unlocks_%'`
+    );
+    const cfg = {};
+    cfgRows.forEach((r) => { cfg[r.key] = parseFloat(r.value); });
+
+    const tokenRate = cfg.token_rate_inr;
+    const setShare  = cfg.membership_set_share_pct;
+    if (Number.isNaN(tokenRate) || tokenRate === undefined) {
+      return res.status(503).json({ error: 'Token rate is not configured' });
+    }
+
+    // What one allowance-funded unlock is worth, per tier. Fixed rather than
+    // divided across whatever a member happened to open, so the value of an
+    // unlock does not change because somebody else browsed more.
+    const unlockValue = {};
+    for (const tier of ['community', 'insider', 'premium', 'supreme']) {
+      const cost      = cfg[`${tier}_monthly_cost`];
+      const allowance = cfg[`gallery_unlocks_${tier}`];
+      unlockValue[tier] = (cost && allowance)
+        ? (cost * (setShare / 100)) / allowance
+        : 0;
+    }
+
+    const { rows } = await pool.query(
+      `SELECT p.id, p.name, p.contact,
+              s.id AS set_id, s.title,
+              COALESCE(SUM(l.from_purchased), 0)::int AS purchased_tokens,
+              COALESCE(SUM(l.from_gifted), 0)::int    AS gifted_tokens,
+              count(g.id)::int                        AS unlocks
+       FROM photographers p
+       LEFT JOIN sets s ON s.photographer_id = p.id
+       LEFT JOIN access_grants g ON g.set_id = s.id
+       LEFT JOIN LATERAL (
+         SELECT from_purchased, from_gifted FROM coin_ledger
+         WHERE user_id = g.user_id AND related_id = g.set_id
+           AND type = 'content_unlock' AND direction = 'debit'
+         ORDER BY created_at LIMIT 1
+       ) l ON TRUE
+       WHERE p.active = TRUE
+       GROUP BY p.id, p.name, p.contact, s.id, s.title
+       ORDER BY p.name, s.title`
+    );
+
+    // Allowance unlocks, counted per tier so each can be valued at its own rate.
+    const { rows: allowanceRows } = await pool.query(
+      `SELECT s.id AS set_id, u.tier, count(*)::int AS n
+       FROM access_grants g
+       JOIN sets s  ON s.id = g.set_id
+       JOIN users u ON u.id = g.user_id
+       WHERE s.photographer_id IS NOT NULL AND COALESCE(g.coins_paid, 0) = 0
+       GROUP BY s.id, u.tier`
+    );
+    const allowanceBySet = {};
+    allowanceRows.forEach((r) => {
+      allowanceBySet[r.set_id] ||= { count: 0, tokens: 0 };
+      allowanceBySet[r.set_id].count  += r.n;
+      allowanceBySet[r.set_id].tokens += r.n * (unlockValue[r.tier] || 0);
+    });
+
+    const { rows: paid } = await pool.query(
+      `SELECT photographer_id, COALESCE(SUM(amount_inr), 0) AS total FROM photographer_payments GROUP BY photographer_id`
+    );
+    const paidBy = {};
+    paid.forEach((r) => { paidBy[r.photographer_id] = parseFloat(r.total); });
+
+    const byId = {};
+    for (const r of rows) {
+      byId[r.id] ||= { id: r.id, name: r.name, contact: r.contact, sets: [], generatedInr: 0 };
+      if (!r.set_id) continue;
+      const allowance = allowanceBySet[r.set_id] || { count: 0, tokens: 0 };
+
+      const directInr    = r.purchased_tokens * tokenRate;
+      const allowanceInr = allowance.tokens * tokenRate;
+      const totalInr     = directInr + allowanceInr;
+
+      byId[r.id].sets.push({
+        setId: r.set_id, title: r.title,
+        unlocks: r.unlocks,
+        purchasedTokens: r.purchased_tokens, giftedTokens: r.gifted_tokens,
+        allowanceUnlocks: allowance.count,
+        directInr:    Math.round(directInr * 100) / 100,
+        allowanceInr: Math.round(allowanceInr * 100) / 100,
+        revenueInr:   Math.round(totalInr * 100) / 100,
+      });
+      byId[r.id].generatedInr += totalInr;
+    }
+
+    const list = Object.values(byId).map((p) => ({
+      ...p,
+      generatedInr: Math.round(p.generatedInr * 100) / 100,
+      paidInr: paidBy[p.id] || 0,
+    })).sort((a, b) => b.generatedInr - a.generatedInr);
+
+    res.json({
+      photographers: list,
+      tokenRate,
+      setSharePct: setShare,
+      unlockValueByTier: unlockValue,
+      totalGenerated: Math.round(list.reduce((s2, p) => s2 + p.generatedInr, 0) * 100) / 100,
+      totalPaid: Math.round(list.reduce((s2, p) => s2 + p.paidInr, 0) * 100) / 100,
+    });
+  } catch (err) {
+    console.error('studio/photographers/earnings error:', err);
+    res.status(500).json({ error: 'Failed to work out earnings' });
+  }
+});
+
+router.post('/photographers/:id/paid', async (req, res) => {
+  const { amountInr, reference, note } = req.body;
+  const amount = parseFloat(amountInr);
+  if (!amount || amount <= 0) return res.status(400).json({ error: 'An amount is required' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO photographer_payments (photographer_id, amount_inr, reference, note)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [req.params.id, amount, reference?.trim() || null, note?.trim() || null]
+    );
+    res.json({ ok: true, payment: rows[0] });
+  } catch (err) {
+    console.error('studio/photographers/paid error:', err);
+    res.status(500).json({ error: 'Failed to record the payment' });
+  }
+});
+
+router.get('/photographers/:id/payments', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, amount_inr, reference, note, paid_at FROM photographer_payments
+       WHERE photographer_id = $1 ORDER BY paid_at DESC`,
+      [req.params.id]
+    );
+    res.json({ payments: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load payments' });
+  }
+});
+
+// Who unlocked a set, when, and what it actually earned.
+//
+// "Revenue" needs care here. Three unlocks can look identical and be worth
+// completely different things: one paid with purchased tokens is real money,
+// one paid with gifted tokens is Jinal's own gift coming back to her, and one
+// taken with a membership allowance cost nothing at all — its value is the
+// membership, not the unlock. They are reported separately rather than summed
+// into a single number that would flatter the total.
+router.get('/content/:id/unlocks', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT g.id, g.grant_type, g.coins_paid, g.scope, g.created_at,
+              u.email, u.display_name, u.tier,
+              l.from_gifted, l.from_purchased
+       FROM access_grants g
+       JOIN users u ON u.id = g.user_id
+       LEFT JOIN LATERAL (
+         SELECT from_gifted, from_purchased FROM coin_ledger
+         WHERE user_id = g.user_id AND related_id = g.set_id
+           AND type = 'content_unlock' AND direction = 'debit'
+           AND created_at BETWEEN g.created_at - INTERVAL '1 minute'
+                              AND g.created_at + INTERVAL '1 minute'
+         ORDER BY created_at LIMIT 1
+       ) l ON TRUE
+       WHERE g.set_id = $1
+       ORDER BY g.created_at DESC`,
+      [req.params.id]
+    );
+
+    const rateRow = await pool.query(`SELECT value FROM platform_config WHERE key = 'token_rate_inr'`);
+    const tokenRate = parseFloat(rateRow.rows[0]?.value) || 0;
+
+    const totals = rows.reduce((t, r) => {
+      const paid = Number(r.coins_paid) || 0;
+      t.unlocks += 1;
+      t.tokens  += paid;
+      if (paid === 0) t.byAllowance += 1;
+      t.fromPurchased += Number(r.from_purchased) || 0;
+      t.fromGifted    += Number(r.from_gifted) || 0;
+      return t;
+    }, { unlocks: 0, tokens: 0, byAllowance: 0, fromPurchased: 0, fromGifted: 0 });
+
+    res.json({
+      unlocks: rows.map((r) => ({
+        id: r.id,
+        at: r.created_at,
+        who: r.display_name || r.email,
+        email: r.email,
+        tier: r.tier,
+        scope: r.scope,
+        tokens: Number(r.coins_paid) || 0,
+        // An allowance unlock lapses with membership; a paid one is permanent.
+        viaAllowance: (Number(r.coins_paid) || 0) === 0,
+        fromGifted: Number(r.from_gifted) || 0,
+        fromPurchased: Number(r.from_purchased) || 0,
+      })),
+      totals: {
+        ...totals,
+        // Only purchased tokens represent money that came in. Gifted tokens were
+        // given away, so counting them as revenue would be counting it twice.
+        revenueInr: Math.round(totals.fromPurchased * tokenRate * 100) / 100,
+        tokenRate,
+      },
+    });
+  } catch (err) {
+    console.error('studio/content/unlocks error:', err);
+    res.status(500).json({ error: 'Failed to load unlock history' });
+  }
+});
+
+router.post('/content/items/reorder', async (req, res) => {
+  const { setId, orderedIds } = req.body;
+  if (!setId || !Array.isArray(orderedIds) || !orderedIds.length) {
+    return res.status(400).json({ error: 'A set and an order are required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Refuse a partial list rather than writing it. A truncated payload would
+    // silently leave the tail of a 271-photo set on stale positions.
+    const { rows: countRows } = await client.query(
+      `SELECT count(*)::int AS n FROM set_items WHERE set_id = $1`, [setId]
+    );
+    if (countRows[0].n !== orderedIds.length) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `That order covers ${orderedIds.length} of ${countRows[0].n} items. Reload the set and try again.`,
+      });
+    }
+
+    const { rowCount } = await client.query(
+      `UPDATE set_items AS si SET position = v.pos
+       FROM (SELECT id, ordinality - 1 AS pos
+             FROM unnest($1::uuid[]) WITH ORDINALITY AS t(id, ordinality)) AS v
+       WHERE si.id = v.id AND si.set_id = $2`,
+      [orderedIds, setId]
+    );
+
+    // The cover follows the first item, so arranging the set also chooses what
+    // the gallery card shows.
+    const { rows: first } = await client.query(
+      `SELECT r2_key, media_type, type FROM set_items WHERE id = $1`, [orderedIds[0]]
+    );
+    if (first.length && first[0].media_type !== 'video' && first[0].type !== 'video') {
+      await client.query(`UPDATE sets SET cover_key = $1 WHERE id = $2`, [first[0].r2_key, setId]);
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok: true, reordered: rowCount });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('studio/content/items/reorder error:', err);
+    res.status(500).json({ error: 'Could not save the order' });
   } finally { client.release(); }
 });
 

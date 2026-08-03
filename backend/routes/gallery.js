@@ -98,8 +98,12 @@ router.get('/sets', authMid, async (req, res) => {
     const creditsRemaining = Math.max(0, maxUnlocks - creditsUsed);
 
     const { rows: sets } = await pool.query(
-      `SELECT id, title, description, type, category, price_coins, cover_key, created_at
-       FROM sets WHERE visible = TRUE ORDER BY created_at DESC`
+      `SELECT s.id, s.title, s.description, s.type, s.category, s.price_coins,
+              s.cover_key, s.created_at,
+              p.name AS photographer
+       FROM sets s
+       LEFT JOIN photographers p ON p.id = s.photographer_id
+       WHERE s.visible = TRUE ORDER BY s.created_at DESC`
     );
 
     const { rows: allItems } = await pool.query(
@@ -224,7 +228,10 @@ router.post('/unlock', authMid, async (req, res) => {
       isGuest ? 0 : getDiscountForTier(userTier),
     ]);
 
-    const { rows: setRows } = await client.query(`SELECT * FROM sets WHERE id = $1 AND visible = TRUE`, [setId]);
+    const { rows: setRows } = await client.query(
+      `SELECT s.*, p.name AS photographer
+       FROM sets s LEFT JOIN photographers p ON p.id = s.photographer_id
+       WHERE s.id = $1 AND s.visible = TRUE`, [setId]);
     if (!setRows.length) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Content not found' });

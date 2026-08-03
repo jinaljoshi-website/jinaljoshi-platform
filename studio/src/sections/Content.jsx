@@ -180,6 +180,20 @@ export function Content() {
   // interrupted, and the normal way to extend a set later.
   const [addingTo, setAddingTo] = useState(null);
 
+  // Unlock history, loaded per set on demand rather than with the list — most
+  // of the time nobody is looking at it.
+  const [unlocksFor,  setUnlocksFor]  = useState(null);
+  const [unlockData,  setUnlockData]  = useState(null);
+  const [unlockBusy,  setUnlockBusy]  = useState(false);
+
+  const openUnlocks = async (set) => {
+    if (unlocksFor === set.id) { setUnlocksFor(null); return; }
+    setUnlocksFor(set.id); setUnlockData(null); setUnlockBusy(true); setError('');
+    try {
+      setUnlockData(await api.get(`/api/studio/content/${set.id}/unlocks`));
+    } catch (err) { setError(err.message); } finally { setUnlockBusy(false); }
+  };
+
   // Storage housekeeping. Deleting a photo now clears the file too, but years of
   // earlier deletions left objects behind, and a failed cleanup can still leave one.
   const [storage,  setStorage]  = useState(null);
@@ -718,6 +732,9 @@ export function Content() {
                             style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
                       {addingTo === set.id ? 'Cancel' : 'Add photos'}
                     </button>
+                    <button onClick={() => openUnlocks(set)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
+                      {unlocksFor === set.id ? 'Hide unlocks' : 'Unlocks'}
+                    </button>
                     <button onClick={() => openReview(set)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Review</button>
                     <button onClick={() => startEdit(set)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Edit</button>
                     <button onClick={() => setConfirmDelete(set.id)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A', borderColor: 'rgba(156,90,90,0.35)' }}>Delete</button>
@@ -786,6 +803,86 @@ export function Content() {
           </div>
         )}
       </div>
+
+      {/* Unlock history */}
+      {unlocksFor && (
+        <div style={unlockOverlay} onClick={(e) => e.target === e.currentTarget && setUnlocksFor(null)}>
+          <div style={unlockModal}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
+              <div>
+                <div style={{ fontFamily: display, fontSize: 22, color: colors.text }}>
+                  {sets.find((s) => s.id === unlocksFor)?.title}
+                </div>
+                <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 3 }}>
+                  Who unlocked this, and what it earned
+                </div>
+              </div>
+              <button onClick={() => setUnlocksFor(null)} style={{ ...S.ghostBtn, fontSize: 14, padding: '6px 12px' }}>✕</button>
+            </div>
+
+            {unlockBusy ? <T.muted>Loading…</T.muted>
+             : !unlockData ? null
+             : unlockData.unlocks.length === 0 ? <T.muted>Nobody has unlocked this yet.</T.muted>
+             : (
+              <>
+                <div style={S.statsRow}>
+                  <div style={S.statCard}>
+                    <div style={uLabel}>Unlocked by</div>
+                    <div style={uValue}>{unlockData.totals.unlocks}</div>
+                    <div style={uSub}>
+                      {unlockData.totals.byAllowance} on a membership allowance
+                    </div>
+                  </div>
+                  <div style={S.statCard}>
+                    <div style={uLabel}>Tokens spent</div>
+                    <div style={uValue}>{unlockData.totals.tokens}</div>
+                    <div style={uSub}>
+                      {unlockData.totals.fromPurchased} purchased · {unlockData.totals.fromGifted} gifted
+                    </div>
+                  </div>
+                  <div style={S.statCard}>
+                    <div style={uLabel}>Earned</div>
+                    <div style={{ ...uValue, color: colors.success }}>
+                      ₹{unlockData.totals.revenueInr.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                    </div>
+                    <div style={uSub}>
+                      purchased tokens only, at ₹{unlockData.totals.tokenRate}/token
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gap: 6, marginTop: 16 }}>
+                  {unlockData.unlocks.map((u) => (
+                    <div key={u.id} style={unlockRow}>
+                      <div style={{ flex: 1, minWidth: 180 }}>
+                        <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{u.who}</div>
+                        <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
+                          {new Date(u.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          {' · '}{u.tier}{u.scope ? ` · ${u.scope}` : ''}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', fontFamily: sans, fontSize: 12 }}>
+                        {u.viaAllowance ? (
+                          <span style={{ color: colors.muted }}>membership allowance</span>
+                        ) : (
+                          <>
+                            <div style={{ color: colors.text }}>{u.tokens} tokens</div>
+                            {u.fromGifted > 0 && (
+                              <div style={{ color: '#8FC88F', fontSize: 10, marginTop: 2 }}>
+                                {u.fromGifted} gifted{u.fromPurchased > 0 ? ` + ${u.fromPurchased} purchased` : ''}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {reviewSet && (
         <ReviewPanel
@@ -1088,6 +1185,13 @@ const PREFIX_LABELS = {
 };
 
 const prefixRow = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 12px' };
+
+const uLabel      = { fontFamily: mono, fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 };
+const uValue      = { fontFamily: display, fontSize: 28, color: colors.text, fontWeight: 300 };
+const uSub        = { fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 6, lineHeight: 1.5 };
+const unlockRow   = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 12px' };
+const unlockOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
+const unlockModal = { width: '100%', maxWidth: 760, maxHeight: '86vh', overflowY: 'auto', background: '#161410', border: `1px solid ${colors.border}`, borderRadius: 14, padding: 24 };
 
 const storageBox = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, marginTop: 28 };
 

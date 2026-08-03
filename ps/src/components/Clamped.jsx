@@ -1,3 +1,6 @@
+
+
+Clamped · JSX
 // ps/src/components/Clamped.jsx
 // Long text cut to a few lines with a way to read the rest.
 //
@@ -7,12 +10,12 @@
 // phone does.
 import { useEffect, useRef, useState } from 'react';
 import { C, F } from '../tokens';
-
+ 
 export default function Clamped({ text, lines = 3, style, moreLabel = 'Show more', lessLabel = 'Show less' }) {
   const [open, setOpen]           = useState(false);
   const [overflows, setOverflows] = useState(false);
   const ref = useRef(null);
-
+ 
   useEffect(() => {
     const el = ref.current;
     if (!el || open) return;
@@ -22,9 +25,9 @@ export default function Clamped({ text, lines = 3, style, moreLabel = 'Show more
     ro.observe(el);
     return () => ro.disconnect();
   }, [text, open, lines]);
-
+ 
   if (!text) return null;
-
+ 
   return (
     <div style={{ marginBottom: 10 }}>
       <div
@@ -49,7 +52,7 @@ export default function Clamped({ text, lines = 3, style, moreLabel = 'Show more
     </div>
   );
 }
-
+ 
 const moreBtn = {
   background: 'none', border: 'none', color: C.accent, fontFamily: F.sans,
   fontSize: 12, cursor: 'pointer', padding: '4px 0 0', textDecoration: 'underline',
