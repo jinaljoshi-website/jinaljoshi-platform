@@ -11,8 +11,17 @@ const { getSupplier } = require('./issuedInvoice');
 const EXPORT_DISCLAIMER =
   'Supply meant for export under bond or letter of undertaking without payment of integrated tax.';
 
-// The two-condition rule: GST is zero ONLY when the user is genuinely outside India
-// AND the payment was made in a non-INR currency. Any other combination is taxed normally.
+// Zero-rating requires all three conditions, confirmed with the CA:
+//
+//   1. the recipient is outside India
+//   2. the service is availed outside India
+//   3. payment is received in convertible foreign exchange
+//
+// For a digital service delivered to someone abroad, (1) and (2) travel
+// together — so in code the test is the recipient's country and the currency
+// actually received. A foreign card charged in INR fails (3) and is NOT an
+// export, however international the buyer is. Any other combination is taxed
+// normally.
 function determineIsExport({ userCountry, currency }) {
   const isOutsideIndia = userCountry && userCountry !== 'India';
   const isForeignCurrency = currency && currency !== 'INR';
@@ -40,22 +49,45 @@ async function buildInvoiceRecord(client, {
 
   // A tax invoice has to show which taxes were actually charged, not just a total.
   //
-  // We know the fan's country from their IP but never their state, and under
-  // s.12(2)(b) of the IGST Act an unregistered recipient with no address on
-  // record takes the supplier's own location as the place of supply. So an
-  // unknown state is an INTRA-state supply — CGST + SGST, not IGST. Treating it
-  // as inter-state would charge the wrong tax on a domestic sale.
+  // Three cases, and the middle one is the reason this is not simply
+  // "supplier's state unless we know better":
   //
-  // userState is accepted here so that the day we ask fans for it, a Karnataka
-  // buyer correctly gets IGST with no further change.
+  //   Outside India, paid in foreign currency  → zero-rated export, no tax
+  //   Outside India, paid in INR               → IGST. Never the state split.
+  //   Inside India                             → CGST + SGST unless the fan's
+  //                                              own state is known and differs
+  //
+  // The second case is live now that Razorpay accepts international cards. The
+  // order is created in INR, so determineIsExport is false and the fan looked
+  // domestic — falling through to the supplier's state and producing an invoice
+  // that told someone in Singapore their place of supply was Maharashtra. The
+  // total was right; the heads were not, and CGST/SGST and IGST file into
+  // different GSTR-1 tables.
+  //
+  // The middle case is settled rather than provisional: the CA has confirmed
+  // that payment must be received in convertible foreign exchange, so an INR
+  // charge to a foreign card is not an export no matter where the buyer is. It
+  // is a taxable inter-state supply, and IGST is correct — not merely safe.
+  //
+  // Zero-rating an international sale therefore requires charging in the
+  // customer's own currency, which Razorpay supports but we do not yet do.
   const supplier = await getSupplier();
-  const placeOfSupply = isExport
+  const recipientOutsideIndia = Boolean(userCountry
+    && userCountry !== 'Unknown'
+    && userCountry.trim().toLowerCase() !== 'india');
+
+  const placeOfSupply = isExport || recipientOutsideIndia
     ? (userCountry || null)
     : ((userState || '').trim() || supplier.state);
 
   let cgst = 0, sgst = 0, igst = 0;
   if (!isExport && gstAmountInr > 0) {
-    if (placeOfSupply.toLowerCase() === supplier.state.toLowerCase()) {
+    // The state split is only ever correct for a recipient inside India whose
+    // place of supply is the supplier's own state.
+    const intraState = !recipientOutsideIndia
+      && String(placeOfSupply).toLowerCase() === supplier.state.toLowerCase();
+
+    if (intraState) {
       cgst = Math.round(gstAmountInr / 2 * 100) / 100;
       sgst = Math.round((gstAmountInr - cgst) * 100) / 100;
     } else {
