@@ -153,6 +153,7 @@ router.get('/sets', authMid, async (req, res) => {
         id: s.id,
         title: s.title,
         description: s.description,
+        photographer: s.photographer,
         type: s.type,
         category: s.category,
         cover_url: toUrl(s.cover_key),
