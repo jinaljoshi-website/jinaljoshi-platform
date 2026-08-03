@@ -36,34 +36,37 @@ router.get('/purchased', async (req, res) => {
       // Revenue is what fans actually paid, not tokens multiplied by a rate —
       // bulk recharges carry a discount, so the two differ.
       pool.query(
-        `SELECT COALESCE(SUM(payment_amount_inr), 0) AS revenue_inr,
-                COALESCE(SUM(amount), 0)             AS tokens_sold,
+        `SELECT COALESCE(SUM(cl.payment_amount_inr), 0) AS revenue_inr,
+                COALESCE(SUM(cl.amount), 0)             AS tokens_sold,
                 COUNT(*)                             AS purchases
-         FROM coin_ledger WHERE type = 'recharge' AND direction = 'credit'`
+         FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
+         WHERE cl.type = 'recharge' AND cl.direction = 'credit' AND u.is_test = FALSE`
       ),
       pool.query(
-        `SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS month,
-                COALESCE(SUM(payment_amount_inr), 0) AS revenue_inr,
-                COALESCE(SUM(amount), 0)             AS tokens,
+        `SELECT to_char(date_trunc('month', cl.created_at), 'YYYY-MM') AS month,
+                COALESCE(SUM(cl.payment_amount_inr), 0) AS revenue_inr,
+                COALESCE(SUM(cl.amount), 0)             AS tokens,
                 COUNT(*)                             AS purchases
-         FROM coin_ledger WHERE type = 'recharge' AND direction = 'credit'
+         FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
+         WHERE cl.type = 'recharge' AND cl.direction = 'credit' AND u.is_test = FALSE
          GROUP BY 1 ORDER BY 1 DESC LIMIT 12`
       ),
       // What purchased tokens were spent on. from_purchased separates this from
       // gifted spend on the same line items.
       pool.query(
-        `SELECT type, COALESCE(SUM(from_purchased), 0) AS tokens, COUNT(*) AS count
-         FROM coin_ledger WHERE direction = 'debit' AND from_purchased > 0
-         GROUP BY type ORDER BY 2 DESC`
+        `SELECT cl.type, COALESCE(SUM(cl.from_purchased), 0) AS tokens, COUNT(*) AS count
+         FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
+         WHERE cl.direction = 'debit' AND cl.from_purchased > 0 AND u.is_test = FALSE
+         GROUP BY cl.type ORDER BY 2 DESC`
       ),
       // Tokens paid for but not yet spent. A real liability — the fan is owed
       // something for them.
-      pool.query(`SELECT COALESCE(SUM(coin_balance), 0) AS tokens FROM users WHERE is_artist = FALSE`),
+      pool.query(`SELECT COALESCE(SUM(coin_balance), 0) AS tokens FROM users WHERE is_artist = FALSE AND is_test = FALSE`),
       pool.query(
         `SELECT u.email, u.display_name, u.tier,
                 COALESCE(SUM(cl.payment_amount_inr), 0) AS spent_inr
          FROM users u JOIN coin_ledger cl ON cl.user_id = u.id
-         WHERE cl.type = 'recharge' AND cl.direction = 'credit' AND u.is_artist = FALSE
+         WHERE cl.type = 'recharge' AND cl.direction = 'credit' AND u.is_artist = FALSE AND u.is_test = FALSE
          GROUP BY u.id, u.email, u.display_name, u.tier
          ORDER BY 4 DESC LIMIT 10`
       ),
@@ -108,31 +111,35 @@ router.get('/gifted', async (req, res) => {
 
     const [grants, bySource, spent, byType, expiring] = await Promise.all([
       pool.query(
-        `SELECT COALESCE(SUM(amount), 0)    AS granted,
-                COALESCE(SUM(remaining), 0) AS remaining,
-                COUNT(*)                    AS grants,
-                COUNT(DISTINCT user_id)     AS people
-         FROM gifted_grants`
+        `SELECT COALESCE(SUM(g.amount), 0)    AS granted,
+                COALESCE(SUM(g.remaining), 0) AS remaining,
+                COUNT(*)                      AS grants,
+                COUNT(DISTINCT g.user_id)     AS people
+         FROM gifted_grants g JOIN users u ON u.id = g.user_id WHERE u.is_test = FALSE`
       ),
       pool.query(
-        `SELECT source, COALESCE(SUM(amount), 0) AS tokens, COUNT(*) AS grants
-         FROM gifted_grants GROUP BY source ORDER BY 2 DESC`
+        `SELECT g.source, COALESCE(SUM(g.amount), 0) AS tokens, COUNT(*) AS grants
+         FROM gifted_grants g JOIN users u ON u.id = g.user_id
+         WHERE u.is_test = FALSE GROUP BY g.source ORDER BY 2 DESC`
       ),
       pool.query(
-        `SELECT COALESCE(SUM(from_gifted), 0) AS tokens FROM coin_ledger
-         WHERE direction = 'debit' AND from_gifted > 0`
+        `SELECT COALESCE(SUM(cl.from_gifted), 0) AS tokens FROM coin_ledger cl
+         JOIN users u ON u.id = cl.user_id
+         WHERE cl.direction = 'debit' AND cl.from_gifted > 0 AND u.is_test = FALSE`
       ),
       pool.query(
-        `SELECT type, COALESCE(SUM(from_gifted), 0) AS tokens, COUNT(*) AS count
-         FROM coin_ledger WHERE direction = 'debit' AND from_gifted > 0
-         GROUP BY type ORDER BY 2 DESC`
+        `SELECT cl.type, COALESCE(SUM(cl.from_gifted), 0) AS tokens, COUNT(*) AS count
+         FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
+         WHERE cl.direction = 'debit' AND cl.from_gifted > 0 AND u.is_test = FALSE
+         GROUP BY cl.type ORDER BY 2 DESC`
       ),
       // Given but going to waste. The number worth acting on — a nudge before
       // these lapse is the whole reason to look at this page.
       pool.query(
-        `SELECT COALESCE(SUM(remaining), 0) AS tokens, COUNT(DISTINCT user_id) AS people
-         FROM gifted_grants
-         WHERE remaining > 0 AND expires_at > NOW() AND expires_at < NOW() + INTERVAL '7 days'`
+        `SELECT COALESCE(SUM(g.remaining), 0) AS tokens, COUNT(DISTINCT g.user_id) AS people
+         FROM gifted_grants g JOIN users u ON u.id = g.user_id
+         WHERE u.is_test = FALSE AND g.remaining > 0
+           AND g.expires_at > NOW() AND g.expires_at < NOW() + INTERVAL '7 days'`
       ),
     ]);
 
@@ -190,18 +197,20 @@ router.get('/sets', async (req, res) => {
     // unlocks at all.
     const { rows } = await pool.query(
       `WITH spend AS (
-         SELECT related_id AS set_id,
-                COALESCE(SUM(from_purchased), 0)::int AS purchased_tokens,
-                COALESCE(SUM(from_gifted), 0)::int    AS gifted_tokens
-         FROM coin_ledger
-         WHERE type = 'content_unlock' AND direction = 'debit' AND related_id IS NOT NULL
-         GROUP BY related_id
+         SELECT cl.related_id AS set_id,
+                COALESCE(SUM(cl.from_purchased), 0)::int AS purchased_tokens,
+                COALESCE(SUM(cl.from_gifted), 0)::int    AS gifted_tokens
+         FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
+         WHERE cl.type = 'content_unlock' AND cl.direction = 'debit'
+           AND cl.related_id IS NOT NULL AND u.is_test = FALSE
+         GROUP BY cl.related_id
        ),
        unlocks AS (
-         SELECT set_id,
+         SELECT ag.set_id,
                 COUNT(*)::int AS unlocks,
-                COUNT(*) FILTER (WHERE COALESCE(coins_paid, 0) = 0)::int AS credit_unlocks
-         FROM access_grants GROUP BY set_id
+                COUNT(*) FILTER (WHERE COALESCE(ag.coins_paid, 0) = 0)::int AS credit_unlocks
+         FROM access_grants ag JOIN users u ON u.id = ag.user_id
+         WHERE u.is_test = FALSE GROUP BY ag.set_id
        )
        SELECT s.id, s.title, s.price_coins, p.name AS photographer,
               COALESCE(u.unlocks, 0)          AS unlocks,
