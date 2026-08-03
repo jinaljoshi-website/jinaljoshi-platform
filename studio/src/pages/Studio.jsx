@@ -20,6 +20,7 @@ import { Notifications } from '../sections/Notifications';
 import { Website }       from '../sections/Website';
 import { Invoices }      from '../sections/Invoices';
 import { Selfies }       from '../sections/Selfies';
+import { Photographers } from '../sections/Photographers';
 
 const NAV = [
   { id: 'dashboard',     label: 'Dashboard'     },
@@ -27,6 +28,7 @@ const NAV = [
   { id: 'messages',      label: 'Messages'      },
   { id: 'content',       label: 'Content'       },
   { id: 'selfies',      label: 'Selfies'      },
+  { id: 'photographers', label: 'Photographers' },
   { id: 'merch',         label: 'Merchandise'   },
   { id: 'extras',        label: 'Extras'        },
   { id: 'members',       label: 'Members'       },
@@ -46,6 +48,7 @@ const SECTIONS = {
   messages:      Messages,
   content:       Content,
   selfies:       Selfies,
+  photographers: Photographers,
   merch:         Merch,
   extras:        Extras,
   members:       Members,

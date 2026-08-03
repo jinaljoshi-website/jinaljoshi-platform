@@ -3,301 +3,227 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { T, S, Card, Eyebrow, colors } from '../ui';
 
-const sans = "'DM Sans', system-ui, sans-serif";
-const mono = "'DM Mono', 'Courier New', monospace";
+const sans    = "'DM Sans', system-ui, sans-serif";
+const mono    = "'DM Mono', 'Courier New', monospace";
+const display = "'Cormorant Garamond', Georgia, serif";
 
-const PERIODS = [
-  { key: 'wtd',     label: 'This Week' },
-  { key: 'mtd',     label: 'This Month' },
-  { key: 'ytd',     label: 'This Year' },
-  { key: 'allTime', label: 'All Time' },
-];
+const rupees = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
-export function Analytics() {
-  const [data,    setData]    = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState('');
-  const [period,  setPeriod]  = useState('mtd');
+// The ledger's own vocabulary, in words Jinal would use.
+const SPEND_LABELS = {
+  dm_charge:         'Messages',
+  chat_media_unlock: 'Media in chat',
+  content_unlock:    'Gallery and selfies',
+  call_charge:       'Calls',
+  merch_purchase:    'Merchandise and outfits',
+  custom_request:    'Custom requests',
+  membership_purchase: 'Memberships',
+  membership_upgrade:  'Upgrades',
+  membership_extend:   'Extensions',
+};
+const label = (t) => SPEND_LABELS[t] || t.replace(/_/g, ' ');
 
-  useEffect(() => {
-    api.get('/api/studio/analytics')
-      .then(setData)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) return <T.muted>Loading analytics…</T.muted>;
-  if (error)   return <div style={S.error}>{error}</div>;
-  if (!data)   return <T.muted>No data available.</T.muted>;
-
-  const {
-    revenueOverview, revenueTrend, tokenUtilization, streamBreakdown,
-    topFansByRevenue, topFansByActivity, membershipBreakdown, newMembersTrend,
-    galleryStats, communityStats, callStats, requestStats, dmStats,
-    demographics, signupTrend, tokenRate, tax,
-  } = data;
-
-  const revenueDelta = revenueOverview.lastMonthRevenue > 0
-    ? Math.round(((revenueOverview.thisMonthRevenue - revenueOverview.lastMonthRevenue) / revenueOverview.lastMonthRevenue) * 100)
-    : null;
-
-  const totalMembers = membershipBreakdown.tiers.reduce((sum, t) => sum + t.count, 0);
-  const maxTrendRevenue = Math.max(1, ...revenueTrend.map((d) => d.revenue));
-  const maxStreamTokens = Math.max(1, ...streamBreakdown.map((s) => s.tokens));
-  const maxDemoCount    = Math.max(1, ...demographics.map((d) => d.count));
-  const maxSignupCount  = Math.max(1, ...signupTrend.map((s) => s.count));
-
+function Stat({ head, value, sub, tone }) {
   return (
-    <div>
-      <Eyebrow>Overview</Eyebrow>
-      <T.title>Analytics</T.title>
-
-      {/* ── KPI ROW ── */}
-      <div style={S.statsRow}>
-        <div style={S.statCard}>
-          <div style={statLabel}>Total Revenue</div>
-          <div style={statValue}>₹{revenueOverview.totalRevenueInr.toLocaleString('en-IN')}</div>
-          <div style={statSub}>{revenueOverview.totalRecharges} recharges all-time</div>
-        </div>
-        <div style={S.statCard}>
-          <div style={statLabel}>This Month</div>
-          <div style={statValue}>₹{revenueOverview.thisMonthRevenue.toLocaleString('en-IN')}</div>
-          {revenueDelta !== null && (
-            <div style={{ ...statSub, color: revenueDelta >= 0 ? colors.success : colors.error }}>
-              {revenueDelta >= 0 ? '↑' : '↓'} {Math.abs(revenueDelta)}% vs last month
-            </div>
-          )}
-        </div>
-        <div style={S.statCard}>
-          <div style={statLabel}>Active Members</div>
-          <div style={statValue}>{totalMembers}</div>
-          <div style={statSub}>+{newMembersTrend.thisMonth} this month · {membershipBreakdown.guests} guests</div>
-        </div>
-        <div style={S.statCard}>
-          <div style={statLabel}>Token Utilization</div>
-          <div style={statValue}>{tokenUtilization.utilizationPct}%</div>
-          <div style={statSub}>{tokenUtilization.totalIdle.toLocaleString('en-IN')} tokens sitting idle</div>
-        </div>
-      </div>
-
-      {/* ── REVENUE TREND ── */}
-      <Card style={{ marginBottom: 20 }}>
-        <T.sectionTitle>Revenue — last 30 days</T.sectionTitle>
-        {revenueTrend.length === 0 ? (
-          <T.muted>No recharges recorded yet.</T.muted>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 120 }}>
-            {revenueTrend.map((d) => (
-              <div key={d.day} title={`${d.day}: ₹${d.revenue.toLocaleString('en-IN')}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: '100%' }}>
-                <div style={{ background: colors.accent, borderRadius: '3px 3px 0 0', height: `${Math.max(2, (d.revenue / maxTrendRevenue) * 100)}%`, opacity: 0.85 }} />
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {/* ── TOKEN FLOW ── */}
-      <Card style={{ marginBottom: 20 }}>
-        <T.sectionTitle>Token flow</T.sectionTitle>
-        <div style={S.statsRow}>
-          <div style={miniStat}>
-            <div style={statLabel}>Recharged</div>
-            <div style={{ ...statValue, fontSize: 22 }}>{tokenUtilization.totalRecharged.toLocaleString('en-IN')}</div>
-          </div>
-          <div style={miniStat}>
-            <div style={statLabel}>Spent</div>
-            <div style={{ ...statValue, fontSize: 22 }}>{tokenUtilization.totalSpent.toLocaleString('en-IN')}</div>
-          </div>
-          <div style={miniStat}>
-            <div style={statLabel}>Idle balance</div>
-            <div style={{ ...statValue, fontSize: 22 }}>{tokenUtilization.totalIdle.toLocaleString('en-IN')}</div>
-          </div>
-        </div>
-      </Card>
-
-      {/* ── STREAM-WISE BREAKDOWN ── */}
-      <Card style={{ marginBottom: 20 }}>
-        <T.sectionTitle>Where tokens get spent</T.sectionTitle>
-        {streamBreakdown.length === 0 ? (
-          <T.muted>No token spending recorded yet.</T.muted>
-        ) : (
-          <div style={{ display: 'grid', gap: 12 }}>
-            {streamBreakdown.map((s) => (
-              <div key={s.label}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{s.label}</span>
-                  <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted }}>
-                    {s.tokens.toLocaleString('en-IN')} tokens (₹{Math.round(s.tokens * tokenRate).toLocaleString('en-IN')}) · {s.txCount} transactions
-                  </span>
-                </div>
-                <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 6, height: 8 }}>
-                  <div style={{ background: colors.accent, borderRadius: 6, height: 8, width: `${(s.tokens / maxStreamTokens) * 100}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {/* ── TOP FANS — bucketed by period ── */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-        {PERIODS.map((p) => (
-          <button
-            key={p.key}
-            onClick={() => setPeriod(p.key)}
-            style={{
-              background: period === p.key ? 'rgba(193,125,74,0.12)' : 'transparent',
-              border:     period === p.key ? '1px solid rgba(193,125,74,0.3)' : `1px solid ${colors.border}`,
-              color:      period === p.key ? colors.accent : colors.muted,
-              fontFamily: sans, fontSize: 12, fontWeight: period === p.key ? 600 : 400,
-              padding: '6px 14px', borderRadius: 999, cursor: 'pointer',
-            }}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px,1fr))', gap: 16, marginBottom: 20 }}>
-        <Card>
-          <T.sectionTitle>Top spenders (real ₹)</T.sectionTitle>
-          {(topFansByRevenue[period] || []).length === 0 ? <T.muted>No recharges in this period.</T.muted> : (
-            <div style={{ display: 'grid', gap: 4 }}>
-              {topFansByRevenue[period].map((f, i) => (
-                <div key={f.email} style={S.listRow}>
-                  <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{i + 1}. {f.name || f.email}</span>
-                  <span style={{ fontFamily: mono, fontSize: 12, color: colors.accent }}>₹{f.totalInr.toLocaleString('en-IN')}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-        <Card>
-          <T.sectionTitle>Most active (token usage)</T.sectionTitle>
-          {(topFansByActivity[period] || []).length === 0 ? <T.muted>No activity in this period.</T.muted> : (
-            <div style={{ display: 'grid', gap: 4 }}>
-              {topFansByActivity[period].map((f, i) => (
-                <div key={f.email} style={S.listRow}>
-                  <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{i + 1}. {f.name || f.email}</span>
-                  <span style={{ fontFamily: mono, fontSize: 12, color: colors.accent }}>{f.totalTokens.toLocaleString('en-IN')} tokens</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* ── MEMBERSHIP BREAKDOWN ── */}
-      <Card style={{ marginBottom: 20 }}>
-        <T.sectionTitle>Membership tiers</T.sectionTitle>
-        <div style={S.statsRow}>
-          {['community', 'insider', 'premium', 'supreme'].map((tier) => {
-            const found = membershipBreakdown.tiers.find((t) => t.tier === tier);
-            return (
-              <div key={tier} style={miniStat}>
-                <div style={{ ...statLabel, textTransform: 'capitalize' }}>{tier}</div>
-                <div style={{ ...statValue, fontSize: 22 }}>{found?.count || 0}</div>
-              </div>
-            );
-          })}
-          <div style={miniStat}>
-            <div style={statLabel}>Guests</div>
-            <div style={{ ...statValue, fontSize: 22 }}>{membershipBreakdown.guests}</div>
-          </div>
-        </div>
-      </Card>
-
-      {/* ── ENGAGEMENT ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px,1fr))', gap: 16, marginBottom: 20 }}>
-        <Card>
-          <T.sectionTitle>Gallery</T.sectionTitle>
-          <div style={S.rowSub}>{galleryStats.totalUnlocks} total unlocks · {galleryStats.last30Days} in last 30 days</div>
-          {galleryStats.topSet && (
-            <div style={{ ...S.rowSub, marginTop: 8, color: colors.accent }}>
-              Most unlocked: "{galleryStats.topSet.title}" ({galleryStats.topSet.unlocks}×)
-            </div>
-          )}
-        </Card>
-        <Card>
-          <T.sectionTitle>Community</T.sectionTitle>
-          <div style={S.rowSub}>{communityStats.totalPosts} posts from fans</div>
-          {communityStats.mostActiveFan && (
-            <div style={{ ...S.rowSub, marginTop: 8, color: colors.accent }}>
-              Most active: {communityStats.mostActiveFan.name} ({communityStats.mostActiveFan.posts} posts)
-            </div>
-          )}
-        </Card>
-        <Card>
-          <T.sectionTitle>Calls</T.sectionTitle>
-          {callStats.length === 0 ? <T.muted>None yet.</T.muted> : callStats.map((c) => (
-            <div key={c.status} style={{ ...S.rowSub, textTransform: 'capitalize' }}>{c.status}: {c.count}</div>
-          ))}
-        </Card>
-        <Card>
-          <T.sectionTitle>Extras requests</T.sectionTitle>
-          {requestStats.length === 0 ? <T.muted>None yet.</T.muted> : requestStats.map((r) => (
-            <div key={r.status} style={{ ...S.rowSub, textTransform: 'capitalize' }}>{r.status}: {r.count}</div>
-          ))}
-        </Card>
-      </div>
-
-      {/* ── DEMOGRAPHICS ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px,1fr))', gap: 16, marginBottom: 20 }}>
-        <Card>
-          <T.sectionTitle>Age distribution</T.sectionTitle>
-          {demographics.length === 0 ? <T.muted>Not enough data yet.</T.muted> : (
-            <div style={{ display: 'grid', gap: 10 }}>
-              {demographics.map((d) => (
-                <div key={d.bracket}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                    <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{d.bracket}</span>
-                    <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted }}>{d.count}</span>
-                  </div>
-                  <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 6, height: 8 }}>
-                    <div style={{ background: colors.accent, borderRadius: 6, height: 8, width: `${(d.count / maxDemoCount) * 100}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-        <Card>
-          <T.sectionTitle>New signups — last 6 months</T.sectionTitle>
-          {signupTrend.length === 0 ? <T.muted>Not enough data yet.</T.muted> : (
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 100 }}>
-              {signupTrend.map((s) => (
-                <div key={s.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
-                  <div style={{ background: colors.accent, borderRadius: '3px 3px 0 0', width: '70%', height: `${Math.max(4, (s.count / maxSignupCount) * 100)}%`, opacity: 0.85 }} />
-                  <div style={{ fontFamily: mono, fontSize: 9, color: colors.muted, marginTop: 4 }}>{s.month}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* ── DMs (best-effort) ── */}
-      {dmStats.total !== null && (
-        <Card style={{ marginBottom: 20 }}>
-          <T.sectionTitle>Direct messages</T.sectionTitle>
-          <div style={S.rowSub}>{dmStats.total} total · {dmStats.last30Days} in last 30 days</div>
-        </Card>
-      )}
-
-      {/* ── TAX ESTIMATE ── */}
-      <Card>
-        <T.sectionTitle>Tax estimate</T.sectionTitle>
-        <div style={S.rowSub}>
-          Estimated GST collected (at {tax.gstRateAssumed}%, inclusive): <strong style={{ color: colors.text }}>₹{tax.estimatedGstCollected.toLocaleString('en-IN')}</strong>
-        </div>
-        <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 10, lineHeight: 1.6, fontStyle: 'italic' }}>
-          {tax.note}
-        </div>
-      </Card>
+    <div style={S.statCard}>
+      <div style={aLabel}>{head}</div>
+      <div style={{ ...aValue, ...(tone ? { color: tone } : {}) }}>{value}</div>
+      {sub && <div style={aSub}>{sub}</div>}
     </div>
   );
 }
 
-const statLabel = { fontFamily: mono, fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 };
-const statValue = { fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 30, color: colors.text, fontWeight: 300 };
-const statSub   = { fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 6 };
-const miniStat  = { textAlign: 'left' };
+// A row of the same shape used for both spend breakdowns, so purchased and
+// gifted can be compared at a glance rather than read separately.
+function SpendRow({ item, total }) {
+  const pct = total > 0 ? Math.round((item.tokens / total) * 100) : 0;
+  return (
+    <div style={spendRow}>
+      <div style={{ flex: 1, minWidth: 160 }}>
+        <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{label(item.type)}</div>
+        <div style={{ ...barTrack }}>
+          <div style={{ ...barFill, width: `${pct}%` }} />
+        </div>
+      </div>
+      <div style={{ textAlign: 'right', minWidth: 110 }}>
+        <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{rupees(item.valueInr)}</div>
+        <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
+          {item.tokens} tokens · {pct}%
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function Analytics() {
+  const [tab,  setTab]  = useState('purchased');
+  const [data, setData] = useState({});
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (data[tab]) return;
+    const path = tab === 'purchased' ? 'purchased' : tab === 'gifted' ? 'gifted' : 'sets';
+    api.get(`/api/studio/analytics/${path}`)
+      .then((d) => setData((prev) => ({ ...prev, [tab]: d })))
+      .catch((e) => setError(e.message));
+  }, [tab]);
+
+  const d = data[tab];
+
+  return (
+    <div>
+      <Eyebrow>The numbers</Eyebrow>
+      <T.title>Analytics</T.title>
+
+      {error && <div style={S.error}>{error}</div>}
+
+      <div style={{ display: 'flex', gap: 8, margin: '18px 0 22px', flexWrap: 'wrap' }}>
+        {[
+          { key: 'purchased', label: 'Purchased tokens' },
+          { key: 'gifted',    label: 'Gifted tokens'    },
+          { key: 'sets',      label: 'Sets'             },
+        ].map((t) => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            style={{
+              fontFamily: sans, fontSize: 13, padding: '8px 18px', borderRadius: 999, cursor: 'pointer',
+              background: tab === t.key ? 'rgba(193,125,74,0.12)' : 'transparent',
+              border:     tab === t.key ? `1px solid ${colors.accent}` : `1px solid ${colors.border}`,
+              color:      tab === t.key ? colors.accent : colors.muted,
+            }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {!d ? <T.muted>Loading…</T.muted> : tab === 'purchased' ? (
+        <>
+          <div style={S.statsRow}>
+            <Stat head="Revenue" value={rupees(d.revenueInr)} tone={colors.success}
+                  sub={`${d.purchases} purchase${d.purchases === 1 ? '' : 's'} · ${d.tokensSold} tokens sold`} />
+            <Stat head="Average per token" value={rupees(d.effectiveRate)}
+                  sub={`list price ₹${d.tokenRate} · the gap is bulk discount`} />
+            <Stat head="Bought but unspent" value={rupees(d.unspentInr)} tone="#D9A45C"
+                  sub={`${d.unspentTokens} tokens still owed to fans`} />
+          </div>
+
+          <T.sectionTitle>By month</T.sectionTitle>
+          <div style={{ display: 'grid', gap: 6, marginBottom: 26 }}>
+            {d.byMonth.length === 0 ? <T.muted>Nothing yet.</T.muted> : d.byMonth.map((m) => (
+              <div key={m.month} style={spendRow}>
+                <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+                  {new Date(m.month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+                </span>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{rupees(m.revenueInr)}</div>
+                  <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted }}>{m.tokens} tokens</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <T.sectionTitle>What they spent it on</T.sectionTitle>
+          <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 12 }}>
+            Valued at the list rate, so this shows where attention goes rather than cash received.
+          </p>
+          <div style={{ display: 'grid', gap: 6, marginBottom: 26 }}>
+            {d.spentOn.map((s) => (
+              <SpendRow key={s.type} item={s} total={d.spentOn.reduce((a, b) => a + b.tokens, 0)} />
+            ))}
+          </div>
+
+          {d.topFans.length > 0 && (
+            <>
+              <T.sectionTitle>Who spends most</T.sectionTitle>
+              <div style={{ display: 'grid', gap: 6 }}>
+                {d.topFans.map((f, i) => (
+                  <div key={i} style={spendRow}>
+                    <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+                      {f.who} <span style={{ color: colors.muted, fontSize: 11 }}>· {f.tier}</span>
+                    </span>
+                    <span style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{rupees(f.spentInr)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      ) : tab === 'gifted' ? (
+        <>
+          <div style={S.statsRow}>
+            <Stat head="Given away" value={rupees(d.grantedInr)}
+                  sub={`${d.grantedTokens} tokens to ${d.people} ${d.people === 1 ? 'person' : 'people'}`} />
+            <Stat head="Actually used" value={rupees(d.usedInr)} tone={colors.success}
+                  sub={`${d.takeUpPct}% of what was given`} />
+            <Stat head="Expired unused" value={`${d.lapsedTokens} tokens`} tone="#D9A45C"
+                  sub={`${d.liveTokens} still live`} />
+          </div>
+
+          {d.expiringSoon.tokens > 0 && (
+            <div style={nudgeBox}>
+              <strong style={{ color: colors.text }}>{d.expiringSoon.tokens} gifted tokens</strong> held by{' '}
+              {d.expiringSoon.people} {d.expiringSoon.people === 1 ? 'person' : 'people'} expire within a week
+              — worth {rupees(d.expiringSoon.valueInr)}. A message now is worth more than a bigger gift later.
+            </div>
+          )}
+
+          <T.sectionTitle>Where the gifts came from</T.sectionTitle>
+          <div style={{ display: 'grid', gap: 6, marginBottom: 26 }}>
+            {d.bySource.map((s) => (
+              <div key={s.source} style={spendRow}>
+                <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+                  {s.source === 'welcome' ? 'Welcome gift' : s.source === 'artist_gift' ? 'Sent by Jinal' : s.source}
+                </span>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{rupees(s.valueInr)}</div>
+                  <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted }}>
+                    {s.tokens} tokens · {s.grants} grant{s.grants === 1 ? '' : 's'}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <T.sectionTitle>What gifted tokens bought</T.sectionTitle>
+          <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 12 }}>
+            None of this is revenue — it is what the generosity actually did.
+          </p>
+          <div style={{ display: 'grid', gap: 6 }}>
+            {d.spentOn.length === 0 ? <T.muted>Nothing spent yet.</T.muted> : d.spentOn.map((s) => (
+              <SpendRow key={s.type} item={s} total={d.spentOn.reduce((a, b) => a + b.tokens, 0)} />
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={S.statsRow}>
+            <Stat head="Earned by the gallery" value={rupees(d.totalRevenueInr)}
+                  sub="purchased tokens only" tone={colors.success} />
+          </div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            {d.sets.length === 0 ? <T.muted>No sets yet.</T.muted> : d.sets.map((s) => (
+              <div key={s.id} style={spendRow}>
+                <div style={{ flex: 1, minWidth: 180 }}>
+                  <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{s.title}</div>
+                  <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
+                    {s.photographer ? `${s.photographer} · ` : ''}{s.unlocks} unlock{s.unlocks === 1 ? '' : 's'}
+                    {s.creditUnlocks > 0 && ` · ${s.creditUnlocks} on credit`}
+                    {s.giftedTokens > 0 && ` · ${s.giftedTokens} gifted`}
+                  </div>
+                </div>
+                <span style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{rupees(s.revenueInr)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+const aLabel   = { fontFamily: mono, fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 };
+const aValue   = { fontFamily: display, fontSize: 30, color: colors.text, fontWeight: 300 };
+const aSub     = { fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 6, lineHeight: 1.5 };
+const spendRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap', background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '11px 14px' };
+const barTrack = { height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2, marginTop: 6, overflow: 'hidden' };
+const barFill  = { height: 3, background: colors.accent, borderRadius: 2, transition: 'width 0.3s' };
+const nudgeBox = { fontFamily: sans, fontSize: 13, color: colors.muted, lineHeight: 1.7, background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.3)', borderRadius: 10, padding: '14px 16px', marginBottom: 24 };
