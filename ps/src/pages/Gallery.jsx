@@ -101,6 +101,12 @@ export default function Gallery() {
           </div>
         </div>
 
+        {openSet.photographer && (
+          <div style={{ fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.08em', marginBottom: 12 }}>
+            Photographed by {openSet.photographer}
+          </div>
+        )}
+
         <Clamped text={openSet.description} lines={3}
                  style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.7, maxWidth: 600 }} />
 
@@ -263,6 +269,12 @@ export default function Gallery() {
                       item.photoCount > 0 ? `${item.photoCount} photo${item.photoCount === 1 ? '' : 's'}` : null,
                       item.videoCount > 0 ? `${item.videoCount} video${item.videoCount === 1 ? '' : 's'}` : null,
                     ].filter(Boolean).join(' · ')}
+                  </div>
+                )}
+
+                {item.photographer && (
+                  <div style={{ fontFamily: F.mono, fontSize: 10, color: C.accent, letterSpacing: '0.06em', marginBottom: 6 }}>
+                    {item.photographer}
                   </div>
                 )}
 
