@@ -7,6 +7,7 @@ import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
 import Outfits from './Outfits';
 import Extras  from './Extras';
+import MerchDrop from './MerchDrop';
 import PhotoStrip from '../components/PhotoStrip';
 
 export default function Shop() {
@@ -83,7 +84,7 @@ export default function Shop() {
       {tab === 'outfits'  && <Outfits />}
       {tab === 'requests' && <Extras />}
 
-      {tab === 'merch' && <>
+      {tab === 'merch' && <MerchDrop>
       {error   && <div style={errorBox}>{error} <button onClick={() => setTopUp(0)} style={inlineTopUp}>Top up</button></div>}
       {success && <div style={successBox}>{success}</div>}
 
@@ -148,7 +149,7 @@ export default function Shop() {
         })}
       </div>
 
-      </>}
+      </MerchDrop>}
 
       {/* Checkout / shipping modal */}
       {checkout && (

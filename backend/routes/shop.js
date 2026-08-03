@@ -13,6 +13,70 @@ const { spendTokens, getBalances } = require('../lib/tokens');
 // GET /api/shop/items
 // ─────────────────────────────────────────────
 
+// ─────────────────────────────────────────────
+// THE DROP
+// ─────────────────────────────────────────────
+
+router.get('/drop', authMid, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT key, value FROM platform_config WHERE key LIKE 'merch_drop%'`
+    );
+    const cfg = {};
+    rows.forEach((r) => { cfg[r.key] = r.value; });
+    const dropKey = cfg.merch_drop_key || '';
+
+    const [mine, total] = await Promise.all([
+      pool.query(`SELECT 1 FROM merch_drop_interest WHERE user_id = $1 AND drop_key = $2`,
+                 [req.user.userId, dropKey]),
+      pool.query(`SELECT count(*)::int AS n FROM merch_drop_interest WHERE drop_key = $1`, [dropKey]),
+    ]);
+
+    res.json({
+      active:    cfg.merch_drop_active === 'true',
+      dropKey,
+      label:     cfg.merch_drop_label   || 'The next edition',
+      opensOn:   cfg.merch_drop_opens_on || null,
+      onList:    mine.rows.length > 0,
+      // Shown only once enough people are waiting for it to read as interest
+      // rather than as an empty room.
+      waiting:   total.rows[0].n >= 5 ? total.rows[0].n : null,
+    });
+  } catch (err) {
+    console.error('shop/drop error:', err);
+    res.status(500).json({ error: 'Could not load the drop' });
+  }
+});
+
+router.post('/drop/notify', authMid, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT value FROM platform_config WHERE key = 'merch_drop_key'`);
+    const dropKey = rows[0]?.value;
+    if (!dropKey) return res.status(503).json({ error: 'No drop is scheduled' });
+
+    const { leave } = req.body;
+    if (leave) {
+      await pool.query(`DELETE FROM merch_drop_interest WHERE user_id = $1 AND drop_key = $2`,
+                       [req.user.userId, dropKey]);
+      return res.json({ ok: true, onList: false });
+    }
+
+    await pool.query(
+      `INSERT INTO merch_drop_interest (user_id, drop_key) VALUES ($1, $2)
+       ON CONFLICT (user_id, drop_key) DO NOTHING`,
+      [req.user.userId, dropKey]
+    );
+    res.json({ ok: true, onList: true });
+  } catch (err) {
+    console.error('shop/drop/notify error:', err);
+    res.status(500).json({ error: 'Could not add you to the list' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// SHOP
+// ─────────────────────────────────────────────
+
 router.get('/items', authMid, async (req, res) => {
   try {
     const { rows: userRows } = await pool.query(
