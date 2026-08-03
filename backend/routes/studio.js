@@ -1031,15 +1031,28 @@ router.post('/content/item', async (req, res) => {
 });
 
 router.patch('/content/:id', async (req, res) => {
-  const { title, description, price_coins, visible, type, category, cover_key } = req.body;
+  const { title, description, price_coins, visible, type, category, cover_key,
+          photographerName } = req.body;
+  const client = await pool.connect();
   try {
-    const { rows: currentRows } = await pool.query(
+    await client.query('BEGIN');
+
+    const { rows: currentRows } = await client.query(
       `SELECT title, visible FROM sets WHERE id = $1`, [req.params.id]
     );
     const wasHidden       = currentRows[0] && !currentRows[0].visible;
     const becomingVisible = visible === true;
 
-    const { rows } = await pool.query(
+    // Attribution can be added to a set that already exists, and cleared by
+    // sending an empty string — undefined leaves it untouched.
+    let photographerId;
+    if (photographerName !== undefined) {
+      photographerId = photographerName?.trim()
+        ? await resolvePhotographer(client, photographerName)
+        : null;
+    }
+
+    const { rows } = await client.query(
       `UPDATE sets SET
          title       = COALESCE($1, title),
          description = COALESCE($2, description),
@@ -1047,11 +1060,14 @@ router.patch('/content/:id', async (req, res) => {
          visible     = COALESCE($4, visible),
          type        = COALESCE($5, type),
          category    = COALESCE($6, category),
-         cover_key   = COALESCE($7, cover_key)
-       WHERE id = $8 RETURNING *`,
-      [title, description, price_coins, visible, type, category, cover_key, req.params.id]
+         cover_key   = COALESCE($7, cover_key),
+         photographer_id = CASE WHEN $8::boolean THEN $9::uuid ELSE photographer_id END
+       WHERE id = $10 RETURNING *`,
+      [title, description, price_coins, visible, type, category, cover_key,
+       photographerName !== undefined, photographerId || null, req.params.id]
     );
-    if (!rows.length) return res.status(404).json({ error: 'Set not found' });
+    if (!rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Set not found' }); }
+    await client.query('COMMIT');
 
     if (wasHidden && becomingVisible) {
       postSystemMessage(`📸 Jinal just dropped "${rows[0].title}"! Check the Gallery!`);
@@ -1059,8 +1075,11 @@ router.patch('/content/:id', async (req, res) => {
 
     res.json({ ok: true, set: rows[0] });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('studio/content patch error:', err);
     res.status(500).json({ error: 'Failed to update content' });
+  } finally {
+    client.release();
   }
 });
 

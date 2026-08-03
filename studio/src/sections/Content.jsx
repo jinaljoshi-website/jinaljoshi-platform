@@ -423,7 +423,7 @@ export function Content() {
 
   const startEdit = (set) => {
     setEditing(set.id);
-    setEditForm({ title: set.title, description: set.description || '', price_coins: set.price_coins, visible: set.visible, category: set.category || CONTENT_CATEGORIES[0].key });
+    setEditForm({ title: set.title, description: set.description || '', price_coins: set.price_coins, visible: set.visible, category: set.category || CONTENT_CATEGORIES[0].key, photographerName: set.photographer || '' });
   };
 
   const handleUpdate = async (id) => {
@@ -687,6 +687,12 @@ export function Content() {
                       <input style={S.input} value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
                     </Field>
                     <TokenField label="Base price (tokens)" value={editForm.price_coins} onChange={(v) => setEditForm({ ...editForm, price_coins: v })} tokenRateInr={TOKEN_RATE} />
+                    <Field label="Photographer — shown on the set">
+                      <input style={S.input} list="photographer-names"
+                             value={editForm.photographerName ?? ''}
+                             onChange={(e) => setEditForm({ ...editForm, photographerName: e.target.value })}
+                             placeholder="Who shot this" />
+                    </Field>
                   </div>
                   <div style={{ marginTop: 12 }}>
                     <Field label="Content category">
