@@ -8,8 +8,20 @@ const { getNextInvoiceNumber } = require('./invoiceNumber');
 const { getConfigNumber, getConfigValue } = require('./config');
 const { getSupplier } = require('./issuedInvoice');
 
+// Two different exports, two different declarations, and they are not
+// interchangeable — they file into different GSTR-1 tables and only the second
+// is refundable.
+//
+// LUT route: no tax charged at all. Requires payment received in convertible
+// foreign exchange, which is not met while the gateway settles in INR.
 const EXPORT_DISCLAIMER =
   'Supply meant for export under bond or letter of undertaking without payment of integrated tax.';
+
+// With-payment route: IGST charged and remitted, then reclaimed. This is the
+// live case for international customers — the e-FIRS evidences the remittance
+// as foreign inward when the refund is claimed.
+const EXPORT_WITH_TAX_DISCLAIMER =
+  'Supply meant for export on payment of integrated tax. Refund of IGST to be claimed under Section 16 of the IGST Act, 2017.';
 
 // Zero-rating requires all three conditions, confirmed with the CA:
 //
@@ -80,6 +92,11 @@ async function buildInvoiceRecord(client, {
     ? (userCountry || null)
     : ((userState || '').trim() || supplier.state);
 
+  // A sale to someone abroad is an export whichever route it takes. The invoice
+  // has to say so — an export made with payment of tax is refundable, while an
+  // ordinary inter-state supply is not, and they are reported separately.
+  const exportWithTax = recipientOutsideIndia && !isExport;
+
   let cgst = 0, sgst = 0, igst = 0;
   if (!isExport && gstAmountInr > 0) {
     // The state split is only ever correct for a recipient inside India whose
@@ -104,8 +121,8 @@ async function buildInvoiceRecord(client, {
        amount_inr_equivalent, tokens_purchased, is_export, gst_rate_pct,
        gst_amount_inr, taxable_amount_inr,
        cgst_amount_inr, sgst_amount_inr, igst_amount_inr, place_of_supply,
-       sac_code, ip_address
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+       sac_code, ip_address, export_with_tax
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
      RETURNING *`,
     [
       invoiceNumber, userId, coinLedgerId, userEmail, userCountry || 'Unknown',
@@ -113,7 +130,7 @@ async function buildInvoiceRecord(client, {
       amountInrEquivalent, tokensPurchased, isExport, gstRatePct,
       gstAmountInr, taxableAmountInr,
       cgst, sgst, igst, placeOfSupply,
-      sacCode, ipAddress || null,
+      sacCode, ipAddress || null, exportWithTax,
     ]
   );
 
@@ -159,6 +176,9 @@ function generateInvoicePdfBuffer(invoice, supplier) {
     doc.text(`Email: ${invoice.user_email}`);
     doc.text(`Country: ${invoice.user_country}`);
     if (invoice.place_of_supply) doc.text(`Place of supply: ${invoice.place_of_supply}`);
+    if (invoice.is_export || invoice.export_with_tax) {
+      doc.text('Nature of supply: Export of services');
+    }
     doc.moveDown(1);
 
     doc.fontSize(11).fillColor('#000').text('Transaction Details', { underline: true });
@@ -189,6 +209,9 @@ function generateInvoicePdfBuffer(invoice, supplier) {
 
     if (invoice.is_export) {
       doc.fontSize(9).fillColor('#555').text(EXPORT_DISCLAIMER, { italics: true, width: 495 });
+      doc.moveDown(1);
+    } else if (invoice.export_with_tax) {
+      doc.fontSize(9).fillColor('#555').text(EXPORT_WITH_TAX_DISCLAIMER, { italics: true, width: 495 });
       doc.moveDown(1);
     }
 
