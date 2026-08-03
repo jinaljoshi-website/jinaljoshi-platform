@@ -665,6 +665,95 @@ router.post('/content/:id/delete', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// SELFIE OF THE DAY
+// ─────────────────────────────────────────────
+
+router.get('/selfies', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.id, s.image_key, s.caption, s.selfie_date, s.visible, s.created_at,
+              (SELECT count(*)::int FROM selfie_unlocks u WHERE u.selfie_id = s.id) AS unlocks
+       FROM daily_selfies s ORDER BY s.selfie_date DESC LIMIT 120`
+    );
+    const { rows: passes } = await pool.query(
+      `SELECT count(*)::int AS active FROM selfie_passes WHERE ends_on >= CURRENT_DATE`
+    );
+    res.json({ selfies: rows, activePasses: passes[0].active });
+  } catch (err) {
+    console.error('studio/selfies error:', err);
+    res.status(500).json({ error: 'Failed to load selfies' });
+  }
+});
+
+router.post('/selfies', async (req, res) => {
+  const { imageKey, caption, selfieDate } = req.body;
+  if (!imageKey) return res.status(400).json({ error: 'An image is required' });
+
+  const date = selfieDate || new Date().toISOString().slice(0, 10);
+  try {
+    // One per day, so the date is a reliable identifier and there is never an
+    // ambiguous "which selfie was the 3rd of August".
+    const { rows: clash } = await pool.query(
+      `SELECT id FROM daily_selfies WHERE selfie_date = $1`, [date]
+    );
+    if (clash.length) {
+      return res.status(409).json({ error: `There is already a selfie for ${date}. Delete it first, or pick another date.` });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO daily_selfies (image_key, caption, selfie_date, visible)
+       VALUES ($1, $2, $3, TRUE) RETURNING *`,
+      [imageKey, caption?.trim() || null, date]
+    );
+    res.json({ ok: true, selfie: rows[0] });
+
+    postSystemMessage('📸 A new selfie is up.');
+  } catch (err) {
+    console.error('studio/selfies create error:', err);
+    res.status(500).json({ error: 'Failed to post the selfie' });
+  }
+});
+
+router.patch('/selfies/:id', async (req, res) => {
+  const { caption, visible } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE daily_selfies SET caption = COALESCE($1, caption), visible = COALESCE($2, visible)
+       WHERE id = $3 RETURNING *`,
+      [caption === undefined ? null : caption, visible, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true, selfie: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update' });
+  }
+});
+
+router.delete('/selfies/:id', async (req, res) => {
+  try {
+    // Refuse rather than take back something people paid for. Hiding it is the
+    // reversible option and is offered in the same breath.
+    const { rows: paid } = await pool.query(
+      `SELECT count(*)::int AS n FROM selfie_unlocks WHERE selfie_id = $1`, [req.params.id]
+    );
+    if (paid[0].n > 0) {
+      return res.status(409).json({
+        error: `${paid[0].n} ${paid[0].n === 1 ? 'person has' : 'people have'} paid to unlock this. Hide it instead — they keep what they bought.`,
+      });
+    }
+    const { rows } = await pool.query(
+      `DELETE FROM daily_selfies WHERE id = $1 RETURNING image_key`, [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    deleteObjects([rows[0].image_key]).catch((e) => console.error('r2 cleanup:', e.message));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('studio/selfies delete error:', err);
+    res.status(500).json({ error: 'Failed to delete' });
+  }
+});
+
+// ─────────────────────────────────────────────
 // FULFILMENT — Qikink
 // ─────────────────────────────────────────────
 

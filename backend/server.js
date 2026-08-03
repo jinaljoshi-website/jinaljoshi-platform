@@ -47,6 +47,7 @@ app.use('/api/studio/invoicing', require('./routes/invoicing'));
 app.use('/api/studio',       require('./routes/studio'));
 app.use('/api/upload',       require('./routes/upload'));
 app.use('/api/portfolio', require('./routes/portfolio'));
+app.use('/api/selfies', require('./routes/selfies'));
 
 
 app.get('/api/health', (req, res) => res.json({ ok: true, service: 'backend' }));

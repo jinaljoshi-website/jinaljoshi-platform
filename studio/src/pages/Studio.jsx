@@ -19,12 +19,14 @@ import { Settings }      from '../sections/Settings';
 import { Notifications } from '../sections/Notifications';
 import { Website }       from '../sections/Website';
 import { Invoices }      from '../sections/Invoices';
+import { Selfies }       from '../sections/Selfies';
 
 const NAV = [
   { id: 'dashboard',     label: 'Dashboard'     },
   { id: 'analytics',     label: 'Analytics'     },
   { id: 'messages',      label: 'Messages'      },
   { id: 'content',       label: 'Content'       },
+  { id: 'selfies',      label: 'Selfies'      },
   { id: 'merch',         label: 'Merchandise'   },
   { id: 'extras',        label: 'Extras'        },
   { id: 'members',       label: 'Members'       },
@@ -43,6 +45,7 @@ const SECTIONS = {
   analytics:     Analytics,
   messages:      Messages,
   content:       Content,
+  selfies:       Selfies,
   merch:         Merch,
   extras:        Extras,
   members:       Members,
