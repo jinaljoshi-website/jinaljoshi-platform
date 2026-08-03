@@ -12,14 +12,24 @@ const TOKEN_EXPIRY_HOURS      = { signup: 24, password_reset: 1 };
 const RATE_LIMIT_WINDOW_MINS  = 5;
 const DAILY_CAP                = 5;
 
-async function sendViaResend({ to, subject, html }) {
+// An ampersand inside an href must be written as &amp; — a raw & is not valid
+// HTML and some mail clients' sanitisers mangle or drop the attribute, which
+// leaves a button that renders but does nothing when tapped.
+function hrefSafe(url) {
+  return String(url).replace(/&/g, '&amp;');
+}
+
+async function sendViaResend({ to, subject, html, text }) {
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ from: FROM_ADDRESS, to: [to], subject, html }),
+    // A plain-text part alongside the HTML. Spam filters mark HTML-only mail
+    // down, and a client that refuses to render the HTML still shows something
+    // usable rather than nothing.
+    body: JSON.stringify({ from: FROM_ADDRESS, to: [to], subject, html, ...(text ? { text } : {}) }),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -76,9 +86,18 @@ async function sendSignupVerificationEmail(user) {
       <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
         <h2 style="color: #1A1714;">Welcome to Personal Space</h2>
         <p>Confirm your email to activate your account.</p>
-        <p><a href="${link}" style="display:inline-block; background:#C17D4A; color:#fff; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold;">Verify my email</a></p>
+        <p><a href="${hrefSafe(link)}" style="display:inline-block; background:#C17D4A; color:#fff; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold;">Verify my email</a></p>
+        <p style="color:#666; font-size:13px; margin-top:20px;">If the button doesn't work, copy this into your browser:</p>
+        <p style="font-size:12px; word-break:break-all; color:#C17D4A;">${link}</p>
         <p style="color:#888; font-size:13px;">This link expires in 24 hours. If you didn't create this account, you can ignore this email.</p>
       </div>`,
+    text: `Welcome to Personal Space
+
+Confirm your email to activate your account:
+
+${link}
+
+This link expires in 24 hours. If you didn't create this account, you can ignore this email.`,
   });
 }
 
@@ -93,9 +112,18 @@ async function sendPasswordResetEmail(user) {
       <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
         <h2 style="color: #1A1714;">Reset your password</h2>
         <p>Click below to set a new password. This link expires in 1 hour.</p>
-        <p><a href="${link}" style="display:inline-block; background:#C17D4A; color:#fff; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold;">Reset password</a></p>
+        <p><a href="${hrefSafe(link)}" style="display:inline-block; background:#C17D4A; color:#fff; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold;">Reset password</a></p>
+        <p style="color:#666; font-size:13px; margin-top:20px;">If the button doesn't work, copy this into your browser:</p>
+        <p style="font-size:12px; word-break:break-all; color:#C17D4A;">${link}</p>
         <p style="color:#888; font-size:13px;">If you didn't request this, you can safely ignore this email.</p>
       </div>`,
+    text: `Reset your password
+
+Set a new password here. This link expires in 1 hour.
+
+${link}
+
+If you didn't request this, you can safely ignore this email.`,
   });
 }
 
