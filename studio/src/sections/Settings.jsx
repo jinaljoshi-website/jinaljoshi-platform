@@ -141,27 +141,14 @@ function PricingSection({ draft, set, config, setConfig, tokenRate }) {
       <Card style={{ marginBottom: 20 }}>
         <T.sectionTitle>Non-member (guest) pricing</T.sectionTitle>
         <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>
-          Applied everywhere a non-member pays: Calls, Gallery unlocks, Merchandise, and the auction. Extras are excluded — fans name their own price there. Direct message guest pricing is derived from this multiplied by the Community tier's message rate.
+          Applied everywhere a non-member pays: Calls, Gallery unlocks, Merchandise, and Extras. Direct message guest pricing is derived from this multiplied by the Community tier's message rate.
         </p>
         <Field label="Guest price multiplier">
           <input style={S.input} type="number" min={1} step={0.1} value={draft.guest_price_multiplier ?? 2} onChange={(e) => set('guest_price_multiplier', e.target.value)} />
         </Field>
         <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 8, fontStyle: 'italic' }}>
-          e.g. 1.5 means guests pay 50% more than a member would, before any membership discount.
+          e.g. 2 means guests pay double what a member would pay before any membership discount.
         </p>
-      </Card>
-
-      <Card style={{ marginBottom: 20 }}>
-        <T.sectionTitle>Quarterly &amp; annual billing</T.sectionTitle>
-        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>
-          How many months a fan is charged when they prepay. Charging 2.5 months for 3 months' access is a ~17% saving; 9 for 12 months is 25%.
-        </p>
-        <Field label="Quarterly — months charged (3 months access)">
-          <input style={S.input} type="number" min={0.5} step={0.1} value={draft.quarterly_billing_months ?? ''} onChange={(e) => set('quarterly_billing_months', e.target.value)} />
-        </Field>
-        <Field label="Annual — months charged (12 months access)">
-          <input style={S.input} type="number" min={1} step={0.5} value={draft.annual_billing_months ?? ''} onChange={(e) => set('annual_billing_months', e.target.value)} />
-        </Field>
       </Card>
 
       <Card style={{ marginBottom: 20 }}>
@@ -191,7 +178,7 @@ function PricingSection({ draft, set, config, setConfig, tokenRate }) {
       <Card style={{ marginBottom: 20 }}>
         <T.sectionTitle>Membership monthly cost & discount</T.sectionTitle>
         <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>
-          The monthly price fans pay when purchasing this tier, and the site-wide purchase discount that comes with it (applied to Calls, Merchandise, Gallery unlocks, and the auction. Extras are excluded, since fans name their own price there).
+          The monthly price fans pay when purchasing this tier, and the site-wide purchase discount that comes with it (applied to Calls, Merch, and Extras — Gallery unlocks use flat pricing instead).
         </p>
         {TIERS.map((tier) => (
           <div key={tier} style={{ marginBottom: 20, paddingBottom: 18, borderBottom: `1px solid ${colors.border}` }}>
@@ -212,29 +199,33 @@ function PricingSection({ draft, set, config, setConfig, tokenRate }) {
 }
 
 // ── Community ─────────────────────────────────────────────────────────────────
+// The credit system this section used to edit no longer exists. The Public
+// Corner is free and unlimited for members; guests get a daily allowance. Only
+// that allowance is still configurable, so only that is shown — the old fields
+// described a mechanism that had already been removed.
 function CommunitySection({ draft, set, config, setConfig }) {
-  const keys = ['community_daily_free_messages', 'community_tokens_per_credit_block', 'community_messages_per_credit_block'];
+  const keys = ['community_guest_daily_messages'];
 
   return (
     <div>
       <Card style={{ marginBottom: 20 }}>
-        <T.sectionTitle>Community message limits</T.sectionTitle>
-        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>
-          Every fan gets this many free community messages per day. Once used up, they can buy more with tokens.
+        <T.sectionTitle>The Public Corner</T.sectionTitle>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 4, lineHeight: 1.7 }}>
+          Members post as much as they like, at no cost. It is part of what they pay for.
+        </p>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 16, lineHeight: 1.7 }}>
+          Guests get a small daily allowance so the feed stays alive without becoming
+          a place people post in without joining.
         </p>
         <div style={S.formGrid}>
-          <Field label="Free messages per day">
-            <input style={S.input} type="number" min={0} value={draft.community_daily_free_messages ?? 1} onChange={(e) => set('community_daily_free_messages', e.target.value)} />
-          </Field>
-          <Field label="Tokens per credit block">
-            <input style={S.input} type="number" min={1} value={draft.community_tokens_per_credit_block ?? 1} onChange={(e) => set('community_tokens_per_credit_block', e.target.value)} />
-          </Field>
-          <Field label="Messages earned per block">
-            <input style={S.input} type="number" min={1} value={draft.community_messages_per_credit_block ?? 3} onChange={(e) => set('community_messages_per_credit_block', e.target.value)} />
+          <Field label="Guest messages per day">
+            <input style={S.input} type="number" min={0} max={20}
+                   value={draft.community_guest_daily_messages ?? 1}
+                   onChange={(e) => set('community_guest_daily_messages', e.target.value)} />
           </Field>
         </div>
-        <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 10, fontStyle: 'italic' }}>
-          Example with the values above: spending {draft.community_tokens_per_credit_block ?? 1} token(s) grants {draft.community_messages_per_credit_block ?? 3} extra community messages.
+        <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 12, fontStyle: 'italic' }}>
+          Set to 0 to close the Public Corner to guests entirely. Members are unaffected either way.
         </p>
       </Card>
 
