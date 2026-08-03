@@ -98,7 +98,15 @@ async function notifyArtist({ title, body, url = '/', ...rest }) {
 // The Notification API's sound property was dropped and no browser honours it;
 // a custom sound needs a real installed app with its own notification channel.
 // What is available is the system notification sound, repetition, and vibration.
-async function ringArtist(payload, { times = 5, gapMs = 2000 } = {}) {
+// durationMs is how long the call will actually ring for. Ringing for less than
+// that is worse than not ringing at all — a phone that chimes briefly and then
+// goes quiet reads as "handled", and the fan is left listening to a ringtone
+// nobody is being told about.
+//
+// Later rings are spaced further apart. The first few seconds are when
+// attention is won; after that, chiming every two seconds for a minute is
+// harassment rather than urgency.
+async function ringArtist(payload, { durationMs = 60000, gapMs = 2000, maxGapMs = 6000 } = {}) {
   const artistId = process.env.ARTIST_USER_ID;
   if (!artistId) return { sent: 0 };
 
@@ -115,14 +123,28 @@ async function ringArtist(payload, { times = 5, gapMs = 2000 } = {}) {
   // The rest are fired without holding up the caller — the fan is waiting on a
   // response, and a ring that is still repeating must not delay it.
   (async () => {
-    for (let i = 1; i < times; i++) {
-      await new Promise((r) => setTimeout(r, gapMs));
-      // Stop if the call is no longer ringing, so answering quickly does not
-      // leave the phone chiming for another ten seconds.
+    const until = Date.now() + durationMs;
+    let gap = gapMs;
+    let n = 0;
+
+    while (Date.now() + gap < until) {
+      await new Promise((r) => setTimeout(r, gap));
+
+      // Stop the moment the call is answered or times out, so picking up on the
+      // second ring does not leave the phone chiming for another minute.
       if (typeof payload.stillRinging === 'function') {
         try { if (!(await payload.stillRinging())) return; } catch { /* keep ringing */ }
       }
-      await pushToUser(artistId, { ...ring, body: `${ring.body} · still ringing` });
+
+      n += 1;
+      const left = Math.max(0, Math.round((until - Date.now()) / 1000));
+      await pushToUser(artistId, {
+        ...ring,
+        body: `${ring.body} · ${left}s to answer`,
+      });
+
+      // Widen the gap as it goes: insistent at first, then merely present.
+      gap = Math.min(maxGapMs, Math.round(gap * 1.25));
     }
   })().catch((e) => console.error('ringArtist repeat failed:', e.message));
 

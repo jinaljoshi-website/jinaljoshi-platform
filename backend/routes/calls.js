@@ -276,7 +276,9 @@ router.post('/book', authMid, async (req, res) => {
           );
           return rows[0]?.status === 'ringing';
         },
-      }, { times: 6, gapMs: 2000 });
+        // Rings for as long as the call actually rings, read from the same
+        // config the fan's countdown uses — so the two can never disagree.
+      }, { durationMs: (await getCallRingWindowSeconds()) * 1000 });
       postSystemMessage(`🔴 ${fanLabel} just started a priority call with Jinal!`);
     } else {
       notifyArtist({
