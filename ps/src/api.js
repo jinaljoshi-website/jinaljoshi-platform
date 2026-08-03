@@ -10,9 +10,19 @@ function handleUnauthorized(message) {
   window.location.href = `/auth?mode=login&notice=${msg}`;
 }
 
+// The backend names its session failures, so they are matched rather than
+// guessed at. Anything here means the session itself is finished — expired,
+// missing, malformed, or superseded by a sign-in somewhere else — and the fan
+// has to sign in again.
+const SESSION_ENDED = new Set([
+  'SESSION_EXPIRED',      // signed in on another device
+  'Not logged in',
+  'Invalid login token',
+]);
+
 // Reads the expiry out of the JWT without verifying it — the server does the
-// verifying. This is only used to answer one question: is the token actually
-// expired, or did a single endpoint return 401 for some other reason?
+// verifying. A backstop for the case where the backend returns 401 without one
+// of the labels above.
 function tokenHasExpired() {
   const jwt = localStorage.getItem('jwt');
   if (!jwt) return true;
@@ -37,7 +47,13 @@ async function parseResponse(response) {
     let data = {};
     try { data = text ? JSON.parse(text) : {}; } catch { data = { message: text }; }
 
-    if (tokenHasExpired()) {
+    // Signing out is right when the session is genuinely over — including when
+    // it has been taken over on another device, where the token is still valid
+    // but no longer the current one. Checking local expiry alone missed exactly
+    // that case and left someone browsing a session the server had already
+    // ended. Any other 401 is an authorisation failure on one endpoint and
+    // surfaces as an ordinary error.
+    if (SESSION_ENDED.has(data.error) || tokenHasExpired()) {
       handleUnauthorized(data.message || data.error);
       return; // never resolves — redirect happens
     }

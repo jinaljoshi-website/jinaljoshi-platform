@@ -85,7 +85,17 @@ export default function Shop() {
       {tab === 'requests' && <Extras />}
 
       {tab === 'merch' && <MerchDrop>
-      {error   && <div style={errorBox}>{error} <button onClick={() => setTopUp(0)} style={inlineTopUp}>Top up</button></div>}
+      {/* A top-up only helps when the problem is actually a shortage of tokens.
+          Offering it beside "you were signed in on another device" is noise at
+          best and misleading at worst. */}
+      {error && (
+        <div style={errorBox}>
+          <span>{error}</span>
+          {/insufficient|more tokens|tokens short|balance/i.test(error) && (
+            <button onClick={() => setTopUp(0)} style={inlineTopUp}>Top up</button>
+          )}
+        </div>
+      )}
       {success && <div style={successBox}>{success}</div>}
 
       {/* Balance bar */}
