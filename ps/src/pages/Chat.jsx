@@ -653,7 +653,7 @@ function MessageBubble({ msg, onUnlock, unlocking }) {
               )}
             </div>
           )}
-          {msg.content && <div style={{ marginTop: 8 }}>{msg.content}</div>}
+          {msg.content && <div style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>{msg.content}</div>}
         </div>
         <div style={{ fontFamily: F.sans, fontSize: 10, color: C.muted, marginTop: 3, alignSelf: isMe ? 'flex-end' : 'flex-start' }}>
           {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -669,7 +669,11 @@ function MessageBubble({ msg, onUnlock, unlocking }) {
         {msg.media_url && msg.media_type === 'image' && <img src={msg.media_url} alt="" style={{ width: '100%', maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: msg.content ? 8 : 0 }} />}
         {msg.media_url && msg.media_type === 'video' && <video src={msg.media_url} controls style={{ width: '100%', maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: msg.content ? 8 : 0 }} />}
         {msg.media_url && msg.media_type === 'audio' && <audio src={msg.media_url} controls style={{ width: '100%', minWidth: 220 }} />}
-        {msg.content && <div style={{ padding: msg.media_url ? '0 8px 8px' : 0 }}>{msg.content}</div>}
+        {msg.content && (
+          <div style={{ padding: msg.media_url ? '0 8px 8px' : 0, whiteSpace: 'pre-wrap' }}>
+            {msg.content}
+          </div>
+        )}
       </div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3, alignSelf: isMe ? 'flex-end' : 'flex-start' }}>
         <span style={{ fontFamily: F.sans, fontSize: 10, color: C.muted }}>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>

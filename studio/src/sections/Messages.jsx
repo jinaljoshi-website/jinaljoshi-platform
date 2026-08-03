@@ -806,7 +806,11 @@ export function Messages() {
                               {msg.media_url && msg.media_type === 'audio' && <audio src={msg.media_url} controls style={{ width: '100%', minWidth: 220 }} />}
                             </>
                           )}
-                          {msg.content && <div style={{ padding: (msg.media_url || isLockedBundle) ? '0 8px 8px' : 0 }}>{msg.content}</div>}
+                          {msg.content && (
+                            <div style={{ padding: (msg.media_url || isLockedBundle) ? '0 8px 8px' : 0, whiteSpace: 'pre-wrap' }}>
+                              {msg.content}
+                            </div>
+                          )}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, alignSelf: msg.is_mine ? 'flex-end' : 'flex-start' }}>
                           <span style={{ fontFamily: sans, fontSize: 10, color: colors.muted }}>
