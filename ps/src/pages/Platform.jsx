@@ -18,14 +18,14 @@ import Coins      from './Coins';
 import Profile    from './Profile';
 
 const navItems = [
-  { to: '/platform/community',  label: 'Public Corner'  },
-  { to: '/platform/gallery',    label: 'Gallery'    },
-  { to: '/platform/membership', label: 'Membership' },
-  { to: '/platform/shop',       label: 'Shop'       },
-  { to: '/platform/calls',      label: 'Calls'      },
-  { to: '/platform/chat',       label: 'Messages'   },
-  { to: '/platform/coins',      label: 'Coins'      },
-  { to: '/platform/profile',    label: 'Profile'    },
+  { to: '/platform/chat',       label: 'Messages'      },
+  { to: '/platform/calls',      label: 'Calls'         },
+  { to: '/platform/gallery',    label: 'Gallery'       },
+  { to: '/platform/shop',       label: 'Shop'          },
+  { to: '/platform/community',  label: 'Public Corner' },
+  { to: '/platform/membership', label: 'Membership'    },
+  { to: '/platform/coins',      label: 'Coins'         },
+  { to: '/platform/profile',    label: 'Profile'       },
 ];
 
 const FULLSCREEN_PAGES = ['/platform/chat', '/platform/community'];
