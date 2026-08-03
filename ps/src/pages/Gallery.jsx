@@ -4,12 +4,25 @@ import { C, F } from '../tokens';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
 import Clamped from '../components/Clamped';
+import Selfies from './Selfies';
 import GuestNudge from '../components/GuestNudge';
 
 const CONTENT_CATEGORIES = [
   { key: 'behind_the_scenes', label: 'Behind-the-Scenes' },
   { key: 'vlog_style',        label: 'Vlog-Style' },
   { key: 'photos_videos',     label: 'Photos & Videos' },
+];
+
+// The order fans see. Selfies sits second because it changes daily and is the
+// reason to come back — a category that refreshes belongs near the front, not
+// buried behind ones that do not.
+const TABS = [
+  { key: 'photos_videos',     label: 'Photos & Videos'   },
+  { key: 'selfies',           label: 'Selfie of the Day' },
+  { key: 'behind_the_scenes', label: 'Behind-the-Scenes' },
+  { key: 'vlog_style',        label: 'Vlog-Style'        },
+  { key: 'all',               label: 'All'               },
+  { key: 'unlocked',          label: 'Unlocked Media'    },
 ];
 
 export default function Gallery() {
@@ -24,7 +37,10 @@ export default function Gallery() {
   const [lightbox,  setLightbox]  = useState(null);
   const [unlockingScope, setUnlockingScope] = useState(null);
   const [viewerError, setViewerError] = useState('');
-  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'unlocked' | a content-category key
+  const [activeTab, setActiveTab] = useState(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return TABS.some((x) => x.key === t) ? t : 'all';
+  }); // 'all' | 'selfies' | 'unlocked' | a content-category key
 
   const load = () => api.get('/api/gallery/sets')
     .then(setData)
@@ -221,21 +237,18 @@ export default function Gallery() {
       )}
 
       <div style={tabRow}>
-        <button onClick={() => setActiveTab('all')} style={activeTab === 'all' ? tabActive : tabInactive}>
-          All
-        </button>
-        {CONTENT_CATEGORIES.map((cat) => (
-          <button key={cat.key} onClick={() => setActiveTab(cat.key)} style={activeTab === cat.key ? tabActive : tabInactive}>
-            {cat.label}
+        {TABS.map((t) => (
+          <button key={t.key} onClick={() => setActiveTab(t.key)}
+                  style={activeTab === t.key ? tabActive : tabInactive}>
+            {t.label}
+            {t.key === 'unlocked' && unlockedSets.length > 0 && (
+              <span style={tabCount}>{unlockedSets.length}</span>
+            )}
           </button>
         ))}
-        <button onClick={() => setActiveTab('unlocked')} style={activeTab === 'unlocked' ? tabActive : tabInactive}>
-          Unlocked Media
-          {unlockedSets.length > 0 && <span style={tabCount}>{unlockedSets.length}</span>}
-        </button>
       </div>
 
-      {activeItems.length === 0 ? (
+      {activeTab === 'selfies' ? <Selfies /> : activeItems.length === 0 ? (
         <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14 }}>
           {activeTab === 'unlocked' ? "You haven't unlocked anything yet — unlocks you pay for with credits or tokens will show up here." : 'No content published yet.'}
         </div>
@@ -292,7 +305,6 @@ export default function Gallery() {
           })}
         </div>
       )}
-
       {topUp !== null && (
         <TopUpModal requiredTokens={topUp} onClose={() => setTopUp(null)} onSuccess={() => { setTopUp(null); load(); }} />
       )}

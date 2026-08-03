@@ -143,7 +143,7 @@ export default function Landing() {
           <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>
             {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
           </span>
-          <button onClick={() => navigate('/platform/selfies')} style={selfieLink}>
+          <button onClick={() => navigate('/platform/gallery?tab=selfies')} style={selfieLink}>
             Selfie of the day →
           </button>
         </div>

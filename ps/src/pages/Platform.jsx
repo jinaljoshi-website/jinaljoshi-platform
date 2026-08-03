@@ -10,7 +10,6 @@ import NotificationBell from '../components/NotificationBell';
 
 import Chat       from './Chat';
 import Gallery    from './Gallery';
-import Selfies    from './Selfies';
 import Membership from './Membership';
 import Community  from './Community';
 import Calls      from './Calls';
@@ -21,7 +20,6 @@ import Profile    from './Profile';
 const navItems = [
   { to: '/platform/community',  label: 'Public Corner'  },
   { to: '/platform/gallery',    label: 'Gallery'    },
-  { to: '/platform/selfies',    label: 'Selfies'    },
   { to: '/platform/membership', label: 'Membership' },
   { to: '/platform/shop',       label: 'Shop'       },
   { to: '/platform/calls',      label: 'Calls'      },
@@ -185,7 +183,7 @@ export default function Platform() {
             <Route index element={<Navigate to="chat" replace />} />
             <Route path="chat"       element={<Chat />}       />
             <Route path="gallery"    element={<Gallery />}    />
-            <Route path="selfies"    element={<Selfies />}    />
+            <Route path="selfies"    element={<Navigate to="/platform/gallery?tab=selfies" replace />} />
             <Route path="membership" element={<Membership />} />
             <Route path="community"  element={<Community />}  />
             <Route path="calls"      element={<Calls />}      />
@@ -221,7 +219,7 @@ export default function Platform() {
                 <Route index element={<Navigate to="chat" replace />} />
                 <Route path="chat"       element={<Chat />}       />
                 <Route path="gallery"    element={<Gallery />}    />
-            <Route path="selfies"    element={<Selfies />}    />
+            <Route path="selfies"    element={<Navigate to="/platform/gallery?tab=selfies" replace />} />
                 <Route path="membership" element={<Membership />} />
                 <Route path="community"  element={<Community />}  />
                 <Route path="calls"      element={<Calls />}      />
