@@ -148,6 +148,33 @@ export function Content() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [deletingItem,  setDeletingItem]  = useState(null);
   const [lightbox,      setLightbox]      = useState(null);
+  const [selected,      setSelected]      = useState([]);   // ordered, so shift-click has an anchor
+  const [bulkBusy,      setBulkBusy]      = useState(false);
+
+  const clearSelection = () => setSelected([]);
+
+  const bulkMove = async (tierCategory) => {
+    setBulkBusy(true); setError('');
+    try {
+      const d = await api.post('/api/studio/content/items/move', { itemIds: selected, tierCategory });
+      setReviewItems((prev) => prev.map((i) =>
+        selected.includes(i.id) ? { ...i, tier_category: tierCategory } : i));
+      setSuccess(`Moved ${d.moved} item${d.moved === 1 ? '' : 's'}.`);
+      clearSelection();
+      loadSets();
+    } catch (err) { setError(err.message); } finally { setBulkBusy(false); }
+  };
+
+  const bulkDelete = async () => {
+    setBulkBusy(true); setError('');
+    try {
+      const d = await api.post('/api/studio/content/items/delete', { itemIds: selected });
+      setReviewItems((prev) => prev.filter((i) => !selected.includes(i.id)));
+      setSuccess(`Removed ${d.deleted}. ${d.remaining} left in this set.`);
+      clearSelection();
+      loadSets();
+    } catch (err) { setError(err.message); } finally { setBulkBusy(false); }
+  };
 
   // Adding to a set that already exists — the recovery path when an upload was
   // interrupted, and the normal way to extend a set later.
@@ -212,7 +239,7 @@ export function Content() {
   };
 
   const openReview = async (set) => {
-    setReviewSet(set); setReviewItems([]); setReviewLoading(true); setError('');
+    setReviewSet(set); setReviewItems([]); setReviewLoading(true); setError(''); setSelected([]);
     try {
       const d = await api.get(`/api/studio/content/${set.id}/items`);
       setReviewItems(d.items || []);
@@ -765,7 +792,12 @@ export function Content() {
           set={reviewSet}
           items={reviewItems}
           loading={reviewLoading}
-          onClose={() => { setReviewSet(null); setLightbox(null); }}
+          onClose={() => { setReviewSet(null); setLightbox(null); clearSelection(); }}
+          selected={selected}
+          setSelected={setSelected}
+          onBulkMove={bulkMove}
+          onBulkDelete={bulkDelete}
+          bulkBusy={bulkBusy}
           onDelete={deleteItem}
           onRetier={retierItem}
           deletingItem={deletingItem}
@@ -806,7 +838,8 @@ function LazyThumb({ src, alt, onClick, style }) {
     : <div ref={ref} onClick={onClick} style={{ ...style, background: 'rgba(255,255,255,0.04)' }} />;
 }
 
-function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletingItem, lightbox, setLightbox, mediaUrl, categories }) {
+function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletingItem, lightbox, setLightbox, mediaUrl, categories,
+                       selected, setSelected, onBulkMove, onBulkDelete, bulkBusy }) {
   // Grouped for the grid, but navigation runs across the whole set in the order
   // shown. A shoot produces near-identical frames, so being able to step through
   // them without leaving the large view is the only way to tell them apart.
@@ -816,6 +849,35 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
 
   const at = typeof lightbox === 'number' ? lightbox : -1;
   const current = at >= 0 ? ordered[at] : null;
+
+  const selecting = selected.length > 0;
+  const isSelected = (id) => selected.includes(id);
+
+  // Shift extends from the last thing clicked, in the order shown on screen —
+  // which is how every file manager behaves and how a couple of hundred photos
+  // become selectable in two clicks rather than two hundred.
+  const toggle = (item, shiftKey) => {
+    const idx = ordered.findIndex((i) => i.id === item.id);
+    if (shiftKey && selected.length) {
+      const lastIdx = ordered.findIndex((i) => i.id === selected[selected.length - 1]);
+      if (lastIdx >= 0) {
+        const [a, b] = lastIdx < idx ? [lastIdx, idx] : [idx, lastIdx];
+        const range = ordered.slice(a, b + 1).map((i) => i.id);
+        setSelected([...new Set([...selected, ...range])]);
+        return;
+      }
+    }
+    setSelected(isSelected(item.id)
+      ? selected.filter((id) => id !== item.id)
+      : [...selected, item.id]);
+  };
+
+  const selectTier = (key) => {
+    const ids = (byTier[key] || []).map((i) => i.id);
+    const allIn = ids.every((id) => selected.includes(id));
+    setSelected(allIn ? selected.filter((id) => !ids.includes(id))
+                      : [...new Set([...selected, ...ids])]);
+  };
 
   const go = (delta) => {
     if (at < 0) return;
@@ -881,19 +943,37 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
          : items.length === 0 ? <div style={{ fontFamily: sans, fontSize: 13, color: colors.muted }}>This set has no items yet.</div>
          : categories.filter((cat) => byTier[cat.key]?.length).map((cat) => (
           <div key={cat.key} style={{ marginBottom: 20 }}>
-            <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
-              {cat.label} · {byTier[cat.key].length}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <span style={{ fontFamily: mono, fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                {cat.label} · {byTier[cat.key].length}
+              </span>
+              <button onClick={() => selectTier(cat.key)}
+                      style={{ ...S.ghostBtn, fontSize: 10, padding: '2px 8px' }}>
+                {(byTier[cat.key] || []).every((i) => isSelected(i.id)) ? 'Deselect all' : 'Select all'}
+              </button>
             </div>
             <div style={reviewGrid}>
               {byTier[cat.key].map((item) => (
                 <div key={item.id} style={{ position: 'relative' }}>
+                  {/* Once anything is selected, clicking selects rather than opens —
+                      otherwise a stray click mid-selection loses the lot. */}
                   {item.media_type === 'video' || item.type === 'video' ? (
-                    <div onClick={() => setLightbox(ordered.indexOf(item))} style={{ ...reviewThumb, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, cursor: 'pointer' }}>🎬</div>
+                    <div onClick={(e) => selecting ? toggle(item, e.shiftKey) : setLightbox(ordered.indexOf(item))}
+                         style={{ ...reviewThumb, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, cursor: 'pointer',
+                                  outline: isSelected(item.id) ? `2px solid ${colors.accent}` : 'none', outlineOffset: -2 }}>🎬</div>
                   ) : (
                     <LazyThumb src={mediaUrl(item.r2_key)} alt=""
-                               onClick={() => setLightbox(ordered.indexOf(item))}
-                               style={{ ...reviewThumb, cursor: 'pointer' }} />
+                               onClick={(e) => selecting ? toggle(item, e.shiftKey) : setLightbox(ordered.indexOf(item))}
+                               style={{ ...reviewThumb, cursor: 'pointer',
+                                        outline: isSelected(item.id) ? `2px solid ${colors.accent}` : 'none', outlineOffset: -2,
+                                        opacity: selecting && !isSelected(item.id) ? 0.55 : 1 }} />
                   )}
+                  <button onClick={(e) => { e.stopPropagation(); toggle(item, e.shiftKey); }}
+                          title={isSelected(item.id) ? 'Deselect' : 'Select'}
+                          style={{ ...selectDot, background: isSelected(item.id) ? colors.accent : 'rgba(0,0,0,0.55)',
+                                   color: isSelected(item.id) ? '#1A1714' : '#fff' }}>
+                    {isSelected(item.id) ? '✓' : ''}
+                  </button>
                   <button onClick={() => onDelete(item)} disabled={deletingItem === item.id}
                           title="Remove this item"
                           style={{ ...itemDeleteBtn, opacity: deletingItem === item.id ? 0.5 : 1 }}>
@@ -907,6 +987,29 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
             </div>
           </div>
         ))}
+
+        {selected.length > 0 && (
+          <div style={bulkBar}>
+            <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+              {selected.length} selected
+            </span>
+            <select defaultValue="" disabled={bulkBusy}
+                    onChange={(e) => { if (e.target.value) { onBulkMove(e.target.value); e.target.value = ''; } }}
+                    style={{ ...S.input, width: 'auto', padding: '6px 10px', fontSize: 12 }}>
+              <option value="">Move to…</option>
+              {categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>)}
+            </select>
+            <button onClick={onBulkDelete} disabled={bulkBusy}
+                    style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A',
+                             borderColor: 'rgba(156,90,90,0.35)', opacity: bulkBusy ? 0.5 : 1 }}>
+              {bulkBusy ? '…' : `Remove ${selected.length}`}
+            </button>
+            <button onClick={() => setSelected([])} disabled={bulkBusy}
+                    style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
+              Cancel
+            </button>
+          </div>
+        )}
 
         {current && (
           <div style={lightboxOverlay} onClick={(e) => e.target === e.currentTarget && setLightbox(null)}>
@@ -960,6 +1063,8 @@ const reviewOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7
 const reviewModal   = { width: '100%', maxWidth: 900, maxHeight: '88vh', overflowY: 'auto', background: '#161410', border: `1px solid ${colors.border}`, borderRadius: 14, padding: 24 };
 const reviewGrid    = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 10 };
 const reviewThumb   = { width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}`, background: 'rgba(255,255,255,0.03)', display: 'block' };
+const selectDot = { position: 'absolute', top: 4, left: 4, width: 20, height: 20, borderRadius: '50%', border: `1px solid rgba(255,255,255,0.35)`, fontSize: 11, lineHeight: 1, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' };
+const bulkBar   = { position: 'sticky', bottom: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#100F0C', border: `1px solid ${colors.accent}`, borderRadius: 10, padding: '12px 14px', marginTop: 16, zIndex: 5 };
 const itemDeleteBtn = { position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.7)', color: '#D99A9A', fontSize: 14, lineHeight: 1, cursor: 'pointer', padding: 0 };
 const tierSelect    = { width: '100%', marginTop: 4, background: '#100F0C', border: `1px solid ${colors.border}`, color: colors.muted, fontFamily: sans, fontSize: 10, padding: '3px 4px', borderRadius: 4, outline: 'none' };
 const lightboxOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.94)', zIndex: 400, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '16px 20px' };

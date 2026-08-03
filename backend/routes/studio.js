@@ -549,6 +549,97 @@ router.patch('/content/item/:itemId', async (req, res) => {
   }
 });
 
+// Moving many at once. Doing this as N single calls would be 200 round trips
+// and 200 chances for one to fail halfway, leaving a set half re-tiered with no
+// record of where it got to.
+router.post('/content/items/move', async (req, res) => {
+  const { itemIds, tierCategory } = req.body;
+  if (!Array.isArray(itemIds) || !itemIds.length) {
+    return res.status(400).json({ error: 'Nothing selected' });
+  }
+  if (!VALID_TIER_CATEGORIES.includes(tierCategory)) {
+    return res.status(400).json({ error: 'Invalid tier category' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: items } = await client.query(
+      `SELECT id, set_id FROM set_items WHERE id = ANY($1) FOR UPDATE`, [itemIds]
+    );
+    if (!items.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Nothing found' }); }
+
+    const setIds = [...new Set(items.map((i) => i.set_id))];
+    if (setIds.length > 1) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Those items are not all from the same set' });
+    }
+    const setId = setIds[0];
+
+    // The whole-set lock is checked against the state the move would produce,
+    // not the state before it — otherwise moving every item to purchase-only
+    // one batch at a time would be blocked at the first batch.
+    const { rows: rest } = await client.query(
+      `SELECT DISTINCT tier_category FROM set_items WHERE set_id = $1 AND NOT (id = ANY($2))`,
+      [setId, itemIds]
+    );
+    const after = new Set([...rest.map((r) => r.tier_category), tierCategory]);
+    if (after.has('purchase_only') && after.size > 1) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'CATEGORY_LOCKED',
+        message: 'A set is either tier-segmented or purchase-only, never both. Move the rest first.',
+      });
+    }
+
+    const { rowCount } = await client.query(
+      `UPDATE set_items SET tier_category = $1 WHERE id = ANY($2)`, [tierCategory, itemIds]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true, moved: rowCount, tierCategory });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('studio/content/items/move error:', err);
+    res.status(500).json({ error: 'Could not move those items' });
+  } finally { client.release(); }
+});
+
+router.post('/content/items/delete', async (req, res) => {
+  const { itemIds } = req.body;
+  if (!Array.isArray(itemIds) || !itemIds.length) {
+    return res.status(400).json({ error: 'Nothing selected' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM set_items WHERE id = ANY($1) RETURNING id, set_id, r2_key`, [itemIds]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Nothing found' });
+
+    const setId = rows[0].set_id;
+    const keys  = rows.map((r) => r.r2_key);
+
+    // Clear the cover if it was one of these, rather than leaving the set
+    // showing a broken image.
+    await pool.query(
+      `UPDATE sets SET cover_key = NULL WHERE id = $1 AND cover_key = ANY($2)`, [setId, keys]
+    );
+
+    const { rows: remaining } = await pool.query(
+      `SELECT count(*)::int AS n FROM set_items WHERE set_id = $1`, [setId]
+    );
+
+    // Storage last and unawaited — the rows are already gone, so a slow bucket
+    // must not hold up the response.
+    deleteObjects(keys).catch((e) => console.error('r2 cleanup:', e.message));
+
+    res.json({ ok: true, deleted: rows.length, remaining: remaining[0].n });
+  } catch (err) {
+    console.error('studio/content/items/delete error:', err);
+    res.status(500).json({ error: 'Could not delete those items' });
+  }
+});
+
 router.delete('/content/item/:itemId', async (req, res) => {
   try {
     const { rows } = await pool.query(
