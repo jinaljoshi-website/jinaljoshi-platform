@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
+import Clamped from '../components/Clamped';
 import GuestNudge from '../components/GuestNudge';
 
 const CONTENT_CATEGORIES = [
@@ -100,11 +101,8 @@ export default function Gallery() {
           </div>
         </div>
 
-        {openSet.description && (
-          <p style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.7, marginBottom: 16, maxWidth: 600 }}>
-            {openSet.description}
-          </p>
-        )}
+        <Clamped text={openSet.description} lines={3}
+                 style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.7, maxWidth: 600 }} />
 
         {viewerError && <div style={{ ...errorBox, marginBottom: 16 }}>{viewerError}</div>}
 
@@ -268,9 +266,8 @@ export default function Gallery() {
                   </div>
                 )}
 
-                {item.description && (
-                  <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 8 }}>{item.description}</div>
-                )}
+                <Clamped text={item.description} lines={2}
+                         style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6 }} />
 
                 <div style={{ fontFamily: F.sans, fontSize: 12, color: C.accent, marginTop: 'auto' }}>
                   {item.isGenuinelyUnlocked && <span style={{ color: '#8FC88F' }}>✓ Unlocked · </span>}

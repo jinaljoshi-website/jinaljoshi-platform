@@ -6,6 +6,7 @@ import { api } from '../api';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import TopUpModal from '../components/TopUpModal';
 import PhotoStrip from '../components/PhotoStrip';
+import Clamped from '../components/Clamped';
 import GuestNudge from '../components/GuestNudge';
 
 function useCountdown(seconds) {
@@ -306,52 +307,6 @@ export default function Outfits() {
   );
 }
 
-// Descriptions can run long, and a wall of text pushes the price and the bid
-// controls off the screen. Show a few lines and let the reader ask for the rest.
-// Only offers "Show more" when the text is genuinely cut off — measured, not
-// guessed from length, since line breaks depend on the container width.
-function Clamped({ text, lines = 3, style }) {
-  const [open, setOpen]           = useState(false);
-  const [overflows, setOverflows] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const check = () => setOverflows(el.scrollHeight > el.clientHeight + 2);
-    check();
-    const ro = new ResizeObserver(check);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [text, open]);
-
-  if (!text) return null;
-
-  return (
-    <div style={{ marginBottom: 10 }}>
-      <div
-        ref={ref}
-        style={{
-          ...style,
-          ...(open ? {} : {
-            display: '-webkit-box',
-            WebkitLineClamp: lines,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-          }),
-        }}
-      >
-        {text}
-      </div>
-      {(overflows || open) && (
-        <button onClick={() => setOpen((v) => !v)} style={moreBtn}>
-          {open ? 'Show less' : 'Show more'}
-        </button>
-      )}
-    </div>
-  );
-}
-
 function OutfitCheckout({ entry, data, onClose, onSuccess, onTopUp }) {
   const { item, mode } = entry;
   const saved = data.savedAddress || {};
@@ -480,7 +435,6 @@ const grid        = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, m
 const card        = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 18, display: 'flex', flexDirection: 'column' };
 const primaryBtn  = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 13, fontWeight: 700, padding: '11px 20px', borderRadius: 8, cursor: 'pointer' };
 const ghostBtn    = { background: 'transparent', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 13, padding: '11px 20px', borderRadius: 8, cursor: 'pointer' };
-const moreBtn     = { background: 'none', border: 'none', color: C.accent, fontFamily: F.sans, fontSize: 12, cursor: 'pointer', padding: '4px 0 0', textDecoration: 'underline' };
 const inlineLink  = { background: 'none', border: 'none', color: C.accent, fontFamily: F.sans, fontSize: 11, cursor: 'pointer', padding: 0, textDecoration: 'underline' };
 const errorBox    = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, marginBottom: 14, fontFamily: F.sans, fontSize: 13 };
 const successBox  = { background: 'rgba(100,160,100,0.1)', border: '1px solid rgba(100,160,100,0.3)', color: '#8FC88F', padding: 12, borderRadius: 8, marginBottom: 16, fontFamily: F.sans, fontSize: 14 };
