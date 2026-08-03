@@ -25,6 +25,7 @@ function displayExpiry(expiresAt) {
   });
 }
 const { spendTokens } = require('../lib/tokens');
+const { sendMembershipWelcome } = require('../lib/welcome');
 
 const TIER_ORDER = ['community', 'insider', 'premium', 'supreme'];
 
@@ -91,7 +92,7 @@ router.post('/purchase', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: userRows } = await client.query(
-      `SELECT tier, membership_expires_at, coin_balance, display_name FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT tier, membership_expires_at, coin_balance, display_name, email FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user     = userRows[0];
@@ -156,6 +157,12 @@ router.post('/purchase', authMid, async (req, res) => {
 
     postSystemMessage(`✨ ${fanLabel} just joined as a ${tier.charAt(0).toUpperCase() + tier.slice(1)} member!`);
 
+    // Only after the purchase is committed — a note thanking someone for
+    // becoming a member must not arrive if the transaction rolled back. The
+    // send is guarded against duplicates, so a renewal or a second tier change
+    // will not repeat it.
+    sendMembershipWelcome({ id: req.user.userId, email: user.email, display_name: user.display_name }, tier);
+
     res.json({
       ok:        true,
       tier,
@@ -189,7 +196,7 @@ router.post('/upgrade', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: userRows } = await client.query(
-      `SELECT tier, membership_expires_at, coin_balance, display_name FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT tier, membership_expires_at, coin_balance, display_name, email FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user     = userRows[0];

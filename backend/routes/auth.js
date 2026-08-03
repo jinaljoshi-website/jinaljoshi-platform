@@ -8,6 +8,7 @@ const authMid  = require('../middleware/auth');
 const { sendSignupVerificationEmail, sendPasswordResetEmail, consumeToken } = require('../lib/email');
 const { lookupIpCountry, getClientIp } = require('../lib/geoip');
 const { getBalances, grantGiftedTokens } = require('../lib/tokens');
+const { sendJoinedWelcome } = require('../lib/welcome');
 const { getConfigNumber } = require('../lib/config');
 
 async function logAccessEvent(userId, req, eventType) {
@@ -193,6 +194,10 @@ router.post('/verify-email', async (req, res) => {
       // A failed gift must never block someone from finishing registration.
       console.error('welcome gift error:', err.message);
     }
+
+    // Sent alongside the welcome gift, once the email is confirmed. Not awaited:
+    // a message failing must never stop somebody completing registration.
+    sendJoinedWelcome({ id: userId, email: rows[0].email, display_name: rows[0].display_name });
 
     try {
       const { postSystemMessage } = require('./community');
