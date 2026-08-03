@@ -675,8 +675,11 @@ router.get('/selfies', async (req, res) => {
               (SELECT count(*)::int FROM selfie_unlocks u WHERE u.selfie_id = s.id) AS unlocks
        FROM daily_selfies s ORDER BY s.selfie_date DESC LIMIT 120`
     );
+    // A pass is active while it still has posts left to cover, so it is measured
+    // against the latest selfie rather than a date.
     const { rows: passes } = await pool.query(
-      `SELECT count(*)::int AS active FROM selfie_passes WHERE ends_on >= CURRENT_DATE`
+      `SELECT count(*)::int AS active FROM selfie_passes
+       WHERE to_seq > (SELECT COALESCE(MAX(seq), 0) FROM daily_selfies WHERE visible = TRUE)`
     );
     res.json({ selfies: rows, activePasses: passes[0].active });
   } catch (err) {
