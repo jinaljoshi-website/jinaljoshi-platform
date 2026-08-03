@@ -5,15 +5,33 @@ import { C, F } from '../tokens';
 import { api } from '../api';
 import { WonderCoin } from '../components/WonderCoin';
 
+// Two lists rather than one. The bar is a compact shortcut where Shop is a
+// single destination; the cards have room to name what is actually inside it,
+// so Outfits, Merch and Custom Requests get their own. Extras is gone from
+// both -- it now redirects into Shop, so it was a card pointing at another
+// card's destination.
+const NAV_SECTIONS = [
+  { path: '/platform/chat',       icon: '\u{1F4AC}', label: 'Messages'      },
+  { path: '/platform/calls',      icon: '\u{1F4DE}', label: 'Calls'         },
+  { path: '/platform/gallery',    icon: '\u{1F4F8}', label: 'Gallery'       },
+  { path: '/platform/shop',       icon: '\u{1F6CD}', label: 'Shop'          },
+  { path: '/platform/community',  icon: '\u2728',    label: 'Public Corner' },
+  { path: '/platform/membership', icon: '\u{1F451}', label: 'Membership'    },
+  { path: '/platform/coins',      icon: 'coin',       label: 'Coins'         },
+  { path: '/platform/profile',    icon: '\u{1F464}', label: 'Profile'       },
+];
+
 const SECTIONS = [
-  { path: '/platform/community',  icon: '✨', label: 'Public Corner',  desc: 'Live fan space'         },
-  { path: '/platform/gallery',    icon: '📸', label: 'Gallery',    desc: 'Exclusive photo sets'   },
-  { path: '/platform/membership', icon: '👑', label: 'Membership', desc: 'Your member plan'       },
-  { path: '/platform/shop',       icon: '🛍️', label: 'Shop',       desc: 'Merch & exclusives'     },
-  { path: '/platform/extras',     icon: '🌟', label: 'Extras',     desc: 'Custom requests'        },
-  { path: '/platform/calls',      icon: '📞', label: 'Calls',      desc: 'Book a personal call'   },
-  { path: '/platform/chat',       icon: '💬', label: 'Messages',   desc: 'Send Jinal a message'   },
-  { path: '/platform/coins',      icon: 'coin', label: 'Coins',    desc: 'J Token wallet'         },
+  { path: '/platform/chat',              icon: '\u{1F4AC}', label: 'Messages',        desc: 'Send Jinal a message' },
+  { path: '/platform/calls',             icon: '\u{1F4DE}', label: 'Calls',           desc: 'Book a personal call' },
+  { path: '/platform/gallery',           icon: '\u{1F4F8}', label: 'Gallery',         desc: 'Exclusive photo sets' },
+  { path: '/platform/shop?tab=outfits',  icon: '\u{1F457}', label: 'Outfits',         desc: 'One of one, from set' },
+  { path: '/platform/shop?tab=merch',    icon: '\u{1F6CD}', label: 'Merch',           desc: 'Limited drops'        },
+  { path: '/platform/shop?tab=requests', icon: '\u{1F31F}', label: 'Custom Requests', desc: 'Ask for something'    },
+  { path: '/platform/community',         icon: '\u2728',    label: 'Public Corner',   desc: 'Live fan space'       },
+  { path: '/platform/membership',        icon: '\u{1F451}', label: 'Membership',      desc: 'Your member plan'     },
+  { path: '/platform/coins',             icon: 'coin',       label: 'Coins',           desc: 'J Token wallet'       },
+  { path: '/platform/profile',           icon: '\u{1F464}', label: 'Profile',         desc: 'Your details'         },
 ];
 
 const SIGN_NAMES = {
@@ -28,6 +46,26 @@ export default function Landing() {
   const [loading,   setLoading]   = useState(true);
   const [activeCard, setActiveCard] = useState(0);
   const scrollRef   = useRef(null);
+
+  // The bar hides its scrollbar, so with eight items there is nothing showing
+  // that it moves. A thin rail underneath tracks position and, more usefully,
+  // tells you there is more before you have discovered it by accident.
+  const navRef = useRef(null);
+  const [navScroll, setNavScroll] = useState({ ratio: 0, scrollable: false });
+
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    const measure = () => {
+      const max = el.scrollWidth - el.clientWidth;
+      setNavScroll({ ratio: max > 0 ? el.scrollLeft / max : 0, scrollable: max > 8 });
+    };
+    measure();
+    el.addEventListener('scroll', measure, { passive: true });
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => { el.removeEventListener('scroll', measure); ro.disconnect(); };
+  }, []);
   const cardRefs    = useRef([]);
 
   useEffect(() => {
@@ -71,8 +109,8 @@ export default function Landing() {
     <div style={{ minHeight: '100vh', background: C.bg, color: C.text, display: 'flex', flexDirection: 'column' }}>
 
       {/* ── Persistent top navigation — reaches every section without scrolling ── */}
-      <div style={topNavBar}>
-        {SECTIONS.map((section) => (
+      <div ref={navRef} style={topNavBar}>
+        {NAV_SECTIONS.map((section) => (
           <button key={section.path} onClick={() => navigate(section.path)} style={topNavBtn} title={section.label}>
             <span style={{ fontSize: 16, display: 'inline-flex', alignItems: 'center' }}>
               {section.icon === 'coin' ? <WonderCoin size={16} /> : section.icon}
@@ -82,6 +120,17 @@ export default function Landing() {
         ))}
       </div>
 
+      {navScroll.scrollable && (
+        <div style={navRail}>
+          <div style={{
+            ...navRailThumb,
+            // Sits proportionally along the rail, so its position says where you
+            // are and its existence says there is somewhere to go.
+            left: `${navScroll.ratio * 62}%`,
+          }} />
+        </div>
+      )}
+
       {/* ── Header ── */}
       <div style={{ padding: '16px 24px 0', flexShrink: 0 }}>
         <div style={{ fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 6 }}>
@@ -90,8 +139,13 @@ export default function Landing() {
         <h1 style={{ fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(28px,6vw,52px)', margin: '0 0 4px', lineHeight: 1.1 }}>
           {greeting},<br /><span style={{ color: C.accent }}>{name}</span>
         </h1>
-        <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, marginTop: 8 }}>
-          {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
+          <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>
+            {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </span>
+          <button onClick={() => navigate('/platform/selfies')} style={selfieLink}>
+            Selfie of the day →
+          </button>
         </div>
       </div>
 
@@ -215,18 +269,33 @@ export default function Landing() {
 
         {/* Dot indicators */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 4 }}>
-          {SECTIONS.map((_, idx) => (
-            <div
+          {SECTIONS.map((s, idx) => (
+            <button
               key={idx}
+              onClick={() => {
+                const el = scrollRef.current;
+                if (el) el.scrollTo({ left: idx * (el.scrollWidth / SECTIONS.length), behavior: 'smooth' });
+              }}
+              aria-label={s.label}
+              title={s.label}
               style={{
                 width: activeCard === idx ? 18 : 6,
                 height: 6,
                 borderRadius: 3,
+                border: 'none',
+                padding: 0,
+                cursor: 'pointer',
                 background: activeCard === idx ? C.accent : C.border,
                 transition: 'all 0.3s',
               }}
             />
           ))}
+        </div>
+
+        {/* Stated as well as shown. Dots alone read as decoration until you have
+            already worked out the row moves. */}
+        <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, textAlign: 'center', marginTop: 6 }}>
+          {activeCard + 1} of {SECTIONS.length} · swipe for more
         </div>
       </div>
     </div>
@@ -248,6 +317,10 @@ const sectionCard = {
   padding: '18px 20px',
   marginBottom: 14,
 };
+
+const navRail      = { height: 2, background: 'rgba(255,255,255,0.06)', margin: '0 24px', borderRadius: 2, position: 'relative', flexShrink: 0 };
+const navRailThumb = { position: 'absolute', top: 0, height: 2, width: '38%', background: 'rgba(193,125,74,0.55)', borderRadius: 2, transition: 'left 0.15s' };
+const selfieLink   = { background: 'rgba(193,125,74,0.1)', border: `1px solid rgba(193,125,74,0.3)`, color: C.accent, fontFamily: F.sans, fontSize: 12, padding: '5px 12px', borderRadius: 999, cursor: 'pointer', whiteSpace: 'nowrap' };
 
 const topNavBar = { display: 'flex', gap: 4, overflowX: 'auto', padding: '10px 16px', flexShrink: 0, borderBottom: `1px solid ${C.border}`, scrollbarWidth: 'none' };
 const topNavBtn = { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', padding: '6px 10px', borderRadius: 8, flexShrink: 0, minWidth: 56 };
