@@ -284,25 +284,10 @@ function CallsSection({ draft, set, config, setConfig, tokenRate }) {
 // ── Direct Messages ───────────────────────────────────────────────────────────
 function MessagesSection({ draft, set, config, setConfig, tokenRate }) {
   const TIERS_LOCAL = ['community', 'insider', 'premium', 'supreme'];
-  const keys = ['dnd_chat_enabled', ...TIERS_LOCAL.flatMap((t) => [`dm_free_per_month_${t}`, `dm_daily_cap_${t}`, `dm_overage_cost_${t}`])];
+  const keys = TIERS_LOCAL.flatMap((t) => [`dm_free_per_month_${t}`, `dm_daily_cap_${t}`, `dm_overage_cost_${t}`]);
 
   return (
     <div>
-      <Card style={{ marginBottom: 20 }}>
-        <T.sectionTitle>Chat availability</T.sectionTitle>
-        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>
-          When on, new chat messages won't push a notification to you — fans can still message you as normal, you just won't be interrupted in real time.
-        </p>
-        <label style={{ fontFamily: sans, fontSize: 13, color: colors.text, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={draft.dnd_chat_enabled === 'true'}
-            onChange={(e) => set('dnd_chat_enabled', e.target.checked ? 'true' : 'false')}
-          />
-          Do Not Disturb for chat
-        </label>
-      </Card>
-
       <Card style={{ marginBottom: 20 }}>
         <T.sectionTitle>Direct message quotas & pricing per tier</T.sectionTitle>
         <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>

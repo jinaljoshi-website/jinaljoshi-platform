@@ -4,12 +4,13 @@ import { api } from '../api';
 import { T, S, Eyebrow, Badge, colors } from '../ui';
 import { CallTimer } from '../components/CallTimer';
 import { IncomingCallOverlay } from '../components/IncomingCallOverlay';
-import CallStage from '../components/CallStage';
 
 import {
   StreamVideo,
   StreamVideoClient,
   StreamCall,
+  CallControls,
+  SpeakerLayout,
   StreamTheme,
 } from '@stream-io/video-react-sdk';
 import '@stream-io/video-react-sdk/dist/css/styles.css';
@@ -28,8 +29,6 @@ export function Calls() {
   const [reason,     setReason]     = useState('');
   const [counterFor, setCounterFor] = useState(null);
   const [counterTime, setCounterTime] = useState('');
-  const [dndEnabled, setDndEnabledLocal] = useState(false);
-  const [dndSaving, setDndSaving] = useState(false);
 
   const pollRef = useRef(null);
 
@@ -40,7 +39,6 @@ export function Calls() {
   useEffect(() => {
     load();
     api.get('/api/studio/config').then((d) => {
-      setDndEnabledLocal(d.config?.artist_dnd_enabled === 'true');
     }).catch(() => {});
   }, []);
 
@@ -52,18 +50,6 @@ export function Calls() {
     return () => clearInterval(listPollInterval);
   }, [activeCall]);
 
-  const toggleDnd = async () => {
-    setDndSaving(true);
-    const newValue = !dndEnabled;
-    try {
-      await api.post('/api/studio/config', { changes: { artist_dnd_enabled: newValue ? 'true' : 'false' } });
-      setDndEnabledLocal(newValue);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setDndSaving(false);
-    }
-  };
 
   const startReject  = (id) => { setRejecting(id); setReason(''); };
   const cancelReject = () => { setRejecting(null); setReason(''); };
@@ -177,16 +163,22 @@ export function Calls() {
       <StreamVideo client={activeCall.client}>
         <StreamCall call={activeCall.call}>
           <StreamTheme>
-            <CallStage
-              onLeave={leaveCall}
-              timerNode={
+            <div style={{ height: '80vh', display: 'flex', flexDirection: 'column', borderRadius: 12, overflow: 'hidden', border: `1px solid ${colors.border}` }}>
+              <div style={{ padding: 10, display: 'flex', justifyContent: 'center' }}>
                 <CallTimer
                   callStartedAt={activeCallRecord?.call_started_at}
                   durationMinutes={durationMinutes}
                   onExpire={leaveCall}
                 />
-              }
-            />
+              </div>
+              <SpeakerLayout />
+              <div style={{ padding: 16, background: colors.surface, display: 'flex', justifyContent: 'center', gap: 12 }}>
+                <CallControls />
+                <button onClick={leaveCall} style={{ background: '#9C5A5A', border: 'none', color: '#fff', fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, fontWeight: 700, padding: '10px 20px', borderRadius: 8, cursor: 'pointer' }}>
+                  End & leave
+                </button>
+              </div>
+            </div>
           </StreamTheme>
         </StreamCall>
       </StreamVideo>
@@ -211,36 +203,6 @@ export function Calls() {
     <div>
       <Eyebrow>Call requests</Eyebrow>
       <T.title>Calls</T.title>
-
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        background: dndEnabled ? 'rgba(217,164,92,0.08)' : colors.surface,
-        border: `1px solid ${dndEnabled ? 'rgba(217,164,92,0.3)' : colors.border}`,
-        borderRadius: 10, padding: '14px 18px', marginBottom: 20,
-      }}>
-        <div>
-          <div style={{ fontFamily: sans, fontSize: 14, color: colors.text, fontWeight: 600, marginBottom: 2 }}>
-            Do Not Disturb
-          </div>
-          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted }}>
-            {dndEnabled ? 'Instant priority calls are paused — fans can still schedule ahead' : 'Fans can call you instantly with Priority Video'}
-          </div>
-        </div>
-        <button
-          onClick={toggleDnd}
-          disabled={dndSaving}
-          style={{
-            width: 50, height: 28, borderRadius: 999, border: 'none', cursor: 'pointer', position: 'relative',
-            background: dndEnabled ? '#D9A45C' : 'rgba(255,255,255,0.12)',
-            opacity: dndSaving ? 0.6 : 1, transition: 'background 180ms ease',
-          }}
-        >
-          <div style={{
-            width: 22, height: 22, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3,
-            left: dndEnabled ? 25 : 3, transition: 'left 180ms ease',
-          }} />
-        </button>
-      </div>
 
       {error && <div style={S.error}>{error}</div>}
       {calls.length === 0 && <T.muted>No call requests yet.</T.muted>}

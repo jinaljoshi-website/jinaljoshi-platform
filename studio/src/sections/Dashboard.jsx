@@ -4,10 +4,69 @@ import { api } from '../api';
 import { T, S, Card, Eyebrow, Badge, colors } from '../ui';
 
 const sans = "'DM Sans', system-ui, sans-serif";
+const dndRow = { display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 22 };
+
+// One key per surface, because they are genuinely separate decisions — pausing
+// instant calls during a shoot should not silence messages for the rest of the day.
+const DND_KEYS = { calls: 'artist_dnd_enabled', chat: 'dnd_chat_enabled' };
+
+function DndToggle({ label, on, busy, onText, offText, onToggle }) {
+  return (
+    <div style={{
+      flex: 1, minWidth: 260, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14,
+      background: on ? 'rgba(217,164,92,0.08)' : colors.surface,
+      border: `1px solid ${on ? 'rgba(217,164,92,0.3)' : colors.border}`,
+      borderRadius: 10, padding: '14px 18px',
+    }}>
+      <div>
+        <div style={{ fontFamily: sans, fontSize: 14, color: colors.text, fontWeight: 600, marginBottom: 2 }}>
+          {label}{on ? ' · paused' : ''}
+        </div>
+        <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, lineHeight: 1.5 }}>
+          {on ? onText : offText}
+        </div>
+      </div>
+      <button onClick={onToggle} disabled={busy} aria-label={`Do not disturb for ${label}`}
+        style={{
+          width: 50, height: 28, borderRadius: 999, border: 'none', cursor: 'pointer',
+          position: 'relative', flexShrink: 0,
+          background: on ? '#D9A45C' : 'rgba(255,255,255,0.12)',
+          opacity: busy ? 0.6 : 1, transition: 'background 180ms ease',
+        }}>
+        <div style={{
+          position: 'absolute', top: 3, left: on ? 25 : 3, width: 22, height: 22, borderRadius: '50%',
+          background: '#fff', transition: 'left 180ms ease',
+        }} />
+      </button>
+    </div>
+  );
+}
 
 export function Dashboard() {
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
+  const [dnd,     setDnd]     = useState({ calls: false, chat: false });
+  const [dndBusy, setDndBusy] = useState(null);
+
+  useEffect(() => {
+    api.get('/api/studio/config').then((d2) => setDnd({
+      calls: d2.config?.artist_dnd_enabled === 'true',
+      chat:  d2.config?.dnd_chat_enabled  === 'true',
+    })).catch(() => {});
+  }, []);
+
+  const toggleDnd = async (which) => {
+    const next = !dnd[which];
+    setDndBusy(which);
+    // Applied locally first so the switch responds immediately, and put back if
+    // the save fails — a toggle that lags feels broken even when it works.
+    setDnd((prev) => ({ ...prev, [which]: next }));
+    try {
+      await api.post('/api/studio/config', { changes: { [DND_KEYS[which]]: next ? 'true' : 'false' } });
+    } catch {
+      setDnd((prev) => ({ ...prev, [which]: !next }));
+    } finally { setDndBusy(null); }
+  };
   const [error,   setError]   = useState('');
   const [busyId,  setBusyId]  = useState(null);
 
@@ -133,6 +192,28 @@ export function Dashboard() {
     <div>
       <Eyebrow>Overview</Eyebrow>
       <T.title>Dashboard</T.title>
+
+      {/* Both interruptions in one place. Being unavailable is a decision made
+          at a moment — walking into a shoot, sitting down to dinner — not
+          something to go hunting through Settings for. */}
+      <div style={dndRow}>
+        <DndToggle
+          label="Calls"
+          on={dnd.calls}
+          busy={dndBusy === 'calls'}
+          onText="Instant calls paused — fans can still schedule ahead"
+          offText="Fans can call you instantly with Priority Video"
+          onToggle={() => toggleDnd('calls')}
+        />
+        <DndToggle
+          label="Messages"
+          on={dnd.chat}
+          busy={dndBusy === 'chat'}
+          onText="No notifications — messages still arrive, quietly"
+          offText="You'll be notified when a fan messages"
+          onToggle={() => toggleDnd('chat')}
+        />
+      </div>
 
       {error && <div style={S.error}>{error}</div>}
 
