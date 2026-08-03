@@ -452,9 +452,22 @@ router.post('/dms/:fanId/send-locked-media', async (req, res) => {
 // CONTENT
 // ─────────────────────────────────────────────
 
+// A set with no cover falls back to its first item rather than showing an empty
+// card. Cover is normally set from the first upload, but a set created before
+// that behaviour — or one whose cover was deleted — would otherwise be blank
+// forever with no way to notice from the list.
+const COVER_FALLBACK = `COALESCE(s.cover_key,
+  (SELECT r2_key FROM set_items WHERE set_id = s.id
+   AND media_type <> 'video' ORDER BY position ASC, created_at ASC LIMIT 1))`;
+
 router.get('/content', async (req, res) => {
   try {
-    const { rows: sets } = await pool.query(`SELECT * FROM sets ORDER BY created_at DESC`);
+    const { rows: sets } = await pool.query(
+      `SELECT s.*, ${COVER_FALLBACK} AS cover_key, p.name AS photographer
+       FROM sets s
+       LEFT JOIN photographers p ON p.id = s.photographer_id
+       ORDER BY s.created_at DESC`
+    );
     const { rows: itemCounts } = await pool.query(
       `SELECT set_id, tier_category, COUNT(*) AS count FROM set_items GROUP BY set_id, tier_category`
     );

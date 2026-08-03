@@ -99,8 +99,12 @@ router.get('/sets', authMid, async (req, res) => {
 
     const { rows: sets } = await pool.query(
       `SELECT s.id, s.title, s.description, s.type, s.category, s.price_coins,
-              s.cover_key, s.created_at,
-              p.name AS photographer
+              s.created_at, p.name AS photographer,
+              -- Falls back to the first item so a set never shows a blank card.
+              COALESCE(s.cover_key,
+                (SELECT r2_key FROM set_items WHERE set_id = s.id
+                 AND media_type <> 'video' ORDER BY position ASC, created_at ASC LIMIT 1)
+              ) AS cover_key
        FROM sets s
        LEFT JOIN photographers p ON p.id = s.photographer_id
        WHERE s.visible = TRUE ORDER BY s.created_at DESC`

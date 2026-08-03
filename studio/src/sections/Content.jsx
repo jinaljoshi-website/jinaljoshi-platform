@@ -121,7 +121,12 @@ export function Content() {
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
 
-  const [form, setForm] = useState({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key });
+  const [form, setForm] = useState({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key, photographerName: '' });
+
+  // Names already used, so the same person is picked rather than retyped —
+  // a second spelling would become a second photographer with separate earnings.
+  const [photographers, setPhotographers] = useState([]);
+  const [descOpen,      setDescOpen]      = useState(null);
 
   const [filesByCategory, setFilesByCategory] = useState(emptyCategoryFiles());
   const [coverFile,      setCoverFile]      = useState(null);
@@ -137,8 +142,10 @@ export function Content() {
   const categoryRefs = useRef({});
 
   const loadSets = () => api.get('/api/studio/content').then((d) => setSets(d.sets || []));
+  const loadPhotographers = () => api.get('/api/studio/photographers')
+    .then((d) => setPhotographers(d.photographers || [])).catch(() => {});
 
-  useEffect(() => { loadSets().finally(() => setLoading(false)); }, []);
+  useEffect(() => { loadSets().finally(() => setLoading(false)); loadPhotographers(); }, []);
 
   const totalFileCount = Object.values(filesByCategory).reduce((sum, arr) => sum + arr.length, 0);
 
@@ -379,6 +386,7 @@ export function Content() {
         price_coins: parseInt(form.price_coins) || 0,
         visible:     form.visible,
         category:    form.category,
+        photographerName: form.photographerName.trim() || undefined,
       });
       const setId = setData.set.id;
 
@@ -400,7 +408,8 @@ export function Content() {
       setUploadProgress('');
       setSuccess(`"${form.title}" created with ${position} item${position !== 1 ? 's' : ''}.`);
       setSets((prev) => [{ ...setData.set, cover_url: coverUrl }, ...prev]);
-      setForm({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key });
+      setForm({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key, photographerName: '' });
+      loadPhotographers();
       setFilesByCategory(emptyCategoryFiles());
       setCoverFile(null);
       setCoverPreview('');
@@ -466,6 +475,15 @@ export function Content() {
             <input style={S.input} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Behind the scenes — June shoot" />
           </Field>
           <TokenField label="Base price for the full set (tokens)" value={form.price_coins} onChange={(v) => setForm({ ...form, price_coins: v })} tokenRateInr={TOKEN_RATE} />
+          <Field label="Photographer — shown on the set">
+            <input style={S.input} list="photographer-names"
+                   value={form.photographerName}
+                   onChange={(e) => setForm({ ...form, photographerName: e.target.value })}
+                   placeholder="Who shot this" />
+            <datalist id="photographer-names">
+              {photographers.map((p) => <option key={p.id} value={p.name} />)}
+            </datalist>
+          </Field>
         </div>
 
         <div style={{ marginTop: 16 }}>
@@ -717,9 +735,20 @@ export function Content() {
                       )}
                     </div>
                     {set.description && (
-                      <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 4, fontStyle: 'italic' }}>{set.description}</div>
+                      <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 4, fontStyle: 'italic',
+                                    ...(descOpen === set.id ? {} : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 460 }) }}>
+                        {set.description}
+                      </div>
+                    )}
+                    {set.description && set.description.length > 70 && (
+                      <button onClick={() => setDescOpen(descOpen === set.id ? null : set.id)}
+                              style={{ background: 'none', border: 'none', color: colors.accent, fontFamily: sans,
+                                       fontSize: 11, cursor: 'pointer', padding: '0 0 4px', textDecoration: 'underline' }}>
+                        {descOpen === set.id ? 'Show less' : 'Read caption'}
+                      </button>
                     )}
                     <div style={S.rowSub}>
+                      {set.photographer && <span style={{ color: colors.accent }}>{set.photographer} · </span>}
                       Base price {set.price_coins} tokens
                       {summary && ` · ${summary}`}
                     </div>
