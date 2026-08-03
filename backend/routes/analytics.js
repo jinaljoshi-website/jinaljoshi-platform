@@ -182,22 +182,36 @@ router.get('/gifted', async (req, res) => {
 router.get('/sets', async (req, res) => {
   try {
     const rate = await tokenRate();
+    // Tokens are summed straight from the ledger, grouped by the set they were
+    // spent on. The obvious-looking alternative — joining grants to their ledger
+    // entry — double-counts: a fan who unlocks both the tier and upsell portions
+    // has two grants, and both would match the same ledger row. That inflated
+    // every set, and showed gifted spend as revenue where a set had no purchased
+    // unlocks at all.
     const { rows } = await pool.query(
-      `SELECT s.id, s.title, s.price_coins, p.name AS photographer,
-              COUNT(g.id)::int                          AS unlocks,
-              COUNT(g.id) FILTER (WHERE COALESCE(g.coins_paid,0) = 0)::int AS credit_unlocks,
-              COALESCE(SUM(l.from_purchased), 0)::int   AS purchased_tokens,
-              COALESCE(SUM(l.from_gifted), 0)::int      AS gifted_tokens
+      `WITH spend AS (
+         SELECT related_id AS set_id,
+                COALESCE(SUM(from_purchased), 0)::int AS purchased_tokens,
+                COALESCE(SUM(from_gifted), 0)::int    AS gifted_tokens
+         FROM coin_ledger
+         WHERE type = 'content_unlock' AND direction = 'debit' AND related_id IS NOT NULL
+         GROUP BY related_id
+       ),
+       unlocks AS (
+         SELECT set_id,
+                COUNT(*)::int AS unlocks,
+                COUNT(*) FILTER (WHERE COALESCE(coins_paid, 0) = 0)::int AS credit_unlocks
+         FROM access_grants GROUP BY set_id
+       )
+       SELECT s.id, s.title, s.price_coins, p.name AS photographer,
+              COALESCE(u.unlocks, 0)          AS unlocks,
+              COALESCE(u.credit_unlocks, 0)   AS credit_unlocks,
+              COALESCE(sp.purchased_tokens,0) AS purchased_tokens,
+              COALESCE(sp.gifted_tokens, 0)   AS gifted_tokens
        FROM sets s
        LEFT JOIN photographers p ON p.id = s.photographer_id
-       LEFT JOIN access_grants g ON g.set_id = s.id
-       LEFT JOIN LATERAL (
-         SELECT from_purchased, from_gifted FROM coin_ledger
-         WHERE user_id = g.user_id AND related_id = g.set_id
-           AND type = 'content_unlock' AND direction = 'debit'
-         ORDER BY created_at LIMIT 1
-       ) l ON TRUE
-       GROUP BY s.id, s.title, s.price_coins, p.name
+       LEFT JOIN spend sp   ON sp.set_id = s.id
+       LEFT JOIN unlocks u  ON u.set_id  = s.id
        ORDER BY 7 DESC, s.created_at DESC`
     );
 

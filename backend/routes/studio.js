@@ -714,22 +714,30 @@ router.get('/photographers/earnings', async (req, res) => {
     }
 
     const { rows } = await pool.query(
-      `SELECT p.id, p.name, p.contact,
+      // Summed from the ledger by set rather than joined per grant. Joining
+      // grants to ledger rows double-counts anyone holding both a tier and an
+      // upsell grant for the same set, and attributes gifted spend as purchased.
+      `WITH spend AS (
+         SELECT related_id AS set_id,
+                COALESCE(SUM(from_purchased), 0)::int AS purchased_tokens,
+                COALESCE(SUM(from_gifted), 0)::int    AS gifted_tokens
+         FROM coin_ledger
+         WHERE type = 'content_unlock' AND direction = 'debit' AND related_id IS NOT NULL
+         GROUP BY related_id
+       ),
+       unlocks AS (
+         SELECT set_id, COUNT(*)::int AS n FROM access_grants GROUP BY set_id
+       )
+       SELECT p.id, p.name, p.contact,
               s.id AS set_id, s.title,
-              COALESCE(SUM(l.from_purchased), 0)::int AS purchased_tokens,
-              COALESCE(SUM(l.from_gifted), 0)::int    AS gifted_tokens,
-              count(g.id)::int                        AS unlocks
+              COALESCE(sp.purchased_tokens, 0) AS purchased_tokens,
+              COALESCE(sp.gifted_tokens, 0)    AS gifted_tokens,
+              COALESCE(u.n, 0)                 AS unlocks
        FROM photographers p
-       LEFT JOIN sets s ON s.photographer_id = p.id
-       LEFT JOIN access_grants g ON g.set_id = s.id
-       LEFT JOIN LATERAL (
-         SELECT from_purchased, from_gifted FROM coin_ledger
-         WHERE user_id = g.user_id AND related_id = g.set_id
-           AND type = 'content_unlock' AND direction = 'debit'
-         ORDER BY created_at LIMIT 1
-       ) l ON TRUE
+       LEFT JOIN sets s     ON s.photographer_id = p.id
+       LEFT JOIN spend sp   ON sp.set_id = s.id
+       LEFT JOIN unlocks u  ON u.set_id  = s.id
        WHERE p.active = TRUE
-       GROUP BY p.id, p.name, p.contact, s.id, s.title
        ORDER BY p.name, s.title`
     );
 
@@ -839,20 +847,22 @@ router.get('/content/:id/unlocks', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT g.id, g.grant_type, g.coins_paid, g.scope, g.created_at,
-              u.email, u.display_name, u.tier,
-              l.from_gifted, l.from_purchased
+              u.email, u.display_name, u.tier
        FROM access_grants g
        JOIN users u ON u.id = g.user_id
-       LEFT JOIN LATERAL (
-         SELECT from_gifted, from_purchased FROM coin_ledger
-         WHERE user_id = g.user_id AND related_id = g.set_id
-           AND type = 'content_unlock' AND direction = 'debit'
-           AND created_at BETWEEN g.created_at - INTERVAL '1 minute'
-                              AND g.created_at + INTERVAL '1 minute'
-         ORDER BY created_at LIMIT 1
-       ) l ON TRUE
        WHERE g.set_id = $1
        ORDER BY g.created_at DESC`,
+      [req.params.id]
+    );
+
+    // Totals come from the ledger, not from matching each grant to a ledger row
+    // by timestamp. That matching was approximate and could pair a grant with
+    // the wrong entry; the ledger summed by set is exact.
+    const { rows: spendRows } = await pool.query(
+      `SELECT COALESCE(SUM(from_purchased), 0)::int AS purchased,
+              COALESCE(SUM(from_gifted), 0)::int    AS gifted
+       FROM coin_ledger
+       WHERE type = 'content_unlock' AND direction = 'debit' AND related_id = $1`,
       [req.params.id]
     );
 
@@ -864,10 +874,10 @@ router.get('/content/:id/unlocks', async (req, res) => {
       t.unlocks += 1;
       t.tokens  += paid;
       if (paid === 0) t.byAllowance += 1;
-      t.fromPurchased += Number(r.from_purchased) || 0;
-      t.fromGifted    += Number(r.from_gifted) || 0;
       return t;
-    }, { unlocks: 0, tokens: 0, byAllowance: 0, fromPurchased: 0, fromGifted: 0 });
+    }, { unlocks: 0, tokens: 0, byAllowance: 0 });
+    totals.fromPurchased = spendRows[0].purchased;
+    totals.fromGifted    = spendRows[0].gifted;
 
     res.json({
       unlocks: rows.map((r) => ({
@@ -880,8 +890,6 @@ router.get('/content/:id/unlocks', async (req, res) => {
         tokens: Number(r.coins_paid) || 0,
         // An allowance unlock lapses with membership; a paid one is permanent.
         viaAllowance: (Number(r.coins_paid) || 0) === 0,
-        fromGifted: Number(r.from_gifted) || 0,
-        fromPurchased: Number(r.from_purchased) || 0,
       })),
       totals: {
         ...totals,

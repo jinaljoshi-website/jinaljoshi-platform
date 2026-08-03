@@ -897,18 +897,9 @@ export function Content() {
                         </div>
                       </div>
                       <div style={{ textAlign: 'right', fontFamily: sans, fontSize: 12 }}>
-                        {u.viaAllowance ? (
-                          <span style={{ color: colors.muted }}>membership allowance</span>
-                        ) : (
-                          <>
-                            <div style={{ color: colors.text }}>{u.tokens} tokens</div>
-                            {u.fromGifted > 0 && (
-                              <div style={{ color: '#8FC88F', fontSize: 10, marginTop: 2 }}>
-                                {u.fromGifted} gifted{u.fromPurchased > 0 ? ` + ${u.fromPurchased} purchased` : ''}
-                              </div>
-                            )}
-                          </>
-                        )}
+                        {u.viaAllowance
+                          ? <span style={{ color: colors.muted }}>membership allowance</span>
+                          : <div style={{ color: colors.text }}>{u.tokens} tokens</div>}
                       </div>
                     </div>
                   ))}

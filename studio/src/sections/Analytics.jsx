@@ -46,9 +46,9 @@ function SpendRow({ item, total }) {
         </div>
       </div>
       <div style={{ textAlign: 'right', minWidth: 110 }}>
-        <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{rupees(item.valueInr)}</div>
+        <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{item.tokens} tokens</div>
         <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
-          {item.tokens} tokens · {pct}%
+          {pct}% · {item.count} time{item.count === 1 ? '' : 's'}
         </div>
       </div>
     </div>
@@ -122,8 +122,10 @@ export function Analytics() {
           </div>
 
           <T.sectionTitle>What they spent it on</T.sectionTitle>
-          <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 12 }}>
-            Valued at the list rate, so this shows where attention goes rather than cash received.
+          <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 12, lineHeight: 1.6, maxWidth: 620 }}>
+            Counted in tokens, deliberately. Not every token in circulation was sold — some were
+            gifted, some granted — so putting a rupee figure against spending would produce a
+            number larger than anything actually received. Revenue is the figure above.
           </p>
           <div style={{ display: 'grid', gap: 6, marginBottom: 26 }}>
             {d.spentOn.map((s) => (
@@ -174,9 +176,9 @@ export function Analytics() {
                   {s.source === 'welcome' ? 'Welcome gift' : s.source === 'artist_gift' ? 'Sent by Jinal' : s.source}
                 </span>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{rupees(s.valueInr)}</div>
+                  <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{s.tokens} tokens</div>
                   <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted }}>
-                    {s.tokens} tokens · {s.grants} grant{s.grants === 1 ? '' : 's'}
+                    {s.grants} grant{s.grants === 1 ? '' : 's'}
                   </div>
                 </div>
               </div>
