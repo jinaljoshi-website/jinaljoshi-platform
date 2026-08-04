@@ -45,11 +45,16 @@ function SpendRow({ item, total }) {
           <div style={{ ...barFill, width: `${pct}%` }} />
         </div>
       </div>
-      <div style={{ textAlign: 'right', minWidth: 110 }}>
+      <div style={{ textAlign: 'right', minWidth: 120 }}>
         <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{item.tokens} tokens</div>
         <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
           {pct}% · {item.count} time{item.count === 1 ? '' : 's'}
         </div>
+        {item.giftedTokens > 0 && (
+          <div style={{ fontFamily: mono, fontSize: 10, color: '#8FC88F', marginTop: 2 }}>
+            {item.giftedTokens} gifted
+          </div>
+        )}
       </div>
     </div>
   );
@@ -121,11 +126,11 @@ export function Analytics() {
             ))}
           </div>
 
-          <T.sectionTitle>What they spent it on</T.sectionTitle>
+          <T.sectionTitle>What fans spend their tokens on</T.sectionTitle>
           <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 12, lineHeight: 1.6, maxWidth: 620 }}>
-            Counted in tokens, deliberately. Not every token in circulation was sold — some were
-            gifted, some granted — so putting a rupee figure against spending would produce a
-            number larger than anything actually received. Revenue is the figure above.
+            All spending, whatever the tokens cost to obtain — most have been gifted or granted
+            rather than bought. This is where attention goes, not where money came from; revenue
+            is the figure above.
           </p>
           <div style={{ display: 'grid', gap: 6, marginBottom: 26 }}>
             {d.spentOn.map((s) => (

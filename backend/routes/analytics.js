@@ -51,12 +51,24 @@ router.get('/purchased', async (req, res) => {
          WHERE cl.type = 'recharge' AND cl.direction = 'credit' AND u.is_test = FALSE
          GROUP BY 1 ORDER BY 1 DESC LIMIT 12`
       ),
-      // What purchased tokens were spent on. from_purchased separates this from
-      // gifted spend on the same line items.
+      // Everything fans spend, whatever pot it came from.
+      //
+      // Splitting this by from_purchased answers the wrong question. That column
+      // records which pot a token sat in, not whether anyone paid for it — a
+      // grant made directly to a balance lands in the purchased pot and is then
+      // indistinguishable from a purchase. So a fan who has never bought a token
+      // appeared under "purchased spend", which is simply untrue.
+      //
+      // The question worth answering is where attention goes, and that does not
+      // care how the tokens arrived. Gifted is reported alongside so the mix is
+      // still visible.
       pool.query(
-        `SELECT cl.type, COALESCE(SUM(cl.from_purchased), 0) AS tokens, COUNT(*) AS count
+        `SELECT cl.type,
+                COALESCE(SUM(cl.amount), 0)      AS tokens,
+                COALESCE(SUM(cl.from_gifted), 0) AS gifted_tokens,
+                COUNT(*)                         AS count
          FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
-         WHERE cl.direction = 'debit' AND cl.from_purchased > 0 AND u.is_test = FALSE
+         WHERE cl.direction = 'debit' AND u.is_test = FALSE
          GROUP BY cl.type ORDER BY 2 DESC`
       ),
       // Tokens paid for but not yet spent. A real liability — the fan is owed
@@ -88,7 +100,8 @@ router.get('/purchased', async (req, res) => {
       })),
       spentOn: byType.rows.map((r) => ({
         type: r.type, tokens: Number(r.tokens),
-        valueInr: round(r.tokens * rate), count: Number(r.count),
+        giftedTokens: Number(r.gifted_tokens),
+        count: Number(r.count),
       })),
       topFans: topFans.rows.map((r) => ({
         who: r.display_name || r.email, tier: r.tier, spentInr: round(r.spent_inr),
