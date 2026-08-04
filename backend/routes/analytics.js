@@ -199,9 +199,38 @@ router.get('/gifted', async (req, res) => {
 // SETS — what the gallery earns
 // ─────────────────────────────────────────────
 
+// What a set has been worth. Two halves, and reporting only the first makes an
+// active set look like it earned nothing:
+//
+//   Direct     purchased tokens spent unlocking it
+//   Credit     unlocks taken on a membership allowance. Not free — the member
+//              paid for them as part of their fee, and 35% of that fee (after
+//              GST) is deemed to be for set access.
+//
+// A fan who buys tokens and spends them on a membership, then opens sets with
+// the credits it grants, generates no direct set revenue at all. Without the
+// credit half, the sets they actually looked at appear to have earned nothing.
 router.get('/sets', async (req, res) => {
   try {
     const rate = await tokenRate();
+
+    const { rows: cfgRows } = await pool.query(
+      `SELECT key, value FROM platform_config
+       WHERE key IN ('membership_set_share_pct', 'domestic_gst_rate_pct')
+          OR key LIKE '%_monthly_cost' OR key LIKE 'gallery_unlocks_%'`
+    );
+    const cfg = {};
+    cfgRows.forEach((r) => { cfg[r.key] = parseFloat(r.value); });
+    const gstPct   = cfg.domestic_gst_rate_pct || 0;
+    const setShare = cfg.membership_set_share_pct || 0;
+
+    const unlockValue = {};
+    for (const tier of ['community', 'insider', 'premium', 'supreme']) {
+      const cost = cfg[`${tier}_monthly_cost`], allowance = cfg[`gallery_unlocks_${tier}`];
+      unlockValue[tier] = (cost && allowance)
+        ? ((cost / (1 + gstPct / 100)) * (setShare / 100)) / allowance
+        : 0;
+    }
     // Tokens are summed straight from the ledger, grouped by the set they were
     // spent on. The obvious-looking alternative — joining grants to their ledger
     // entry — double-counts: a fan who unlocks both the tier and upsell portions
@@ -221,13 +250,21 @@ router.get('/sets', async (req, res) => {
        unlocks AS (
          SELECT ag.set_id,
                 COUNT(*)::int AS unlocks,
-                COUNT(*) FILTER (WHERE COALESCE(ag.coins_paid, 0) = 0)::int AS credit_unlocks
-         FROM access_grants ag JOIN users u ON u.id = ag.user_id
+                COUNT(*) FILTER (WHERE COALESCE(ag.coins_paid, 0) = 0)::int AS credit_unlocks,
+                -- Kept per tier so each credit unlock is valued at what that
+                -- member actually paid for it.
+                jsonb_object_agg(t.tier, t.n) FILTER (WHERE t.tier IS NOT NULL) AS credit_by_tier
+         FROM access_grants ag
+         JOIN users u ON u.id = ag.user_id
+         LEFT JOIN LATERAL (
+           SELECT u.tier AS tier, 1 AS n WHERE COALESCE(ag.coins_paid, 0) = 0
+         ) t ON TRUE
          WHERE u.is_test = FALSE GROUP BY ag.set_id
        )
        SELECT s.id, s.title, s.price_coins, p.name AS photographer,
               COALESCE(u.unlocks, 0)          AS unlocks,
               COALESCE(u.credit_unlocks, 0)   AS credit_unlocks,
+              u.credit_by_tier,
               COALESCE(sp.purchased_tokens,0) AS purchased_tokens,
               COALESCE(sp.gifted_tokens, 0)   AS gifted_tokens
        FROM sets s
@@ -237,16 +274,31 @@ router.get('/sets', async (req, res) => {
        ORDER BY 7 DESC, s.created_at DESC`
     );
 
-    res.json({
-      tokenRate: rate,
-      sets: rows.map((r) => ({
+    const sets = rows.map((r) => {
+      // Purchased tokens are GST-inclusive, so netting them keeps a direct
+      // unlock and a credit unlock on the same footing.
+      const directInr = (r.purchased_tokens * rate) / (1 + gstPct / 100);
+      const creditInr = Object.entries(r.credit_by_tier || {})
+        .reduce((sum, [tier, n]) => sum + (unlockValue[tier] || 0) * rate * n, 0);
+      return {
         id: r.id, title: r.title, photographer: r.photographer,
         priceTokens: r.price_coins,
         unlocks: r.unlocks, creditUnlocks: r.credit_unlocks,
         purchasedTokens: r.purchased_tokens, giftedTokens: r.gifted_tokens,
-        revenueInr: round(r.purchased_tokens * rate),
-      })),
-      totalRevenueInr: round(rows.reduce((s2, r) => s2 + r.purchased_tokens * rate, 0)),
+        directInr:  round(directInr),
+        creditInr:  round(creditInr),
+        revenueInr: round(directInr + creditInr),
+      };
+    }).sort((a2, b2) => b2.revenueInr - a2.revenueInr);
+
+    res.json({
+      tokenRate: rate,
+      setSharePct: setShare,
+      gstPct,
+      sets,
+      totalRevenueInr: round(sets.reduce((s2, r) => s2 + r.revenueInr, 0)),
+      totalDirectInr:  round(sets.reduce((s2, r) => s2 + r.directInr, 0)),
+      totalCreditInr:  round(sets.reduce((s2, r) => s2 + r.creditInr, 0)),
     });
   } catch (err) {
     if (err.code === 'NO_RATE') return res.status(503).json({ error: err.message });

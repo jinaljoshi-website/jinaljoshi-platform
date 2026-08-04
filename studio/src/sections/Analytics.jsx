@@ -203,9 +203,14 @@ export function Analytics() {
       ) : (
         <>
           <div style={S.statsRow}>
-            <Stat head="Earned by the gallery" value={rupees(d.totalRevenueInr)}
-                  sub="purchased tokens only" tone={colors.success} />
+            <Stat head="Earned by the gallery" value={rupees(d.totalRevenueInr)} tone={colors.success}
+                  sub={`${rupees(d.totalDirectInr)} tokens spent · ${rupees(d.totalCreditInr)} from memberships`} />
           </div>
+          <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 14, lineHeight: 1.6, maxWidth: 640 }}>
+            A set opened on a membership credit is not free — the member paid for it as part of
+            their fee, and {d.setSharePct}% of that fee after {d.gstPct}% GST is counted as set
+            access. Gifted tokens are excluded; they were given, not earned.
+          </p>
           <div style={{ display: 'grid', gap: 6 }}>
             {d.sets.length === 0 ? <T.muted>No sets yet.</T.muted> : d.sets.map((s) => (
               <div key={s.id} style={spendRow}>
@@ -217,7 +222,14 @@ export function Analytics() {
                     {s.giftedTokens > 0 && ` · ${s.giftedTokens} gifted`}
                   </div>
                 </div>
-                <span style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{rupees(s.revenueInr)}</span>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{rupees(s.revenueInr)}</div>
+                  {(s.directInr > 0 || s.creditInr > 0) && (
+                    <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
+                      {rupees(s.directInr)} direct · {rupees(s.creditInr)} credit
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>
