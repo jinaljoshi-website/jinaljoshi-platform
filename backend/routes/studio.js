@@ -299,6 +299,12 @@ router.get('/dms', async (req, res) => {
        ORDER BY CASE WHEN sender_id = $1 THEN recipient_id ELSE sender_id END, dm.created_at DESC`,
       [req.user.userId]
     );
+
+    // Newest first, as every messaging app does. DISTINCT ON only decides which
+    // message represents each conversation — it says nothing about the order
+    // they come back in, which until now was effectively arbitrary.
+    rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
     res.json({ conversations: rows });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load conversations' });

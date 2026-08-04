@@ -42,6 +42,19 @@ function isCurrentlyBlocked(blockedUntil) {
   return blockedUntil && new Date(blockedUntil) > new Date();
 }
 
+function whenLabel(ts) {
+  if (!ts) return '';
+  const then = new Date(ts);
+  const mins = Math.floor((Date.now() - then) / 60000);
+  if (mins < 1)    return 'now';
+  if (mins < 60)   return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)    return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7)    return `${days}d`;
+  return then.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+
 export function Messages() {
   const [convos,   setConvos]   = useState([]);
   const [selected, setSelected] = useState(null);
@@ -577,8 +590,20 @@ export function Messages() {
           {convos.length === 0 && !showNewChat && <T.muted>No messages yet.</T.muted>}
           {convos.map((c) => (
             <button key={c.fan_id} onClick={() => openConvo(c.fan_id)} style={{ background: selected === c.fan_id ? 'rgba(193,125,74,0.1)' : '#161410', border: selected === c.fan_id ? '1px solid rgba(193,125,74,0.3)' : `1px solid ${colors.border}`, borderRadius: 8, padding: '12px 14px', textAlign: 'left', cursor: 'pointer', color: colors.text }}>
-              <div style={{ fontFamily: sans, fontSize: 14, marginBottom: 3 }}>{c.display_name || c.email}</div>
-              <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.content?.slice(0, 40)}…</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 3 }}>
+                <span style={{ fontFamily: sans, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {c.display_name || c.email}
+                </span>
+                {/* How long they have been waiting, which is the thing that
+                    decides who to reply to next. */}
+                <span style={{ fontFamily: mono, fontSize: 10, color: colors.muted, flexShrink: 0 }}>
+                  {whenLabel(c.created_at)}
+                </span>
+              </div>
+              <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {c.is_mine && <span style={{ color: colors.muted, opacity: 0.7 }}>You: </span>}
+                {c.content?.slice(0, 40)}…
+              </div>
               {!c.is_mine && !c.read && <div style={{ width: 6, height: 6, borderRadius: '50%', background: colors.accent, marginTop: 5 }} />}
             </button>
           ))}
