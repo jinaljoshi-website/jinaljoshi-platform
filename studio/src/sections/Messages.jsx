@@ -42,6 +42,8 @@ function isCurrentlyBlocked(blockedUntil) {
   return blockedUntil && new Date(blockedUntil) > new Date();
 }
 
+const mono = "'DM Mono', 'Courier New', monospace";
+
 function whenLabel(ts) {
   if (!ts) return '';
   const then = new Date(ts);
