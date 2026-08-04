@@ -3,6 +3,7 @@ const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
+const { notifyArtist } = require('../lib/notify');
 const { getGuestMultiplier, getDiscountForTier, getGalleryUnlocksForTier } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
 const { roundTokensUp } = require('../lib/pricing');
@@ -326,6 +327,20 @@ router.post('/unlock', authMid, async (req, res) => {
     await client.query('COMMIT');
 
     postSystemMessage(`🔓 ${fanLabel} unlocked "${set.title}"!`);
+
+    // Told after the transaction commits, so an unlock that rolled back is never
+    // announced. How it was paid for matters as much as the fact of it — a
+    // membership credit is engagement, tokens spent are revenue, and they read
+    // very differently.
+    const mode = useCredit
+      ? 'membership credit'
+      : `${price} token${price === 1 ? '' : 's'}`;
+    notifyArtist({
+      title: `🔓 ${fanLabel} unlocked a set`,
+      body:  `${set.title} · ${scope === 'upsell' ? 'exclusive' : 'their tier'} · ${mode}`,
+      url:   '/content',
+      tag:   `unlock-${setId}`,
+    });
 
     res.json({ ok: true, coinsSpent: price, usedCredit: useCredit, newBalance: user.coin_balance - price, scope });
   } catch (err) {

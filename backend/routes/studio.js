@@ -865,12 +865,12 @@ router.get('/photographers/:id/payments', async (req, res) => {
 router.get('/content/:id/unlocks', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT g.id, g.grant_type, g.coins_paid, g.scope, g.created_at,
+      `SELECT g.id, g.grant_type, g.coins_paid, g.scope, g.granted_at AS created_at,
               u.email, u.display_name, u.tier
        FROM access_grants g
        JOIN users u ON u.id = g.user_id
        WHERE g.set_id = $1
-       ORDER BY g.created_at DESC`,
+       ORDER BY g.granted_at DESC`,
       [req.params.id]
     );
 
