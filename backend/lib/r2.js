@@ -89,6 +89,9 @@ const REFERENCE_QUERIES = [
   // A fan's own upload attached to a custom request. Easy to overlook, and the
   // one file here that belongs to someone else.
   `SELECT reference_image_key AS v FROM custom_requests WHERE reference_image_key IS NOT NULL`,
+  // Selfie of the Day. Added after the scan was written, which is precisely the
+  // drift the guard below exists to catch.
+  `SELECT image_key AS v FROM daily_selfies WHERE image_key IS NOT NULL`,
 ];
 
 // A hand-written list of columns will drift the moment a feature adds one, and
@@ -103,6 +106,7 @@ async function findUncoveredUrlColumns() {
     'fan_settings.personal_chat_bg', 'platform_config.value',
     'portfolio_hero_slides.image_key', 'portfolio_works.image_key',
     'custom_requests.reference_image_key',
+    'daily_selfies.image_key',
   ]);
 
   const { rows: cols } = await pool.query(
