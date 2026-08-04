@@ -689,7 +689,7 @@ router.get('/photographers/earnings', async (req, res) => {
   try {
     const { rows: cfgRows } = await pool.query(
       `SELECT key, value FROM platform_config
-       WHERE key = 'token_rate_inr' OR key = 'membership_set_share_pct'
+       WHERE key IN ('token_rate_inr', 'membership_set_share_pct', 'domestic_gst_rate_pct')
           OR key LIKE '%_monthly_cost' OR key LIKE 'gallery_unlocks_%'`
     );
     const cfg = {};
@@ -701,16 +701,25 @@ router.get('/photographers/earnings', async (req, res) => {
       return res.status(503).json({ error: 'Token rate is not configured' });
     }
 
-    // What one allowance-funded unlock is worth, per tier. Fixed rather than
-    // divided across whatever a member happened to open, so the value of an
-    // unlock does not change because somebody else browsed more.
+    // What one allowance-funded unlock is worth, per tier.
+    //
+    // GST comes out first. Token prices are GST-inclusive — 10 tokens is Rs 660
+    // of which Rs 100.68 is tax — and that tax is collected on the government's
+    // behalf, not earned. Sharing it out would mean giving away money that was
+    // never ours. Leaving it in overstated every unlock by about 18%.
+    //
+    // What remains is split 50% to messages, 15% to running the platform, and
+    // 35% to set access. That 35% divided by the tier's monthly allowance gives
+    // a fixed value per unlock — fixed, so it does not move because somebody
+    // else happened to browse more.
+    const gstPct = cfg.domestic_gst_rate_pct || 0;
     const unlockValue = {};
     for (const tier of ['community', 'insider', 'premium', 'supreme']) {
       const cost      = cfg[`${tier}_monthly_cost`];
       const allowance = cfg[`gallery_unlocks_${tier}`];
-      unlockValue[tier] = (cost && allowance)
-        ? (cost * (setShare / 100)) / allowance
-        : 0;
+      if (!cost || !allowance) { unlockValue[tier] = 0; continue; }
+      const netTokens = cost / (1 + gstPct / 100);
+      unlockValue[tier] = (netTokens * (setShare / 100)) / allowance;
     }
 
     const { rows } = await pool.query(
@@ -769,7 +778,10 @@ router.get('/photographers/earnings', async (req, res) => {
       if (!r.set_id) continue;
       const allowance = allowanceBySet[r.set_id] || { count: 0, tokens: 0 };
 
-      const directInr    = r.purchased_tokens * tokenRate;
+      // Purchased tokens are GST-inclusive too, so the same deduction applies —
+      // otherwise a set unlocked directly would appear to earn 18% more than
+      // the identical set unlocked on a membership credit.
+      const directInr    = (r.purchased_tokens * tokenRate) / (1 + gstPct / 100);
       const allowanceInr = allowance.tokens * tokenRate;
       const totalInr     = directInr + allowanceInr;
 
@@ -795,6 +807,7 @@ router.get('/photographers/earnings', async (req, res) => {
       photographers: list,
       tokenRate,
       setSharePct: setShare,
+      gstPct,
       unlockValueByTier: unlockValue,
       totalGenerated: Math.round(list.reduce((s2, p) => s2 + p.generatedInr, 0) * 100) / 100,
       totalPaid: Math.round(list.reduce((s2, p) => s2 + p.paidInr, 0) * 100) / 100,
@@ -1721,6 +1734,25 @@ router.delete('/availability/:id', async (req, res) => {
 // ─────────────────────────────────────────────
 // CALLS & REQUESTS
 // ─────────────────────────────────────────────
+
+// Just enough to know whether the phone should be ringing. Polled every few
+// seconds from every Studio screen, so it returns one small row rather than the
+// whole call list.
+router.get('/calls/ringing', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT cr.id, cr.call_type, cr.duration_minutes, cr.total_cost, cr.created_at,
+              u.display_name, u.email, u.tier
+       FROM call_requests cr JOIN users u ON u.id = cr.user_id
+       WHERE cr.status = 'ringing'
+       ORDER BY cr.created_at DESC LIMIT 1`
+    );
+    res.json({ call: rows[0] || null });
+  } catch (err) {
+    console.error('studio/calls/ringing error:', err);
+    res.status(500).json({ error: 'Failed to check' });
+  }
+});
 
 router.get('/calls', async (req, res) => {
   try {

@@ -59,9 +59,10 @@ export function Photographers() {
       {success && <div style={S.success}>{success}</div>}
 
       <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, lineHeight: 1.7, marginBottom: 20, maxWidth: 720 }}>
-        What each person's work has brought in, and what you have sent them. There is no
-        suggested figure and nothing is owed — decide what feels right, send it, and log it
-        here so the record is in one place.
+        What each person's work has brought in, and what you have sent them. Figures are net
+        of GST, which is collected for the government rather than earned. There is no suggested
+        figure and nothing is owed — decide what feels right, send it, and log it here so the
+        record is in one place.
       </p>
 
       <div style={S.statsRow}>
@@ -81,7 +82,7 @@ export function Photographers() {
             {rupees((data.unlockValueByTier?.supreme || 0) * data.tokenRate)}
           </div>
           <div style={pSub}>
-            at Supreme · {data.setSharePct}% of a membership is counted as set access
+            at Supreme · {data.setSharePct}% of a membership after {data.gstPct}% GST
           </div>
         </div>
       </div>
