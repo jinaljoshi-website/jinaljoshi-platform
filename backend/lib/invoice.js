@@ -34,6 +34,10 @@ const EXPORT_WITH_TAX_DISCLAIMER =
 // actually received. A foreign card charged in INR fails (3) and is NOT an
 // export, however international the buyer is. Any other combination is taxed
 // normally.
+// UPI is no longer India-only. NPCI has extended it to several countries and to
+// NRIs with international numbers, so a UPI payment says nothing about where the
+// payer is — a genuine customer in Malta paid this way. The payment rail is not
+// a location signal and must not be treated as one.
 function determineIsExport({ userCountry, currency }) {
   const isOutsideIndia = userCountry && userCountry !== 'India';
   const isForeignCurrency = currency && currency !== 'INR';
@@ -138,7 +142,11 @@ async function buildInvoiceRecord(client, {
 }
 
 function formatCurrency(amount, currency) {
-  const symbols = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AUD: 'A$', CAD: 'C$', AED: 'AED ', SGD: 'S$' };
+  // Codes rather than symbols, because the PDF's built-in font is WinAnsi and
+  // has no rupee sign — it rendered as a superscript one on every invoice. Only
+  // the few symbols that font actually contains are used; everything else falls
+  // back to its ISO code, which on a tax invoice reads better anyway.
+  const symbols = { USD: '$', EUR: '€', GBP: '£' };
   return `${symbols[currency] || currency + ' '}${Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
