@@ -6,6 +6,11 @@ import { T, S, Card, Eyebrow, Field, colors } from '../ui';
 const sans = "'DM Sans', system-ui, sans-serif";
 const mono = "'DM Mono', 'Courier New', monospace";
 
+const tbl = { width: '100%', borderCollapse: 'collapse', fontFamily: sans, fontSize: 12 };
+const th  = { textAlign: 'left', padding: '8px 10px', borderBottom: `1px solid ${colors.border}`, color: colors.muted, fontFamily: mono, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', whiteSpace: 'nowrap' };
+const td  = { padding: '9px 10px', borderBottom: `1px solid ${colors.border}`, color: colors.text, verticalAlign: 'top' };
+
+
 // Jinal's own codes. Free text, because a new kind of work should not need a
 // deploy — the list is a shortcut, not a restriction.
 const SAC_CODES = [
@@ -113,6 +118,24 @@ export function Invoices() {
     } catch (err) { setError(err.message); }
   };
 
+  const downloadPlatformPdf = async (number) => {
+    setError('');
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/studio/invoicing/platform/${encodeURIComponent(number)}/pdf`,
+        { headers: { Authorization: `Bearer ${localStorage.getItem('jwt')}` } }
+      );
+      if (!res.ok) throw new Error('Could not generate the PDF');
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url;
+      a.download = `${number.replace(/\//g, '-')}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) { setError(err.message); }
+  };
+
   const togglePaid = async (inv) => {
     setError('');
     try {
@@ -161,22 +184,79 @@ export function Invoices() {
             Raised automatically for every J Token purchase. Nothing to do here — this is the
             filing view, grouped by month the way GSTR-1 is filed.
           </p>
-          {platform.months.length === 0 ? <T.muted>No token sales yet.</T.muted> : platform.months.map((m) => (
-            <Card key={m.month} style={{ marginBottom: 14 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-                <div>
-                  <T.sectionTitle>{m.label}</T.sectionTitle>
-                  <div style={S.rowSub}>{m.count} invoice{m.count === 1 ? '' : 's'}
-                    {m.exportCount > 0 && ` · ${m.exportCount} zero-rated export`}</div>
-                </div>
-                <div style={{ textAlign: 'right', fontFamily: sans, fontSize: 13 }}>
-                  <div style={{ color: colors.text }}>Taxable {rupees(m.taxable)}</div>
-                  <div style={{ color: colors.accent, marginTop: 2 }}>GST {rupees(m.gst)}</div>
-                  <div style={{ color: colors.muted, marginTop: 2 }}>Total {rupees(m.total)}</div>
-                </div>
+          {platform.months.length === 0 ? <T.muted>No token sales yet.</T.muted> : (
+            <>
+              {/* Monthly totals first, because that is what gets filed. */}
+              {platform.months.map((m) => (
+                <Card key={m.month} style={{ marginBottom: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                    <div>
+                      <T.sectionTitle>{m.label}</T.sectionTitle>
+                      <div style={S.rowSub}>{m.count} invoice{m.count === 1 ? '' : 's'}
+                        {m.exportCount > 0 && ` · ${m.exportCount} zero-rated export`}</div>
+                    </div>
+                    <div style={{ textAlign: 'right', fontFamily: sans, fontSize: 13 }}>
+                      <div style={{ color: colors.text }}>Taxable {rupees(m.taxable)}</div>
+                      <div style={{ color: colors.accent, marginTop: 2 }}>GST {rupees(m.gst)}</div>
+                      <div style={{ color: colors.muted, marginTop: 2 }}>Total {rupees(m.total)}</div>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+
+              {/* Then every invoice, which doubles as the transaction record —
+                  there was nowhere in Studio showing what had actually been
+                  sold, only what it summed to. */}
+              <T.sectionTitle style={{ marginTop: 24 }}>Every sale ({platform.invoices.length})</T.sectionTitle>
+              <div style={{ overflowX: 'auto', marginTop: 10 }}>
+                <table style={tbl}>
+                  <thead>
+                    <tr>
+                      {['Invoice', 'Date', 'Fan', 'Tokens', 'Charged', 'Taxable', 'Tax', 'Place of supply', ''].map((h) => (
+                        <th key={h} style={th}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {platform.invoices.map((i) => (
+                      <tr key={i.invoice_number}>
+                        <td style={{ ...td, fontFamily: mono, fontSize: 11 }}>{i.invoice_number}</td>
+                        <td style={td}>
+                          {new Date(i.issued_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}
+                        </td>
+                        <td style={{ ...td, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.user_email}</td>
+                        <td style={{ ...td, textAlign: 'right' }}>{i.tokens_purchased}</td>
+                        <td style={{ ...td, textAlign: 'right' }}>
+                          {i.currency !== 'INR'
+                            ? <>{i.currency} {Number(i.amount_in_currency).toFixed(2)}
+                                <div style={{ fontSize: 10, color: colors.muted }}>{rupees(i.amount_inr_equivalent)}</div></>
+                            : rupees(i.amount_inr_equivalent)}
+                        </td>
+                        <td style={{ ...td, textAlign: 'right' }}>{rupees(i.taxable_amount_inr)}</td>
+                        <td style={{ ...td, textAlign: 'right' }}>
+                          {i.is_export
+                            ? <span style={{ color: '#8FC88F' }}>0% export</span>
+                            : <>
+                                {rupees(i.gst_amount_inr)}
+                                <div style={{ fontSize: 10, color: colors.muted }}>
+                                  {Number(i.igst_amount_inr) > 0 ? 'IGST' : 'CGST + SGST'}
+                                </div>
+                              </>}
+                        </td>
+                        <td style={{ ...td, fontSize: 11, color: colors.muted }}>{i.place_of_supply || '—'}</td>
+                        <td style={td}>
+                          <button onClick={() => downloadPlatformPdf(i.invoice_number)}
+                                  style={{ ...S.ghostBtn, fontSize: 11, padding: '4px 10px' }}>
+                            PDF
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </Card>
-          ))}
+            </>
+          )}
         </>
       )}
 

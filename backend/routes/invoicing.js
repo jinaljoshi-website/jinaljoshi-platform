@@ -246,4 +246,28 @@ router.get('/platform', async (req, res) => {
   }
 });
 
+// A platform invoice is generated on purchase and emailed to the fan. Jinal has
+// had no way to open one — this is the same document, from the same builder, so
+// what she sees is exactly what they received.
+router.get('/platform/:number/pdf', async (req, res) => {
+  try {
+    const { generateInvoicePdfBuffer } = require('../lib/invoice');
+    const { rows } = await pool.query(
+      `SELECT * FROM invoices WHERE invoice_number = $1`, [req.params.number]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Invoice not found' });
+
+    // Supplier read live rather than stored on the invoice, matching how the
+    // fan's copy was generated.
+    const pdf = await generateInvoicePdfBuffer(rows[0], await getSupplier());
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="${rows[0].invoice_number.replace(/\//g, '-')}.pdf"`);
+    res.send(pdf);
+  } catch (err) {
+    console.error('invoicing/platform pdf error:', err);
+    res.status(500).json({ error: 'Failed to generate the invoice' });
+  }
+});
+
 module.exports = router;
