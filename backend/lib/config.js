@@ -11,6 +11,7 @@
 // ring window is a nuisance where a wrong price is a refund.
 
 const pool = require('../db/pool');
+const { roundTokensUp } = require('./pricing');
 
 // Timing and behaviour only. Nothing here decides an amount of money.
 const DEFAULTS = {
@@ -170,7 +171,13 @@ async function getDmConfigForTier(tier) {
     return {
       freeDMsPerMonth: 0,
       dailyDMCap: 0,
-      overageCost: communityOverage * guestMultiplier,
+      // Rounded, because tokens are whole numbers and tokens_charged is an
+      // integer column. This was the one price on the platform that applied a
+      // multiplier without rounding — so a guest multiplier of 1.25 against a
+      // 1-token message produced 1.25, Postgres rejected the insert outright,
+      // and no guest could send a message at all. Members were unaffected,
+      // which is why it looked like a permissions problem rather than a price.
+      overageCost: roundTokensUp(communityOverage * guestMultiplier),
     };
   }
   if (!DM_TIER_KEYS.includes(tier)) {
