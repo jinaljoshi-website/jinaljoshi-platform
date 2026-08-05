@@ -44,6 +44,41 @@ export default function Coins() {
 
   const customPricing = custom ? rechargePrice(parseInt(custom) || 0) : null;
 
+  // What they will actually be charged in. Until now the screen showed rupees
+  // and Razorpay showed dollars — the price changed at the last step, which is
+  // the moment a purchase is most likely to be abandoned.
+  const [fx, setFx] = useState(null);
+  const [savingCurrency, setSavingCurrency] = useState(false);
+
+  useEffect(() => {
+    api.get('/api/coins/currencies').then(setFx).catch(() => {});
+  }, []);
+
+  const chooseCurrency = async (code) => {
+    setSavingCurrency(true);
+    try {
+      await api.post('/api/coins/currency', { currency: code });
+      setFx(await api.get('/api/coins/currencies'));
+    } catch { /* keeping rupees is a safe outcome */ }
+    finally { setSavingCurrency(false); }
+  };
+
+  // Mirrors the server's own quote so the figure on screen is the figure
+  // charged. The server still computes it independently at order time — this is
+  // for display, not authority.
+  // Shows the fan's currency where they have one, rupees otherwise. Used at
+  // every price on the screen so none can be left showing the wrong one.
+  const money = (inr) => inCurrency(inr) || `₹${Number(inr).toLocaleString('en-IN')}`;
+
+  const inCurrency = (inr) => {
+    if (!fx?.isForeign) return null;
+    const opt = (fx.options || []).find((o) => o.currency === fx.current);
+    if (!opt?.inrPerUnit) return null;
+    const effective = opt.inrPerUnit / (1 + (fx.bufferPct || 0) / 100);
+    const f = Math.pow(10, opt.decimals ?? 2);
+    return `${opt.symbol}${(Math.ceil((inr / effective) * f) / f).toFixed(opt.decimals ?? 2)}`;
+  };
+
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading balance…</div>;
 
   const rate = tokenRateInr();
@@ -51,13 +86,51 @@ export default function Coins() {
 
   return (
     <div>
+      {fx?.shouldAsk && (fx.options || []).length > 0 && (
+        <div style={currencyAsk}>
+          <div style={{ fontFamily: F.sans, fontSize: 14, color: C.text, marginBottom: 4 }}>
+            You seem to be in {fx.detectedCountry}
+          </div>
+          <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginBottom: 12, lineHeight: 1.6 }}>
+            Which currency would you like to pay in? You can change this any time.
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {fx.options.map((o) => (
+              <button key={o.currency} onClick={() => chooseCurrency(o.currency)} disabled={savingCurrency}
+                      style={o.isLocal ? currencyBtnPrimary : currencyBtn}>
+                {o.currency}
+                {o.isLocal && <span style={{ fontSize: 10, opacity: 0.8 }}> · yours</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={{ marginBottom: 24 }}>
         <div style={eyebrow}>J Tokens</div>
         <h1 style={title}>Your balance</h1>
         <p style={text}>
-          1 J Token = ₹{rate} incl. GST. Tokens never expire.
+          {fx?.isForeign
+            ? <>1 J Token = {inCurrency(rate)}. Tokens never expire. </>
+            : <>1 J Token = ₹{rate} incl. GST. Tokens never expire. </>}
           Bulk discounts: {discountConfig.tier1Pct}% off on {discountConfig.tier1Threshold}+, {discountConfig.tier2Pct}% off on {discountConfig.tier2Threshold}+.
         </p>
+        {fx?.isForeign && (
+          <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginTop: 8 }}>
+            Charged in {fx.current}
+            {(fx.options || []).length > 1 && (
+              <>
+                {' · '}
+                {fx.options.filter((o) => o.currency !== fx.current).map((o) => (
+                  <button key={o.currency} onClick={() => chooseCurrency(o.currency)} disabled={savingCurrency}
+                          style={currencySwitch}>
+                    switch to {o.currency}
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+        )}
         <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 6, opacity: 0.8 }}>
           All purchases are voluntary, final &amp; non-refundable.
         </div>
@@ -71,7 +144,7 @@ export default function Coins() {
           : <WonderCoinAmount amount={balance + gifted} size={44} fontSize={52} />
         }
         <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginTop: 8 }}>
-          ≈ ₹{((balance || 0) * rate).toLocaleString('en-IN')} of purchased tokens
+          ≈ {money((balance || 0) * rate)} of purchased tokens
         </div>
 
         {gifted > 0 && (
@@ -117,14 +190,14 @@ export default function Coins() {
               <div style={{ marginBottom: 8 }}>
                 {customPricing.pct > 0 ? (
                   <>
-                    <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, textDecoration: 'line-through' }}>₹{customPricing.base.toLocaleString('en-IN')}</div>
+                    <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, textDecoration: 'line-through' }}>{money(customPricing.base)}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontFamily: F.sans, fontSize: 16, color: C.text, fontWeight: 600 }}>₹{customPricing.final.toLocaleString('en-IN')}</span>
+                      <span style={{ fontFamily: F.sans, fontSize: 16, color: C.text, fontWeight: 600 }}>{money(customPricing.final)}</span>
                       <span style={discountBadge}>{customPricing.pct}% off</span>
                     </div>
                   </>
                 ) : (
-                  <div style={{ fontFamily: F.sans, fontSize: 15, color: C.text }}>₹{customPricing.final.toLocaleString('en-IN')}</div>
+                  <div style={{ fontFamily: F.sans, fontSize: 15, color: C.text }}>{money(customPricing.final)}</div>
                 )}
               </div>
             ) : (
@@ -232,6 +305,11 @@ const potLabel  = { fontFamily: F.mono, fontSize: 10, color: C.muted, letterSpac
 const potNote   = { fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 6, lineHeight: 1.5 };
 const balanceCard  = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '28px 24px', marginBottom: 20 };
 const customCard   = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 20, marginBottom: 20 };
+const currencyAsk        = { background: C.surface, border: `1px solid rgba(193,125,74,0.3)`, borderRadius: 12, padding: 18, marginBottom: 22 };
+const currencyBtn        = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 13, padding: '9px 18px', borderRadius: 8, cursor: 'pointer' };
+const currencyBtnPrimary = { ...currencyBtn, background: 'rgba(193,125,74,0.12)', border: `1px solid ${C.accent}`, color: C.accent };
+const currencySwitch     = { background: 'none', border: 'none', color: C.accent, fontFamily: F.sans, fontSize: 12, cursor: 'pointer', padding: 0, marginRight: 8, textDecoration: 'underline' };
+
 const packsRow     = { display: 'flex', gap: 8, flexWrap: 'wrap' };
 const packChip     = { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s' };
 const smallBadge   = { fontFamily: F.sans, fontSize: 9, fontWeight: 700, color: '#8FC88F', background: 'rgba(100,160,100,0.12)', border: '1px solid rgba(100,160,100,0.3)', borderRadius: 4, padding: '1px 5px' };

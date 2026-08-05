@@ -101,6 +101,7 @@ router.get('/currencies', authMid, async (req, res) => {
       detectedCountry: abroad ? country : null,
       // Their own currency, USD, and INR. Three choices rather than a list.
       options: abroad ? await fx.optionsForCountry(country) : [],
+      bufferPct: await getConfigNumber('fx_buffer_pct'),
     });
   } catch (err) {
     console.error('coins/currencies error:', err);
