@@ -156,7 +156,11 @@ router.get('/sets', authMid, async (req, res) => {
       // was spent — a set made entirely of free items never counts, even if viewed.
       const isGenuinelyUnlocked = !!tierUnlocked || !!upsellUnlocked;
 
-      const coverBlurred = segments.freeCount === 0 && segments.tierPortionCount === 0;
+      // The cover is the set's first item, so a set with nothing free shows a
+      // photo nobody has paid for. Blurred until they have — being in the fan's
+      // tier is not the same as having unlocked it, which the previous test
+      // treated as equivalent and so left most covers exposed.
+      const coverBlurred = segments.freeCount === 0 && !isGenuinelyUnlocked;
 
       return {
         id: s.id,

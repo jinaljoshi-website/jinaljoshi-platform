@@ -289,7 +289,23 @@ export default function Gallery() {
               <div key={item.id} onClick={() => openViewer(item)} style={card}>
                 <div style={{ position: 'relative', marginBottom: 12 }}>
                   {item.cover_url ? (
-                    <img src={item.cover_url} alt={item.title} style={{ width: '100%', height: 180, objectFit: 'cover', borderRadius: 6 }} />
+                    // Blurred when nothing in the set is free and it has not been
+                    // unlocked — the cover is the first item, so it would
+                    // otherwise be giving away a photo somebody has to pay for.
+                    // Clipped by the wrapper and scaled up, so no unblurred edge
+                    // shows and the blur cannot be undone by scaling it back.
+                    <div style={{ position: 'relative', width: '100%', height: 180, borderRadius: 6, overflow: 'hidden' }}>
+                      <img src={item.cover_url} alt={item.title}
+                           style={{
+                             width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+                             ...(item.coverBlurred ? { filter: 'blur(18px)', transform: 'scale(1.2)' } : {}),
+                           }} />
+                      {item.coverBlurred && (
+                        <div style={coverLock}>
+                          <span style={{ fontSize: 18 }}>🔒</span>
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div style={{ width: '100%', height: 120, background: 'rgba(255,255,255,0.03)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <span style={{ fontFamily: F.mono, fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Preview</span>
@@ -340,6 +356,8 @@ export default function Gallery() {
     </div>
   );
 }
+
+const coverLock = { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(rgba(20,18,15,0.15), rgba(20,18,15,0.45))' };
 
 const sortSelect = { background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 12, padding: '7px 12px', borderRadius: 8, outline: 'none', cursor: 'pointer' };
 
