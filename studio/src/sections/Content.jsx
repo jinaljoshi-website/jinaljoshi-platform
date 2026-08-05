@@ -1,6 +1,7 @@
 // studio/src/sections/Content.jsx
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
+import { createCompressPool } from '../workers/compressPool';
 import { T, S, Card, Eyebrow, Field, TokenField, colors } from '../ui';
 
 const TOKEN_RATE   = 66;
@@ -40,13 +41,17 @@ function toUrl(key) {
 // round trips to the backend, not transferring bytes — so running several in
 // parallel fills that dead time. Capped at 5: beyond that a home upload
 // connection saturates and requests start timing out, which is worse than slow.
-const UPLOAD_CONCURRENCY = 5;
+const UPLOAD_CONCURRENCY = 6;
 const UPLOAD_RETRIES     = 2;
 
-// createImageBitmap decodes off the main thread and is hardware-accelerated,
-// so it is several times faster than the old Image + canvas.drawImage path and
-// does not freeze the tab while a large photo is processed.
-async function compressImage(file) {
+// Compression on the main thread was the ceiling on every large upload: five
+// uploads ran in parallel but all queued behind one thread doing the JPEG
+// encode, so throughput sat around 39 photos a minute and Studio froze while it
+// worked. The pool spreads it across cores instead.
+//
+// Falls back to the main thread where workers are unavailable, so nothing
+// depends on them existing.
+async function compressOnMainThread(file) {
   try {
     const bitmap = await createImageBitmap(file);
     const scale  = Math.min(1, MAX_IMG_PX / Math.max(bitmap.width, bitmap.height));
@@ -65,8 +70,6 @@ async function compressImage(file) {
 
     return new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' });
   } catch {
-    // Some formats (HEIC on older browsers) cannot be decoded this way. Sending
-    // the original is better than failing the upload.
     return file;
   }
 }
@@ -127,6 +130,18 @@ export function Content() {
   // a second spelling would become a second photographer with separate earnings.
   const [photographers, setPhotographers] = useState([]);
   const [descOpen,      setDescOpen]      = useState(null);
+
+  const poolRef = useRef(null);
+  useEffect(() => {
+    if (typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined') {
+      try { poolRef.current = createCompressPool({ maxPx: MAX_IMG_PX, quality: JPEG_Q }); }
+      catch (err) { console.warn('compression pool unavailable, using the main thread:', err.message); }
+    }
+    return () => poolRef.current?.dispose();
+  }, []);
+
+  const compressImage = (file) =>
+    poolRef.current ? poolRef.current.compress(file) : compressOnMainThread(file);
 
   const [filesByCategory, setFilesByCategory] = useState(emptyCategoryFiles());
   const [coverFile,      setCoverFile]      = useState(null);

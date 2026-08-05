@@ -148,7 +148,13 @@ export default function Gallery() {
 
           {showTierFrame && (
             <div onClick={() => !unlockingScope && handleViewerUnlock('tier')} style={unlockFrame}>
-              <div style={unlockFrameIcon}>{openSet.tierLapsed ? '⏳' : '🔒'}</div>
+              {openSet.tierPreviewUrl && (
+                <>
+                  <img src={openSet.tierPreviewUrl} alt="" aria-hidden style={lockedBackdrop} />
+                  <div style={lockedScrim} />
+                </>
+              )}
+              <div style={{ ...unlockFrameIcon, position: 'relative' }}>{openSet.tierLapsed ? '⏳' : '🔒'}</div>
               <div style={unlockFrameText}>
                 {unlockingScope === 'tier'
                   ? 'Unlocking…'
@@ -174,6 +180,12 @@ export default function Gallery() {
 
           {showUpsellFrame && (
             <div onClick={() => !unlockingScope && handleViewerUnlock('upsell')} style={unlockFrame}>
+              {openSet.upsellPreviewUrl && (
+                <>
+                  <img src={openSet.upsellPreviewUrl} alt="" aria-hidden style={lockedBackdrop} />
+                  <div style={lockedScrim} />
+                </>
+              )}
               <div style={unlockFrameIcon}>🔒</div>
               <div style={unlockFrameText}>
                 {unlockingScope === 'upsell'
@@ -329,9 +341,14 @@ const thumbWrap   = { position: 'relative', cursor: 'pointer', borderRadius: 8, 
 const thumb       = { width: '100%', height: '100%', objectFit: 'cover', display: 'block' };
 const playBadge   = { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', fontSize: 28, color: 'white', textShadow: '0 2px 8px rgba(0,0,0,0.8)', pointerEvents: 'none' };
 const unlockFrame = { position: 'relative', cursor: 'pointer', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: 'rgba(193,125,74,0.1)', border: `1px dashed ${C.accent}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 10, gap: 6 };
-const unlockFrameIcon = { fontSize: 22 };
-const unlockFrameText = { fontFamily: F.sans, fontSize: 12, color: C.text, fontWeight: 600, lineHeight: 1.4 };
-const unlockFrameSub  = { fontFamily: F.sans, fontSize: 10, color: C.muted, lineHeight: 1.4 };
+// Blurred hard and scaled up, so no edge of the original is readable and the
+// blur cannot be undone by scaling the image back down.
+const lockedBackdrop = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(22px)', transform: 'scale(1.25)', pointerEvents: 'none' };
+const lockedScrim    = { position: 'absolute', inset: 0, background: 'linear-gradient(rgba(20,18,15,0.55), rgba(20,18,15,0.78))', pointerEvents: 'none' };
+
+const unlockFrameIcon = { fontSize: 22, position: 'relative' };
+const unlockFrameText = { fontFamily: F.sans, fontSize: 12, color: '#F3EDE4', fontWeight: 600, lineHeight: 1.4, position: 'relative', textShadow: '0 1px 3px rgba(0,0,0,0.6)' };
+const unlockFrameSub  = { fontFamily: F.sans, fontSize: 10, color: C.muted, lineHeight: 1.4 , position: 'relative', textShadow: '0 1px 3px rgba(0,0,0,0.6)' };
 const lightboxOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' };
 const lightboxInner   = { display: 'flex', flexDirection: 'column', alignItems: 'center' };
 const closeBtn    = { position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', fontSize: 20, width: 40, height: 40, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
