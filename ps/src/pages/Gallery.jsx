@@ -298,13 +298,8 @@ export default function Gallery() {
                       <img src={item.cover_url} alt={item.title}
                            style={{
                              width: '100%', height: '100%', objectFit: 'cover', display: 'block',
-                             ...(item.coverBlurred ? { filter: 'blur(18px)', transform: 'scale(1.2)' } : {}),
+                             ...(item.coverBlurred ? { filter: 'blur(10px)', transform: 'scale(1.14)' } : {}),
                            }} />
-                      {item.coverBlurred && (
-                        <div style={coverLock}>
-                          <span style={{ fontSize: 18 }}>🔒</span>
-                        </div>
-                      )}
                     </div>
                   ) : (
                     <div style={{ width: '100%', height: 120, background: 'rgba(255,255,255,0.03)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -356,8 +351,6 @@ export default function Gallery() {
     </div>
   );
 }
-
-const coverLock = { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(rgba(20,18,15,0.15), rgba(20,18,15,0.45))' };
 
 const sortSelect = { background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 12, padding: '7px 12px', borderRadius: 8, outline: 'none', cursor: 'pointer' };
 
