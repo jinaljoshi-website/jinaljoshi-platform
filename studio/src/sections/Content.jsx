@@ -288,7 +288,7 @@ export function Content() {
         : `Added ${uploaded} item${uploaded === 1 ? '' : 's'} to "${set.title}".`);
 
       if (!failed) {
-        setFilesByCategory(emptyCategoryFiles());
+        releasePreviews(filesByCategory); setFilesByCategory(emptyCategoryFiles());
         setAddingTo(null);
       }
       loadSets();
@@ -365,6 +365,14 @@ export function Content() {
   // at a time and each file is retried, so a blip costs a moment rather than a
   // photo. Every file that lands is saved immediately, so an interrupted run
   // leaves a valid set that can simply be topped up.
+  // Anything still held when the form is cleared or the section is left.
+  const releasePreviews = (byCat) => {
+    Object.values(byCat || {}).forEach((arr) =>
+      (arr || []).forEach((it) => { if (it.preview) URL.revokeObjectURL(it.preview); }));
+  };
+
+  useEffect(() => () => releasePreviews(filesByCategory), []);
+
   const uploadAllPending = async (setId, startPosition) => {
     const queue = [];
     CATEGORIES.forEach((cat) => {
@@ -393,8 +401,14 @@ export function Content() {
       mark(cat, i, { status: 'uploading' });
       try {
         const publicUrl = await withRetry(async () => {
-          const fileToUpload = item.isVideo ? item.file : await compressImage(item.file);
-          return uploadFile(fileToUpload, 'content');
+          let fileToUpload = item.isVideo ? item.file : await compressImage(item.file);
+          try {
+            return await uploadFile(fileToUpload, 'content');
+          } finally {
+            // Dropped immediately so the compressed copy can be collected
+            // rather than lingering while the rest of the batch runs.
+            fileToUpload = null;
+          }
         });
         await withRetry(() => api.post('/api/studio/content/item', {
           setId, type: item.isVideo ? 'video' : 'image', r2Key: publicUrl,
@@ -402,7 +416,10 @@ export function Content() {
         }));
         if (!firstImageUrl && !item.isVideo) firstImageUrl = publicUrl;
         uploaded += 1;
-        mark(cat, i, { status: 'done', publicUrl });
+        // Released the moment the file is safely uploaded. The thumbnail is
+        // gone from that tile, which is also the clearest signal it is done.
+        if (item.preview) URL.revokeObjectURL(item.preview);
+        mark(cat, i, { status: 'done', publicUrl, preview: null });
       } catch (err) {
         mark(cat, i, { status: 'error', error: err.message });
       }
@@ -449,7 +466,7 @@ export function Content() {
       setSets((prev) => [{ ...setData.set, cover_url: coverUrl }, ...prev]);
       setForm({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key, photographerNames: [] });
       loadPhotographers();
-      setFilesByCategory(emptyCategoryFiles());
+      releasePreviews(filesByCategory); setFilesByCategory(emptyCategoryFiles());
       setCoverFile(null);
       setCoverPreview('');
     } catch (err) {
@@ -694,7 +711,7 @@ export function Content() {
                             style={{ ...S.btn, opacity: (creating || totalFileCount === 0) ? 0.5 : 1 }}>
                       {creating ? 'Uploading…' : `Upload ${totalFileCount} item${totalFileCount === 1 ? '' : 's'}`}
                     </button>
-                    <button onClick={() => { setAddingTo(null); setFilesByCategory(emptyCategoryFiles()); }}
+                    <button onClick={() => { setAddingTo(null); releasePreviews(filesByCategory); setFilesByCategory(emptyCategoryFiles()); }}
                             disabled={creating} style={S.ghostBtn}>
                       Cancel
                     </button>
@@ -802,7 +819,7 @@ export function Content() {
 
                 <div style={rowActions}>
                   <button onClick={() => openReview(set)} style={actionBtn}>Review</button>
-                  <button onClick={() => { setAddingTo(addingTo === set.id ? null : set.id); setFilesByCategory(emptyCategoryFiles()); }}
+                  <button onClick={() => { setAddingTo(addingTo === set.id ? null : set.id); releasePreviews(filesByCategory); setFilesByCategory(emptyCategoryFiles()); }}
                           style={actionBtn}>
                     {addingTo === set.id ? 'Cancel' : 'Add photos'}
                   </button>

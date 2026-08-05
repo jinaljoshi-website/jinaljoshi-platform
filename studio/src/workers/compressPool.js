@@ -7,7 +7,7 @@
 // memory grows — each worker holds a decoded bitmap, and a 12MP photo is around
 // 48MB decoded.
 
-const MAX_WORKERS = 4;
+const MAX_WORKERS = 3;
 
 export function createCompressPool({ maxPx = 2048, quality = 0.85 } = {}) {
   const size = Math.max(1, Math.min(MAX_WORKERS, (navigator.hardwareConcurrency || 4) - 1));
