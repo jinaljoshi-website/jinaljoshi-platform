@@ -103,14 +103,16 @@ router.get('/sets', authMid, async (req, res) => {
 
     const { rows: sets } = await pool.query(
       `SELECT s.id, s.title, s.description, s.type, s.category, s.price_coins,
-              s.created_at, s.published_at, p.name AS photographer,
+              s.created_at, s.published_at,
+              (SELECT string_agg(p.name, ', ' ORDER BY p.name)
+                FROM set_photographers spx JOIN photographers p ON p.id = spx.photographer_id
+                WHERE spx.set_id = s.id) AS photographer,
               -- Falls back to the first item so a set never shows a blank card.
               COALESCE(s.cover_key,
                 (SELECT r2_key FROM set_items WHERE set_id = s.id
                  AND media_type <> 'video' ORDER BY position ASC, created_at ASC LIMIT 1)
               ) AS cover_key
        FROM sets s
-       LEFT JOIN photographers p ON p.id = s.photographer_id
        WHERE s.visible = TRUE AND s.is_vault = FALSE
        -- Ordered by when it became available, falling back to upload date for
        -- anything published before that was recorded.
@@ -265,8 +267,11 @@ router.post('/unlock', authMid, async (req, res) => {
     ]);
 
     const { rows: setRows } = await client.query(
-      `SELECT s.*, p.name AS photographer
-       FROM sets s LEFT JOIN photographers p ON p.id = s.photographer_id
+      `SELECT s.*,
+              (SELECT string_agg(p.name, ', ' ORDER BY p.name)
+                FROM set_photographers spx JOIN photographers p ON p.id = spx.photographer_id
+                WHERE spx.set_id = s.id) AS photographer
+       FROM sets s
        WHERE s.id = $1 AND s.visible = TRUE AND s.is_vault = FALSE`, [setId]);
     if (!setRows.length) {
       await client.query('ROLLBACK');

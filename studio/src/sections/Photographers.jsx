@@ -127,6 +127,7 @@ export function Photographers() {
                       <div style={{ flex: 1, minWidth: 180 }}>
                         <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{s.title}</div>
                         <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
+                          {s.sharedWith && `shared with ${s.sharedWith - 1} other${s.sharedWith === 2 ? '' : 's'} · `}
                           {s.unlocks} unlock{s.unlocks === 1 ? '' : 's'}
                           {s.allowanceUnlocks > 0 && ` · ${s.allowanceUnlocks} on membership credit`}
                           {s.giftedTokens > 0 && ` · ${s.giftedTokens} gifted tokens, not counted`}

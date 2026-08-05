@@ -469,9 +469,11 @@ const COVER_FALLBACK = `COALESCE(s.cover_key,
 router.get('/content', async (req, res) => {
   try {
     const { rows: sets } = await pool.query(
-      `SELECT s.*, ${COVER_FALLBACK} AS cover_key, p.name AS photographer
+      `SELECT s.*, ${COVER_FALLBACK} AS cover_key,
+              (SELECT string_agg(p.name, ', ' ORDER BY p.name)
+               FROM set_photographers sp JOIN photographers p ON p.id = sp.photographer_id
+               WHERE sp.set_id = s.id) AS photographer
        FROM sets s
-       LEFT JOIN photographers p ON p.id = s.photographer_id
        ORDER BY s.created_at DESC`
     );
     const { rows: itemCounts } = await pool.query(
@@ -491,22 +493,21 @@ router.get('/content', async (req, res) => {
 
 router.post('/content', async (req, res) => {
   const { title, description, type = 'photo_set', price_coins = 0, visible = false, category,
-          photographerName } = req.body;
+          photographerName, photographerNames } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    const photographerId = await resolvePhotographer(client, photographerName);
-
     const { rows } = await client.query(
-      `INSERT INTO sets (title, description, type, price_coins, visible, category, photographer_id,
-                         published_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $5 = TRUE THEN NOW() ELSE NULL END)
+      `INSERT INTO sets (title, description, type, price_coins, visible, category, published_at)
+       VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $5 = TRUE THEN NOW() ELSE NULL END)
        RETURNING *`,
-      [title.trim(), description || null, type, price_coins, visible, category || null, photographerId]
+      [title.trim(), description || null, type, price_coins, visible, category || null]
     );
+
+    await setPhotographers(client, rows[0].id, photographerNames ?? photographerName);
     await client.query('COMMIT');
 
     if (visible) {
@@ -649,7 +650,7 @@ router.get('/photographers', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT p.id, p.name, p.contact, p.active,
-              (SELECT count(*)::int FROM sets s WHERE s.photographer_id = p.id) AS sets
+              (SELECT count(*)::int FROM set_photographers sp WHERE sp.photographer_id = p.id) AS sets
        FROM photographers p WHERE p.active = TRUE ORDER BY p.name`
     );
     res.json({ photographers: rows });
@@ -658,6 +659,25 @@ router.get('/photographers', async (req, res) => {
     res.status(500).json({ error: 'Failed to load photographers' });
   }
 });
+
+// Replaces a set's photographers with the names given. Sending an empty list
+// clears them; sending undefined leaves them alone, so an edit that does not
+// mention photographers cannot silently remove one.
+async function setPhotographers(client, setId, names) {
+  if (names === undefined) return;
+  await client.query(`DELETE FROM set_photographers WHERE set_id = $1`, [setId]);
+  const list = (Array.isArray(names) ? names : String(names).split(','))
+    .map((n) => String(n).trim()).filter(Boolean);
+  for (const name of list) {
+    const id = await resolvePhotographer(client, name);
+    if (id) {
+      await client.query(
+        `INSERT INTO set_photographers (set_id, photographer_id) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`, [setId, id]
+      );
+    }
+  }
+}
 
 // Finds an existing photographer by name or creates one. Matching is
 // case-insensitive so a name typed slightly differently does not become a
@@ -749,9 +769,13 @@ router.get('/photographers/earnings', async (req, res) => {
               s.id AS set_id, s.title,
               COALESCE(sp.purchased_tokens, 0) AS purchased_tokens,
               COALESCE(sp.gifted_tokens, 0)    AS gifted_tokens,
-              COALESCE(u.n, 0)                 AS unlocks
+              COALESCE(u.n, 0)                 AS unlocks,
+              -- How many people share this set. A shoot credited to two splits
+              -- evenly between them.
+              (SELECT count(*)::int FROM set_photographers x WHERE x.set_id = s.id) AS credited
        FROM photographers p
-       LEFT JOIN sets s     ON s.photographer_id = p.id
+       JOIN set_photographers link ON link.photographer_id = p.id
+       LEFT JOIN sets s     ON s.id = link.set_id
        LEFT JOIN spend sp   ON sp.set_id = s.id
        LEFT JOIN unlocks u  ON u.set_id  = s.id
        WHERE p.active = TRUE
@@ -789,12 +813,14 @@ router.get('/photographers/earnings', async (req, res) => {
       // Purchased tokens are GST-inclusive too, so the same deduction applies —
       // otherwise a set unlocked directly would appear to earn 18% more than
       // the identical set unlocked on a membership credit.
-      const directInr    = (r.purchased_tokens * tokenRate) / (1 + gstPct / 100);
-      const allowanceInr = allowance.tokens * tokenRate;
+      const share = Math.max(1, r.credited || 1);
+      const directInr    = ((r.purchased_tokens * tokenRate) / (1 + gstPct / 100)) / share;
+      const allowanceInr = (allowance.tokens * tokenRate) / share;
       const totalInr     = directInr + allowanceInr;
 
       byId[r.id].sets.push({
         setId: r.set_id, title: r.title,
+        sharedWith: share > 1 ? share : null,
         unlocks: r.unlocks,
         purchasedTokens: r.purchased_tokens, giftedTokens: r.gifted_tokens,
         allowanceUnlocks: allowance.count,
@@ -1061,7 +1087,7 @@ router.post('/content/item', async (req, res) => {
 
 router.patch('/content/:id', async (req, res) => {
   const { title, description, price_coins, visible, type, category, cover_key,
-          photographerName } = req.body;
+          photographerName, photographerNames } = req.body;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1072,15 +1098,6 @@ router.patch('/content/:id', async (req, res) => {
     const wasHidden       = currentRows[0] && !currentRows[0].visible;
     const becomingVisible = visible === true;
 
-    // Attribution can be added to a set that already exists, and cleared by
-    // sending an empty string — undefined leaves it untouched.
-    let photographerId;
-    if (photographerName !== undefined) {
-      photographerId = photographerName?.trim()
-        ? await resolvePhotographer(client, photographerName)
-        : null;
-    }
-
     const { rows } = await client.query(
       `UPDATE sets SET
          title       = COALESCE($1, title),
@@ -1090,13 +1107,14 @@ router.patch('/content/:id', async (req, res) => {
          type        = COALESCE($5, type),
          category    = COALESCE($6, category),
          cover_key   = COALESCE($7, cover_key),
-         photographer_id = CASE WHEN $8::boolean THEN $9::uuid ELSE photographer_id END,
          published_at = CASE WHEN $4 = TRUE AND published_at IS NULL THEN NOW() ELSE published_at END
-       WHERE id = $10 RETURNING *`,
-      [title, description, price_coins, visible, type, category, cover_key,
-       photographerName !== undefined, photographerId || null, req.params.id]
+       WHERE id = $8 RETURNING *`,
+      [title, description, price_coins, visible, type, category, cover_key, req.params.id]
     );
     if (!rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Set not found' }); }
+
+    await setPhotographers(client, req.params.id, photographerNames ?? photographerName);
+
     await client.query('COMMIT');
 
     if (wasHidden && becomingVisible) {

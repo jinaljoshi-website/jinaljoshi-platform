@@ -124,7 +124,7 @@ export function Content() {
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
 
-  const [form, setForm] = useState({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key, photographerName: '' });
+  const [form, setForm] = useState({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key, photographerNames: [] });
 
   // Names already used, so the same person is picked rather than retyped —
   // a second spelling would become a second photographer with separate earnings.
@@ -425,7 +425,7 @@ export function Content() {
         price_coins: parseInt(form.price_coins) || 0,
         visible:     form.visible,
         category:    form.category,
-        photographerName: form.photographerName.trim() || undefined,
+        photographerNames: form.photographerNames,
       });
       const setId = setData.set.id;
 
@@ -447,7 +447,7 @@ export function Content() {
       setUploadProgress('');
       setSuccess(`"${form.title}" created with ${position} item${position !== 1 ? 's' : ''}.`);
       setSets((prev) => [{ ...setData.set, cover_url: coverUrl }, ...prev]);
-      setForm({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key, photographerName: '' });
+      setForm({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key, photographerNames: [] });
       loadPhotographers();
       setFilesByCategory(emptyCategoryFiles());
       setCoverFile(null);
@@ -462,7 +462,7 @@ export function Content() {
 
   const startEdit = (set) => {
     setEditing(set.id);
-    setEditForm({ title: set.title, description: set.description || '', price_coins: set.price_coins, visible: set.visible, category: set.category || CONTENT_CATEGORIES[0].key, photographerName: set.photographer || '' });
+    setEditForm({ title: set.title, description: set.description || '', price_coins: set.price_coins, visible: set.visible, category: set.category || CONTENT_CATEGORIES[0].key, photographerNames: set.photographer ? set.photographer.split(',').map((n) => n.trim()) : [] });
   };
 
   const handleUpdate = async (id) => {
@@ -514,14 +514,9 @@ export function Content() {
             <input style={S.input} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Behind the scenes — June shoot" />
           </Field>
           <TokenField label="Base price for the full set (tokens)" value={form.price_coins} onChange={(v) => setForm({ ...form, price_coins: v })} tokenRateInr={TOKEN_RATE} />
-          <Field label="Photographer — shown on the set">
-            <input style={S.input} list="photographer-names"
-                   value={form.photographerName}
-                   onChange={(e) => setForm({ ...form, photographerName: e.target.value })}
-                   placeholder="Who shot this" />
-            <datalist id="photographer-names">
-              {photographers.map((p) => <option key={p.id} value={p.name} />)}
-            </datalist>
+          <Field label="Photographers — shown on the set">
+            <PhotographerPicker names={form.photographerNames} options={photographers}
+                                onChange={(names) => setForm({ ...form, photographerNames: names })} />
           </Field>
         </div>
 
@@ -726,11 +721,9 @@ export function Content() {
                       <input style={S.input} value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
                     </Field>
                     <TokenField label="Base price (tokens)" value={editForm.price_coins} onChange={(v) => setEditForm({ ...editForm, price_coins: v })} tokenRateInr={TOKEN_RATE} />
-                    <Field label="Photographer — shown on the set">
-                      <input style={S.input} list="photographer-names"
-                             value={editForm.photographerName ?? ''}
-                             onChange={(e) => setEditForm({ ...editForm, photographerName: e.target.value })}
-                             placeholder="Who shot this" />
+                    <Field label="Photographers — shown on the set">
+                      <PhotographerPicker names={editForm.photographerNames || []} options={photographers}
+                                          onChange={(names) => setEditForm({ ...editForm, photographerNames: names })} />
                     </Field>
                   </div>
                   <div style={{ marginTop: 12 }}>
@@ -1080,6 +1073,52 @@ function SequenceView({ items, mediaUrl, busy, onSave }) {
   );
 }
 
+function PhotographerPicker({ names, onChange, options }) {
+  const [draft, setDraft] = useState('');
+
+  const add = (raw) => {
+    const name = String(raw || draft).trim();
+    if (!name) return;
+    // Case-insensitive, matching the server — otherwise the same person could be
+    // added twice under two spellings and the split would be wrong.
+    if (!names.some((n) => n.toLowerCase() === name.toLowerCase())) onChange([...names, name]);
+    setDraft('');
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: names.length ? 8 : 0 }}>
+        {names.map((n) => (
+          <span key={n} style={photogChip}>
+            {n}
+            <button onClick={() => onChange(names.filter((x) => x !== n))}
+                    style={chipX} title="Remove">×</button>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input style={{ ...S.input, flex: 1 }} list="photographer-names"
+               value={draft}
+               onChange={(e) => setDraft(e.target.value)}
+               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+               placeholder={names.length ? 'Add another' : 'Who shot this'} />
+        <button onClick={() => add()} disabled={!draft.trim()}
+                style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 14px', opacity: draft.trim() ? 1 : 0.5 }}>
+          Add
+        </button>
+      </div>
+      {names.length > 1 && (
+        <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 6 }}>
+          What this set earns is split equally between {names.length}.
+        </div>
+      )}
+      <datalist id="photographer-names">
+        {options.map((p) => <option key={p.id} value={p.name} />)}
+      </datalist>
+    </div>
+  );
+}
+
 function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletingItem, lightbox, setLightbox, mediaUrl, categories,
                        selected, setSelected, onBulkMove, onBulkDelete, bulkBusy,
                        ordering, setOrdering, onSaveOrder, orderBusy }) {
@@ -1362,6 +1401,9 @@ const uSub        = { fontFamily: sans, fontSize: 11, color: colors.muted, margi
 const unlockRow   = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 12px' };
 const unlockOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const unlockModal = { width: '100%', maxWidth: 760, maxHeight: '86vh', overflowY: 'auto', background: '#161410', border: `1px solid ${colors.border}`, borderRadius: 14, padding: 24 };
+
+const photogChip = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(193,125,74,0.12)', border: `1px solid rgba(193,125,74,0.3)`, color: colors.accent, fontFamily: sans, fontSize: 12, padding: '4px 8px 4px 10px', borderRadius: 999 };
+const chipX      = { background: 'none', border: 'none', color: colors.accent, fontSize: 14, cursor: 'pointer', padding: 0, lineHeight: 1 };
 
 const rowActions = { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` };
 const actionBtn  = { ...S.ghostBtn, fontSize: 12, padding: '6px 12px', whiteSpace: 'nowrap' };

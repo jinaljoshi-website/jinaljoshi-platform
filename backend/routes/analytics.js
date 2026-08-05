@@ -261,14 +261,16 @@ router.get('/sets', async (req, res) => {
          ) t ON TRUE
          WHERE u.is_test = FALSE GROUP BY ag.set_id
        )
-       SELECT s.id, s.title, s.price_coins, p.name AS photographer,
+       SELECT s.id, s.title, s.price_coins,
+              (SELECT string_agg(p.name, ', ' ORDER BY p.name)
+                FROM set_photographers spx JOIN photographers p ON p.id = spx.photographer_id
+                WHERE spx.set_id = s.id) AS photographer,
               COALESCE(u.unlocks, 0)          AS unlocks,
               COALESCE(u.credit_unlocks, 0)   AS credit_unlocks,
               u.credit_by_tier,
               COALESCE(sp.purchased_tokens,0) AS purchased_tokens,
               COALESCE(sp.gifted_tokens, 0)   AS gifted_tokens
        FROM sets s
-       LEFT JOIN photographers p ON p.id = s.photographer_id
        LEFT JOIN spend sp   ON sp.set_id = s.id
        LEFT JOIN unlocks u  ON u.set_id  = s.id
        ORDER BY 7 DESC, s.created_at DESC`
