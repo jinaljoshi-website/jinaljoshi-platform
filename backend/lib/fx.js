@@ -145,12 +145,22 @@ async function quote(amountInr, currency) {
   };
 }
 
-// Which currency to actually charge in. A stated preference always wins — the
-// fan was asked, and a guess should never override an answer. Country is only
-// used to decide whether to ask.
+// Which currency to actually charge in.
+//
+// A foreign currency is only ever used for someone actually outside India. An
+// Indian card charged in dollars is converted back by the cardholder's own bank
+// at their rate plus a forex markup — the fan pays several percent more for
+// nothing, and the sale is not an export anyway. So a stored preference is
+// honoured only while the person it belongs to is abroad; a fan who set USD
+// while travelling and is now home pays rupees again.
 async function resolveForUser({ preferredCurrency, country }) {
+  const abroad = isForeignCountry(country);
+
+  if (!abroad) {
+    return { currency: HOME, isForeign: false, shouldAsk: false };
+  }
   if (!preferredCurrency || preferredCurrency === HOME) {
-    return { currency: HOME, isForeign: false, shouldAsk: isForeignCountry(country) && !preferredCurrency };
+    return { currency: HOME, isForeign: false, shouldAsk: !preferredCurrency };
   }
   const rate = await getRate(preferredCurrency);
   // A preference we can no longer price falls back to INR rather than failing
