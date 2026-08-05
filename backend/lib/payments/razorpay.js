@@ -13,11 +13,16 @@ function getClient() {
   });
 }
 
-async function createOrder({ amountInr, tokens, discountPct, userId, clientIp, userCountry }) {
+async function createOrder({ amountInr, tokens, discountPct, userId, clientIp, userCountry,
+                             currency = 'INR', amountInCurrency }) {
   const razorpay = getClient();
+  // Charged in the fan's own currency where they have chosen one. The INR value
+  // is carried in the notes so the invoice records what the sale was worth here
+  // regardless of what was billed.
+  const charge = amountInCurrency ?? amountInr;
   const order = await razorpay.orders.create({
-    amount:   amountInr * 100,
-    currency: 'INR',
+    amount:   Math.round(charge * 100),
+    currency,
     // Razorpay echoes notes back in the webhook payload, which is the only way
     // the fan's IP and country survive to a server-to-server credit. Country
     // decides whether a supply is zero-rated, so losing it is not cosmetic.
@@ -27,6 +32,7 @@ async function createOrder({ amountInr, tokens, discountPct, userId, clientIp, u
       discount:     String(discountPct),
       client_ip:    clientIp || '',
       user_country: userCountry || '',
+      amount_inr:   String(amountInr),
     },
   });
 

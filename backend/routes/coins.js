@@ -6,7 +6,8 @@ const { postSystemMessage } = require('./community');
 const { getClientIp, lookupIpCountry } = require('../lib/geoip');
 const { issueInvoiceForPurchase } = require('../lib/invoice');
 const payments = require('../lib/payments');
-const { getConfigNumber } = require('../lib/config');
+const { getConfigNumber, getConfigValue } = require('../lib/config');
+const fx = require('../lib/fx');
 
 
 async function getDiscountConfig() {
@@ -68,6 +69,62 @@ router.get('/balance', authMid, async (req, res) => {
 // Body: { tokens }
 // ─────────────────────────────────────────────
 
+// What currency this fan can pay in, and whether we should be asking.
+router.get('/currencies', authMid, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT preferred_currency FROM users WHERE id = $1`, [req.user.userId]
+    );
+    const { country } = await lookupIpCountry(getClientIp(req));
+
+    // Recorded whenever we see it. Everyone who joined before this existed has
+    // no country against them, so this is what eventually places them — and it
+    // gives Jinal a real picture of where her audience is.
+    if (country && country !== 'Unknown') {
+      pool.query(`UPDATE users SET detected_country = $1 WHERE id = $2`,
+                 [country, req.user.userId]).catch(() => {});
+    }
+    const resolved = await fx.resolveForUser({
+      preferredCurrency: rows[0]?.preferred_currency, country,
+    });
+
+    // Nothing is offered while the feature is off — showing a currency picker
+    // that cannot be honoured is worse than not showing one.
+    const abroad = fx.isForeignCountry(country)
+      && (await getConfigValue('international_payments_live')) === 'true';
+    res.json({
+      current: resolved.currency,
+      isForeign: resolved.isForeign,
+      // Asked once, when we first see them from abroad and they have not
+      // answered. A guess from an IP address should never override a choice.
+      shouldAsk: resolved.shouldAsk,
+      detectedCountry: abroad ? country : null,
+      // Their own currency, USD, and INR. Three choices rather than a list.
+      options: abroad ? await fx.optionsForCountry(country) : [],
+    });
+  } catch (err) {
+    console.error('coins/currencies error:', err);
+    res.status(500).json({ error: 'Could not load currencies' });
+  }
+});
+
+router.post('/currency', authMid, async (req, res) => {
+  const { currency } = req.body;
+  try {
+    // INR is always available; anything else must be priceable right now.
+    if (currency && currency !== fx.HOME) {
+      const rate = await fx.getRate(currency);
+      if (!rate) return res.status(400).json({ error: 'That currency is not available at the moment' });
+    }
+    await pool.query(`UPDATE users SET preferred_currency = $1 WHERE id = $2`,
+                     [currency || fx.HOME, req.user.userId]);
+    res.json({ ok: true, currency: currency || fx.HOME });
+  } catch (err) {
+    console.error('coins/currency error:', err);
+    res.status(500).json({ error: 'Could not save your choice' });
+  }
+});
+
 router.post('/recharge/initiate', authMid, async (req, res) => {
   const { tokens } = req.body;
   const amount     = parseInt(tokens);
@@ -89,6 +146,34 @@ router.post('/recharge/initiate', authMid, async (req, res) => {
   const clientIp = getClientIp(req);
   const { country: ipCountry } = await lookupIpCountry(clientIp);
 
+  // Off until Razorpay have enabled international payments on the account.
+  // Sending a USD order before then is rejected at their end, which would fail
+  // the purchase rather than quietly falling back — so the whole path stays
+  // dormant behind a switch.
+  const fxLive = (await getConfigValue('international_payments_live')) === 'true';
+
+  // The fan's stated currency, not a guess from their address. Charging in
+  // foreign exchange is what makes an international sale an export — the price
+  // is the same value either way, but paid in rupees it stays taxable, and the
+  // FIRC Razorpay issues is what evidences the foreign remittance.
+  const { rows: prefRows } = await pool.query(
+    `SELECT preferred_currency FROM users WHERE id = $1`, [req.user.userId]
+  );
+  const resolved = await fx.resolveForUser({
+    preferredCurrency: prefRows[0]?.preferred_currency, country: ipCountry,
+  });
+
+  let fxQuote = null;
+  if (fxLive && resolved.isForeign) {
+    try {
+      fxQuote = await fx.quote(priceINR, resolved.currency);
+    } catch (err) {
+      // No usable rate means charging in INR rather than refusing the sale.
+      // The fan pays the same value; only the tax treatment differs.
+      console.error('fx quote failed, falling back to INR:', err.message);
+    }
+  }
+
   try {
     const order = await payments.createOrder({
       amountInr:   priceINR,
@@ -97,11 +182,17 @@ router.post('/recharge/initiate', authMid, async (req, res) => {
       userId:      req.user.userId,
       clientIp,
       userCountry: ipCountry,
+      currency:         fxQuote ? fxQuote.currency : 'INR',
+      amountInCurrency: fxQuote ? fxQuote.amount   : priceINR,
     });
 
     res.json({
       orderId:     order.orderId,
-      amount:      priceINR,
+      amount:      fxQuote ? fxQuote.amount : priceINR,
+      amountInr:   priceINR,
+      currency:    fxQuote ? fxQuote.currency : 'INR',
+      display:     fxQuote ? fxQuote.display  : null,
+      isExport:    !!fxQuote,
       tokens:      amount,
       discountPct,
       razorpayKey: order.providerKey, // field name kept for frontend compatibility; represents whichever provider is active

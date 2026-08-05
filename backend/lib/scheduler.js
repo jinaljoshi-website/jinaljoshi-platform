@@ -5,6 +5,7 @@
 const cron    = require('node-cron');
 const pool    = require('../db/pool');
 const { notifyArtist, pushToUser } = require('./notify');
+const fx = require('./fx');
 const { refundByRelated } = require('./tokens');
 const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 
@@ -475,6 +476,16 @@ function startScheduler() {
   cron.schedule('30 4 * * *', () => {
     checkMembershipExpiry();
   });
+
+  // Exchange rates, twice daily. A rate older than 48 hours withdraws its
+  // currency from sale, so a single missed run must not be enough to take
+  // international payments offline — twice a day means two consecutive
+  // failures before anything stops working.
+  cron.schedule('0 2,14 * * *', () => { fx.refreshRates(); });
+
+  // And once at boot, because a deploy after any downtime would otherwise run
+  // on whatever the rates were before it.
+  fx.refreshRates().catch(() => {});
 
   console.log('Scheduler started: reminders, no-show checks and auction lifecycle every minute; duration cutoff and missed-call checks every 15s; membership expiry reminders daily');
 }
