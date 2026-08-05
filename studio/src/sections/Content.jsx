@@ -175,6 +175,30 @@ export function Content() {
 
   const clearSelection = () => setSelected([]);
 
+  // The order fans actually see. Arranged in a flat list rather than the
+  // tier-grouped grid, because those are different orders — arranging within
+  // tiers would mean arranging something other than what a fan looks at.
+  const [ordering, setOrdering] = useState(false);
+  const [orderBusy, setOrderBusy] = useState(false);
+
+  const saveOrder = async (items) => {
+    setOrderBusy(true); setError('');
+    try {
+      await api.post('/api/studio/content/items/reorder', {
+        setId: reviewSet.id,
+        orderedIds: items.map((i) => i.id),
+      });
+      setReviewItems(items);
+      setSuccess('Order saved. The first photo is now the cover.');
+      loadSets();
+    } catch (err) {
+      setError(err.message);
+      // Put the list back rather than leaving the screen showing an order that
+      // was never written.
+      openReview(reviewSet);
+    } finally { setOrderBusy(false); }
+  };
+
   const bulkMove = async (tierCategory) => {
     setBulkBusy(true); setError('');
     try {
@@ -742,6 +766,7 @@ export function Content() {
                   </div>
                 </div>
               ) : (
+                <>
                 <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                   {(set.cover_url || set.cover_key) && (
                     <img src={set.cover_url || toUrl(set.cover_key)} alt="" style={{ width: 60, height: 50, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
@@ -774,22 +799,31 @@ export function Content() {
                       {summary && ` · ${summary}`}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-                    <span style={{ fontFamily: sans, fontSize: 12, color: set.visible ? colors.success : colors.muted }}>
-                      {set.visible ? 'Live' : 'Hidden'}
-                    </span>
-                    <button onClick={() => { setAddingTo(addingTo === set.id ? null : set.id); setFilesByCategory(emptyCategoryFiles()); }}
-                            style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
-                      {addingTo === set.id ? 'Cancel' : 'Add photos'}
-                    </button>
-                    <button onClick={() => openUnlocks(set)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
-                      {unlocksFor === set.id ? 'Hide unlocks' : 'Unlocks'}
-                    </button>
-                    <button onClick={() => openReview(set)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Review</button>
-                    <button onClick={() => startEdit(set)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Edit</button>
-                    <button onClick={() => setConfirmDelete(set.id)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A', borderColor: 'rgba(156,90,90,0.35)' }}>Delete</button>
-                  </div>
+                  {/* Live or hidden stays on the title row — it is a property of
+                      the set, not an action. */}
+                  <span style={{ fontFamily: sans, fontSize: 12, flexShrink: 0,
+                                 color: set.visible ? colors.success : colors.muted }}>
+                    {set.visible ? 'Live' : 'Hidden'}
+                  </span>
                 </div>
+
+                <div style={rowActions}>
+                  <button onClick={() => openReview(set)} style={actionBtn}>Review</button>
+                  <button onClick={() => { setAddingTo(addingTo === set.id ? null : set.id); setFilesByCategory(emptyCategoryFiles()); }}
+                          style={actionBtn}>
+                    {addingTo === set.id ? 'Cancel' : 'Add photos'}
+                  </button>
+                  <button onClick={() => startEdit(set)} style={actionBtn}>Edit</button>
+                  <button onClick={() => openUnlocks(set)} style={actionBtn}>
+                    {unlocksFor === set.id ? 'Hide unlocks' : 'Unlocks'}
+                  </button>
+                  {/* Pushed to the far end, away from the things used constantly. */}
+                  <button onClick={() => setConfirmDelete(set.id)}
+                          style={{ ...actionBtn, marginLeft: 'auto', color: '#D99A9A', borderColor: 'rgba(156,90,90,0.35)' }}>
+                    Delete
+                  </button>
+                </div>
+                </>
               )}
             </div>
           );
@@ -930,7 +964,11 @@ export function Content() {
           set={reviewSet}
           items={reviewItems}
           loading={reviewLoading}
-          onClose={() => { setReviewSet(null); setLightbox(null); clearSelection(); }}
+          onClose={() => { setReviewSet(null); setLightbox(null); clearSelection(); setOrdering(false); }}
+          ordering={ordering}
+          setOrdering={setOrdering}
+          onSaveOrder={saveOrder}
+          orderBusy={orderBusy}
           selected={selected}
           setSelected={setSelected}
           onBulkMove={bulkMove}
@@ -976,8 +1014,75 @@ function LazyThumb({ src, alt, onClick, style }) {
     : <div ref={ref} onClick={onClick} style={{ ...style, background: 'rgba(255,255,255,0.04)' }} />;
 }
 
+// The order a fan sees, flat and in sequence. Drag for a local move, the arrow
+// for the common case of promoting one photo to the front — dragging item 200
+// up to position 3 across a long grid is miserable, and that is the move people
+// actually want to make.
+function SequenceView({ items, mediaUrl, busy, onSave }) {
+  const [list, setList] = useState(items);
+  const [dragging, setDragging] = useState(null);
+  const dirty = list.some((it, i) => it.id !== items[i]?.id);
+
+  useEffect(() => { setList(items); }, [items]);
+
+  const move = (from, to) => {
+    if (to < 0 || to >= list.length || from === to) return;
+    const next = [...list];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    setList(next);
+  };
+
+  return (
+    <div>
+      <div style={seqGrid}>
+        {list.map((item, idx) => (
+          <div
+            key={item.id}
+            draggable
+            onDragStart={() => setDragging(idx)}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (dragging !== null && dragging !== idx) { move(dragging, idx); setDragging(idx); }
+            }}
+            onDragEnd={() => setDragging(null)}
+            style={{ ...seqTile, opacity: dragging === idx ? 0.4 : 1 }}
+          >
+            {item.media_type === 'video' || item.type === 'video'
+              ? <div style={{ ...reviewThumb, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🎬</div>
+              : <LazyThumb src={mediaUrl(item.r2_key)} alt="" style={reviewThumb} />}
+
+            <div style={seqBadge}>{idx + 1}</div>
+            {idx === 0 && <div style={seqCover}>cover</div>}
+
+            <button onClick={() => move(idx, 0)} title="Send to front"
+                    style={seqToFront} disabled={idx === 0}>↑</button>
+          </div>
+        ))}
+      </div>
+
+      {dirty && (
+        <div style={seqBar}>
+          <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+            Order changed
+          </span>
+          <button onClick={() => onSave(list)} disabled={busy}
+                  style={{ ...S.btn, fontSize: 12, padding: '7px 16px', opacity: busy ? 0.5 : 1 }}>
+            {busy ? 'Saving…' : 'Save this order'}
+          </button>
+          <button onClick={() => setList(items)} disabled={busy}
+                  style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 14px' }}>
+            Undo
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletingItem, lightbox, setLightbox, mediaUrl, categories,
-                       selected, setSelected, onBulkMove, onBulkDelete, bulkBusy }) {
+                       selected, setSelected, onBulkMove, onBulkDelete, bulkBusy,
+                       ordering, setOrdering, onSaveOrder, orderBusy }) {
   // Grouped for the grid, but navigation runs across the whole set in the order
   // shown. A shoot produces near-identical frames, so being able to step through
   // them without leaving the large view is the only way to tell them apart.
@@ -1077,7 +1182,24 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
           <button onClick={onClose} style={{ ...S.ghostBtn, fontSize: 14, padding: '6px 12px' }}>✕</button>
         </div>
 
-        {loading ? <div style={{ fontFamily: sans, fontSize: 13, color: colors.muted }}>Loading…</div>
+        {!loading && items.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            <button onClick={() => { setOrdering(!ordering); setSelected([]); }}
+                    style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
+                             ...(ordering ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
+              {ordering ? 'Done arranging' : 'Arrange order'}
+            </button>
+            {ordering && (
+              <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted, alignSelf: 'center' }}>
+                Drag to move, or use ↑ to send a photo to the front. The first is the cover.
+              </span>
+            )}
+          </div>
+        )}
+
+        {ordering ? (
+          <SequenceView items={ordered} mediaUrl={mediaUrl} busy={orderBusy} onSave={onSaveOrder} />
+        ) : loading ? <div style={{ fontFamily: sans, fontSize: 13, color: colors.muted }}>Loading…</div>
          : items.length === 0 ? <div style={{ fontFamily: sans, fontSize: 13, color: colors.muted }}>This set has no items yet.</div>
          : categories.filter((cat) => byTier[cat.key]?.length).map((cat) => (
           <div key={cat.key} style={{ marginBottom: 20 }}>
@@ -1199,6 +1321,13 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
 
 const reviewOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const reviewModal   = { width: '100%', maxWidth: 900, maxHeight: '88vh', overflowY: 'auto', background: '#161410', border: `1px solid ${colors.border}`, borderRadius: 14, padding: 24 };
+const seqGrid   = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 10 };
+const seqTile   = { position: 'relative', cursor: 'grab', borderRadius: 6, overflow: 'hidden' };
+const seqBadge  = { position: 'absolute', bottom: 4, left: 4, background: 'rgba(0,0,0,0.7)', color: '#fff', fontFamily: mono, fontSize: 10, padding: '2px 6px', borderRadius: 4 };
+const seqCover  = { position: 'absolute', top: 4, left: 4, background: colors.accent, color: '#1A1714', fontFamily: sans, fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4 };
+const seqToFront = { position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: 12, cursor: 'pointer', padding: 0, lineHeight: 1 };
+const seqBar    = { position: 'sticky', bottom: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#100F0C', border: `1px solid ${colors.accent}`, borderRadius: 10, padding: '12px 14px', marginTop: 16, zIndex: 5 };
+
 const reviewGrid    = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 10 };
 const reviewThumb   = { width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}`, background: 'rgba(255,255,255,0.03)', display: 'block' };
 const selectDot = { position: 'absolute', top: 4, left: 4, width: 20, height: 20, borderRadius: '50%', border: `1px solid rgba(255,255,255,0.35)`, fontSize: 11, lineHeight: 1, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' };
@@ -1233,6 +1362,9 @@ const uSub        = { fontFamily: sans, fontSize: 11, color: colors.muted, margi
 const unlockRow   = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 12px' };
 const unlockOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const unlockModal = { width: '100%', maxWidth: 760, maxHeight: '86vh', overflowY: 'auto', background: '#161410', border: `1px solid ${colors.border}`, borderRadius: 14, padding: 24 };
+
+const rowActions = { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` };
+const actionBtn  = { ...S.ghostBtn, fontSize: 12, padding: '6px 12px', whiteSpace: 'nowrap' };
 
 const storageBox = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, marginTop: 28 };
 
