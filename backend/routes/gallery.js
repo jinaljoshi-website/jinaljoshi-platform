@@ -103,7 +103,7 @@ router.get('/sets', authMid, async (req, res) => {
 
     const { rows: sets } = await pool.query(
       `SELECT s.id, s.title, s.description, s.type, s.category, s.price_coins,
-              s.created_at, p.name AS photographer,
+              s.created_at, s.published_at, p.name AS photographer,
               -- Falls back to the first item so a set never shows a blank card.
               COALESCE(s.cover_key,
                 (SELECT r2_key FROM set_items WHERE set_id = s.id
@@ -161,6 +161,8 @@ router.get('/sets', authMid, async (req, res) => {
         title: s.title,
         description: s.description,
         photographer: s.photographer,
+        // Carried through so the price sort can fall back to date on a tie.
+        publishedAt: s.published_at || s.created_at,
         type: s.type,
         category: s.category,
         cover_url: toUrl(s.cover_key),
@@ -191,9 +193,17 @@ router.get('/sets', authMid, async (req, res) => {
     // depends on their tier and is only known after the per-fan calculation
     // above. The query's own ordering stands for 'newest'.
     if (sortBy !== 'newest') {
-      const cost = (s) => (s.tierPrice || 0) + (s.upsellPrice || 0);
-      setsWithData.sort((a, b) =>
-        sortBy === 'price_low' ? cost(a) - cost(b) : cost(b) - cost(a));
+      // What this fan would actually pay to see everything in the set. A set
+      // that is free to them costs nothing, so it sorts to the top of low-to-
+      // high rather than being treated as a special case.
+      const cost = (s) => s.isFreeForAll ? 0 : (s.tierPrice || 0) + (s.upsellPrice || 0);
+      setsWithData.sort((a, b) => {
+        const d = sortBy === 'price_low' ? cost(a) - cost(b) : cost(b) - cost(a);
+        // Ties fall back to newest, so equally priced sets still read in a
+        // sensible order rather than an arbitrary one.
+        if (d !== 0) return d;
+        return new Date(b.publishedAt) - new Date(a.publishedAt);
+      });
     }
 
     const freeForAll = setsWithData.filter((s) => s.isFreeForAll);
@@ -201,6 +211,10 @@ router.get('/sets', authMid, async (req, res) => {
 
     res.json({
       sort: sortBy,
+      // One list, already in the requested order. freeForAll and unlockable are
+      // kept for anything still reading them, but concatenating those two is
+      // what put free sets last regardless of sort.
+      sets: setsWithData,
       freeForAll,
       unlockable,
       userTier,

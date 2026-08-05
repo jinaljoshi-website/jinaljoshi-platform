@@ -51,7 +51,9 @@ export default function Gallery() {
 
   useEffect(() => { load(); }, []);
 
-  const allSets = data ? [...(data.unlockable || []), ...(data.freeForAll || [])] : [];
+  const allSets = data
+    ? (data.sets || [...(data.unlockable || []), ...(data.freeForAll || [])])
+    : [];
   const unlockedSets = allSets.filter((s) => s.isGenuinelyUnlocked);
 
   const openViewer = async (set) => {
@@ -79,7 +81,8 @@ export default function Gallery() {
   const refreshOpenSet = async (setId) => {
     const freshData = await api.get(`/api/gallery/sets?sort=${sort}`);
     setData(freshData);
-    const updated = [...(freshData.unlockable || []), ...(freshData.freeForAll || [])].find((s) => s.id === setId);
+    const updated = (freshData.sets
+      || [...(freshData.unlockable || []), ...(freshData.freeForAll || [])]).find((s) => s.id === setId);
     if (updated) setOpenSet(updated);
     const itemsData = await api.get(`/api/gallery/sets/${setId}/items`);
     setSetItems(itemsData.items || []);
