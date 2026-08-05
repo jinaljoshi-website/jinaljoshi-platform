@@ -98,6 +98,9 @@ router.get('/sets', authMid, async (req, res) => {
     }
     const creditsRemaining = Math.max(0, maxUnlocks - creditsUsed);
 
+    const sortBy = ['newest', 'price_low', 'price_high'].includes(req.query.sort)
+      ? req.query.sort : 'newest';
+
     const { rows: sets } = await pool.query(
       `SELECT s.id, s.title, s.description, s.type, s.category, s.price_coins,
               s.created_at, p.name AS photographer,
@@ -108,7 +111,10 @@ router.get('/sets', authMid, async (req, res) => {
               ) AS cover_key
        FROM sets s
        LEFT JOIN photographers p ON p.id = s.photographer_id
-       WHERE s.visible = TRUE ORDER BY s.created_at DESC`
+       WHERE s.visible = TRUE AND s.is_vault = FALSE
+       -- Ordered by when it became available, falling back to upload date for
+       -- anything published before that was recorded.
+       ORDER BY COALESCE(s.published_at, s.created_at) DESC`
     );
 
     const { rows: allItems } = await pool.query(
@@ -181,10 +187,20 @@ router.get('/sets', authMid, async (req, res) => {
       };
     });
 
+    // Price sorting happens here rather than in SQL, because what a fan pays
+    // depends on their tier and is only known after the per-fan calculation
+    // above. The query's own ordering stands for 'newest'.
+    if (sortBy !== 'newest') {
+      const cost = (s) => (s.tierPrice || 0) + (s.upsellPrice || 0);
+      setsWithData.sort((a, b) =>
+        sortBy === 'price_low' ? cost(a) - cost(b) : cost(b) - cost(a));
+    }
+
     const freeForAll = setsWithData.filter((s) => s.isFreeForAll);
     const unlockable = setsWithData.filter((s) => !s.isFreeForAll);
 
     res.json({
+      sort: sortBy,
       freeForAll,
       unlockable,
       userTier,
@@ -237,7 +253,7 @@ router.post('/unlock', authMid, async (req, res) => {
     const { rows: setRows } = await client.query(
       `SELECT s.*, p.name AS photographer
        FROM sets s LEFT JOIN photographers p ON p.id = s.photographer_id
-       WHERE s.id = $1 AND s.visible = TRUE`, [setId]);
+       WHERE s.id = $1 AND s.visible = TRUE AND s.is_vault = FALSE`, [setId]);
     if (!setRows.length) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Content not found' });

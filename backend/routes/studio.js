@@ -501,8 +501,10 @@ router.post('/content', async (req, res) => {
     const photographerId = await resolvePhotographer(client, photographerName);
 
     const { rows } = await client.query(
-      `INSERT INTO sets (title, description, type, price_coins, visible, category, photographer_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      `INSERT INTO sets (title, description, type, price_coins, visible, category, photographer_id,
+                         published_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $5 = TRUE THEN NOW() ELSE NULL END)
+       RETURNING *`,
       [title.trim(), description || null, type, price_coins, visible, category || null, photographerId]
     );
     await client.query('COMMIT');
@@ -1088,7 +1090,8 @@ router.patch('/content/:id', async (req, res) => {
          type        = COALESCE($5, type),
          category    = COALESCE($6, category),
          cover_key   = COALESCE($7, cover_key),
-         photographer_id = CASE WHEN $8::boolean THEN $9::uuid ELSE photographer_id END
+         photographer_id = CASE WHEN $8::boolean THEN $9::uuid ELSE photographer_id END,
+         published_at = CASE WHEN $4 = TRUE AND published_at IS NULL THEN NOW() ELSE published_at END
        WHERE id = $10 RETURNING *`,
       [title, description, price_coins, visible, type, category, cover_key,
        photographerName !== undefined, photographerId || null, req.params.id]

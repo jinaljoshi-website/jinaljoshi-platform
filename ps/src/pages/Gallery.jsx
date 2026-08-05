@@ -37,12 +37,14 @@ export default function Gallery() {
   const [lightbox,  setLightbox]  = useState(null);
   const [unlockingScope, setUnlockingScope] = useState(null);
   const [viewerError, setViewerError] = useState('');
+  const [sort, setSort] = useState('newest');
+
   const [activeTab, setActiveTab] = useState(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     return TABS.some((x) => x.key === t) ? t : 'all';
   }); // 'all' | 'selfies' | 'unlocked' | a content-category key
 
-  const load = () => api.get('/api/gallery/sets')
+  const load = (s = sort) => api.get(`/api/gallery/sets?sort=${s}`)
     .then(setData)
     .catch((err) => setError(err.message))
     .finally(() => setLoading(false));
@@ -75,7 +77,7 @@ export default function Gallery() {
   };
 
   const refreshOpenSet = async (setId) => {
-    const freshData = await api.get('/api/gallery/sets');
+    const freshData = await api.get(`/api/gallery/sets?sort=${sort}`);
     setData(freshData);
     const updated = [...(freshData.unlockable || []), ...(freshData.freeForAll || [])].find((s) => s.id === setId);
     if (updated) setOpenSet(updated);
@@ -260,6 +262,18 @@ export default function Gallery() {
         ))}
       </div>
 
+      {activeTab !== 'selfies' && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+          <select value={sort}
+                  onChange={(e) => { setSort(e.target.value); load(e.target.value); }}
+                  style={sortSelect}>
+            <option value="newest">Newest first</option>
+            <option value="price_low">Price: low to high</option>
+            <option value="price_high">Price: high to low</option>
+          </select>
+        </div>
+      )}
+
       {activeTab === 'selfies' ? <Selfies /> : activeItems.length === 0 ? (
         <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14 }}>
           {activeTab === 'unlocked' ? "You haven't unlocked anything yet — unlocks you pay for with credits or tokens will show up here." : 'No content published yet.'}
@@ -323,6 +337,8 @@ export default function Gallery() {
     </div>
   );
 }
+
+const sortSelect = { background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 12, padding: '7px 12px', borderRadius: 8, outline: 'none', cursor: 'pointer' };
 
 const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 12 };
 const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(28px,5vw,52px)', margin: '0 0 10px' };
