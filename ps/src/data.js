@@ -86,8 +86,13 @@ export const MEMBERSHIP_NOTES = [
     text: 'Some content is marked purchase-only and sits outside membership, whatever your tier.',
   },
   {
-    title: 'Discounts',
-    text: 'Discounts do not apply to One-of-One Outfits. They can be used everywhere else.',
+    // Written from what the code actually does. "Everywhere else" was not true:
+    // the discount is applied on gallery unlocks, merchandise and calls, and
+    // nowhere else. Messages have their own per-tier rate instead of a discount,
+    // and outfits are deliberately flat-priced so a bid means the same from
+    // everyone.
+    title: 'Where discounts apply',
+    text: 'Your tier discount applies to gallery unlocks, merchandise and calls. Messages are already priced by tier, so no further discount applies. One-of-One Outfits, custom requests and membership itself are excluded.',
   },
 ];
 
