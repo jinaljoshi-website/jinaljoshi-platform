@@ -309,4 +309,75 @@ router.get('/sets', async (req, res) => {
   }
 });
 
+// Every set opening, newest first. Unlocks and free-set views in one list,
+// because what Jinal wants to know is who looked at what — whether a token
+// changed hands is a detail of that, not a separate question.
+router.get('/activity', async (req, res) => {
+  try {
+    const limit  = Math.min(parseInt(req.query.limit, 10) || 200, 500);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+
+    const { rows } = await pool.query(
+      `SELECT * FROM (
+         SELECT g.granted_at   AS at,
+                u.display_name, u.email, u.tier,
+                s.title        AS set_title,
+                s.is_vault,
+                g.scope,
+                COALESCE(g.coins_paid, 0) AS tokens,
+                CASE WHEN COALESCE(g.coins_paid, 0) = 0 THEN 'membership' ELSE 'tokens' END AS how
+         FROM access_grants g
+         JOIN users u ON u.id = g.user_id
+         JOIN sets  s ON s.id = g.set_id
+         WHERE u.is_test = FALSE
+
+         UNION ALL
+
+         -- Views only where there is no unlock for that fan and set, so a set
+         -- that was opened and then unlocked appears once, as the unlock.
+         SELECT v.first_seen AS at,
+                u.display_name, u.email, u.tier,
+                s.title, s.is_vault,
+                NULL AS scope, 0 AS tokens, 'free' AS how
+         FROM set_views v
+         JOIN users u ON u.id = v.user_id
+         JOIN sets  s ON s.id = v.set_id
+         WHERE u.is_test = FALSE
+           AND NOT EXISTS (
+             SELECT 1 FROM access_grants g2
+             WHERE g2.user_id = v.user_id AND g2.set_id = v.set_id
+           )
+       ) x
+       ORDER BY at DESC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
+
+    const { rows: totals } = await pool.query(
+      `SELECT
+         (SELECT count(*) FROM access_grants g JOIN users u ON u.id = g.user_id WHERE u.is_test = FALSE) AS unlocks,
+         (SELECT count(*) FROM set_views v JOIN users u ON u.id = v.user_id WHERE u.is_test = FALSE)     AS views`
+    );
+
+    res.json({
+      rows: rows.map((r) => ({
+        at: r.at,
+        who: r.display_name || r.email,
+        tier: r.tier,
+        setTitle: r.set_title,
+        isVault: r.is_vault,
+        scope: r.scope,
+        tokens: Number(r.tokens),
+        how: r.how,
+      })),
+      totalUnlocks: Number(totals[0].unlocks),
+      totalViews:   Number(totals[0].views),
+      hasMore: rows.length === limit,
+    });
+  } catch (err) {
+    console.error('analytics/activity error:', err);
+    res.status(500).json({ error: 'Failed to load activity' });
+  }
+});
+
 module.exports = router;

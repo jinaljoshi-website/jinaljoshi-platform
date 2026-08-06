@@ -67,7 +67,10 @@ export function Analytics() {
 
   useEffect(() => {
     if (data[tab]) return;
-    const path = tab === 'purchased' ? 'purchased' : tab === 'gifted' ? 'gifted' : 'sets';
+    const path = tab === 'purchased' ? 'purchased'
+               : tab === 'gifted'    ? 'gifted'
+               : tab === 'activity'  ? 'activity'
+               : 'sets';
     api.get(`/api/studio/analytics/${path}`)
       .then((d) => setData((prev) => ({ ...prev, [tab]: d })))
       .catch((e) => setError(e.message));
@@ -87,6 +90,7 @@ export function Analytics() {
           { key: 'purchased', label: 'Purchased tokens' },
           { key: 'gifted',    label: 'Gifted tokens'    },
           { key: 'sets',      label: 'Sets'             },
+          { key: 'activity',  label: 'Who opened what'  },
         ].map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)}
             style={{
@@ -200,6 +204,51 @@ export function Analytics() {
             ))}
           </div>
         </>
+      ) : tab === 'activity' ? (
+        <>
+          <div style={S.statsRow}>
+            <Stat head="Sets opened" value={d.totalUnlocks + d.totalViews}
+                  sub={`${d.totalUnlocks} unlocked · ${d.totalViews} opened free`} />
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={actTbl}>
+              <thead>
+                <tr>{['When', 'Who', 'Tier', 'Set', 'How', 'Tokens'].map((h) => (
+                  <th key={h} style={actTh}>{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {d.rows.length === 0 ? (
+                  <tr><td colSpan={6} style={{ ...actTd, color: colors.muted }}>Nothing yet.</td></tr>
+                ) : d.rows.map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ ...actTd, fontFamily: mono, fontSize: 11, whiteSpace: 'nowrap' }}>
+                      {new Date(r.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td style={{ ...actTd, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.who}</td>
+                    <td style={{ ...actTd, color: colors.muted, fontSize: 11 }}>{r.tier}</td>
+                    <td style={actTd}>
+                      {r.setTitle}
+                      {r.isVault && <span style={{ color: colors.accent, fontSize: 10 }}> · vault</span>}
+                      {r.scope === 'upsell' && <span style={{ color: colors.muted, fontSize: 10 }}> · exclusive</span>}
+                    </td>
+                    <td style={{ ...actTd, fontSize: 11,
+                                 color: r.how === 'tokens' ? colors.text : colors.muted }}>
+                      {r.how === 'tokens' ? 'paid' : r.how === 'membership' ? 'membership' : 'free set'}
+                    </td>
+                    <td style={{ ...actTd, textAlign: 'right' }}>{r.tokens || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {d.hasMore && (
+            <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 10 }}>
+              Showing the most recent {d.rows.length}.
+            </div>
+          )}
+        </>
       ) : (
         <>
           <div style={S.statsRow}>
@@ -238,6 +287,10 @@ export function Analytics() {
     </div>
   );
 }
+
+const actTbl = { width: '100%', borderCollapse: 'collapse', fontFamily: sans, fontSize: 12 };
+const actTh  = { textAlign: 'left', padding: '8px 10px', borderBottom: `1px solid ${colors.border}`, color: colors.muted, fontFamily: mono, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', whiteSpace: 'nowrap' };
+const actTd  = { padding: '9px 10px', borderBottom: `1px solid ${colors.border}`, color: colors.text, verticalAlign: 'top' };
 
 const aLabel   = { fontFamily: mono, fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 };
 const aValue   = { fontFamily: display, fontSize: 30, color: colors.text, fontWeight: 300 };
