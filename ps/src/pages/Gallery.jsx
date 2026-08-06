@@ -241,7 +241,7 @@ export default function Gallery() {
         <h1 style={title}>Gallery</h1>
         <p style={text}>
           Photo sets, videos and behind-the-scenes content.
-          {data?.openCap > 0 && ` Everything at your level is included — you have opened ${data.opensUsed} of ${data.openCap} sets this month.`}
+          {data?.openCap > 0 && ` Everything at your level is included — you have opened ${data.opensUsed} of ${data.openCap} sets.`}
         </p>
       </div>
 
@@ -273,8 +273,9 @@ export default function Gallery() {
           <div style={{ flex: 1, minWidth: 220 }}>
             <div style={{ fontFamily: F.sans, fontSize: 13, color: C.text }}>
               {data.opensRemaining > 0
-                ? <>You can open <b>{data.opensRemaining} more set{data.opensRemaining === 1 ? '' : 's'}</b> at your level this month</>
-                : <>You've opened all {data.openCap} included sets this month</>}
+                ? <>You can open <b>{data.opensRemaining} more set{data.opensRemaining === 1 ? '' : 's'}</b> at your level
+                    {data.opensResetOn && <> before {new Date(data.opensResetOn).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</>}</>
+                : <>You've opened all {data.openCap} included sets for this period</>}
             </div>
             <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 3 }}>
               {data.opensUsed} of {data.openCap} used · after that,{' '}
