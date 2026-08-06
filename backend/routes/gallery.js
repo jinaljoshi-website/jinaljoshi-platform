@@ -238,8 +238,8 @@ router.get('/sets', authMid, async (req, res) => {
 
         tierPrice: segments.tierPrice,
         upsellPrice: segments.upsellPrice,
-        tierPreviewUrl: toUrl(segments.tierPreviewKey),
-        upsellPreviewUrl: toUrl(segments.upsellPreviewKey),
+        tierPreviewUrl:   s.cover_blur || null,
+        upsellPreviewUrl: s.cover_blur || null,
 
         coverBlurred,
       };

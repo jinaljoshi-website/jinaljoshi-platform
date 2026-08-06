@@ -413,7 +413,10 @@ const playBadge   = { position: 'absolute', top: '50%', left: '50%', transform: 
 const unlockFrame = { position: 'relative', cursor: 'pointer', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: 'rgba(193,125,74,0.1)', border: `1px dashed ${C.accent}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 10, gap: 6 };
 // Blurred hard and scaled up, so no edge of the original is readable and the
 // blur cannot be undone by scaling the image back down.
-const lockedBackdrop = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(22px)', transform: 'scale(1.25)', pointerEvents: 'none' };
+// The image behind an unlock prompt is a 24-pixel version, not the real photo
+// with a filter over it. The blur here smooths the upscale; it is not what does
+// the hiding, so a reader mode stripping CSS reveals nothing.
+const lockedBackdrop = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(8px)', transform: 'scale(1.1)', pointerEvents: 'none' };
 const lockedScrim    = { position: 'absolute', inset: 0, background: 'linear-gradient(rgba(20,18,15,0.55), rgba(20,18,15,0.78))', pointerEvents: 'none' };
 
 const unlockFrameIcon = { fontSize: 22, position: 'relative' };

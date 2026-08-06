@@ -179,6 +179,31 @@ export function Content() {
     } catch { return null; }
   };
 
+  // Sets uploaded before blurred covers existed have none stored, so a locked
+  // cover shows nothing at all. This reads each one back from storage and makes
+  // the small version — done here rather than on the server because the browser
+  // already has the canvas, and there is no image library on the backend.
+  const [backfilling, setBackfilling] = useState(false);
+  const backfillCovers = async () => {
+    setBackfilling(true); setError(''); setSuccess('');
+    let done = 0, failed = 0;
+    try {
+      const targets = sets.filter((s) => !s.cover_blur && (s.cover_url || s.cover_key));
+      for (const set of targets) {
+        try {
+          const res = await fetch(set.cover_url || toUrl(set.cover_key), { mode: 'cors' });
+          const blob = await res.blob();
+          const dataUri = await makeCoverBlur(new File([blob], 'cover.jpg', { type: blob.type }));
+          if (!dataUri) { failed += 1; continue; }
+          await api.patch(`/api/studio/content/${set.id}`, { cover_blur: dataUri });
+          done += 1;
+        } catch { failed += 1; }
+      }
+      setSuccess(`Made blurred covers for ${done} set${done === 1 ? '' : 's'}${failed ? `, ${failed} could not be read` : ''}.`);
+      loadSets();
+    } catch (err) { setError(err.message); } finally { setBackfilling(false); }
+  };
+
   const compressImage = (file) =>
     poolRef.current ? poolRef.current.compress(file) : compressOnMainThread(file);
 
@@ -939,6 +964,23 @@ export function Content() {
       </div>
 
       {/* Storage housekeeping */}
+      {sets.some((s) => !s.cover_blur && (s.cover_url || s.cover_key)) && (
+        <div style={{ ...storageBox, marginBottom: 16 }}>
+          <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, marginBottom: 6 }}>
+            Blurred covers missing
+          </div>
+          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, lineHeight: 1.6, marginBottom: 10 }}>
+            {sets.filter((s) => !s.cover_blur && (s.cover_url || s.cover_key)).length} set(s) were
+            uploaded before locked covers were blurred properly, so their cards show nothing to
+            anyone who cannot see inside. This makes the small version from each existing cover.
+          </div>
+          <button onClick={backfillCovers} disabled={backfilling}
+                  style={{ ...S.btn, fontSize: 12, opacity: backfilling ? 0.5 : 1 }}>
+            {backfilling ? 'Working…' : 'Generate them'}
+          </button>
+        </div>
+      )}
+
       <div style={storageBox}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div>
