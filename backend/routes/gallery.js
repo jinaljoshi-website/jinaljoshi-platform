@@ -153,6 +153,7 @@ router.get('/sets', authMid, async (req, res) => {
                 FROM set_photographers spx JOIN photographers p ON p.id = spx.photographer_id
                 WHERE spx.set_id = s.id) AS photographer,
               -- Falls back to the first item so a set never shows a blank card.
+              s.cover_blur,
               COALESCE(s.cover_key,
                 (SELECT r2_key FROM set_items WHERE set_id = s.id
                  AND media_type <> 'video' ORDER BY position ASC, created_at ASC LIMIT 1)
@@ -216,7 +217,11 @@ router.get('/sets', authMid, async (req, res) => {
         publishedAt: s.published_at || s.created_at,
         type: s.type,
         category: s.category,
-        cover_url: toUrl(s.cover_key),
+        // A locked cover never sends the real image. Blurring it in CSS meant
+        // the full photo was in the page and one Reader-mode keystroke away —
+        // this sends a 24px version instead, which cannot be sharpened because
+        // the detail was never there.
+        cover_url: coverBlurred ? (s.cover_blur || null) : toUrl(s.cover_key),
         photoCount: counts.photos,
         videoCount: counts.videos,
         isFreeForAll: items.length > 0 && items.every((i) => i.tier_category === 'free'),

@@ -154,6 +154,31 @@ export function Content() {
     return () => poolRef.current?.dispose();
   }, []);
 
+  // A 24-pixel version of the cover, as a data URI. Sent with the set and
+  // served in place of the real image when a fan cannot see inside — the detail
+  // is genuinely absent rather than hidden by a filter that a reader mode or a
+  // dev tools panel can remove.
+  const makeCoverBlur = async (file) => {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const w = 24, h = Math.max(1, Math.round((bitmap.height / bitmap.width) * w));
+      const canvas = typeof OffscreenCanvas !== 'undefined'
+        ? new OffscreenCanvas(w, h)
+        : Object.assign(document.createElement('canvas'), { width: w, height: h });
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+      bitmap.close?.();
+      const blob = canvas.convertToBlob
+        ? await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.6 })
+        : await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.6));
+      return await new Promise((res) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = () => res(null);
+        r.readAsDataURL(blob);
+      });
+    } catch { return null; }
+  };
+
   const compressImage = (file) =>
     poolRef.current ? poolRef.current.compress(file) : compressOnMainThread(file);
 
@@ -399,6 +424,7 @@ export function Content() {
     const total = queue.length;
     let done = 0;
     let firstImageUrl = null;
+    let firstImageFile = null;
     let uploaded = 0;
 
     const mark = (cat, i, patch) => setFilesByCategory((prev) => {
@@ -428,7 +454,12 @@ export function Content() {
           setId, type: item.isVideo ? 'video' : 'image', r2Key: publicUrl,
           position: startPosition + n, tierCategory: cat,
         }));
-        if (!firstImageUrl && !item.isVideo) firstImageUrl = publicUrl;
+        if (!firstImageUrl && !item.isVideo) {
+          firstImageUrl = publicUrl;
+          // Kept so the blurred version can be made from the original rather
+          // than downloading the uploaded copy back again.
+          firstImageFile = item.file;
+        }
         uploaded += 1;
         // Released the moment the file is safely uploaded. The thumbnail is
         // gone from that tile, which is also the clearest signal it is done.
@@ -444,7 +475,7 @@ export function Content() {
       setUploadProgress(`Uploaded ${done} of ${total}…`);
     });
 
-    return { uploaded, firstImageUrl, failed: total - uploaded };
+    return { uploaded, firstImageUrl, firstImageFile, failed: total - uploaded };
   };
 
   const handleCreate = async () => {
@@ -465,13 +496,19 @@ export function Content() {
         setUploadProgress('Uploading cover image…');
         const compressed = await compressImage(coverFile);
         coverUrl = await uploadFile(compressed, 'content');
-        await api.patch(`/api/studio/content/${setId}`, { cover_key: coverUrl });
+        await api.patch(`/api/studio/content/${setId}`, {
+          cover_key: coverUrl,
+          cover_blur: await makeCoverBlur(coverFile),
+        });
       }
 
-      const { uploaded, firstImageUrl } = await uploadAllPending(setId, 0);
+      const { uploaded, firstImageUrl, firstImageFile } = await uploadAllPending(setId, 0);
       if (!coverUrl && firstImageUrl) {
         coverUrl = firstImageUrl;
-        await api.patch(`/api/studio/content/${setId}`, { cover_key: firstImageUrl });
+        await api.patch(`/api/studio/content/${setId}`, {
+          cover_key: firstImageUrl,
+          cover_blur: firstImageFile ? await makeCoverBlur(firstImageFile) : null,
+        });
       }
       const position = uploaded;
 

@@ -331,7 +331,10 @@ export default function Gallery() {
                       <img src={item.cover_url} alt={item.title}
                            style={{
                              width: '100%', height: '100%', objectFit: 'cover', display: 'block',
-                             ...(item.coverBlurred ? { filter: 'blur(10px)', transform: 'scale(1.14)' } : {}),
+                             // Smooths the upscale. The hiding is done by the
+                             // image being 24 pixels wide, not by this — so
+                             // stripping the CSS reveals nothing.
+                             ...(item.coverBlurred ? { filter: 'blur(6px)', transform: 'scale(1.1)' } : {}),
                            }} />
                     </div>
                   ) : (
