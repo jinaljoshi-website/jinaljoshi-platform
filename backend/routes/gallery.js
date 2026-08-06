@@ -403,7 +403,12 @@ router.post('/unlock', authMid, async (req, res) => {
       }
     }
 
-    const grantType = useCredit ? 'unlock_credit' : 'token_purchase';
+    // What was paid does not decide whether access persists — what was bought
+    // does. A token spent at the fair usage ceiling buys a bypass, not the set:
+    // the photos are still tier content, and tier content belongs to the
+    // membership. Only the upsell portion is genuinely purchased, and only that
+    // survives a lapse.
+    const grantType = scope === 'upsell' ? 'token_purchase' : 'unlock_credit';
 
     if (existing) {
       await client.query(
