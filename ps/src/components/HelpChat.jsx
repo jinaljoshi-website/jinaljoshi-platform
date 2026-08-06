@@ -194,8 +194,8 @@ export default function HelpChat() {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} style={fab} aria-label="Help">
-        <span style={{ fontSize: 18 }}>?</span>
+      <button onClick={() => setOpen(true)} style={fab}>
+        Need help?
       </button>
     );
   }
@@ -266,7 +266,7 @@ export default function HelpChat() {
   );
 }
 
-const fab      = { position: 'fixed', right: 18, bottom: 88, width: 44, height: 44, borderRadius: '50%', background: C.surface, border: `1px solid ${C.border}`, color: C.muted, cursor: 'pointer', zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.35)' };
+const fab      = { position: 'fixed', right: 16, bottom: 88, padding: '10px 16px', borderRadius: 999, background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 13, cursor: 'pointer', zIndex: 120, whiteSpace: 'nowrap', boxShadow: '0 4px 16px rgba(0,0,0,0.35)' };
 const overlay  = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', padding: 16 };
 const panel    = { width: '100%', maxWidth: 420, maxHeight: '80vh', display: 'flex', flexDirection: 'column', background: '#161410', border: `1px solid ${C.border}`, borderRadius: 14, padding: 20 };
 const header   = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 };
