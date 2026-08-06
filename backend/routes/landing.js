@@ -111,7 +111,20 @@ router.get('/', authMid, async (req, res) => {
     const hour = (new Date().getUTCHours() + 5) % 24;
     const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
+    // Whether Jinal is reachable right now. Read live rather than cached — she
+    // switches these from the dashboard when she walks into a shoot, and a card
+    // saying she is available when she has just said otherwise is worse than a
+    // card saying nothing.
+    const { rows: dndRows } = await pool.query(
+      `SELECT key, value FROM platform_config
+       WHERE key IN ('artist_dnd_enabled', 'dnd_chat_enabled')`
+    );
+    const dnd = {};
+    dndRows.forEach((r) => { dnd[r.key] = r.value === 'true'; });
+
     res.json({
+      chatLive:      !dnd.dnd_chat_enabled,
+      callsAvailable: !dnd.artist_dnd_enabled,
       name,
       greeting,
       sunSign,

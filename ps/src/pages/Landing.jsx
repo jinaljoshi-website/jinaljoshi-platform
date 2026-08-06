@@ -22,8 +22,8 @@ const NAV_SECTIONS = [
 ];
 
 const SECTIONS = [
-  { path: '/platform/chat',              icon: '\u{1F4AC}', label: 'Messages',        desc: 'Send Jinal a message' },
-  { path: '/platform/calls',             icon: '\u{1F4DE}', label: 'Calls',           desc: 'Book a personal call' },
+  { path: '/platform/chat',              icon: '\u{1F4AC}', label: 'Chat',            desc: 'Send Jinal a message', live: 'chat'  },
+  { path: '/platform/calls',             icon: '\u{1F4DE}', label: 'Calls',           desc: 'Book a personal call', live: 'calls' },
   { path: '/platform/gallery',           icon: '\u{1F4F8}', label: 'Gallery',         desc: 'Exclusive photo sets' },
   { path: '/platform/shop?tab=outfits',  icon: '\u{1F457}', label: 'Outfits',         desc: 'One of one, from set' },
   { path: '/platform/shop?tab=merch',    icon: '\u{1F6CD}', label: 'Merch',           desc: 'Limited drops'        },
@@ -261,6 +261,12 @@ export default function Landing() {
                 {section.icon === 'coin' ? <WonderCoin size={28} /> : section.icon}
               </div>
               <div style={{ fontFamily: F.display, fontSize: 20, color: C.text }}>{section.label}</div>
+              {section.live === 'chat'  && data?.chatLive && (
+                <div style={liveNow}><span style={liveDot} />Live now</div>
+              )}
+              {section.live === 'calls' && data?.callsAvailable && (
+                <div style={liveNow}><span style={liveDot} />Available now</div>
+              )}
               <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{section.desc}</div>
               <div style={{ fontFamily: F.mono, fontSize: 11, color: C.accent, marginTop: 4 }}>Enter →</div>
             </div>
@@ -317,6 +323,10 @@ const sectionCard = {
   padding: '18px 20px',
   marginBottom: 14,
 };
+
+// A dot before the words, so it reads as a live status rather than a label.
+const liveNow = { display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: F.sans, fontSize: 11, color: '#8FC88F', marginTop: -2 };
+const liveDot = { width: 6, height: 6, borderRadius: '50%', background: '#8FC88F', flexShrink: 0, boxShadow: '0 0 0 3px rgba(143,200,143,0.18)' };
 
 const navRail      = { height: 2, background: 'rgba(255,255,255,0.06)', margin: '0 24px', borderRadius: 2, position: 'relative', flexShrink: 0 };
 const navRailThumb = { position: 'absolute', top: 0, height: 2, width: '38%', background: 'rgba(193,125,74,0.55)', borderRadius: 2, transition: 'left 0.15s' };
