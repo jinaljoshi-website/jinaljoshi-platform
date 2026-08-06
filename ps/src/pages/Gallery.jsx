@@ -245,12 +245,14 @@ export default function Gallery() {
         </p>
       </div>
 
-      {data?.isGuest && <GuestNudge message="You're browsing as a guest — members unlock more sets each month for free." />}
+      {data?.isGuest && <GuestNudge message="You're browsing as a guest — members see everything at their level without paying." />}
 
       {error && (
         <div style={{ ...errorBox, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 16 }}>
           <span>{error}</span>
-          <button onClick={() => setTopUp(0)} style={inlineTopUp}>Top up now</button>
+          {/insufficient|more tokens|tokens short|balance/i.test(error) && (
+            <button onClick={() => setTopUp(0)} style={inlineTopUp}>Top up now</button>
+          )}
         </div>
       )}
 
@@ -266,6 +268,25 @@ export default function Gallery() {
         ))}
       </div>
 
+      {activeTab !== 'selfies' && data?.openCap > 0 && (
+        <div style={capBar}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ fontFamily: F.sans, fontSize: 13, color: C.text }}>
+              {data.opensRemaining > 0
+                ? <>You can open <b>{data.opensRemaining} more set{data.opensRemaining === 1 ? '' : 's'}</b> at your level this month</>
+                : <>You've opened all {data.openCap} included sets this month</>}
+            </div>
+            <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 3 }}>
+              {data.opensUsed} of {data.openCap} used · after that,{' '}
+              {data.overageCost === 1 ? 'one token' : `${data.overageCost} tokens`} per set. Resets next month.
+            </div>
+          </div>
+          <div style={capTrack}>
+            <div style={{ ...capFill, width: `${Math.min(100, (data.opensUsed / data.openCap) * 100)}%` }} />
+          </div>
+        </div>
+      )}
+
       {activeTab !== 'selfies' && (
         <HowUnlocking tier={data?.userTier} opensRemaining={data?.opensRemaining} openCap={data?.openCap} overageCost={data?.overageCost} />
       )}
@@ -276,13 +297,17 @@ export default function Gallery() {
                   onChange={(e) => { setSort(e.target.value); load(e.target.value); }}
                   style={sortSelect}>
             <option value="newest">Newest first</option>
-            <option value="price_low">Price: low to high</option>
-            <option value="price_high">Price: high to low</option>
+            <option value="free_for_me">Free for me</option>
           </select>
         </div>
       )}
 
-      {activeTab === 'selfies' ? <Selfies /> : activeItems.length === 0 ? (
+      {activeTab === 'selfies' ? <Selfies /> : activeItems.length === 0 && sort === 'free_for_me' ? (
+        <div style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.7 }}>
+          Nothing here is open to you at the moment.{' '}
+          {data?.isGuest ? 'Members see everything at their level without paying.' : 'New sets appear here as Jinal posts them.'}
+        </div>
+      ) : activeItems.length === 0 ? (
         <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14 }}>
           {activeTab === 'unlocked' ? "You haven't unlocked anything yet — unlocks you pay for with credits or tokens will show up here." : 'No content published yet.'}
         </div>
@@ -356,6 +381,10 @@ export default function Gallery() {
     </div>
   );
 }
+
+const capBar   = { display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px', marginBottom: 14 };
+const capTrack = { flex: '0 0 120px', height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 2, overflow: 'hidden' };
+const capFill  = { height: 4, background: C.accent, borderRadius: 2, transition: 'width 0.3s' };
 
 const sortSelect = { background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 12, padding: '7px 12px', borderRadius: 8, outline: 'none', cursor: 'pointer' };
 

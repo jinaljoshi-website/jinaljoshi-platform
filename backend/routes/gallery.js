@@ -118,7 +118,11 @@ router.get('/sets', authMid, async (req, res) => {
     const capReached = !isGuest && openCap > 0 && opensUsed >= openCap;
     const opensRemaining = openCap > 0 ? Math.max(0, openCap - opensUsed) : null;
 
-    const sortBy = ['newest', 'price_low', 'price_high'].includes(req.query.sort)
+    // Price sorting stopped meaning anything once membership became access —
+    // a member pays nothing for their own level, so most sets cost the same and
+    // the order came out identical to newest. What a fan actually wants to know
+    // is which sets are open to them.
+    const sortBy = ['newest', 'free_for_me'].includes(req.query.sort)
       ? req.query.sort : 'newest';
 
     const { rows: sets } = await pool.query(
@@ -158,7 +162,7 @@ router.get('/sets', authMid, async (req, res) => {
       grantsBySet[g.set_id][g.scope] = g.grant_type;
     });
 
-    const setsWithData = sets.map((s) => {
+    let setsWithData = sets.map((s) => {
       const items = itemsBySet[s.id] || [];
       const counts = { photos: 0, videos: 0 };
       items.forEach((i) => { if (i.media_type === 'video') counts.videos++; else counts.photos++; });
@@ -218,18 +222,10 @@ router.get('/sets', authMid, async (req, res) => {
     // Price sorting happens here rather than in SQL, because what a fan pays
     // depends on their tier and is only known after the per-fan calculation
     // above. The query's own ordering stands for 'newest'.
-    if (sortBy !== 'newest') {
-      // What this fan would actually pay to see everything in the set. A set
-      // that is free to them costs nothing, so it sorts to the top of low-to-
-      // high rather than being treated as a special case.
-      const cost = (s) => s.isFreeForAll ? 0 : (s.tierPrice || 0) + (s.upsellPrice || 0);
-      setsWithData.sort((a, b) => {
-        const d = sortBy === 'price_low' ? cost(a) - cost(b) : cost(b) - cost(a);
-        // Ties fall back to newest, so equally priced sets still read in a
-        // sensible order rather than an arbitrary one.
-        if (d !== 0) return d;
-        return new Date(b.publishedAt) - new Date(a.publishedAt);
-      });
+    // Open to them without paying: free to everyone, or within their tier.
+    const freeToThem = (s) => s.isFreeForAll || (s.tierPortionCount > 0 && s.tierPrice === 0);
+    if (sortBy === 'free_for_me') {
+      setsWithData = setsWithData.filter(freeToThem);
     }
 
     const freeForAll = setsWithData.filter((s) => s.isFreeForAll);

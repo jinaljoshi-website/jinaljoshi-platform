@@ -21,7 +21,7 @@ import Profile    from './Profile';
 const navItems = [
   { to: '/platform/chat',       label: 'Chat',           live: 'chat'  },
   { to: '/platform/calls',      label: 'Calls',          live: 'calls' },
-  { to: '/platform/gallery',    label: 'Gallery'       },
+  { to: '/platform/gallery',    label: 'Gallery',        live: 'gallery' },
   { to: '/platform/shop',       label: 'Shop'          },
   { to: '/platform/community',  label: 'Public Corner' },
   { to: '/platform/membership', label: 'Membership'    },
@@ -32,13 +32,13 @@ const navItems = [
 const FULLSCREEN_PAGES = ['/platform/chat', '/platform/community'];
 
 function useReachable() {
-  const [state, setState] = useState({ chatLive: false, callsAvailable: false, unread: 0 });
+  const [state, setState] = useState({ chatLive: false, callsAvailable: false, unread: 0, unseenSets: 0 });
   useEffect(() => {
     let alive = true;
     const check = () => api.get('/api/landing')
       .then((d) => { if (alive) setState({
         chatLive: !!d.chatLive, callsAvailable: !!d.callsAvailable,
-        unread: d.unreadMessages || 0,
+        unread: d.unreadMessages || 0, unseenSets: d.unseenSets || 0,
       }); })
       .catch(() => {});
     check();
@@ -185,8 +185,10 @@ export default function Platform() {
                   style={{ ...drawerLink, background: active ? 'rgba(193,125,74,0.12)' : 'transparent', color: active ? C.text : C.muted, display: 'flex', alignItems: 'center', gap: 8 }}
                 >
                   {item.label}
-                  {item.live === 'chat' && reachable.unread > 0
+                  {item.live === 'chat'    && reachable.unread > 0
                     ? <span style={unreadPill}>{reachable.unread}</span>
+                    : item.live === 'gallery' && reachable.unseenSets > 0
+                    ? <span style={unreadPill}>{reachable.unseenSets}</span>
                     : <LiveDot show={isLive(item)} />}
                 </Link>
               );
@@ -242,8 +244,10 @@ export default function Platform() {
                     style={{ ...navLink, background: active ? 'rgba(193,125,74,0.12)' : 'transparent', color: active ? C.text : C.muted, border: active ? `1px solid ${C.border}` : '1px solid transparent', display: 'flex', alignItems: 'center', gap: 8 }}
                   >
                     {item.label}
-                    {item.live === 'chat' && reachable.unread > 0
+                    {item.live === 'chat'    && reachable.unread > 0
                       ? <span style={unreadPill}>{reachable.unread}</span>
+                      : item.live === 'gallery' && reachable.unseenSets > 0
+                      ? <span style={unreadPill}>{reachable.unseenSets}</span>
                       : <LiveDot show={isLive(item)} />}
                   </Link>
                 );

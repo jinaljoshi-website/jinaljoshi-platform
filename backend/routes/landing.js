@@ -131,7 +131,20 @@ router.get('/', authMid, async (req, res) => {
       [req.user.userId, process.env.ARTIST_USER_ID]
     );
 
+    // Sets they have never opened. Counted against set_views rather than a
+    // publication date, so a set posted last week that they still have not
+    // looked at keeps counting — the question is what is waiting for them, not
+    // what is recent.
+    const { rows: newSets } = await pool.query(
+      `SELECT count(*)::int AS n
+       FROM sets s
+       WHERE s.visible = TRUE AND s.is_vault = FALSE
+         AND NOT EXISTS (SELECT 1 FROM set_views v WHERE v.set_id = s.id AND v.user_id = $1)`,
+      [req.user.userId]
+    );
+
     res.json({
+      unseenSets: newSets[0].n,
       unreadMessages: unreadRows[0].n,
       chatLive:      !dnd.dnd_chat_enabled,
       callsAvailable: !dnd.artist_dnd_enabled,

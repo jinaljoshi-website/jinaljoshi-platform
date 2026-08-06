@@ -24,7 +24,7 @@ const NAV_SECTIONS = [
 const SECTIONS = [
   { path: '/platform/chat',              icon: '\u{1F4AC}', label: 'Chat',            desc: 'Send Jinal a message', live: 'chat'  },
   { path: '/platform/calls',             icon: '\u{1F4DE}', label: 'Calls',           desc: 'Book a personal call', live: 'calls' },
-  { path: '/platform/gallery',           icon: '\u{1F4F8}', label: 'Gallery',         desc: 'Exclusive photo sets' },
+  { path: '/platform/gallery',           icon: '\u{1F4F8}', label: 'Gallery',         desc: 'Exclusive photo sets', live: 'gallery' },
   { path: '/platform/shop?tab=outfits',  icon: '\u{1F457}', label: 'Outfits',         desc: 'One of one, from set' },
   { path: '/platform/shop?tab=merch',    icon: '\u{1F6CD}', label: 'Merch',           desc: 'Limited drops'        },
   { path: '/platform/shop?tab=requests', icon: '\u{1F31F}', label: 'Custom Requests', desc: 'Ask for something'    },
@@ -261,7 +261,11 @@ export default function Landing() {
                 {section.icon === 'coin' ? <WonderCoin size={28} /> : section.icon}
               </div>
               <div style={{ fontFamily: F.display, fontSize: 20, color: C.text }}>{section.label}</div>
-              {section.live === 'chat' && data?.unreadMessages > 0 ? (
+              {section.live === 'gallery' && data?.unseenSets > 0 ? (
+                <div style={unreadLine}>
+                  {data.unseenSets} set{data.unseenSets === 1 ? '' : 's'} you haven't seen
+                </div>
+              ) : section.live === 'chat' && data?.unreadMessages > 0 ? (
                 <div style={unreadLine}>
                   {data.unreadMessages} unread message{data.unreadMessages === 1 ? '' : 's'}
                 </div>
