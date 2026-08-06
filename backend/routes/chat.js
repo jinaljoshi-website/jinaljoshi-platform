@@ -63,6 +63,15 @@ router.get('/messages', authMid, async (req, res) => {
        ORDER BY created_at ASC LIMIT 50`,
       [req.user.userId, process.env.ARTIST_USER_ID]
     );
+    // Marked read when the thread is opened. Studio has always done this for
+    // messages coming in; nothing did it for messages going out, so the flag
+    // only worked in one direction and an unread count was impossible.
+    pool.query(
+      `UPDATE direct_messages SET read = TRUE
+       WHERE sender_id = $1 AND recipient_id = $2 AND read = FALSE`,
+      [process.env.ARTIST_USER_ID, req.user.userId]
+    ).catch(() => {});
+
     res.json({ messages: rows.map(toFanSafeMessage) });
   } catch (err) {
     console.error('chat/messages error:', err);
@@ -343,6 +352,13 @@ router.post('/send', authMid, async (req, res) => {
     }
 
     let newBalance = user.coin_balance;
+    // A token is the atomic unit — there is no such thing as a quarter of one.
+    // A fractional price entered in Settings reached the ledger as 1.25 and the
+    // insert failed, so every fan lost the ability to send while Jinal, whose
+    // messages are free, saw nothing wrong. Rounded up here so a bad config
+    // value degrades to a slightly higher price rather than a broken chat.
+    tokensCharged = Math.ceil(Number(tokensCharged) || 0);
+
     if (tokensCharged > 0) {
       try {
         const spend = await spendTokens(client, {

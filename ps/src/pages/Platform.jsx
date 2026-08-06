@@ -32,11 +32,14 @@ const navItems = [
 const FULLSCREEN_PAGES = ['/platform/chat', '/platform/community'];
 
 function useReachable() {
-  const [state, setState] = useState({ chatLive: false, callsAvailable: false });
+  const [state, setState] = useState({ chatLive: false, callsAvailable: false, unread: 0 });
   useEffect(() => {
     let alive = true;
     const check = () => api.get('/api/landing')
-      .then((d) => { if (alive) setState({ chatLive: !!d.chatLive, callsAvailable: !!d.callsAvailable }); })
+      .then((d) => { if (alive) setState({
+        chatLive: !!d.chatLive, callsAvailable: !!d.callsAvailable,
+        unread: d.unreadMessages || 0,
+      }); })
       .catch(() => {});
     check();
     const id = setInterval(check, 60000);
@@ -182,7 +185,9 @@ export default function Platform() {
                   style={{ ...drawerLink, background: active ? 'rgba(193,125,74,0.12)' : 'transparent', color: active ? C.text : C.muted, display: 'flex', alignItems: 'center', gap: 8 }}
                 >
                   {item.label}
-                  <LiveDot show={isLive(item)} />
+                  {item.live === 'chat' && reachable.unread > 0
+                    ? <span style={unreadPill}>{reachable.unread}</span>
+                    : <LiveDot show={isLive(item)} />}
                 </Link>
               );
             })}
@@ -237,7 +242,9 @@ export default function Platform() {
                     style={{ ...navLink, background: active ? 'rgba(193,125,74,0.12)' : 'transparent', color: active ? C.text : C.muted, border: active ? `1px solid ${C.border}` : '1px solid transparent', display: 'flex', alignItems: 'center', gap: 8 }}
                   >
                     {item.label}
-                    <LiveDot show={isLive(item)} />
+                    {item.live === 'chat' && reachable.unread > 0
+                      ? <span style={unreadPill}>{reachable.unread}</span>
+                      : <LiveDot show={isLive(item)} />}
                   </Link>
                 );
               })}
@@ -270,6 +277,9 @@ export default function Platform() {
   );
 }
 
+// A count where there is one, the availability dot otherwise — the same slot,
+// so the nav keeps its shape either way.
+const unreadPill = { background: C.accent, color: '#1A1714', fontFamily: F.sans, fontSize: 10, fontWeight: 700, minWidth: 17, height: 17, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px', flexShrink: 0 };
 const navDot = { width: 6, height: 6, borderRadius: '50%', background: '#8FC88F', flexShrink: 0, boxShadow: '0 0 0 3px rgba(143,200,143,0.18)' };
 
 const topBar      = { flexShrink: 0, minHeight: TOP_BAR_H, height: `calc(${TOP_BAR_H}px + env(safe-area-inset-top, 0px))`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `env(safe-area-inset-top, 0px) 16px 0`, background: 'rgba(13,12,10,0.97)', borderBottom: `1px solid ${C.border}`, zIndex: 30, boxSizing: 'border-box' };

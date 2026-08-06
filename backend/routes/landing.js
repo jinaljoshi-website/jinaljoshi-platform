@@ -122,7 +122,17 @@ router.get('/', authMid, async (req, res) => {
     const dnd = {};
     dndRows.forEach((r) => { dnd[r.key] = r.value === 'true'; });
 
+    // What is waiting for them. Counted from the flag rather than a timestamp,
+    // so a fan who opens the thread and scrolls past a message has genuinely
+    // seen it.
+    const { rows: unreadRows } = await pool.query(
+      `SELECT count(*)::int AS n FROM direct_messages
+       WHERE recipient_id = $1 AND sender_id = $2 AND read = FALSE`,
+      [req.user.userId, process.env.ARTIST_USER_ID]
+    );
+
     res.json({
+      unreadMessages: unreadRows[0].n,
       chatLive:      !dnd.dnd_chat_enabled,
       callsAvailable: !dnd.artist_dnd_enabled,
       name,

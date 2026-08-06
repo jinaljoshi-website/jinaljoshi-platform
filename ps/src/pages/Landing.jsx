@@ -261,9 +261,13 @@ export default function Landing() {
                 {section.icon === 'coin' ? <WonderCoin size={28} /> : section.icon}
               </div>
               <div style={{ fontFamily: F.display, fontSize: 20, color: C.text }}>{section.label}</div>
-              {section.live === 'chat'  && data?.chatLive && (
+              {section.live === 'chat' && data?.unreadMessages > 0 ? (
+                <div style={unreadLine}>
+                  {data.unreadMessages} unread message{data.unreadMessages === 1 ? '' : 's'}
+                </div>
+              ) : section.live === 'chat' && data?.chatLive ? (
                 <div style={liveNow}><span style={liveDot} />Live now</div>
-              )}
+              ) : null}
               {section.live === 'calls' && data?.callsAvailable && (
                 <div style={liveNow}><span style={liveDot} />Available now</div>
               )}
@@ -326,6 +330,7 @@ const sectionCard = {
 
 // A dot before the words, so it reads as a live status rather than a label.
 const liveNow = { display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: F.sans, fontSize: 11, color: '#8FC88F', marginTop: -2 };
+const unreadLine = { fontFamily: F.sans, fontSize: 11, color: C.accent, marginTop: -2 };
 const liveDot = { width: 6, height: 6, borderRadius: '50%', background: '#8FC88F', flexShrink: 0, boxShadow: '0 0 0 3px rgba(143,200,143,0.18)' };
 
 const navRail      = { height: 2, background: 'rgba(255,255,255,0.06)', margin: '0 24px', borderRadius: 2, position: 'relative', flexShrink: 0 };
