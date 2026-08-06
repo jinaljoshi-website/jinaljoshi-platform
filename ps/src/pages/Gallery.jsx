@@ -241,7 +241,6 @@ export default function Gallery() {
         <h1 style={title}>Gallery</h1>
         <p style={text}>
           Photo sets, videos and behind-the-scenes content.
-          {data?.openCap > 0 && ` Everything at your level is included — you have opened ${data.opensUsed} of ${data.openCap} sets.`}
         </p>
       </div>
 
