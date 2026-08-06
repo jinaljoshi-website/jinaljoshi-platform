@@ -83,7 +83,7 @@ export default function HowUnlocking({ tier, opensRemaining, openCap, overageCos
                 <strong style={{ color: C.accent }}>{openCap} sets a month</strong> at your own level —
                 you have <strong style={{ color: C.accent }}>{opensRemaining}</strong> left. Beyond
                 that, a further set at your level is {overageCost === 1 ? 'one token' : `${overageCost} tokens`}.
-                It resets every month.
+                It resets on your membership date each month.
               </p>
               {/* Said plainly, because it is the one thing that surprises people
                   later and is much better known before than discovered after. */}

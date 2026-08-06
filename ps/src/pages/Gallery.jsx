@@ -278,7 +278,10 @@ export default function Gallery() {
             </div>
             <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 3 }}>
               {data.opensUsed} of {data.openCap} used · after that,{' '}
-              {data.overageCost === 1 ? 'one token' : `${data.overageCost} tokens`} per set. Resets next month.
+              {data.overageCost === 1 ? 'one token' : `${data.overageCost} tokens`} per set.
+              {/* The period runs from the day they joined, not the 1st, so the
+                  date is stated rather than implied. */}
+              {data.opensResetOn && ` Resets ${new Date(data.opensResetOn).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}.`}
             </div>
           </div>
           <div style={capTrack}>

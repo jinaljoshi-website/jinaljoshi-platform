@@ -118,6 +118,27 @@ router.get('/sets', authMid, async (req, res) => {
     const capReached = !isGuest && openCap > 0 && opensUsed >= openCap;
     const opensRemaining = openCap > 0 ? Math.max(0, openCap - opensUsed) : null;
 
+    // The period runs from the day they joined, not from the 1st — so "resets
+    // next month" would be wrong for everyone who did not join on a 1st. The
+    // actual date is both correct and more useful than a vague promise.
+    let opensResetOn = null;
+    if (!isGuest && user.membership_started_at) {
+      const start = new Date(user.membership_started_at);
+      const day   = start.getUTCDate();
+      let y = now.getUTCFullYear(), m = now.getUTCMonth();
+      // Built from year and month rather than by adding months to a date —
+      // adding a month to the 31st rolls into the following one, so someone who
+      // joined on the 31st would be told their allowance resets on the 3rd.
+      const build = (yy, mm) => {
+        const lastDay = new Date(Date.UTC(yy, mm + 1, 0)).getUTCDate();
+        return new Date(Date.UTC(yy, mm, Math.min(day, lastDay),
+          start.getUTCHours(), start.getUTCMinutes()));
+      };
+      let next = build(y, m);
+      if (next <= now) { m += 1; if (m > 11) { m = 0; y += 1; } next = build(y, m); }
+      opensResetOn = next.toISOString();
+    }
+
     // Price sorting stopped meaning anything once membership became access —
     // a member pays nothing for their own level, so most sets cost the same and
     // the order came out identical to newest. What a fan actually wants to know
@@ -246,6 +267,7 @@ router.get('/sets', authMid, async (req, res) => {
       opensRemaining,
       openCap,
       opensUsed,
+      opensResetOn,
       overageCost,
       // Kept under the old names so anything still reading them keeps working
       // through the deploy.
