@@ -62,10 +62,11 @@ function buildTopics(c, go) {
         members, and the higher your tier the more you reach. Anything above your tier can be
         bought on its own — you never have to.
         {c.isMember
-          ? <> You have <b>{plural(c.unlocks.remaining, 'unlock', 'unlocks')}</b> left this month
-              out of {c.unlocks.allowance}, and they open your part of a set at no cost.</>
-          : <> As a guest you can buy any set outright. Members get free unlocks each month and
-              pay less for everything else.</>}
+          ? <> Everything at your level is <b>already included</b> — nothing to spend.
+              {c.unlocks.allowance > 0 && <> You have opened {c.unlocks.used} of {c.unlocks.allowance} sets
+                this month; past that a further one at your level is a token.</>}</>
+          : <> As a guest you can buy any set outright. Members open everything at their own level
+              without paying, and pay less for the rest.</>}
       </>
     ),
     action: { label: 'Open the gallery', to: '/platform/gallery' },
@@ -97,8 +98,8 @@ function buildTopics(c, go) {
       <>
         You are on <b>{c.tier}</b>, which runs to{' '}
         {new Date(c.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long' })}.
-        That includes {plural(c.messages.freePerMonth, 'free message', 'free messages')} a month,{' '}
-        {plural(c.unlocks.allowance, 'set unlock', 'set unlocks')} a month
+        That includes {plural(c.messages.freePerMonth, 'free message', 'free messages')} a month,
+        every {c.tier} photo set at no extra cost
         {c.discountPct > 0 && <>, and {c.discountPct}% off everything you buy</>}
         {c.selfies.free && <>. Selfie of the Day is included too</>}.
       </>
@@ -130,9 +131,8 @@ function buildTopics(c, go) {
     keys: ['end', 'expire', 'lapse', 'cancel', 'stop', 'renew'],
     a: () => (
       <>
-        Anything you paid tokens for stays yours permanently. Sets you opened using your monthly
-        unlocks are part of the membership, so those close again until you renew.
-        Your tokens are unaffected either way.
+        Anything you paid tokens for stays yours permanently. Sets that were open because of your
+        membership close again until you renew. Your tokens are unaffected either way.
       </>
     ),
   });

@@ -4,7 +4,7 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
 const { notifyArtist } = require('../lib/notify');
-const { getGuestMultiplier, getDiscountForTier, getGalleryUnlocksForTier } = require('../lib/config');
+const { getGuestMultiplier, getDiscountForTier, getConfigNumber } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
 const { roundTokensUp } = require('../lib/pricing');
 const { getAllotmentPeriodKey } = require('../lib/time');
@@ -36,7 +36,7 @@ function isEffectivelyUnlocked(grantType, membershipCurrentlyActive) {
   return true;
 }
 
-function computeSegments(items, userTier, basePrice, discountPct, isGuest, guestMultiplier) {
+function computeSegments(items, userTier, basePrice, discountPct, isGuest, guestMultiplier, capReached = false, overageCost = 1) {
   const total = items.length || 1;
 
   const freeItems        = items.filter((i) => i.tier_category === 'free');
@@ -51,7 +51,16 @@ function computeSegments(items, userTier, basePrice, discountPct, isGuest, guest
   const rawTierPrice   = basePrice * (tierPortionCount / total);
   const rawUpsellPrice = basePrice * (upsellPortionCount / total);
 
-  const tierPrice   = isGuest ? roundTokensUp(rawTierPrice * guestMultiplier)   : applyDiscount(rawTierPrice, discountPct);
+  // A member's own level costs nothing — that is what the membership is. It is
+  // still counted, and capped generously, so a single month cannot be used to
+  // strip the library; past the cap a further set at your own level costs one
+  // token. Guests have no tier to reach, so they pay the full price as before.
+  const tierPrice = isGuest
+    ? roundTokensUp(rawTierPrice * guestMultiplier)
+    : (capReached ? overageCost : 0);
+
+  // Anything above your tier is still bought, priced by how much of the set it
+  // is, and discounted by your tier.
   const upsellPrice = isGuest ? roundTokensUp(rawUpsellPrice * guestMultiplier) : applyDiscount(rawUpsellPrice, discountPct);
 
   return {
@@ -60,6 +69,7 @@ function computeSegments(items, userTier, basePrice, discountPct, isGuest, guest
     upsellPortionCount,
     hasUpsell: upsellPortionCount > 0,
     tierPrice,
+    tierIncluded: !isGuest && !capReached && tierPortionCount > 0,
     upsellPrice,
     tierPreviewKey: tierEligibleItems[0]?.r2_key || null,
     upsellPreviewKey: upsellItems[0]?.r2_key || null,
@@ -86,17 +96,27 @@ router.get('/sets', authMid, async (req, res) => {
       isGuest ? 0 : getDiscountForTier(userTier),
     ]);
 
-    const monthKey    = getAllotmentPeriodKey(user.membership_started_at);
-    const maxUnlocks  = await getGalleryUnlocksForTier(userTier);
-    let creditsUsed   = 0;
-    if (maxUnlocks > 0) {
+    // How many sets they have opened at their own level this period. The count
+    // is not a budget being spent — everything at their tier is included — it
+    // is a ceiling high enough that no ordinary month reaches it, and low
+    // enough that a single month cannot be used to take the whole library.
+    const monthKey = getAllotmentPeriodKey(user.membership_started_at);
+    const [openCap, overageCost] = await Promise.all([
+      isGuest ? 0 : getConfigNumber(`tier_open_cap_${userTier}`).catch(() => 0),
+      getConfigNumber('tier_open_overage_cost').catch(() => 1),
+    ]);
+
+    let opensUsed = 0;
+    if (!isGuest) {
       const { rows: allotRows } = await pool.query(
         `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2`,
         [req.user.userId, monthKey]
       );
-      creditsUsed = allotRows[0]?.unlocks_used || 0;
+      opensUsed = allotRows[0]?.unlocks_used || 0;
     }
-    const creditsRemaining = Math.max(0, maxUnlocks - creditsUsed);
+    // A cap of 0 means uncapped, which is how a tier is exempted.
+    const capReached = !isGuest && openCap > 0 && opensUsed >= openCap;
+    const opensRemaining = openCap > 0 ? Math.max(0, openCap - opensUsed) : null;
 
     const sortBy = ['newest', 'price_low', 'price_high'].includes(req.query.sort)
       ? req.query.sort : 'newest';
@@ -143,7 +163,7 @@ router.get('/sets', authMid, async (req, res) => {
       const counts = { photos: 0, videos: 0 };
       items.forEach((i) => { if (i.media_type === 'video') counts.videos++; else counts.photos++; });
 
-      const segments = computeSegments(items, userTier, s.price_coins, discountPct, isGuest, guestMultiplier);
+      const segments = computeSegments(items, userTier, s.price_coins, discountPct, isGuest, guestMultiplier, capReached, overageCost);
 
       const tierGrant   = grantsBySet[s.id]?.tier;
       const upsellGrant = grantsBySet[s.id]?.upsell;
@@ -227,8 +247,14 @@ router.get('/sets', authMid, async (req, res) => {
       isGuest,
       discountPct,
       coinBalance: user.coin_balance,
-      creditsRemaining,
-      creditsMax: maxUnlocks,
+      opensRemaining,
+      openCap,
+      opensUsed,
+      overageCost,
+      // Kept under the old names so anything still reading them keeps working
+      // through the deploy.
+      creditsRemaining: opensRemaining,
+      creditsMax: openCap,
     });
   } catch (err) {
     console.error('gallery/sets error:', err);
@@ -284,7 +310,21 @@ router.post('/unlock', authMid, async (req, res) => {
     const set = setRows[0];
 
     const { rows: itemRows } = await client.query(`SELECT r2_key, media_type, tier_category FROM set_items WHERE set_id = $1`, [setId]);
-    const segments = computeSegments(itemRows, userTier, set.price_coins, discountPct, isGuest, guestMultiplier);
+    // Recomputed with the cap state so the price charged matches what the
+    // gallery showed.
+    const monthKeyForCap = getAllotmentPeriodKey(user.membership_started_at);
+    const [capForTier, overageForTier] = await Promise.all([
+      isGuest ? 0 : getConfigNumber(`tier_open_cap_${userTier}`).catch(() => 0),
+      getConfigNumber('tier_open_overage_cost').catch(() => 1),
+    ]);
+    const { rows: capRows } = await client.query(
+      `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2`,
+      [req.user.userId, monthKeyForCap]
+    );
+    const alreadyOpened = capRows[0]?.unlocks_used || 0;
+    const atCap = !isGuest && capForTier > 0 && alreadyOpened >= capForTier;
+
+    const segments = computeSegments(itemRows, userTier, set.price_coins, discountPct, isGuest, guestMultiplier, atCap, overageForTier);
 
     if (scope === 'upsell' && !segments.hasUpsell) {
       await client.query('ROLLBACK');
@@ -309,25 +349,44 @@ router.post('/unlock', authMid, async (req, res) => {
     let useCredit = false;
     let price = scope === 'tier' ? segments.tierPrice : segments.upsellPrice;
 
-    if (scope === 'tier' && segments.tierPortionCount > 0) {
-      const monthKey   = getAllotmentPeriodKey(user.membership_started_at);
-      const maxUnlocks = await getGalleryUnlocksForTier(userTier);
+    // Opening a set at your own level is included in the membership, and every
+    // open is recorded. The count is a ceiling rather than a budget: high
+    // enough that a normal month never reaches it, low enough that one month
+    // cannot be used to take everything. Past it, a further set at your own
+    // level costs one token.
+    //
+    // Counted only for members, and only for the tier scope — an upsell is
+    // bought separately and has nothing to do with the ceiling.
+    if (scope === 'tier' && segments.tierPortionCount > 0 && !isGuest) {
+      const monthKey = getAllotmentPeriodKey(user.membership_started_at);
+      const [openCap, overageCost] = await Promise.all([
+        getConfigNumber(`tier_open_cap_${userTier}`).catch(() => 0),
+        getConfigNumber('tier_open_overage_cost').catch(() => 1),
+      ]);
+
       const { rows: allotRows } = await client.query(
-        `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2`,
+        `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2 FOR UPDATE`,
         [req.user.userId, monthKey]
       );
       const used = allotRows[0]?.unlocks_used || 0;
-      if (used < maxUnlocks) {
+
+      // A cap of 0 means uncapped, which is how a tier is exempted.
+      if (openCap === 0 || used < openCap) {
         useCredit = true;
         price = 0;
-        await client.query(
-          `INSERT INTO monthly_allotments (user_id, month_key, unlocks_used)
-           VALUES ($1, $2, 1)
-           ON CONFLICT (user_id, month_key)
-           DO UPDATE SET unlocks_used = monthly_allotments.unlocks_used + 1`,
-          [req.user.userId, monthKey]
-        );
+      } else {
+        price = overageCost;
       }
+
+      // Recorded either way — what it cost does not change the fact that they
+      // opened it, and the count is what a later cap would be measured against.
+      await client.query(
+        `INSERT INTO monthly_allotments (user_id, month_key, unlocks_used)
+         VALUES ($1, $2, 1)
+         ON CONFLICT (user_id, month_key)
+         DO UPDATE SET unlocks_used = monthly_allotments.unlocks_used + 1`,
+        [req.user.userId, monthKey]
+      );
     }
 
     if (price > 0) {

@@ -68,12 +68,11 @@ export function tierPerks(tierId) {
   if (e.freeDMs !== null && e.dailyDMCap !== null) {
     perks.push(`${e.freeDMs} free Direct Messages · ${e.dailyDMCap} Per Day max`);
   }
-  if (e.unlocks) {
-    // "Unlock any N sets" read as though a membership opened whole sets. It
-    // opens the part of a set that tier reaches, N times a month — so the
-    // wording drops "any", which was the word doing the overpromising.
-    perks.push(`Unlock ${e.unlocks} Set${e.unlocks === 1 ? '' : 's'} every month`);
-  }
+  // Membership is access, not an allowance. Everything at this level and below
+  // is open without spending anything — which is a far stronger sentence than
+  // any number of unlocks, and it gets better as Jinal posts more rather than
+  // staying fixed while the library grows.
+  perks.push(`Every ${TIERS[tierId]?.name || tierId} set, included`);
   if (tierGetsSelfies(tierId)) {
     perks.push('Selfie of the Day, free');
   }

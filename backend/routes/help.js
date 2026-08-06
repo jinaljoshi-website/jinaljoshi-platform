@@ -15,7 +15,7 @@ const authMid = require('../middleware/auth');
 const { getBalances } = require('../lib/tokens');
 const {
   getConfigNumber, getConfigValue, getDmConfigForTier,
-  getGalleryUnlocksForTier, getDiscountForTier, getGuestMultiplier,
+  getDiscountForTier, getGuestMultiplier,
 } = require('../lib/config');
 const { getAllotmentPeriodKey, getLocalDateStr } = require('../lib/time');
 
@@ -34,7 +34,7 @@ router.get('/context', authMid, async (req, res) => {
            selfieCost, selfiePass] = await Promise.all([
       getBalances(pool, req.user.userId),
       getDmConfigForTier(tier),
-      tier === 'guest' ? 0 : getGalleryUnlocksForTier(tier),
+      tier === 'guest' ? 0 : getConfigNumber(`tier_open_cap_${tier}`).catch(() => 0),
       getDiscountForTier(tier),
       getGuestMultiplier(),
       getConfigNumber('token_rate_inr'),

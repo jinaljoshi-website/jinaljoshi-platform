@@ -241,7 +241,7 @@ export default function Gallery() {
         <h1 style={title}>Gallery</h1>
         <p style={text}>
           Photo sets, videos and behind-the-scenes content.
-          {data?.creditsMax > 0 && ` You have ${data.creditsRemaining} of ${data.creditsMax} free unlocks left this month.`}
+          {data?.openCap > 0 && ` Everything at your level is included — you have opened ${data.opensUsed} of ${data.openCap} sets this month.`}
         </p>
       </div>
 
@@ -267,7 +267,7 @@ export default function Gallery() {
       </div>
 
       {activeTab !== 'selfies' && (
-        <HowUnlocking tier={data?.userTier} creditsRemaining={data?.creditsRemaining} creditsMax={data?.creditsMax} />
+        <HowUnlocking tier={data?.userTier} opensRemaining={data?.opensRemaining} openCap={data?.openCap} overageCost={data?.overageCost} />
       )}
 
       {activeTab !== 'selfies' && (

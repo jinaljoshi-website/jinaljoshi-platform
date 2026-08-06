@@ -11,7 +11,7 @@
 import { useState } from 'react';
 import { C, F } from '../tokens';
 
-export default function HowUnlocking({ tier, creditsRemaining, creditsMax }) {
+export default function HowUnlocking({ tier, opensRemaining, openCap, overageCost }) {
   const [open, setOpen] = useState(false);
   const isGuest = !tier || tier === 'guest';
 
@@ -43,11 +43,11 @@ export default function HowUnlocking({ tier, creditsRemaining, creditsMax }) {
           <div style={pointRow}>
             <div style={num}>02</div>
             <div>
-              <div style={h}>Your membership reaches part of each set</div>
+              <div style={h}>Your level is already included</div>
               <div style={sub}>
                 {isGuest
-                  ? 'Members reach the photos meant for their tier and everything below it. As a guest you can still buy any set outright.'
-                  : `As ${tier}, you reach the photos meant for ${tier} and every tier below it. That part is what your monthly unlocks pay for.`}
+                  ? 'Members open the photos meant for their tier, and every tier below it, at no extra cost. As a guest you can still buy any set outright.'
+                  : `As ${tier}, the photos meant for ${tier} and every tier below it are open to you. No credits, nothing to spend — that is what the membership is.`}
               </div>
             </div>
           </div>
@@ -74,20 +74,22 @@ export default function HowUnlocking({ tier, creditsRemaining, creditsMax }) {
             </div>
           </div>
 
-          {!isGuest && creditsMax > 0 && (
+          {!isGuest && openCap > 0 && (
             <>
               <div style={rule} />
-              <div style={{ ...h, marginBottom: 6 }}>Your monthly unlocks</div>
+              <div style={{ ...h, marginBottom: 6 }}>Is there a limit?</div>
               <p style={{ ...sub, marginBottom: 10 }}>
-                You have <strong style={{ color: C.accent }}>{creditsRemaining} of {creditsMax}</strong> left
-                this month. They open the part of a set your tier reaches, at no cost. They refresh
-                every month and do not carry over.
+                A generous one, and most people never reach it. You can open{' '}
+                <strong style={{ color: C.accent }}>{openCap} sets a month</strong> at your own level —
+                you have <strong style={{ color: C.accent }}>{opensRemaining}</strong> left. Beyond
+                that, a further set at your level is {overageCost === 1 ? 'one token' : `${overageCost} tokens`}.
+                It resets every month.
               </p>
               {/* Said plainly, because it is the one thing that surprises people
                   later and is much better known before than discovered after. */}
               <p style={{ ...sub, color: '#D9A45C' }}>
-                A set opened with a monthly unlock stays yours while your membership is active.
-                A set you pay tokens for is yours permanently, whatever happens to your membership.
+                Sets you open through your membership stay open while your membership is active.
+                Anything you pay tokens for is yours permanently, whatever happens to your membership.
               </p>
             </>
           )}
@@ -96,8 +98,8 @@ export default function HowUnlocking({ tier, creditsRemaining, creditsMax }) {
             <>
               <div style={rule} />
               <p style={sub}>
-                Members get a number of free unlocks every month and pay less for everything else.
-                As a guest you can still buy any set, at a slightly higher price.
+                Members open everything at their own level without paying, and pay less for
+                everything else. As a guest you can still buy any set, at a slightly higher price.
               </p>
             </>
           )}
