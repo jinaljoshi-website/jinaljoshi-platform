@@ -3,6 +3,8 @@ const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
+const { getGuestMultiplier } = require('../lib/config');
+const { roundTokensUp } = require('../lib/pricing');
 const { postSystemMessage } = require('./community');
 const { assertNotBlocked } = require('../lib/moderation');
 const { spendTokens, refundByRelated } = require('../lib/tokens');
@@ -88,7 +90,7 @@ router.post('/request', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: userRows } = await client.query(
-      `SELECT coin_balance, display_name FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT coin_balance, display_name, tier, membership_expires_at FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user = userRows[0];
@@ -106,7 +108,14 @@ router.post('/request', authMid, async (req, res) => {
       }
       itemTitle = itemRows[0].title;
     }
-    const price = Math.ceil(offeredPrice);
+    // No tier discount here — a custom request is Jinal's own time and the fan
+    // names the amount themselves, so there is nothing to discount from. Guests
+    // still pay the guest rate, as they do everywhere else.
+    const memberActive = user.membership_expires_at && new Date(user.membership_expires_at) > new Date();
+    const offered      = Math.ceil(offeredPrice);
+    const price        = memberActive
+      ? offered
+      : roundTokensUp(offered * (await getGuestMultiplier()));
 
     const { rows: requestRows } = await client.query(
       `INSERT INTO custom_requests

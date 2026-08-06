@@ -64,10 +64,14 @@ function tierGetsSelfies(tierId) {
 // four columns of numbers; a description tells them which one is theirs. The
 // numbers still follow underneath — the prose sells, the figures reassure.
 export const TIER_DESCRIPTIONS = {
-  community: 'For someone just starting their journey. Explore the community and the extra content that comes with being here.',
-  insider:   'For those who love being here. Communicate freely and reach more of what she posts.',
-  premium:   'For those who belong here. More content, and better prices on everything else.',
-  supreme:   'For the ones who would rather not think about limits. All content, and the best prices anywhere on the platform.',
+  community: { line: 'For someone just starting their journey',
+               sub:  'Explore the community and the extra content that comes with being here.' },
+  insider:   { line: 'For those who love being here',
+               sub:  'Communicate freely and reach more of what she posts.' },
+  premium:   { line: 'For those who belong here',
+               sub:  'More content, and better prices across the platform.' },
+  supreme:   { line: 'For the ones who would rather not think about limits',
+               sub:  'All content, and the best prices anywhere on the platform.' },
 };
 
 export function tierDescription(tierId) {
@@ -86,13 +90,12 @@ export const MEMBERSHIP_NOTES = [
     text: 'Some content is marked purchase-only and sits outside membership, whatever your tier.',
   },
   {
-    // Written from what the code actually does. "Everywhere else" was not true:
-    // the discount is applied on gallery unlocks, merchandise and calls, and
-    // nowhere else. Messages have their own per-tier rate instead of a discount,
-    // and outfits are deliberately flat-priced so a bid means the same from
-    // everyone.
-    title: 'Where discounts apply',
-    text: 'Your tier discount applies to gallery unlocks, merchandise and calls. Messages are already priced by tier, so no further discount applies. One-of-One Outfits, custom requests and membership itself are excluded.',
+    // The perk itself now names where the discount applies, so this only has to
+    // cover the two places a reader might reasonably assume it does and be
+    // wrong. Messages are priced by tier already; outfits are flat so a bid
+    // means the same from everyone.
+    title: 'Discounts',
+    text: 'Messages are already priced by your tier, so no further discount applies. One-of-One Outfits are flat-priced for everyone.',
   },
 ];
 
@@ -111,7 +114,7 @@ export function tierPerks(tierId) {
     perks.push('Selfie of the Day, free');
   }
   if (e.discountPct) {
-    perks.push(`${e.discountPct}% off site-wide`);
+    perks.push(`${e.discountPct}% additional off on Gallery, Merchandise & Calls`);
   }
   return perks;
 }

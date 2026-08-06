@@ -38,7 +38,7 @@ function accessUntilLabel(months) {
 const TIER_META = {
   community: { name: 'Community', color: '#C17D4A' },
   insider:   { name: 'Insider',   color: '#B8860B' },
-  premium:   { name: 'Premium',   color: '#9B8F83' },
+  premium:   { name: 'Premium',   color: '#D4AF37' },
   supreme:   { name: 'Supreme',   color: '#C17D4A' },
 };
 
@@ -260,7 +260,10 @@ export default function Membership() {
               )}
 
               {tierDescription(tierId) && (
-                <p style={tierDesc}>{tierDescription(tierId)}</p>
+                <div style={{ margin: '10px 0 16px' }}>
+                  <div style={{ ...tierLine, color: meta.color }}>{tierDescription(tierId).line}</div>
+                  <div style={tierSub}>{tierDescription(tierId).sub}</div>
+                </div>
               )}
 
               <ul style={perkList}>{tierPerks(tierId).map((p) => <li key={p}>{p}</li>)}</ul>
@@ -340,7 +343,10 @@ const savingBadge  = { fontSize: 10, background: 'rgba(193,125,74,0.15)', color:
 const tiersGrid    = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px,1fr))', gap: 16, marginBottom: 20 };
 const card         = { background: C.surface, borderRadius: 10, padding: 22, display: 'flex', flexDirection: 'column' };
 const currentBadge = { fontFamily: F.sans, fontSize: 10, padding: '2px 8px', borderRadius: 999, color: '#1A1714' };
-const tierDesc = { fontFamily: F.sans, fontSize: 13, color: C.text, lineHeight: 1.65, margin: '10px 0 14px' };
+// The hook, in the tier's own colour and large enough to be read on its own.
+// The detail underneath stays quiet — it is for someone already interested.
+const tierLine = { fontFamily: F.display, fontSize: 19, fontWeight: 600, lineHeight: 1.3, marginBottom: 6 };
+const tierSub  = { fontFamily: F.sans, fontSize: 12.5, color: C.muted, lineHeight: 1.6 };
 const noteBox  = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px' };
 const noteHead = { fontFamily: F.mono, fontSize: 10, color: C.accent, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 };
 const noteText = { fontFamily: F.sans, fontSize: 12, color: C.muted, lineHeight: 1.7, margin: 0 };

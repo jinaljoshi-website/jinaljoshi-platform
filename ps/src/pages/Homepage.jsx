@@ -14,7 +14,7 @@ function isSignedIn() {
 const TIER_META = {
   community: { name: 'Community', color: '#C17D4A' },
   insider:   { name: 'Insider',   color: '#B8860B' },
-  premium:   { name: 'Premium',   color: '#9B8F83' },
+  premium:   { name: 'Premium',   color: '#D4AF37' },
   supreme:   { name: 'Supreme',   color: '#C17D4A' },
 };
 
@@ -190,9 +190,12 @@ export default function Homepage() {
               <div key={id} style={tierCard}>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color, marginBottom: 14 }} />
                 <div style={{ fontFamily: F.display, fontSize: 26, color: C.text, marginBottom: 6 }}>{meta.name}</div>
-                <div style={{ fontFamily: F.sans, fontSize: 13, color: C.text, marginBottom: 16, lineHeight: 1.65 }}>
-                  {tierDescription(id)}
-                </div>
+                {tierDescription(id) && (
+                  <div style={{ marginBottom: 18 }}>
+                    <div style={{ ...tierLine, color: meta.color }}>{tierDescription(id).line}</div>
+                    <div style={tierSub}>{tierDescription(id).sub}</div>
+                  </div>
+                )}
                 {tokens !== null && (
                   <div style={{ marginBottom: 2 }}>
                     <WonderCoinAmount amount={tokens} size={22} textColor={meta.color} fontSize={28} />
@@ -334,6 +337,12 @@ const howCard       = { background: '#161410', border: `1px solid rgba(242,235,2
 const tiersGrid     = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 16 };
 const tierCard      = { background: '#161410', border: `1px solid rgba(242,235,224,0.08)`, borderRadius: 10, padding: 24, display: 'flex', flexDirection: 'column' };
 const perkList      = { fontFamily: F.sans, fontSize: 13, color: '#9B8F83', lineHeight: 1.9, paddingLeft: 18, margin: '0 0 20px', flexGrow: 1 };
+// The hook, set in the tier's own colour and large enough to be read on its
+// own. The detail underneath is deliberately quieter — it is there for someone
+// already interested, not competing for the first glance.
+const tierLine = { fontFamily: F.display, fontSize: 19, fontWeight: 600, lineHeight: 1.3, marginBottom: 6 };
+const tierSub  = { fontFamily: F.sans, fontSize: 12.5, color: '#9B8F83', lineHeight: 1.6 };
+
 const notesGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, maxWidth: 1100, margin: '28px auto 0' };
 const noteBox   = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px' };
 const noteHead  = { fontFamily: F.mono, fontSize: 10, color: C.accent, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 };
