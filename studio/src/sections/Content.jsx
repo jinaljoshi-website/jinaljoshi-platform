@@ -131,6 +131,20 @@ export function Content() {
   const [photographers, setPhotographers] = useState([]);
   const [descOpen,      setDescOpen]      = useState(null);
 
+  // What every tier actually pays. The figure on the form is a base that gets
+  // split by how many photos sit at each level, then discounted or multiplied
+  // by who is looking — so the number typed here is not a number any fan sees.
+  const [pricingFor,  setPricingFor]  = useState(null);
+  const [pricingData, setPricingData] = useState(null);
+
+  const openPricing = async (set) => {
+    if (pricingFor === set.id) { setPricingFor(null); return; }
+    setPricingFor(set.id); setPricingData(null); setError('');
+    try {
+      setPricingData(await api.get(`/api/studio/content/${set.id}/pricing`));
+    } catch (err) { setError(err.message); }
+  };
+
   const poolRef = useRef(null);
   useEffect(() => {
     if (typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined') {
@@ -824,6 +838,9 @@ export function Content() {
                     {addingTo === set.id ? 'Cancel' : 'Add photos'}
                   </button>
                   <button onClick={() => startEdit(set)} style={actionBtn}>Edit</button>
+                  <button onClick={() => openPricing(set)} style={actionBtn}>
+                    {pricingFor === set.id ? 'Hide pricing' : 'Pricing'}
+                  </button>
                   <button onClick={() => openUnlocks(set)} style={actionBtn}>
                     {unlocksFor === set.id ? 'Hide unlocks' : 'Unlocks'}
                   </button>
@@ -833,6 +850,50 @@ export function Content() {
                     Delete
                   </button>
                 </div>
+
+                {pricingFor === set.id && (
+                  <div style={pricingBox}>
+                    {!pricingData ? <T.muted>Working it out…</T.muted>
+                     : pricingData.itemCount === 0 ? <T.muted>Nothing uploaded yet.</T.muted>
+                     : (
+                      <>
+                        <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 10, lineHeight: 1.6 }}>
+                          Base {pricingData.basePrice} tokens across {pricingData.itemCount} items
+                          {pricingData.freeCount > 0 && `, ${pricingData.freeCount} free to everyone`}.
+                        </div>
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={priceTbl}>
+                            <thead>
+                              <tr>{['Tier', 'Free', 'Included', 'Extra to buy', 'They pay'].map((h) => (
+                                <th key={h} style={priceTh}>{h}</th>
+                              ))}</tr>
+                            </thead>
+                            <tbody>
+                              {pricingData.tiers.map((t) => (
+                                <tr key={t.tier}>
+                                  <td style={{ ...priceTd, textTransform: 'capitalize' }}>{t.tier}</td>
+                                  <td style={{ ...priceTd, textAlign: 'right' }}>{t.freeCount || '—'}</td>
+                                  <td style={{ ...priceTd, textAlign: 'right', color: t.includedCount ? colors.success : colors.muted }}>
+                                    {t.includedCount || '—'}
+                                  </td>
+                                  <td style={{ ...priceTd, textAlign: 'right' }}>
+                                    {t.upsellCount ? `${t.upsellCount} · ${t.upsellPrice}` : '—'}
+                                  </td>
+                                  <td style={{ ...priceTd, textAlign: 'right', color: colors.text }}>
+                                    {t.totalToSeeAll > 0
+                                      ? <>{t.totalToSeeAll} tokens
+                                          <div style={{ fontSize: 10, color: colors.muted }}>₹{t.totalInr.toLocaleString('en-IN')}</div></>
+                                      : <span style={{ color: colors.success }}>nothing</span>}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
                 </>
               )}
             </div>
@@ -916,15 +977,18 @@ export function Content() {
 
             {unlockBusy ? <T.muted>Loading…</T.muted>
              : !unlockData ? null
-             : unlockData.unlocks.length === 0 ? <T.muted>Nobody has unlocked this yet.</T.muted>
+             : unlockData.unlocks.length === 0 && unlockData.views.length === 0
+               ? <T.muted>Nobody has opened this yet.</T.muted>
              : (
               <>
                 <div style={S.statsRow}>
                   <div style={S.statCard}>
-                    <div style={uLabel}>Unlocked by</div>
-                    <div style={uValue}>{unlockData.totals.unlocks}</div>
+                    <div style={uLabel}>Opened by</div>
+                    <div style={uValue}>{unlockData.totals.views}</div>
                     <div style={uSub}>
-                      {unlockData.totals.byAllowance} on a membership allowance
+                      {unlockData.totals.unlocks > 0
+                        ? `${unlockData.totals.unlocks} unlocked · ${unlockData.totals.byAllowance} through membership`
+                        : 'free set — nothing to unlock'}
                     </div>
                   </div>
                   <div style={S.statCard}>
@@ -946,6 +1010,22 @@ export function Content() {
                 </div>
 
                 <div style={{ display: 'grid', gap: 6, marginTop: 16 }}>
+                  {/* A free set has no unlocks, so the view list is the whole
+                      story. Shown only in that case, to avoid listing the same
+                      people twice on a set that does have unlocks. */}
+                  {unlockData.unlocks.length === 0 && unlockData.views.map((v, i) => (
+                    <div key={i} style={unlockRow}>
+                      <div style={{ flex: 1, minWidth: 180 }}>
+                        <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{v.who}</div>
+                        <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
+                          {new Date(v.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          {' · '}{v.tier}
+                        </div>
+                      </div>
+                      <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted }}>opened</span>
+                    </div>
+                  ))}
+
                   {unlockData.unlocks.map((u) => (
                     <div key={u.id} style={unlockRow}>
                       <div style={{ flex: 1, minWidth: 180 }}>
@@ -1421,6 +1501,11 @@ const unlockModal = { width: '100%', maxWidth: 760, maxHeight: '86vh', overflowY
 
 const photogChip = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(193,125,74,0.12)', border: `1px solid rgba(193,125,74,0.3)`, color: colors.accent, fontFamily: sans, fontSize: 12, padding: '4px 8px 4px 10px', borderRadius: 999 };
 const chipX      = { background: 'none', border: 'none', color: colors.accent, fontSize: 14, cursor: 'pointer', padding: 0, lineHeight: 1 };
+
+const pricingBox = { marginTop: 12, background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: 14 };
+const priceTbl   = { width: '100%', borderCollapse: 'collapse', fontFamily: sans, fontSize: 12 };
+const priceTh    = { textAlign: 'left', padding: '6px 8px', borderBottom: `1px solid ${colors.border}`, color: colors.muted, fontFamily: mono, fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', whiteSpace: 'nowrap' };
+const priceTd    = { padding: '7px 8px', borderBottom: `1px solid ${colors.border}`, color: colors.muted, verticalAlign: 'top' };
 
 const rowActions = { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` };
 const actionBtn  = { ...S.ghostBtn, fontSize: 12, padding: '6px 12px', whiteSpace: 'nowrap' };

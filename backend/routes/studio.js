@@ -525,6 +525,74 @@ router.post('/content', async (req, res) => {
 
 const VALID_TIER_CATEGORIES = ['free', 'community', 'insider', 'premium', 'supreme', 'purchase_only'];
 
+// What every tier actually pays for this set. The price on the form is a base
+// that gets split by how many photos sit at each level, then discounted or
+// multiplied by who is looking — so the number Jinal types is not a number any
+// fan sees. This shows all five.
+router.get('/content/:id/pricing', async (req, res) => {
+  try {
+    const { rows: setRows } = await pool.query(
+      `SELECT price_coins FROM sets WHERE id = $1`, [req.params.id]
+    );
+    if (!setRows.length) return res.status(404).json({ error: 'Set not found' });
+    const basePrice = setRows[0].price_coins;
+
+    const { rows: items } = await pool.query(
+      `SELECT tier_category FROM set_items WHERE set_id = $1`, [req.params.id]
+    );
+    if (!items.length) return res.json({ basePrice, tiers: [], itemCount: 0 });
+
+    const { rows: cfgRows } = await pool.query(
+      `SELECT key, value FROM platform_config
+       WHERE key = 'guest_price_multiplier' OR key = 'token_rate_inr'
+          OR key LIKE '%_discount_pct'`
+    );
+    const cfg = {};
+    cfgRows.forEach((r) => { cfg[r.key] = parseFloat(r.value); });
+
+    const ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
+    const total = items.length;
+    const freeCount = items.filter((i) => i.tier_category === 'free').length;
+
+    const tiers = ORDER.map((tier) => {
+      const reaches = (cat) => ORDER.indexOf(tier) >= ORDER.indexOf(cat);
+      const tierItems = items.filter((i) =>
+        i.tier_category !== 'free' && i.tier_category !== 'purchase_only' && reaches(i.tier_category));
+      const upsellItems = items.filter((i) =>
+        i.tier_category === 'purchase_only' ||
+        (i.tier_category !== 'free' && !reaches(i.tier_category)));
+
+      const isGuest  = tier === 'guest';
+      const rawTier   = basePrice * (tierItems.length / total);
+      const rawUpsell = basePrice * (upsellItems.length / total);
+      const discount  = isGuest ? 0 : (cfg[`${tier}_discount_pct`] || 0);
+      const mult      = cfg.guest_price_multiplier || 1;
+
+      // A member's own level is included; a guest has no level, so they buy it.
+      const tierPrice   = isGuest ? Math.ceil(rawTier * mult) : 0;
+      const upsellPrice = isGuest
+        ? Math.ceil(rawUpsell * mult)
+        : Math.ceil(rawUpsell * (1 - discount / 100));
+
+      return {
+        tier,
+        freeCount,
+        includedCount: isGuest ? 0 : tierItems.length,
+        tierPrice,
+        upsellCount: upsellItems.length,
+        upsellPrice,
+        totalToSeeAll: tierPrice + upsellPrice,
+        totalInr: Math.round((tierPrice + upsellPrice) * (cfg.token_rate_inr || 0)),
+      };
+    });
+
+    res.json({ basePrice, itemCount: total, freeCount, tokenRate: cfg.token_rate_inr, tiers });
+  } catch (err) {
+    console.error('studio/content/pricing error:', err);
+    res.status(500).json({ error: 'Failed to work out pricing' });
+  }
+});
+
 // Everything inside a set, so Jinal can look through it the way a fan would
 // rather than trusting a count. Without this, a single bad photo in a large set
 // means deleting and rebuilding the whole thing.
@@ -902,6 +970,17 @@ router.get('/content/:id/unlocks', async (req, res) => {
       [req.params.id]
     );
 
+    // Everyone who has opened it, whether or not anything was paid. A free set
+    // has no unlocks at all, so views are the only thing that says whether it
+    // was seen — and it is usually the most-seen thing posted.
+    const { rows: viewRows } = await pool.query(
+      `SELECT v.first_seen, u.email, u.display_name, u.tier
+       FROM set_views v JOIN users u ON u.id = v.user_id
+       WHERE v.set_id = $1 AND u.is_test = FALSE
+       ORDER BY v.first_seen DESC`,
+      [req.params.id]
+    );
+
     // Totals come from the ledger, not from matching each grant to a ledger row
     // by timestamp. That matching was approximate and could pair a grant with
     // the wrong entry; the ledger summed by set is exact.
@@ -927,6 +1006,11 @@ router.get('/content/:id/unlocks', async (req, res) => {
     totals.fromGifted    = spendRows[0].gifted;
 
     res.json({
+      views: viewRows.map((v) => ({
+        at: v.first_seen,
+        who: v.display_name || v.email,
+        tier: v.tier,
+      })),
       unlocks: rows.map((r) => ({
         id: r.id,
         at: r.created_at,
@@ -940,6 +1024,7 @@ router.get('/content/:id/unlocks', async (req, res) => {
       })),
       totals: {
         ...totals,
+        views: viewRows.length,
         // Only purchased tokens represent money that came in. Gifted tokens were
         // given away, so counting them as revenue would be counting it twice.
         revenueInr: Math.round(totals.fromPurchased * tokenRate * 100) / 100,
