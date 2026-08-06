@@ -595,6 +595,24 @@ export function Content() {
       {error   && <div style={S.error}>{error}</div>}
       {success && <div style={S.success}>{success}</div>}
 
+      {sets.some((s) => !s.cover_blur && (s.cover_url || s.cover_key)) && (
+        <div style={{ ...storageBox, marginBottom: 16 }}>
+          <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, marginBottom: 6 }}>
+            Blurred covers missing
+          </div>
+          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, lineHeight: 1.6, marginBottom: 10 }}>
+            {sets.filter((s) => !s.cover_blur && (s.cover_url || s.cover_key)).length} set(s) were
+            uploaded before locked covers were blurred properly, so their cards show nothing to
+            anyone who cannot see inside. This makes the small version from each existing cover.
+          </div>
+          <button onClick={backfillCovers} disabled={backfilling}
+                  style={{ ...S.btn, fontSize: 12, opacity: backfilling ? 0.5 : 1 }}>
+            {backfilling ? 'Working…' : 'Generate them'}
+          </button>
+        </div>
+      )}
+
+
       {/* ── Create form ── */}
       <Card style={{ marginBottom: 28 }}>
         <T.sectionTitle>New content</T.sectionTitle>
@@ -964,23 +982,6 @@ export function Content() {
       </div>
 
       {/* Storage housekeeping */}
-      {sets.some((s) => !s.cover_blur && (s.cover_url || s.cover_key)) && (
-        <div style={{ ...storageBox, marginBottom: 16 }}>
-          <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, marginBottom: 6 }}>
-            Blurred covers missing
-          </div>
-          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, lineHeight: 1.6, marginBottom: 10 }}>
-            {sets.filter((s) => !s.cover_blur && (s.cover_url || s.cover_key)).length} set(s) were
-            uploaded before locked covers were blurred properly, so their cards show nothing to
-            anyone who cannot see inside. This makes the small version from each existing cover.
-          </div>
-          <button onClick={backfillCovers} disabled={backfilling}
-                  style={{ ...S.btn, fontSize: 12, opacity: backfilling ? 0.5 : 1 }}>
-            {backfilling ? 'Working…' : 'Generate them'}
-          </button>
-        </div>
-      )}
-
       <div style={storageBox}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div>
