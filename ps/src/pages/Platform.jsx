@@ -19,8 +19,8 @@ import Coins      from './Coins';
 import Profile    from './Profile';
 
 const navItems = [
-  { to: '/platform/chat',       label: 'Messages'      },
-  { to: '/platform/calls',      label: 'Calls'         },
+  { to: '/platform/chat',       label: 'Chat',           live: 'chat'  },
+  { to: '/platform/calls',      label: 'Calls',          live: 'calls' },
   { to: '/platform/gallery',    label: 'Gallery'       },
   { to: '/platform/shop',       label: 'Shop'          },
   { to: '/platform/community',  label: 'Public Corner' },
@@ -30,6 +30,27 @@ const navItems = [
 ];
 
 const FULLSCREEN_PAGES = ['/platform/chat', '/platform/community'];
+
+function useReachable() {
+  const [state, setState] = useState({ chatLive: false, callsAvailable: false });
+  useEffect(() => {
+    let alive = true;
+    const check = () => api.get('/api/landing')
+      .then((d) => { if (alive) setState({ chatLive: !!d.chatLive, callsAvailable: !!d.callsAvailable }); })
+      .catch(() => {});
+    check();
+    const id = setInterval(check, 60000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+  return state;
+}
+
+// A dot beside the label rather than a second line — the sidebar is a list of
+// destinations, and a status line under two of them would break its rhythm.
+function LiveDot({ show }) {
+  if (!show) return null;
+  return <span style={navDot} title="Available now" />;
+}
 const TOP_BAR_H = 56;
 const PROFILE_POLL_MS = 20000;
 
@@ -99,6 +120,10 @@ export default function Platform() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const isFullscreen = FULLSCREEN_PAGES.includes(location.pathname);
+  const reachable    = useReachable();
+  const isLive = (item) =>
+    (item.live === 'chat'  && reachable.chatLive) ||
+    (item.live === 'calls' && reachable.callsAvailable);
 
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
 
@@ -154,9 +179,10 @@ export default function Platform() {
                 <Link
                   key={item.to}
                   to={item.to}
-                  style={{ ...drawerLink, background: active ? 'rgba(193,125,74,0.12)' : 'transparent', color: active ? C.text : C.muted }}
+                  style={{ ...drawerLink, background: active ? 'rgba(193,125,74,0.12)' : 'transparent', color: active ? C.text : C.muted, display: 'flex', alignItems: 'center', gap: 8 }}
                 >
                   {item.label}
+                  <LiveDot show={isLive(item)} />
                 </Link>
               );
             })}
@@ -208,9 +234,10 @@ export default function Platform() {
                   <Link
                     key={item.to}
                     to={item.to}
-                    style={{ ...navLink, background: active ? 'rgba(193,125,74,0.12)' : 'transparent', color: active ? C.text : C.muted, border: active ? `1px solid ${C.border}` : '1px solid transparent' }}
+                    style={{ ...navLink, background: active ? 'rgba(193,125,74,0.12)' : 'transparent', color: active ? C.text : C.muted, border: active ? `1px solid ${C.border}` : '1px solid transparent', display: 'flex', alignItems: 'center', gap: 8 }}
                   >
                     {item.label}
+                    <LiveDot show={isLive(item)} />
                   </Link>
                 );
               })}
@@ -242,6 +269,8 @@ export default function Platform() {
     </div>
   );
 }
+
+const navDot = { width: 6, height: 6, borderRadius: '50%', background: '#8FC88F', flexShrink: 0, boxShadow: '0 0 0 3px rgba(143,200,143,0.18)' };
 
 const topBar      = { flexShrink: 0, minHeight: TOP_BAR_H, height: `calc(${TOP_BAR_H}px + env(safe-area-inset-top, 0px))`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `env(safe-area-inset-top, 0px) 16px 0`, background: 'rgba(13,12,10,0.97)', borderBottom: `1px solid ${C.border}`, zIndex: 30, boxSizing: 'border-box' };
 const statusBadge = { display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}`, borderRadius: 999, padding: '5px 10px' };
