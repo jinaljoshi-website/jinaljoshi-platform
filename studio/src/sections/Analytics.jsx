@@ -90,7 +90,7 @@ export function Analytics() {
           { key: 'purchased', label: 'Purchased tokens' },
           { key: 'gifted',    label: 'Gifted tokens'    },
           { key: 'sets',      label: 'Sets'             },
-          { key: 'activity',  label: 'Who opened what'  },
+          { key: 'activity',  label: 'Set unlock history' },
         ].map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)}
             style={{
@@ -209,18 +209,22 @@ export function Analytics() {
           <div style={S.statsRow}>
             <Stat head="Sets opened" value={d.totalUnlocks + d.totalViews}
                   sub={`${d.totalUnlocks} unlocked · ${d.totalViews} opened free`} />
+            <Stat head="Tokens spent" value={d.totalPurchasedTokens}
+                  sub="purchased tokens — money that came in" tone={colors.success} />
+            <Stat head="Gifted tokens spent" value={d.totalGiftedTokens}
+                  sub="given, not earned — no revenue" tone="#8FC88F" />
           </div>
 
           <div style={{ overflowX: 'auto' }}>
             <table style={actTbl}>
               <thead>
-                <tr>{['When', 'Who', 'Tier', 'Set', 'How', 'Tokens'].map((h) => (
+                <tr>{['When', 'Who', 'Tier', 'Set', 'How', 'Tokens', 'Gifted'].map((h) => (
                   <th key={h} style={actTh}>{h}</th>
                 ))}</tr>
               </thead>
               <tbody>
                 {d.rows.length === 0 ? (
-                  <tr><td colSpan={6} style={{ ...actTd, color: colors.muted }}>Nothing yet.</td></tr>
+                  <tr><td colSpan={7} style={{ ...actTd, color: colors.muted }}>Nothing yet.</td></tr>
                 ) : d.rows.map((r, i) => (
                   <tr key={i}>
                     <td style={{ ...actTd, fontFamily: mono, fontSize: 11, whiteSpace: 'nowrap' }}>
@@ -237,7 +241,13 @@ export function Analytics() {
                                  color: r.how === 'tokens' ? colors.text : colors.muted }}>
                       {r.how === 'tokens' ? 'paid' : r.how === 'membership' ? 'membership' : 'free set'}
                     </td>
-                    <td style={{ ...actTd, textAlign: 'right' }}>{r.tokens || '—'}</td>
+                    {/* Kept apart, because one is revenue and the other is a
+                        gift coming back — a single column merging them would
+                        hide the only distinction that matters here. */}
+                    <td style={{ ...actTd, textAlign: 'right' }}>{r.purchasedTokens || '—'}</td>
+                    <td style={{ ...actTd, textAlign: 'right', color: r.giftedTokens ? '#8FC88F' : colors.muted }}>
+                      {r.giftedTokens || '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>

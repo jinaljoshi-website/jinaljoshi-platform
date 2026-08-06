@@ -324,11 +324,20 @@ router.get('/activity', async (req, res) => {
                 s.title        AS set_title,
                 s.is_vault,
                 g.scope,
-                COALESCE(g.coins_paid, 0) AS tokens,
+                COALESCE(g.coins_paid, 0)   AS tokens,
+                COALESCE(l.from_purchased, 0) AS purchased_tokens,
+                COALESCE(l.from_gifted, 0)    AS gifted_tokens,
                 CASE WHEN COALESCE(g.coins_paid, 0) = 0 THEN 'membership' ELSE 'tokens' END AS how
          FROM access_grants g
          JOIN users u ON u.id = g.user_id
          JOIN sets  s ON s.id = g.set_id
+         LEFT JOIN LATERAL (
+           SELECT from_purchased, from_gifted FROM coin_ledger
+           WHERE user_id = g.user_id AND related_id = g.set_id
+             AND type = 'content_unlock' AND direction = 'debit'
+           ORDER BY abs(EXTRACT(EPOCH FROM (created_at - g.granted_at))) ASC
+           LIMIT 1
+         ) l ON COALESCE(g.coins_paid, 0) > 0
          WHERE u.is_test = FALSE
 
          UNION ALL
@@ -338,7 +347,7 @@ router.get('/activity', async (req, res) => {
          SELECT v.first_seen AS at,
                 u.display_name, u.email, u.tier,
                 s.title, s.is_vault,
-                NULL AS scope, 0 AS tokens, 'free' AS how
+                NULL AS scope, 0 AS tokens, 0 AS purchased_tokens, 0 AS gifted_tokens, 'free' AS how
          FROM set_views v
          JOIN users u ON u.id = v.user_id
          JOIN sets  s ON s.id = v.set_id
@@ -356,7 +365,11 @@ router.get('/activity', async (req, res) => {
     const { rows: totals } = await pool.query(
       `SELECT
          (SELECT count(*) FROM access_grants g JOIN users u ON u.id = g.user_id WHERE u.is_test = FALSE) AS unlocks,
-         (SELECT count(*) FROM set_views v JOIN users u ON u.id = v.user_id WHERE u.is_test = FALSE)     AS views`
+         (SELECT count(*) FROM set_views v JOIN users u ON u.id = v.user_id WHERE u.is_test = FALSE)     AS views,
+         (SELECT COALESCE(SUM(l.from_purchased), 0) FROM coin_ledger l JOIN users u ON u.id = l.user_id
+          WHERE l.type = 'content_unlock' AND l.direction = 'debit' AND u.is_test = FALSE)               AS purchased,
+         (SELECT COALESCE(SUM(l.from_gifted), 0) FROM coin_ledger l JOIN users u ON u.id = l.user_id
+          WHERE l.type = 'content_unlock' AND l.direction = 'debit' AND u.is_test = FALSE)               AS gifted`
     );
 
     res.json({
@@ -368,10 +381,14 @@ router.get('/activity', async (req, res) => {
         isVault: r.is_vault,
         scope: r.scope,
         tokens: Number(r.tokens),
+        purchasedTokens: Number(r.purchased_tokens),
+        giftedTokens: Number(r.gifted_tokens),
         how: r.how,
       })),
       totalUnlocks: Number(totals[0].unlocks),
       totalViews:   Number(totals[0].views),
+      totalPurchasedTokens: Number(totals[0].purchased),
+      totalGiftedTokens:    Number(totals[0].gifted),
       hasMore: rows.length === limit,
     });
   } catch (err) {
