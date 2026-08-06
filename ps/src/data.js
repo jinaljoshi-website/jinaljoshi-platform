@@ -47,6 +47,19 @@ export function tierEconomics(tierId) {
   };
 }
 
+// Which tiers get Selfie of the Day at no cost. Read from the same config the
+// backend enforces, so the promise on the page and the rule in the code cannot
+// drift apart.
+function tierGetsSelfies(tierId) {
+  // Falls back to supreme where the key is not exposed publicly. The backend is
+  // the authority either way — this only decides whether the perk is listed, so
+  // a missing key showing nothing would be worse than a fallback that is
+  // currently correct. Add selfie_free_tiers to the public config whitelist and
+  // this reads it instead.
+  const raw = cfgStr('selfie_free_tiers') ?? 'supreme';
+  return String(raw).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean).includes(tierId);
+}
+
 // Perk sentences generated from live values — never hardcoded prose.
 export function tierPerks(tierId) {
   const e = tierEconomics(tierId);
@@ -56,7 +69,13 @@ export function tierPerks(tierId) {
     perks.push(`${e.freeDMs} free Direct Messages · ${e.dailyDMCap} Per Day max`);
   }
   if (e.unlocks) {
-    perks.push(`Unlock any ${e.unlocks} Set${e.unlocks === 1 ? '' : 's'}`);
+    // "Unlock any N sets" read as though a membership opened whole sets. It
+    // opens the part of a set that tier reaches, N times a month — so the
+    // wording drops "any", which was the word doing the overpromising.
+    perks.push(`Unlock ${e.unlocks} Set${e.unlocks === 1 ? '' : 's'} every month`);
+  }
+  if (tierGetsSelfies(tierId)) {
+    perks.push('Selfie of the Day, free');
   }
   if (e.discountPct) {
     perks.push(`${e.discountPct}% Discount site-wide`);

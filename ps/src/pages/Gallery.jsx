@@ -5,6 +5,7 @@ import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
 import Clamped from '../components/Clamped';
 import Selfies from './Selfies';
+import HowUnlocking from '../components/HowUnlocking';
 import GuestNudge from '../components/GuestNudge';
 
 const CONTENT_CATEGORIES = [
@@ -264,6 +265,10 @@ export default function Gallery() {
           </button>
         ))}
       </div>
+
+      {activeTab !== 'selfies' && (
+        <HowUnlocking tier={data?.userTier} creditsRemaining={data?.creditsRemaining} creditsMax={data?.creditsMax} />
+      )}
 
       {activeTab !== 'selfies' && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
