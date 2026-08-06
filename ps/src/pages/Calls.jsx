@@ -37,6 +37,29 @@ export default function Calls() {
   const [selected,    setSelected]    = useState(null);
   const [duration,    setDuration]    = useState(10);
   const [proposedTime, setProposedTime] = useState('');
+  const [custom,       setCustom]       = useState(false);
+
+  // Times offered from now rather than from midnight. The value is in the
+  // format datetime-local expects, and the label is what a person would say.
+  const leadHours = data?.minLeadHours ?? 1;
+  const toLocalInput = (d) => {
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const roundToNext15 = (d) => {
+    const x = new Date(d);
+    x.setMinutes(Math.ceil(x.getMinutes() / 15) * 15, 0, 0);
+    return x;
+  };
+  const minDateTimeLocal = toLocalInput(roundToNext15(new Date(Date.now() + leadHours * 3600000)));
+  const quickSlots = [1, 2, 3].map((h) => {
+    const at = roundToNext15(new Date(Date.now() + Math.max(h, leadHours) * 3600000));
+    return {
+      label: `In ${Math.max(h, leadHours)} hour${Math.max(h, leadHours) === 1 ? '' : 's'}`,
+      at: at.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+      value: toLocalInput(at),
+    };
+  });
   const [booking,     setBooking]     = useState(false);
   const [booked,      setBooked]      = useState(null);
   const [error,       setError]       = useState('');
@@ -461,13 +484,46 @@ export default function Calls() {
 
           {!isPriority && (
             <div style={{ marginBottom: 20 }}>
-              <div style={fieldLabel}>Propose a time (at least {data?.minLeadHours || 6} hours from now)</div>
-              <input
-                type="datetime-local"
-                value={proposedTime}
-                onChange={(e) => setProposedTime(e.target.value)}
-                style={dateInput}
-              />
+              <div style={fieldLabel}>When would you like to talk?</div>
+
+              {/* Offering times rather than an empty picker. Choosing a date and
+                  a time from scratch is real work for something most people
+                  want soon — and the old label never changed once a time was
+                  set, so there was nothing confirming the choice had landed. */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: custom ? 12 : 0 }}>
+                {quickSlots.map((s) => {
+                  const on = !custom && proposedTime === s.value;
+                  return (
+                    <button key={s.label}
+                            onClick={() => { setCustom(false); setProposedTime(s.value); }}
+                            style={on ? slotOn : slotOff}>
+                      <div style={{ fontSize: 13 }}>{s.label}</div>
+                      <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>{s.at}</div>
+                    </button>
+                  );
+                })}
+                <button onClick={() => { setCustom(true); setProposedTime(''); }}
+                        style={custom ? slotOn : slotOff}>
+                  <div style={{ fontSize: 13 }}>Another time</div>
+                  <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>pick your own</div>
+                </button>
+              </div>
+
+              {custom && (
+                <input
+                  type="datetime-local"
+                  value={proposedTime}
+                  min={minDateTimeLocal}
+                  onChange={(e) => setProposedTime(e.target.value)}
+                  style={dateInput}
+                />
+              )}
+
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 8 }}>
+                {proposedTime
+                  ? `You're asking for ${new Date(proposedTime).toLocaleString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}. Jinal can accept or suggest another time.`
+                  : `At least ${data?.minLeadHours || 1} hour${(data?.minLeadHours || 1) === 1 ? '' : 's'} from now.`}
+              </div>
             </div>
           )}
 
@@ -566,6 +622,9 @@ const permBox         = { border: '1px solid', borderRadius: 8, padding: '12px 1
 const bookingPanel    = { background: C.surface, border: `1px solid ${C.accent}`, borderRadius: 10, padding: 24 };
 const fieldLabel      = { fontFamily: F.sans, fontSize: 12, color: C.muted, marginBottom: 10 };
 const durationBtn     = { fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 7, cursor: 'pointer' };
+const slotOff = { flex: '1 1 108px', background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, padding: '10px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left' };
+const slotOn  = { ...slotOff, background: 'rgba(193,125,74,0.12)', border: `1px solid ${C.accent}`, color: C.accent };
+
 const dateInput       = { width: '100%', boxSizing: 'border-box', background: '#100F0C', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 16, padding: '10px 12px', borderRadius: 8, outline: 'none' };
 const totalRow        = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, marginBottom: 16 };
 const bookBtn         = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '13px 0', borderRadius: 8, width: '100%' };
