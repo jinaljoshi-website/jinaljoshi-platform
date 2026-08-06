@@ -191,7 +191,15 @@ export function Content() {
       const targets = sets.filter((s) => !s.cover_blur && (s.cover_url || s.cover_key));
       for (const set of targets) {
         try {
-          const res = await fetch(set.cover_url || toUrl(set.cover_key), { mode: 'cors' });
+          // Fetched through the backend rather than straight from storage, so
+          // the browser treats it as same-origin and no bucket CORS policy is
+          // needed — that would have required a Cloudflare token the platform
+          // does not hold.
+          const res = await fetch(
+            `${import.meta.env.VITE_API_URL}/api/studio/content/${set.id}/cover-image`,
+            { headers: { Authorization: `Bearer ${localStorage.getItem('jwt')}` } }
+          );
+          if (!res.ok) { failed += 1; continue; }
           const blob = await res.blob();
           const dataUri = await makeCoverBlur(new File([blob], 'cover.jpg', { type: blob.type }));
           if (!dataUri) { failed += 1; continue; }

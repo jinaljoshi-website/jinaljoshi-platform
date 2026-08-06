@@ -525,6 +525,49 @@ router.post('/content', async (req, res) => {
 
 const VALID_TIER_CATEGORIES = ['free', 'community', 'insider', 'premium', 'supreme', 'purchase_only'];
 
+// The cover image, served through the backend rather than from storage.
+//
+// The browser needs to read the pixels into a canvas to make the small blurred
+// version, and reading pixels cross-origin requires a CORS policy on the
+// bucket — which needs a Cloudflare token the backend does not have. Passing
+// the bytes through here makes it a same-origin read, so no bucket
+// configuration is involved at all.
+router.get('/content/:id/cover-image', async (req, res) => {
+  try {
+    const { GetObjectCommand, S3Client } = require('@aws-sdk/client-s3');
+    const { rows } = await pool.query(
+      `SELECT ${COVER_FALLBACK} AS cover_key FROM sets s WHERE s.id = $1`, [req.params.id]
+    );
+    const key = rows[0]?.cover_key;
+    if (!key) return res.status(404).json({ error: 'No cover' });
+
+    const s3 = new S3Client({
+      region: 'auto',
+      endpoint: process.env.R2_ENDPOINT,
+      credentials: {
+        accessKeyId: process.env.R2_ACCESS_KEY_ID,
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+      },
+    });
+
+    // Stored values are sometimes full URLs and sometimes bare keys, depending
+    // on when they were written.
+    const objectKey = key.startsWith('http')
+      ? new URL(key).pathname.replace(/^\//, '')
+      : key;
+
+    const obj = await s3.send(new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME, Key: objectKey,
+    }));
+
+    res.setHeader('Content-Type', obj.ContentType || 'image/jpeg');
+    obj.Body.pipe(res);
+  } catch (err) {
+    console.error('studio/cover-image error:', err.message);
+    res.status(500).json({ error: 'Could not read the cover' });
+  }
+});
+
 // What every tier actually pays for this set. The price on the form is a base
 // that gets split by how many photos sit at each level, then discounted or
 // multiplied by who is looking — so the number Jinal types is not a number any
