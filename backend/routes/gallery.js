@@ -462,6 +462,15 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
     const isActive = userRows[0]?.membership_expires_at && new Date(userRows[0].membership_expires_at) > now;
     const userTier = isActive ? userRows[0].tier : 'guest';
 
+    // Recorded once per fan per set. A free set produces no unlock and no
+    // transaction, so without this nothing at all was known about the sets most
+    // people actually look at. Not awaited, and failure is ignored — this is
+    // information, and it must never stand between a fan and the photos.
+    pool.query(
+      `INSERT INTO set_views (user_id, set_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [req.user.userId, setId]
+    ).catch(() => {});
+
     const { rows: grants } = await pool.query(
       `SELECT scope, grant_type FROM access_grants WHERE user_id = $1 AND set_id = $2`,
       [req.user.userId, setId]
