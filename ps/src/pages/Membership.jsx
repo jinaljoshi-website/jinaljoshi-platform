@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { C, F } from '../tokens';
-import { tierPerks, cfgNum } from '../data';
+import { tierPerks, tierDescription, MEMBERSHIP_NOTES, cfgNum } from '../data';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
@@ -259,6 +259,10 @@ export default function Membership() {
                 <div style={accessNote}>Access until {expiryLabel(status.expiresAt, status.expiresAtLabel)}</div>
               )}
 
+              {tierDescription(tierId) && (
+                <p style={tierDesc}>{tierDescription(tierId)}</p>
+              )}
+
               <ul style={perkList}>{tierPerks(tierId).map((p) => <li key={p}>{p}</li>)}</ul>
 
               {cfgNum(`${tierId}_discount_pct`) > 0 && (
@@ -304,6 +308,18 @@ export default function Membership() {
         </div>
       </div>
 
+      {/* Stated once, plainly, rather than repeated inside every tier. A
+          boundary read four times sounds mean; read once it sounds reasonable —
+          and these are the three things people find out later otherwise. */}
+      <div style={{ display: 'grid', gap: 10, marginTop: 20 }}>
+        {MEMBERSHIP_NOTES.map((n) => (
+          <div key={n.title} style={noteBox}>
+            <div style={noteHead}>{n.title}</div>
+            <p style={noteText}>{n.text}</p>
+          </div>
+        ))}
+      </div>
+
       {topUp !== null && (
         <TopUpModal requiredTokens={topUp} onClose={() => setTopUp(null)} onSuccess={() => { setTopUp(null); setError(''); loadStatus(); }} />
       )}
@@ -324,6 +340,11 @@ const savingBadge  = { fontSize: 10, background: 'rgba(193,125,74,0.15)', color:
 const tiersGrid    = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px,1fr))', gap: 16, marginBottom: 20 };
 const card         = { background: C.surface, borderRadius: 10, padding: 22, display: 'flex', flexDirection: 'column' };
 const currentBadge = { fontFamily: F.sans, fontSize: 10, padding: '2px 8px', borderRadius: 999, color: '#1A1714' };
+const tierDesc = { fontFamily: F.sans, fontSize: 13, color: C.text, lineHeight: 1.65, margin: '10px 0 14px' };
+const noteBox  = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px' };
+const noteHead = { fontFamily: F.mono, fontSize: 10, color: C.accent, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 };
+const noteText = { fontFamily: F.sans, fontSize: 12, color: C.muted, lineHeight: 1.7, margin: 0 };
+
 const accessNote = { fontFamily: 'DM Sans, system-ui, sans-serif', fontSize: 11, color: '#C17D4A', lineHeight: 1.5, marginBottom: 16 };
 const perkList     = { fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.9, paddingLeft: 18, margin: '0 0 16px', flexGrow: 1 };
 const discountBadge = { fontFamily: F.sans, fontSize: 12, color: C.accent, background: 'rgba(193,125,74,0.08)', border: `1px solid rgba(193,125,74,0.2)`, borderRadius: 6, padding: '6px 10px', marginBottom: 12, textAlign: 'center' };

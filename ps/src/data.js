@@ -60,24 +60,53 @@ function tierGetsSelfies(tierId) {
   return String(raw).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean).includes(tierId);
 }
 
+// Who each tier is for, in Jinal's voice. A spec sheet makes a reader compare
+// four columns of numbers; a description tells them which one is theirs. The
+// numbers still follow underneath — the prose sells, the figures reassure.
+export const TIER_DESCRIPTIONS = {
+  community: 'For someone just starting their journey. Explore the community and the extra content that comes with being here.',
+  insider:   'For those who love being here. Communicate freely and reach more of what she posts.',
+  premium:   'For those who belong here. More content, and better prices on everything else.',
+  supreme:   'For the ones who would rather not think about limits. All content, and the best prices anywhere on the platform.',
+};
+
+export function tierDescription(tierId) {
+  return TIER_DESCRIPTIONS[tierId] || null;
+}
+
+// Stated once, as policy, rather than repeated as a restriction inside every
+// tier. A ceiling read four times sounds mean; read once it sounds reasonable.
+export const MEMBERSHIP_NOTES = [
+  {
+    title: 'Fair usage',
+    text: 'All content in your membership tier stays open at no cost, up to 15 set unlocks a month. From the 16th onwards, one token per additional set. Supreme exempt.',
+  },
+  {
+    title: 'Purchasable content',
+    text: 'Some content is marked purchase-only and sits outside membership, whatever your tier.',
+  },
+  {
+    title: 'Discounts',
+    text: 'Discounts do not apply to One-of-One Outfits. They can be used everywhere else.',
+  },
+];
+
 // Perk sentences generated from live values — never hardcoded prose.
 export function tierPerks(tierId) {
   const e = tierEconomics(tierId);
   if (!e) return [];
   const perks = ['Community Chat Centre'];
   if (e.freeDMs !== null && e.dailyDMCap !== null) {
-    perks.push(`${e.freeDMs} free Direct Messages · ${e.dailyDMCap} Per Day max`);
+    perks.push(`${e.freeDMs} free messages a month · ${e.dailyDMCap} a day`);
   }
-  // Membership is access, not an allowance. Everything at this level and below
-  // is open without spending anything — which is a far stronger sentence than
-  // any number of unlocks, and it gets better as Jinal posts more rather than
-  // staying fixed while the library grows.
-  perks.push(`Every ${TIERS[tierId]?.name || tierId} set, included`);
+  // Access, not an allowance. A sentence that gets stronger as Jinal posts more,
+  // where a fixed number of unlocks would get weaker.
+  perks.push(`All ${TIERS[tierId]?.name || tierId} content, included`);
   if (tierGetsSelfies(tierId)) {
     perks.push('Selfie of the Day, free');
   }
   if (e.discountPct) {
-    perks.push(`${e.discountPct}% Discount site-wide`);
+    perks.push(`${e.discountPct}% off site-wide`);
   }
   perks.push('All content posted to community');
   return perks;
