@@ -10,6 +10,7 @@ import NotificationBell from '../components/NotificationBell';
 
 import Chat       from './Chat';
 import Gallery    from './Gallery';
+import HelpChat   from '../components/HelpChat';
 import Membership from './Membership';
 import Community  from './Community';
 import Calls      from './Calls';
@@ -236,6 +237,7 @@ export default function Platform() {
         </div>
       )}
 
+      <HelpChat />
       <InstallPrompt />
     </div>
   );
