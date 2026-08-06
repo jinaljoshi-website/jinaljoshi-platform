@@ -36,10 +36,10 @@ function accessUntilLabel(months) {
 }
 
 const TIER_META = {
-  community: { name: 'Community', color: '#C17D4A', description: 'Entry-level membership with community access and a monthly content unlock.' },
-  insider:   { name: 'Insider',   color: '#B8860B', description: 'More messages, more unlocks, and a better discount on every purchase.' },
-  premium:   { name: 'Premium',   color: '#9B8F83', description: 'Generous monthly allocations and a significant discount across the platform.' },
-  supreme:   { name: 'Supreme',   color: '#C17D4A', description: 'The highest access tier — maximum unlocks, best discount, full DM access.' },
+  community: { name: 'Community', color: '#C17D4A' },
+  insider:   { name: 'Insider',   color: '#B8860B' },
+  premium:   { name: 'Premium',   color: '#9B8F83' },
+  supreme:   { name: 'Supreme',   color: '#C17D4A' },
 };
 
 
@@ -229,7 +229,7 @@ export default function Membership() {
                 {meta.name}
                 {isCurrent && <span style={{ ...currentBadge, background: meta.color }}>Current</span>}
               </div>
-              <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, marginBottom: 16, lineHeight: 1.6 }}>{meta.description}</div>
+
 
               {/* Token price */}
               {tokenCost !== null && (

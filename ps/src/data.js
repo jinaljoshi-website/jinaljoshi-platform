@@ -108,7 +108,6 @@ export function tierPerks(tierId) {
   if (e.discountPct) {
     perks.push(`${e.discountPct}% off site-wide`);
   }
-  perks.push('All content posted to community');
   return perks;
 }
 

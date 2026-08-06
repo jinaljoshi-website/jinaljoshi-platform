@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
-import { tierPerks, cfgNum } from '../data';
+import { tierPerks, tierDescription, MEMBERSHIP_NOTES, cfgNum } from '../data';
 
 // The homepage is public, but a signed-in member should not be invited to join
 // something they already pay for. Guarded because pre-rendering runs in Node,
@@ -12,10 +12,10 @@ function isSignedIn() {
 }
 
 const TIER_META = {
-  community: { name: 'Community', color: '#C17D4A', description: 'Entry-level membership with community access and a monthly content unlock.' },
-  insider:   { name: 'Insider',   color: '#B8860B', description: 'More messages, more unlocks, and a better discount on every purchase.' },
-  premium:   { name: 'Premium',   color: '#9B8F83', description: 'Generous monthly allocations and a significant discount across the platform.' },
-  supreme:   { name: 'Supreme',   color: '#C17D4A', description: 'The highest access tier: maximum unlocks, best discount, full DM access.' },
+  community: { name: 'Community', color: '#C17D4A' },
+  insider:   { name: 'Insider',   color: '#B8860B' },
+  premium:   { name: 'Premium',   color: '#9B8F83' },
+  supreme:   { name: 'Supreme',   color: '#C17D4A' },
 };
 
 
@@ -190,7 +190,9 @@ export default function Homepage() {
               <div key={id} style={tierCard}>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color, marginBottom: 14 }} />
                 <div style={{ fontFamily: F.display, fontSize: 26, color: C.text, marginBottom: 6 }}>{meta.name}</div>
-                <div style={{ fontFamily: F.sans, fontSize: 13, color: '#9B8F83', marginBottom: 16, lineHeight: 1.6 }}>{meta.description}</div>
+                <div style={{ fontFamily: F.sans, fontSize: 13, color: C.text, marginBottom: 16, lineHeight: 1.65 }}>
+                  {tierDescription(id)}
+                </div>
                 {tokens !== null && (
                   <div style={{ marginBottom: 2 }}>
                     <WonderCoinAmount amount={tokens} size={22} textColor={meta.color} fontSize={28} />
@@ -217,6 +219,18 @@ export default function Homepage() {
         <div style={termNote}>
           Quarterly billing = {cfgNum('quarterly_billing_months')} months charged, 3 months access. &nbsp;
           Annual billing = {cfgNum('annual_billing_months')} months charged, 12 months access.
+        </div>
+
+        {/* Stated once, below the cards, rather than repeated as a restriction
+            inside each tier. These are the three things people otherwise find
+            out afterwards — which is the worst time to learn them. */}
+        <div style={notesGrid}>
+          {MEMBERSHIP_NOTES.map((n) => (
+            <div key={n.title} style={noteBox}>
+              <div style={noteHead}>{n.title}</div>
+              <p style={noteText}>{n.text}</p>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -320,6 +334,11 @@ const howCard       = { background: '#161410', border: `1px solid rgba(242,235,2
 const tiersGrid     = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 16 };
 const tierCard      = { background: '#161410', border: `1px solid rgba(242,235,224,0.08)`, borderRadius: 10, padding: 24, display: 'flex', flexDirection: 'column' };
 const perkList      = { fontFamily: F.sans, fontSize: 13, color: '#9B8F83', lineHeight: 1.9, paddingLeft: 18, margin: '0 0 20px', flexGrow: 1 };
+const notesGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, maxWidth: 1100, margin: '28px auto 0' };
+const noteBox   = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px' };
+const noteHead  = { fontFamily: F.mono, fontSize: 10, color: C.accent, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 };
+const noteText  = { fontFamily: F.sans, fontSize: 12, color: '#9B8F83', lineHeight: 1.7, margin: 0 };
+
 const termNote      = { fontFamily: F.sans, fontSize: 12, color: '#9B8F83', textAlign: 'center', marginTop: 20, opacity: 0.75 };
 const tokenGrid     = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 14 };
 const tokenCard     = { background: '#0D0C0A', borderRadius: 10, padding: '24px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' };
