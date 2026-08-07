@@ -397,4 +397,91 @@ router.get('/activity', async (req, res) => {
   }
 });
 
+// Everything a member has done, in one stream.
+//
+// Set unlocks, calls, messages, memberships, purchases -- these all existed in
+// their own screens, which meant knowing what had happened required visiting
+// five places and remembering what each looked like last time. One list,
+// newest first, is the difference between checking in and preparing to.
+router.get('/member-activity', async (req, res) => {
+  try {
+    const limit  = Math.min(parseInt(req.query.limit, 10) || 100, 300);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+
+    const { rows } = await pool.query(
+      `SELECT * FROM (
+         SELECT g.granted_at AS at, 'unlock' AS kind,
+                u.display_name, u.email, u.tier,
+                s.title AS detail,
+                COALESCE(g.coins_paid, 0) AS tokens,
+                g.scope AS extra
+         FROM access_grants g
+         JOIN users u ON u.id = g.user_id
+         JOIN sets  s ON s.id = g.set_id
+         WHERE u.is_test = FALSE
+
+         UNION ALL
+         SELECT m.created_at, 'message',
+                u.display_name, u.email, u.tier,
+                LEFT(m.content, 60), COALESCE(m.tokens_charged, 0), NULL
+         FROM direct_messages m
+         JOIN users u ON u.id = m.sender_id
+         WHERE u.is_test = FALSE AND u.is_artist = FALSE
+
+         UNION ALL
+         SELECT cr.created_at, 'call',
+                u.display_name, u.email, u.tier,
+                cr.call_type, COALESCE(cr.total_cost, 0), cr.status
+         FROM call_requests cr
+         JOIN users u ON u.id = cr.user_id
+         WHERE u.is_test = FALSE
+
+         UNION ALL
+         SELECT l.created_at, 'membership',
+                u.display_name, u.email, u.tier,
+                l.label, l.amount, NULL
+         FROM coin_ledger l
+         JOIN users u ON u.id = l.user_id
+         WHERE u.is_test = FALSE AND l.direction = 'debit'
+           AND l.type IN ('membership_purchase','membership_upgrade','membership_extend')
+
+         UNION ALL
+         SELECT l.created_at, 'recharge',
+                u.display_name, u.email, u.tier,
+                l.label, l.amount, l.payment_amount_inr::text
+         FROM coin_ledger l
+         JOIN users u ON u.id = l.user_id
+         WHERE u.is_test = FALSE AND l.type = 'recharge' AND l.direction = 'credit'
+
+         UNION ALL
+         SELECT r.created_at, 'request',
+                u.display_name, u.email, u.tier,
+                COALESCE(r.type, r.topic), COALESCE(r.coins_charged, 0), r.status
+         FROM custom_requests r
+         JOIN users u ON u.id = r.user_id
+         WHERE u.is_test = FALSE
+       ) x
+       ORDER BY at DESC
+       LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
+
+    res.json({
+      rows: rows.map((r) => ({
+        at: r.at,
+        kind: r.kind,
+        who: r.display_name || r.email,
+        tier: r.tier,
+        detail: r.detail,
+        tokens: Number(r.tokens) || 0,
+        extra: r.extra,
+      })),
+      hasMore: rows.length === limit,
+    });
+  } catch (err) {
+    console.error('analytics/member-activity error:', err);
+    res.status(500).json({ error: 'Failed to load activity' });
+  }
+});
+
 module.exports = router;

@@ -4,10 +4,23 @@ import { api } from '../api';
 import { T, S, Card, Eyebrow, Badge, colors } from '../ui';
 
 const sans = "'DM Sans', system-ui, sans-serif";
+const notifRow  = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '11px 14px' };
+const adminDoor = { display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 10, padding: '14px 18px', marginTop: 28 };
 const dndRow = { display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 22 };
 
 // One key per surface, because they are genuinely separate decisions — pausing
 // instant calls during a shoot should not silence messages for the rest of the day.
+const NOTIF_DESTINATIONS = {
+  new_dm:            { section: 'messages', label: 'A new message',        verb: 'Reply'  },
+  locked_media_sent: { section: 'messages', label: 'Locked media opened',  verb: 'See'    },
+  call_confirmed:    { section: 'calls',    label: 'A call was confirmed', verb: 'Open'   },
+  call_rejected:     { section: 'calls',    label: 'A call was declined',  verb: 'Open'   },
+  custom_request:    { section: 'requests', label: 'A custom request',     verb: 'Review' },
+  request_rejected:  { section: 'requests', label: 'A request was declined', verb: 'Open' },
+  merch_order:       { section: 'merch',    label: 'An order came in',     verb: 'Open'   },
+  token_grant:       { section: 'members',  label: 'Tokens were gifted',   verb: 'Open'   },
+};
+
 const DND_KEYS = { calls: 'artist_dnd_enabled', chat: 'dnd_chat_enabled' };
 
 function DndToggle({ label, on, busy, onText, offText, onToggle }) {
@@ -42,7 +55,11 @@ function DndToggle({ label, on, busy, onText, offText, onToggle }) {
   );
 }
 
-export function Dashboard() {
+export function Dashboard({ onNavigate }) {
+  // Carries a filter with it, so a card saying three calls need answering opens
+  // those three rather than the whole list to be searched through.
+  const go = (section, state) => onNavigate?.(section, state);
+
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [dnd,     setDnd]     = useState({ calls: false, chat: false });
@@ -93,7 +110,7 @@ export function Dashboard() {
 
   if (loading) return <T.muted>Loading dashboard…</T.muted>;
 
-  const { pendingCalls, pendingRequests, recentMembers, unreadDMs, lowStockMerch, pendingReports } = data;
+  const { notifications, pendingCalls, pendingRequests, recentMembers, unreadDMs, lowStockMerch, pendingReports } = data;
 
   // ── DMs ──────────────────────────────────────────────────────────────────
   const sendQuickReply = async (dm) => {
@@ -218,11 +235,16 @@ export function Dashboard() {
       {error && <div style={S.error}>{error}</div>}
 
       <div style={S.statsRow}>
-        <StatCard label="Unread DMs"       value={unreadDMs?.length || 0}       />
-        <StatCard label="Pending calls"    value={pendingCalls?.length || 0}    />
-        <StatCard label="Pending requests" value={pendingRequests?.length || 0} />
-        <StatCard label="Reports"          value={pendingReports?.length || 0}  />
-        <StatCard label="Low stock"        value={lowStockMerch?.length || 0}   />
+        <StatCard label="Unread messages"  value={unreadDMs?.length || 0}
+                  onGo={() => go('messages')}  goLabel="Reply" />
+        <StatCard label="Calls to answer"  value={pendingCalls?.length || 0}
+                  onGo={() => go('calls', { filter: 'pending' })} goLabel="Respond" />
+        <StatCard label="Requests waiting" value={pendingRequests?.length || 0}
+                  onGo={() => go('requests', { filter: 'pending' })} goLabel="Review" />
+        <StatCard label="Reported"         value={pendingReports?.length || 0}
+                  onGo={() => go('community')} goLabel="Look" />
+        <StatCard label="Low stock"        value={lowStockMerch?.length || 0}
+                  onGo={() => go('merch', { filter: 'low' })} goLabel="Check" />
       </div>
 
       {totalActionable === 0 && recentMembers?.length === 0 && (
@@ -408,15 +430,80 @@ export function Dashboard() {
           ))}
         </Card>
       )}
+
+      {notifications?.length > 0 && (
+        <>
+          <T.sectionTitle style={{ marginTop: 28 }}>Just happened</T.sectionTitle>
+          <div style={{ display: 'grid', gap: 6, marginTop: 10 }}>
+            {notifications.slice(0, 8).map((n) => {
+              const dest = NOTIF_DESTINATIONS[n.type];
+              return (
+                <div key={n.id}
+                     onClick={dest ? () => go(dest.section) : undefined}
+                     style={{ ...notifRow, cursor: dest ? 'pointer' : 'default' }}>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+                      {dest?.label || n.type.replace(/_/g, ' ')}
+                    </div>
+                    <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 2 }}>
+                      {new Date(n.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                  {dest && (
+                    <span style={{ fontFamily: sans, fontSize: 11, color: colors.accent, flexShrink: 0 }}>
+                      {dest.verb} →
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Past everything that needs her, not before it. */}
+      <div style={adminDoor}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>Admin &amp; settings</div>
+          <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 3 }}>
+            Pricing, members, money, invoices and the website
+          </div>
+        </div>
+        <button onClick={() => go('settings')} style={{ ...S.ghostBtn, fontSize: 12, padding: '8px 16px' }}>
+          Open →
+        </button>
+      </div>
     </div>
   );
 }
 
-function StatCard({ label, value }) {
+// A count that leads somewhere. These were figures with nothing behind them —
+// she would read "3 pending calls" and then have to find the calls screen
+// herself, which is the difference between being told and being helped.
+//
+// A card with nothing waiting is deliberately quiet and does not invite a tap;
+// one with something to do carries the accent and a nudge.
+function StatCard({ label, value, onGo, goLabel }) {
+  const has = value > 0;
+  const clickable = has && onGo;
   return (
-    <div style={S.statCard}>
+    <div
+      onClick={clickable ? onGo : undefined}
+      role={clickable ? 'button' : undefined}
+      style={{
+        ...S.statCard,
+        cursor: clickable ? 'pointer' : 'default',
+        border: has ? `1px solid rgba(193,125,74,0.35)` : S.statCard.border,
+        transition: 'border-color 150ms ease',
+      }}
+    >
       <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</div>
-      <div style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 36, color: colors.text }}>{value}</div>
+      <div style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 36, color: has ? colors.accent : colors.muted }}>{value}</div>
+      {clickable && (
+        <div style={{ fontFamily: sans, fontSize: 11, color: colors.accent, marginTop: 4 }}>
+          {goLabel || 'Open'} →
+        </div>
+      )}
     </div>
   );
 }

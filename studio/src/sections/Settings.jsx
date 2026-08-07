@@ -4,7 +4,10 @@ import { api } from '../api';
 import { T, S, Card, Eyebrow, Field, TokenField, colors } from '../ui';
 import CropTool from '../components/CropTool';
 
+const confirmBox = { background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.3)', borderRadius: 10, padding: 16 };
+
 const sans = "'DM Sans', system-ui, sans-serif";
+const mono = "'DM Mono', 'Courier New', monospace";
 const TIERS = ['community', 'insider', 'premium', 'supreme'];
 const CHAT_BG_ASPECT      = 9 / 16;
 const COMMUNITY_BG_ASPECT = 3 / 4;
@@ -86,11 +89,17 @@ export function Settings() {
 
 // ── Shared save button + status, used inside each section ───────────────────
 function SectionSave({ keys, draft, config, setConfig }) {
-  const [saving,  setSaving]  = useState(false);
+  const [saving,     setSaving]     = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
 
   const hasChanges = keys.some((k) => String(draft[k] ?? '') !== String(config[k] ?? ''));
+
+  // What is actually about to change, in words. Every value here is live for
+  // fans the moment it saves, and a stray touch on a phone can move a price —
+  // so the change is shown back before it happens rather than after.
+  const changed = keys.filter((k) => String(draft[k] ?? '') !== String(config[k] ?? ''));
 
   const handleSave = async () => {
     setError(''); setSuccess(''); setSaving(true);
@@ -100,6 +109,7 @@ function SectionSave({ keys, draft, config, setConfig }) {
       await api.post('/api/studio/config', { changes });
       setConfig((c) => ({ ...c, ...changes }));
       setSuccess('Saved — this is live for fans immediately.');
+      setConfirming(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -111,9 +121,36 @@ function SectionSave({ keys, draft, config, setConfig }) {
     <div style={{ marginTop: 16 }}>
       {error   && <div style={S.error}>{error}</div>}
       {success && <div style={S.success}>{success}</div>}
-      <button onClick={handleSave} disabled={saving || !hasChanges} style={{ ...S.btn, opacity: (saving || !hasChanges) ? 0.5 : 1 }}>
-        {saving ? 'Saving…' : 'Save changes'}
-      </button>
+
+      {confirming ? (
+        <div style={confirmBox}>
+          <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, marginBottom: 8 }}>
+            This changes what fans are charged, straight away.
+          </div>
+          <div style={{ display: 'grid', gap: 4, marginBottom: 12 }}>
+            {changed.map((k) => (
+              <div key={k} style={{ fontFamily: mono, fontSize: 11, color: colors.muted }}>
+                {k.replace(/_/g, ' ')}: <span style={{ color: colors.muted }}>{String(config[k] ?? '—')}</span>
+                {' \u2192 '}
+                <span style={{ color: colors.accent }}>{String(draft[k] ?? '—')}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={handleSave} disabled={saving} style={{ ...S.btn, opacity: saving ? 0.5 : 1 }}>
+              {saving ? 'Saving…' : 'Yes, make it live'}
+            </button>
+            <button onClick={() => setConfirming(false)} disabled={saving} style={S.ghostBtn}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setConfirming(true)} disabled={!hasChanges}
+                style={{ ...S.btn, opacity: hasChanges ? 1 : 0.5 }}>
+          Save changes
+        </button>
+      )}
     </div>
   );
 }

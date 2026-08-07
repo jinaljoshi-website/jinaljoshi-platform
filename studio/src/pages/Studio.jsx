@@ -21,26 +21,86 @@ import { Website }       from '../sections/Website';
 import { Invoices }      from '../sections/Invoices';
 import { Selfies }       from '../sections/Selfies';
 import { Photographers } from '../sections/Photographers';
+import { Activity }      from '../sections/Activity';
+import { RingWatch }     from '../components/RingWatch';
 
+// Two groups, because two different jobs share this login. Jinal answers
+// messages and takes calls; the pricing, tax and payout screens are somebody
+// else's work and being one tap from her thumb mid-conversation is a hazard
+// rather than a convenience.
+//
+// Names match what fans see. "Content" meant nothing to anyone reading the
+// fan-side Gallery, and a Studio that uses different words for the same things
+// makes every conversation about the platform slower than it needs to be.
 const NAV = [
-  { id: 'dashboard',     label: 'Dashboard'     },
-  { id: 'analytics',     label: 'Analytics'     },
-  { id: 'messages',      label: 'Messages'      },
-  { id: 'content',       label: 'Content'       },
-  { id: 'selfies',      label: 'Selfies'      },
-  { id: 'photographers', label: 'Photographers' },
-  { id: 'merch',         label: 'Merchandise'   },
-  { id: 'extras',        label: 'Extras'        },
+  { id: 'dashboard',     label: 'Dashboard'        },
+  { id: 'messages',      label: 'Chat'             },
+  { id: 'community',     label: 'Public Corner'    },
+  { id: 'content',       label: 'Gallery'          },
+  { id: 'calls',         label: 'Calls'            },
+  { id: 'requests',      label: 'Custom Requests'  },
+  { id: 'merch',         label: 'Merchandise'      },
+  { id: 'activity',      label: 'Member Activity'  },
+];
+
+// Reached through a single door at the bottom rather than sitting in the list.
+const ADMIN_NAV = [
   { id: 'members',       label: 'Members'       },
-  { id: 'calls',         label: 'Calls'         },
-  { id: 'availability',  label: 'Availability'  },
-  { id: 'requests',      label: 'Requests'      },
-  { id: 'website',       label: 'Website'       },
+  { id: 'analytics',     label: 'Money'         },
   { id: 'invoices',      label: 'Invoices'      },
-  { id: 'community',     label: 'The Happening Place'     },
-  { id: 'notifications', label: 'Notifications' },
+  { id: 'photographers', label: 'Photographers' },
+  { id: 'website',       label: 'Website'       },
   { id: 'settings',      label: 'Settings'      },
 ];
+
+const ADMIN_IDS = new Set(ADMIN_NAV.map((n) => n.id));
+
+// One renderer for both layouts. The drawer and the sidebar had copies of the
+// same markup, which is how they end up subtly different.
+function NavList({ items, active, onSelect, fontSize, padding }) {
+  return items.map((item) => (
+    <button
+      key={item.id}
+      onClick={() => onSelect(item.id)}
+      style={{
+        background: active === item.id ? 'rgba(193,125,74,0.12)' : 'transparent',
+        border:     active === item.id ? '1px solid rgba(193,125,74,0.2)' : '1px solid transparent',
+        color:      active === item.id ? text : muted,
+        fontFamily: sans, fontSize,
+        padding, borderRadius: 8,
+        cursor: 'pointer', textAlign: 'left', display: 'block', width: '100%',
+        marginBottom: 4, boxSizing: 'border-box',
+      }}
+    >
+      {item.label}
+    </button>
+  ));
+}
+
+// The door to everything that is not day-to-day. Deliberately a step rather
+// than a list item — the point is that nothing behind it is reachable by
+// accident while she is mid-conversation.
+function AdminDoor({ open, onToggle, active, onSelect }) {
+  return (
+    <div style={{ marginTop: 'auto', paddingTop: 14, borderTop: `1px solid ${border}` }}>
+      {open && (
+        <div style={{ marginBottom: 8 }}>
+          <NavList items={ADMIN_NAV} active={active} onSelect={onSelect} fontSize={13} padding="9px 14px" />
+        </div>
+      )}
+      <button onClick={onToggle}
+        style={{
+          background: 'transparent', border: `1px solid ${border}`, color: muted,
+          fontFamily: sans, fontSize: 12, padding: '10px 14px', borderRadius: 8,
+          cursor: 'pointer', textAlign: 'left', width: '100%', boxSizing: 'border-box',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+        <span>Admin &amp; settings</span>
+        <span style={{ opacity: 0.7 }}>{open ? '\u2013' : '+'}</span>
+      </button>
+    </div>
+  );
+}
 
 const SECTIONS = {
   dashboard:     Dashboard,
@@ -49,6 +109,7 @@ const SECTIONS = {
   content:       Content,
   selfies:       Selfies,
   photographers: Photographers,
+  activity:      Activity,
   merch:         Merch,
   extras:        Extras,
   members:       Members,
@@ -98,7 +159,23 @@ export default function Studio() {
 
   const handleLogout = () => { logout(); navigate('/login'); };
   const Section = SECTIONS[active] || Dashboard;
-  const currentLabel = NAV.find((n) => n.id === active)?.label || 'Studio';
+  // Opened automatically when an admin screen is showing, so a direct link or a
+  // reload does not leave the door shut on the page she is looking at.
+  const [adminOpen, setAdminOpen] = useState(ADMIN_IDS.has(active));
+  useEffect(() => { if (ADMIN_IDS.has(active)) setAdminOpen(true); }, [active]);
+
+  // What a section should open showing. A dashboard card saying three calls
+  // need answering opens those three rather than the whole list.
+  const [sectionState, setSectionState] = useState(null);
+
+  // Cleared on a plain nav click, so a filter set by a dashboard card does not
+  // silently persist the next time she opens that section herself.
+  const goTo = (section, state = null) => {
+    setSectionState(state);
+    selectSection(section);
+  };
+
+  const currentLabel = [...NAV, ...ADMIN_NAV].find((n) => n.id === active)?.label || 'Studio';
 
   const selectSection = (id) => {
     setActive(id);
@@ -115,6 +192,8 @@ export default function Studio() {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: bg, color: text, overflow: 'hidden' }}>
+
+      <RingWatch onOpenCalls={() => setActive('calls')} />
 
       {/* ── TOP BAR ── */}
       <div style={topBar}>
@@ -147,23 +226,9 @@ export default function Studio() {
             <div style={{ fontFamily: mono, fontSize: 10, color: muted, letterSpacing: '0.1em', marginBottom: 20, paddingBottom: 14, borderBottom: `1px solid ${border}` }}>
               {user?.email}
             </div>
-            {NAV.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => selectSection(item.id)}
-                style={{
-                  background: active === item.id ? 'rgba(193,125,74,0.12)' : 'transparent',
-                  border:     active === item.id ? '1px solid rgba(193,125,74,0.2)' : '1px solid transparent',
-                  color:      active === item.id ? text : muted,
-                  fontFamily: sans, fontSize: 15,
-                  padding:    '12px 14px', borderRadius: 8,
-                  cursor:     'pointer', textAlign: 'left', display: 'block', width: '100%',
-                  marginBottom: 4, boxSizing: 'border-box',
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
+            <NavList items={NAV} active={active} onSelect={(id) => goTo(id)} fontSize={15} padding="12px 14px" />
+            <AdminDoor open={adminOpen} onToggle={() => setAdminOpen(!adminOpen)}
+                       active={active} onSelect={(id) => goTo(id)} />
             <button
               onClick={handleLogout}
               style={{ background: 'transparent', border: `1px solid ${border}`, color: muted, fontFamily: sans, fontSize: 13, padding: '10px 14px', borderRadius: 8, cursor: 'pointer', marginTop: 20 }}
@@ -177,31 +242,18 @@ export default function Studio() {
       {/* ── CONTENT AREA ── */}
       {isMobile ? (
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 20, boxSizing: 'border-box' }}>
-          <Section />
+          <Section onNavigate={goTo} openWith={sectionState} />
         </div>
       ) : (
         <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '220px 1fr', overflow: 'hidden' }}>
           <aside style={{ background: surface, borderRight: `1px solid ${border}`, padding: 20, display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' }}>
             <div style={{ fontFamily: mono, fontSize: 10, color: muted, letterSpacing: '0.1em', marginBottom: 24 }}>{user?.email}</div>
-            {NAV.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => selectSection(item.id)}
-                style={{
-                  background: active === item.id ? 'rgba(193,125,74,0.12)' : 'transparent',
-                  border:     active === item.id ? '1px solid rgba(193,125,74,0.2)' : '1px solid transparent',
-                  color:      active === item.id ? text : muted,
-                  fontFamily: sans, fontSize: 14,
-                  padding:    '10px 14px', borderRadius: 8,
-                  cursor:     'pointer', textAlign: 'left',
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
+            <NavList items={NAV} active={active} onSelect={(id) => goTo(id)} fontSize={14} padding="10px 14px" />
+            <AdminDoor open={adminOpen} onToggle={() => setAdminOpen(!adminOpen)}
+                       active={active} onSelect={(id) => goTo(id)} />
           </aside>
           <main style={{ padding: 32, overflowY: 'auto' }}>
-            <Section />
+            <Section onNavigate={goTo} openWith={sectionState} />
           </main>
         </div>
       )}
