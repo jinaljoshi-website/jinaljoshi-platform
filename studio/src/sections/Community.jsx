@@ -4,6 +4,10 @@ import { api } from '../api';
 import { T, S, Card, Eyebrow, colors } from '../ui';
 
 const sans = "'DM Sans', system-ui, sans-serif";
+const mono = "'DM Mono', 'Courier New', monospace";
+
+const updatesPanel  = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 10, padding: '12px 16px', margin: '16px 0 20px' };
+const updatesToggle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: sans, fontSize: 12, color: colors.muted, textAlign: 'left' };
 
 export function Community() {
   const [posts,       setPosts]       = useState([]);
@@ -17,12 +21,19 @@ export function Community() {
   const [reportReasons,  setReportReasons]  = useState({}); // reportId -> reason input
   const [resolvingId,    setResolvingId]    = useState(null);
 
+  // Announcements are kept apart from the conversation here as well. Moderating
+  // is the reason to open this screen, and reading past the platform's own
+  // noise to do it made a simple job slower than it needed to be.
+  const [updates, setUpdates] = useState([]);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
+
   const loadReports = () => api.get('/api/studio/reports').then((d) => setReports(d.reports || [])).catch(() => {});
 
   useEffect(() => {
     api.get('/api/studio/community')
       .then((d) => {
         setPosts(d.posts || []);
+        setUpdates(d.updates || []);
         setCommunityBg(d.communityBg || '');
       })
       .finally(() => setLoading(false));
@@ -59,7 +70,9 @@ export function Community() {
       });
       setReports((prev) => prev.filter((r) => r.id !== reportId));
       // Refresh posts too, since a removal changes what's shown
-      api.get('/api/studio/community').then((d) => setPosts(d.posts || [])).catch(() => {});
+      api.get('/api/studio/community')
+        .then((d) => { setPosts(d.posts || []); setUpdates(d.updates || []); })
+        .catch(() => {});
     } catch (err) {
       alert(err.message);
     } finally {
@@ -71,8 +84,31 @@ export function Community() {
 
   return (
     <div>
-      <Eyebrow>Updates</Eyebrow>
+      <Eyebrow>Everyone, in one place</Eyebrow>
       <T.title>Public Corner</T.title>
+
+      {updates.length > 0 && (
+        <div style={updatesPanel}>
+          <button onClick={() => setUpdatesOpen(!updatesOpen)} style={updatesToggle}>
+            <span>{updates.length} system update{updates.length === 1 ? '' : 's'} in the last two days</span>
+            <span style={{ color: colors.accent }}>{updatesOpen ? 'Hide' : 'See them'}</span>
+          </button>
+          {updatesOpen && (
+            <div style={{ maxHeight: 200, overflowY: 'auto', marginTop: 10 }}>
+              {updates.map((u) => (
+                <div key={u.id} style={{ padding: '7px 0', borderBottom: `1px solid ${colors.border}` }}>
+                  <div style={{ fontFamily: sans, fontSize: 12, color: u.kind === 'news' ? colors.text : colors.muted, lineHeight: 1.55 }}>
+                    {u.content}
+                  </div>
+                  <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, opacity: 0.7, marginTop: 2 }}>
+                    {new Date(u.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Reports queue */}
       {reports.length > 0 && (

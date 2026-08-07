@@ -59,24 +59,76 @@ router.get('/posts', authMid, async (req, res) => {
       // with the conversation, which meant a room that is meant to feel like
       // people talking read like a feed of transactions instead.
       `SELECT cp.id, cp.content, cp.pinned, cp.is_system, cp.created_at,
+              cp.parent_id, cp.post_kind,
               u.id AS user_id, u.display_name, u.email, u.is_artist, u.tier
        FROM community_posts cp
        JOIN users u ON u.id = cp.user_id
        WHERE cp.removed = FALSE AND cp.is_system = FALSE
        ORDER BY cp.pinned DESC, cp.created_at ASC
-       LIMIT 200`
+       LIMIT 300`
+    );
+
+    // Polls and question windows, with their results. Fetched alongside rather
+    // than embedded in each post, so a poll that has been running for two days
+    // does not have its counts recomputed for every message in the room.
+    const { rows: polls } = await pool.query(
+      `SELECT p.id, p.post_id, p.question, p.option_kind, p.options, p.closes_at,
+              (SELECT json_agg(json_build_object('i', v.option_index, 'n', v.n))
+               FROM (SELECT option_index, count(*)::int AS n
+                     FROM community_poll_votes WHERE poll_id = p.id
+                     GROUP BY option_index) v) AS tally,
+              (SELECT option_index FROM community_poll_votes
+               WHERE poll_id = p.id AND user_id = $1) AS my_vote
+       FROM community_polls p
+       JOIN community_posts cp ON cp.id = p.post_id
+       WHERE cp.removed = FALSE`,
+      [req.user.userId]
+    );
+
+    const { rows: windows } = await pool.query(
+      `SELECT w.id, w.post_id, w.prompt, w.closes_at
+       FROM community_question_windows w
+       JOIN community_posts cp ON cp.id = w.post_id
+       WHERE cp.removed = FALSE`
     );
 
     // The room is Jinal's, so the background is hers to set. Fans cannot change
     // it — a shared space everyone restyles belongs to nobody.
     const { rows: cfg } = await pool.query(
-      `SELECT value FROM platform_config WHERE key = 'community_background_key'`
+      `SELECT value FROM platform_config WHERE key = 'community_chat_bg'`
     );
     const bg = cfg[0]?.value;
 
+    const toUrl = (k) => (!k ? null : k.startsWith('http') ? k : `${process.env.R2_PUBLIC_URL}/${k}`);
+
     res.json({
       posts: rows,
-      backgroundUrl: bg ? (bg.startsWith('http') ? bg : `${process.env.R2_PUBLIC_URL}/${bg}`) : null,
+      polls: polls.map((p) => {
+        const tally = {};
+        (p.tally || []).forEach((t) => { tally[t.i] = t.n; });
+        const total = Object.values(tally).reduce((a, b) => a + b, 0);
+        return {
+          id: p.id, postId: p.post_id, question: p.question,
+          optionKind: p.option_kind, closesAt: p.closes_at,
+          closed: new Date(p.closes_at) <= new Date(),
+          myVote: p.my_vote,
+          totalVotes: total,
+          options: (p.options || []).map((o, i) => ({
+            index: i,
+            // A text option is its own label; an image option is a stored key
+            // that has to become a URL before it can be shown.
+            label: p.option_kind === 'image' ? null : o,
+            imageUrl: p.option_kind === 'image' ? toUrl(o) : null,
+            votes: tally[i] || 0,
+            pct: total ? Math.round(((tally[i] || 0) / total) * 100) : 0,
+          })),
+        };
+      }),
+      questionWindows: windows.map((w) => ({
+        id: w.id, postId: w.post_id, prompt: w.prompt,
+        closesAt: w.closes_at, closed: new Date(w.closes_at) <= new Date(),
+      })),
+      backgroundUrl: toUrl(bg),
     });
   } catch (err) {
     console.error('community/posts error:', err);
@@ -141,7 +193,7 @@ router.get('/status', authMid, async (req, res) => {
 // ─────────────────────────────────────────────
 
 router.post('/post', authMid, async (req, res) => {
-  const { content } = req.body;
+  const { content, parentId } = req.body;
   if (!content?.trim()) return res.status(400).json({ error: 'Content is required' });
   if (content.length > 1000) return res.status(400).json({ error: 'Post too long (max 1000 characters)' });
 
@@ -189,9 +241,9 @@ router.post('/post', authMid, async (req, res) => {
     }
 
     const { rows } = await client.query(
-      `INSERT INTO community_posts (user_id, content, is_system)
-       VALUES ($1, $2, FALSE) RETURNING *`,
-      [req.user.userId, content.trim()]
+      `INSERT INTO community_posts (user_id, content, is_system, parent_id)
+       VALUES ($1, $2, FALSE, $3) RETURNING *`,
+      [req.user.userId, content.trim(), parentId || null]
     );
 
     await client.query('COMMIT');
@@ -288,6 +340,41 @@ router.get('/updates', authMid, async (req, res) => {
   } catch (err) {
     console.error('community/updates error:', err);
     res.status(500).json({ error: 'Failed to load updates' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POLLS
+// ─────────────────────────────────────────────
+
+router.post('/polls/:id/vote', authMid, async (req, res) => {
+  const { optionIndex } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `SELECT closes_at, jsonb_array_length(options) AS n FROM community_polls WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Poll not found' });
+    if (new Date(rows[0].closes_at) <= new Date()) {
+      return res.status(409).json({ error: 'This poll has closed' });
+    }
+    const i = parseInt(optionIndex, 10);
+    if (Number.isNaN(i) || i < 0 || i >= rows[0].n) {
+      return res.status(400).json({ error: 'That is not one of the options' });
+    }
+
+    // Changeable while it is open. Someone who taps the wrong thing should be
+    // able to correct it rather than being stuck with it for two days.
+    await pool.query(
+      `INSERT INTO community_poll_votes (poll_id, user_id, option_index)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (poll_id, user_id) DO UPDATE SET option_index = $3, voted_at = NOW()`,
+      [req.params.id, req.user.userId, i]
+    );
+    res.json({ ok: true, optionIndex: i });
+  } catch (err) {
+    console.error('community/vote error:', err);
+    res.status(500).json({ error: 'Could not record your vote' });
   }
 });
 

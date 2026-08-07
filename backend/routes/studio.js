@@ -12,7 +12,7 @@ const { notifyArtist } = require('../lib/notify');
 const { grantGiftedTokens, refundByRelated, refundLedgerEntry } = require('../lib/tokens');
 const { deleteObjects, findOrphans } = require('../lib/r2');
 const { getBalances } = require('../lib/tokens');
-const { getDmConfigForTier } = require('../lib/config');
+const { getDmConfigForTier, getConfigNumber } = require('../lib/config');
 const { getLocalDateStr, getAllotmentPeriodKey } = require('../lib/time');
 
 router.use(authMid, artistOnly);
@@ -753,6 +753,93 @@ router.post('/content/items/move', async (req, res) => {
 // The whole set's order in one call. The client sends the sequence it is
 // showing, so what Jinal arranged is exactly what gets stored — no merging of
 // partial moves, no drift between what she sees and what a fan will.
+// ─────────────────────────────────────────────
+// COMMUNITY ACTIVITIES
+// ─────────────────────────────────────────────
+
+// A poll, pinned while it runs. Text options are words; image options are
+// stored keys — the same mechanism either way, which is why one endpoint
+// handles both.
+router.post('/community/poll', async (req, res) => {
+  const { question, optionKind = 'text', options, hours } = req.body;
+  const list = Array.isArray(options) ? options.filter(Boolean) : [];
+  if (!question?.trim()) return res.status(400).json({ error: 'A question is required' });
+  if (list.length < 2)   return res.status(400).json({ error: 'At least two options' });
+  if (list.length > 4)   return res.status(400).json({ error: 'Four options at most' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const pinHours = hours || (await getConfigNumber('community_pin_hours').catch(() => 48));
+
+    const { rows: post } = await client.query(
+      `INSERT INTO community_posts (user_id, content, is_system, pinned, post_kind)
+       VALUES ($1, $2, FALSE, TRUE, 'poll') RETURNING id`,
+      [req.user.userId, question.trim()]
+    );
+
+    const { rows: poll } = await client.query(
+      `INSERT INTO community_polls (post_id, question, option_kind, options, closes_at)
+       VALUES ($1, $2, $3, $4::jsonb, NOW() + ($5 || ' hours')::interval) RETURNING *`,
+      [post[0].id, question.trim(), optionKind, JSON.stringify(list), String(pinHours)]
+    );
+
+    await client.query('COMMIT');
+    res.json({ ok: true, poll: poll[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('studio/community/poll error:', err);
+    res.status(500).json({ error: 'Could not create the poll' });
+  } finally { client.release(); }
+});
+
+// An hour of questions rather than a standing invitation. A window that is
+// always open gets a trickle nobody sits down to answer; one that closes gets
+// a burst worth answering in one go.
+router.post('/community/question-window', async (req, res) => {
+  const { prompt, hours = 1 } = req.body;
+  if (!prompt?.trim()) return res.status(400).json({ error: 'A prompt is required' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: post } = await client.query(
+      `INSERT INTO community_posts (user_id, content, is_system, pinned, post_kind)
+       VALUES ($1, $2, FALSE, TRUE, 'question_window') RETURNING id`,
+      [req.user.userId, prompt.trim()]
+    );
+    const { rows: w } = await client.query(
+      `INSERT INTO community_question_windows (post_id, prompt, closes_at)
+       VALUES ($1, $2, NOW() + ($3 || ' hours')::interval) RETURNING *`,
+      [post[0].id, prompt.trim(), String(hours)]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true, window: w[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('studio/community/question-window error:', err);
+    res.status(500).json({ error: 'Could not open the window' });
+  } finally { client.release(); }
+});
+
+// Pinning somebody else's message. Costs nothing to build and means a great
+// deal to receive — being singled out by name in a room you share is worth more
+// than most things that can be bought here.
+router.post('/community/pin/:postId', async (req, res) => {
+  const { pinned } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE community_posts SET pinned = $1 WHERE id = $2 AND removed = FALSE RETURNING id, pinned`,
+      [pinned !== false, req.params.postId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Post not found' });
+    res.json({ ok: true, pinned: rows[0].pinned });
+  } catch (err) {
+    console.error('studio/community/pin error:', err);
+    res.status(500).json({ error: 'Could not pin that' });
+  }
+});
+
 // ─────────────────────────────────────────────
 // PHOTOGRAPHERS
 // ─────────────────────────────────────────────
@@ -2126,9 +2213,24 @@ router.post('/requests/:id/counter', async (req, res) => {
 
 router.get('/community', async (req, res) => {
   try {
-    const { rows } = await pool.query(`SELECT cp.*, u.display_name, u.is_artist FROM community_posts cp JOIN users u ON u.id = cp.user_id ORDER BY cp.pinned DESC, cp.created_at DESC LIMIT 100`);
+    // Split the same way fans see it. Studio showed announcements interleaved
+    // with the conversation, which made moderating it — the actual reason to
+    // open this screen — a matter of reading past the platform's own noise.
+    const { rows } = await pool.query(
+      `SELECT cp.*, u.display_name, u.is_artist
+       FROM community_posts cp JOIN users u ON u.id = cp.user_id
+       WHERE cp.is_system = FALSE
+       ORDER BY cp.pinned DESC, cp.created_at DESC LIMIT 100`
+    );
+    const { rows: updates } = await pool.query(
+      `SELECT cp.id, cp.content, cp.created_at, COALESCE(cp.update_kind, 'activity') AS kind
+       FROM community_posts cp
+       WHERE cp.is_system = TRUE AND cp.removed = FALSE
+         AND cp.created_at > NOW() - INTERVAL '48 hours'
+       ORDER BY cp.created_at DESC LIMIT 100`
+    );
     const { rows: bgRows } = await pool.query(`SELECT value FROM platform_config WHERE key = 'community_chat_bg'`);
-    res.json({ posts: rows, communityBg: bgRows[0]?.value || '' });
+    res.json({ posts: rows, updates, communityBg: bgRows[0]?.value || '' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load posts' });
   }

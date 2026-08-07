@@ -114,6 +114,7 @@ export default function Community() {
 
   const [olderCount,    setOlderCount]    = useState(0);
   const [expandedRuns,  setExpandedRuns]  = useState([]);
+  const [replyTo,       setReplyTo]       = useState(null);
 
   const loadUpdates = (hours = 48) => api.get(`/api/community/updates?hours=${hours}`)
     .then((d) => { setUpdates(d.updates || []); setOlderCount(d.olderAvailable || 0); })
@@ -164,7 +165,11 @@ export default function Community() {
     if (!message.trim()) return;
     setSending(true); setError('');
     try {
-      await api.post('/api/community/post', { content: message.trim() });
+      await api.post('/api/community/post', {
+        content: message.trim(),
+        parentId: replyTo?.id || null,
+      });
+      setReplyTo(null);
       setMessage('');
       isAtBottom.current = true;
       load(true);
@@ -212,6 +217,10 @@ export default function Community() {
 
   const visiblePosts = posts;
 
+  // A lookup, so a reply can show what it answers without another request.
+  const postById = {};
+  posts.forEach((p) => { postById[p.id] = p; });
+
   return (
     <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: C.bg, borderRadius: communityBg ? 10 : 0, overflow: 'hidden' }}>
       <div style={{ ...stickyHeader, padding: '10px 16px' }}>
@@ -252,8 +261,10 @@ export default function Community() {
             <PostBubble
               key={post.id}
               post={post}
+              parent={post.parent_id ? postById[post.parent_id] : null}
               artistId={ARTIST_ID}
               isOwn={currentUser?.id === post.user_id}
+              onReply={setReplyTo}
               isReporting={reportingId === post.id}
               reportReason={reportReason}
               onReportReasonChange={setReportReason}
@@ -268,12 +279,26 @@ export default function Community() {
       </div>
 
       <div style={{ ...composer, padding: '10px 16px', flexShrink: 0 }}>
+        {replyTo && (
+          <div style={replyingTo}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: F.sans, fontSize: 10, color: C.accent }}>
+                Replying to {replyTo.is_artist ? 'Jinal' : (replyTo.display_name || 'a member')}
+              </div>
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, overflow: 'hidden',
+                            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {replyTo.content}
+              </div>
+            </div>
+            <button onClick={() => setReplyTo(null)} style={{ ...replyBtn, color: C.accent }}>✕</button>
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-            placeholder="Say something to the community…"
+            placeholder={replyTo ? 'Write your reply…' : 'Say something to the community…'}
             style={composerInput}
             rows={2}
           />
@@ -355,7 +380,26 @@ export default function Community() {
   );
 }
 
-function PostBubble({ post, artistId, isOwn, isReporting, reportReason, onReportReasonChange, onStartReport, onCancelReport, onSubmitReport, reportSending }) {
+// The message being replied to, shown above the reply itself. Without it a
+// reply to something said twenty messages ago is unreadable, which is why
+// every group chat does this.
+function QuotedParent({ parent }) {
+  if (!parent) return null;
+  return (
+    <div style={quoteBox}>
+      <div style={{ fontFamily: F.sans, fontSize: 10, color: C.accent, marginBottom: 2 }}>
+        {parent.is_artist ? 'Jinal Joshi' : (parent.display_name || 'Member')}
+      </div>
+      <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, lineHeight: 1.45,
+                    overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
+                    WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+        {parent.content}
+      </div>
+    </div>
+  );
+}
+
+function PostBubble({ post, parent, artistId, isOwn, onReply, isReporting, reportReason, onReportReasonChange, onStartReport, onCancelReport, onSubmitReport, reportSending }) {
   const isArtist = post.is_artist || post.user_id === artistId;
   const isSystem = post.is_system;
 
@@ -372,9 +416,13 @@ function PostBubble({ post, artistId, isOwn, isReporting, reportReason, onReport
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
         <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 3 }}>★ Jinal Joshi</div>
         <div style={{ ...bubble, background: 'rgba(193,125,74,0.12)', border: `1px solid rgba(193,125,74,0.25)`, maxWidth: '75%' }}>
+          <QuotedParent parent={parent} />
           {post.content}
         </div>
-        <div style={timestamp}>{new Date(post.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={timestamp}>{new Date(post.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+          <button onClick={() => onReply(post)} style={replyBtn}>Reply</button>
+        </div>
       </div>
     );
   }
@@ -388,10 +436,12 @@ function PostBubble({ post, artistId, isOwn, isReporting, reportReason, onReport
         )}
       </div>
       <div style={{ ...bubble, background: C.surface, border: `1px solid ${C.border}`, maxWidth: '75%' }}>
+        <QuotedParent parent={parent} />
         {post.content}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={timestamp}>{new Date(post.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+        <button onClick={() => onReply(post)} style={replyBtn}>Reply</button>
         {!isOwn && !isReporting && (
           <button onClick={onStartReport} style={reportLink}>Report</button>
         )}
@@ -429,6 +479,11 @@ const successBox   = { background: 'rgba(100,160,100,0.1)', border: '1px solid r
 const updatesBar    = { borderTop: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.015)', padding: '8px 16px', flexShrink: 0, position: 'relative', zIndex: 3 };
 const updatesToggle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: F.sans, fontSize: 12, color: C.muted };
 const updateRow     = { padding: '8px 0', borderBottom: `1px solid ${C.border}` };
+const replyingTo = { display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(193,125,74,0.08)', borderLeft: `2px solid ${C.accent}`, borderRadius: 6, padding: '6px 10px', marginBottom: 8 };
+
+const quoteBox = { borderLeft: `2px solid ${C.accent}`, paddingLeft: 8, marginBottom: 6, opacity: 0.85 };
+const replyBtn = { background: 'none', border: 'none', color: C.muted, fontFamily: F.sans, fontSize: 11, cursor: 'pointer', padding: 0 };
+
 const updateTime    = { fontFamily: F.mono, fontSize: 10, color: C.muted, opacity: 0.7, marginTop: 3 };
 const runToggle     = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: F.sans, fontSize: 12, color: C.muted, textAlign: 'left' };
 
