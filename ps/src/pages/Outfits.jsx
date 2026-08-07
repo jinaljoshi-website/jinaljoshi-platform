@@ -313,6 +313,7 @@ function OutfitCheckout({ entry, data, onClose, onSuccess, onTopUp }) {
   const [form, setForm] = useState({
     name: saved.name || '', phone: saved.phone || '', line1: saved.line1 || '',
     city: saved.city || '', state: saved.state || '', pincode: saved.pincode || '',
+    country: saved.country || 'India',
   });
   const [charity,  setCharity]  = useState(data.defaultCharity || (data.charities?.[0]?.key ?? ''));
   const [showName, setShowName] = useState(false);
@@ -322,6 +323,10 @@ function OutfitCheckout({ entry, data, onClose, onSuccess, onTopUp }) {
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const complete = form.name && form.phone && form.line1 && form.city && form.state && form.pincode;
+
+  // A one-of-one going overseas costs more to send than it does to make in
+  // some cases, and none of that is in the price shown.
+  const intl = (form.country || '').trim().toLowerCase() !== 'india';
   const total = mode === 'claim' ? item.claimPrice : item.buyNowPrice + data.handlingFee;
 
   const submit = async () => {
@@ -370,12 +375,25 @@ function OutfitCheckout({ entry, data, onClose, onSuccess, onTopUp }) {
 
         <div style={smallLabel}>Delivery address</div>
         <div style={formGrid}>
+          {intl && (
+            <div style={intlNote}>
+              <strong style={{ color: C.text }}>Shipping outside India</strong>
+              <div style={{ marginTop: 4, lineHeight: 1.6 }}>
+                The price covers the piece and domestic shipping. International postage and any
+                customs duty are not included — we will work out the actual cost and write to you
+                with the difference. Nothing is charged automatically, and you can cancel for a
+                full refund if it does not suit you. It ships once that difference is paid.
+              </div>
+            </div>
+          )}
+
           <F2 label="Full name"><input style={inp} value={form.name} onChange={(e) => set('name', e.target.value)} /></F2>
           <F2 label="Phone"><input style={inp} value={form.phone} onChange={(e) => set('phone', e.target.value)} /></F2>
           <F2 label="Address" full><input style={inp} value={form.line1} onChange={(e) => set('line1', e.target.value)} /></F2>
           <F2 label="City"><input style={inp} value={form.city} onChange={(e) => set('city', e.target.value)} /></F2>
           <F2 label="State"><input style={inp} value={form.state} onChange={(e) => set('state', e.target.value)} /></F2>
-          <F2 label="Pincode"><input style={inp} value={form.pincode} onChange={(e) => set('pincode', e.target.value)} /></F2>
+          <F2 label={intl ? 'Postal code' : 'Pincode'}><input style={inp} value={form.pincode} onChange={(e) => set('pincode', e.target.value)} /></F2>
+          <F2 label="Country"><input style={inp} value={form.country} onChange={(e) => set('country', e.target.value)} placeholder="India" /></F2>
         </div>
 
         <label style={saveLabel}>
@@ -442,6 +460,8 @@ const overlay     = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)'
 const modal       = { width: '100%', maxWidth: 520, background: '#1A1714', border: `1px solid rgba(193,125,74,0.25)`, borderRadius: 14, padding: 26, maxHeight: '90vh', overflowY: 'auto' };
 const closeBtn    = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontSize: 16, padding: '6px 10px', borderRadius: 8, cursor: 'pointer' };
 const formGrid    = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 };
+const intlNote = { gridColumn: '1 / -1', fontFamily: F.sans, fontSize: 12, color: C.muted, background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 4 };
+
 const inp         = { width: '100%', boxSizing: 'border-box', background: '#100F0C', border: `1px solid ${C.border}`, color: C.text, padding: '10px 12px', borderRadius: 8, fontFamily: F.sans, fontSize: 13, outline: 'none' };
 const saveLabel   = { display: 'flex', alignItems: 'flex-start', fontFamily: F.sans, fontSize: 13, color: C.muted, cursor: 'pointer', marginBottom: 14, lineHeight: 1.5 };
 const totalRow    = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, marginBottom: 12 };

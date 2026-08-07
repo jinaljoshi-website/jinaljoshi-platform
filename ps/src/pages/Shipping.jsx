@@ -50,7 +50,14 @@ export default function Shipping() {
         </Section>
 
         <Section title="Shipping area">
-          <p>Personal Space currently ships merchandise only within India.</p>
+          <p>Personal Space ships within India, and internationally on request.</p>
+        </Section>
+
+        <Section title="International orders">
+          <p>The price shown at checkout covers the item and domestic shipping. <strong style={{ color: C.text }}>It does not include international shipping, customs duties, or import taxes</strong>, which vary considerably by destination and cannot be calculated in advance.</p>
+          <p>For an order shipping outside India, we work out the actual cost once the order is placed and write to you with the difference. Nothing is charged automatically, and you are free to cancel for a full refund if the amount does not suit you.</p>
+          <p><strong style={{ color: C.text }}>The order is dispatched once that difference is paid.</strong> Until then it is held for you.</p>
+          <p>Any customs duty or import tax charged by the destination country is payable by you on arrival and is outside our control.</p>
         </Section>
 
         <Section title="Shipping costs">

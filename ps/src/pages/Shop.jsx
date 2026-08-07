@@ -193,7 +193,13 @@ function ShippingModal({ item, price, savedAddress, onClose, onSuccess, onTopUp 
     city:    savedAddress?.city    || '',
     state:   savedAddress?.state   || '',
     pincode: savedAddress?.pincode || '',
+    country: savedAddress?.country || 'India',
   });
+
+  // Anything other than India means the price shown does not cover getting it
+  // there. Said before they pay, not after — a surprise invoice for shipping is
+  // the fastest way to turn a good purchase into a complaint.
+  const intl = (form.country || '').trim().toLowerCase() !== 'india';
   const [saveAddr,  setSaveAddr]  = useState(false);
   const [placing,   setPlacing]   = useState(false);
   const [error,     setError]     = useState('');
@@ -234,12 +240,27 @@ function ShippingModal({ item, price, savedAddress, onClose, onSuccess, onTopUp 
         {error && <div style={errorBox}>{error}</div>}
 
         <div style={formGrid}>
+          {intl && (
+            <div style={intlNote}>
+              <strong style={{ color: C.text }}>Shipping outside India</strong>
+              <div style={{ marginTop: 4, lineHeight: 1.6 }}>
+                The price here covers the item and domestic shipping. International postage and any
+                customs duty are not included — we will work out the actual cost and write to you
+                with the difference. Nothing is charged automatically, and you can cancel for a full
+                refund if it does not suit you. The order ships once that difference is paid.
+              </div>
+            </div>
+          )}
+
           <Field label="Full name"><input style={inp} value={form.name}    onChange={(e) => set('name', e.target.value)}    placeholder="Your full name" /></Field>
-          <Field label="Phone number"><input style={inp} value={form.phone}   onChange={(e) => set('phone', e.target.value)}   placeholder="+91 XXXXX XXXXX" /></Field>
+          <Field label="Phone number"><input style={inp} value={form.phone}   onChange={(e) => set('phone', e.target.value)}   placeholder={intl ? 'With country code' : '+91 XXXXX XXXXX'} /></Field>
           <Field label="Address" full><input style={inp} value={form.line1}   onChange={(e) => set('line1', e.target.value)}   placeholder="House / flat / street" /></Field>
           <Field label="City"><input style={inp} value={form.city}    onChange={(e) => set('city', e.target.value)}    placeholder="City" /></Field>
-          <Field label="State"><input style={inp} value={form.state}   onChange={(e) => set('state', e.target.value)}   placeholder="State" /></Field>
-          <Field label="Pincode"><input style={inp} value={form.pincode} onChange={(e) => set('pincode', e.target.value)} placeholder="6-digit pincode" /></Field>
+          <Field label={intl ? 'State / region' : 'State'}><input style={inp} value={form.state}   onChange={(e) => set('state', e.target.value)}   placeholder={intl ? 'State or region' : 'State'} /></Field>
+          <Field label={intl ? 'Postal code' : 'Pincode'}><input style={inp} value={form.pincode} onChange={(e) => set('pincode', e.target.value)} placeholder={intl ? 'Postal / ZIP code' : '6-digit pincode'} /></Field>
+          <Field label="Country" full>
+            <input style={inp} value={form.country} onChange={(e) => set('country', e.target.value)} placeholder="India" />
+          </Field>
         </div>
 
         <label style={saveLabel}>
@@ -303,6 +324,7 @@ const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', ba
 const modal   = { width: '100%', maxWidth: 500, background: '#1A1714', border: `1px solid rgba(193,125,74,0.25)`, borderRadius: 14, padding: 28, maxHeight: '90vh', overflowY: 'auto' };
 const closeBtn = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontSize: 16, padding: '6px 10px', borderRadius: 8, cursor: 'pointer' };
 const formGrid = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 };
+const intlNote = { gridColumn: '1 / -1', fontFamily: F.sans, fontSize: 12, color: C.muted, background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 4 };
 const inp      = { width: '100%', boxSizing: 'border-box', background: '#100F0C', border: `1px solid ${C.border}`, color: C.text, padding: '10px 12px', borderRadius: 8, fontFamily: F.sans, fontSize: 13, outline: 'none' };
 const saveLabel = { display: 'flex', alignItems: 'center', fontFamily: F.sans, fontSize: 13, color: C.muted, cursor: 'pointer', marginBottom: 16 };
 const totalRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, marginBottom: 12 };
