@@ -6,6 +6,10 @@ import { T, S, Card, Eyebrow, colors } from '../ui';
 const sans = "'DM Sans', system-ui, sans-serif";
 const mono = "'DM Mono', 'Courier New', monospace";
 
+const msgBubble = { maxWidth: '72%', fontFamily: sans, fontSize: 14, color: colors.text, lineHeight: 1.6, padding: '10px 14px', borderRadius: 12 };
+const quoteBox  = { borderLeft: `2px solid ${colors.accent}`, paddingLeft: 8, marginBottom: 6, opacity: 0.85 };
+const modBtn    = { background: 'none', border: 'none', color: colors.muted, fontFamily: sans, fontSize: 11, cursor: 'pointer', padding: 0 };
+
 const updatesPanel  = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 10, padding: '12px 16px', margin: '16px 0 20px' };
 const updatesToggle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: sans, fontSize: 12, color: colors.muted, textAlign: 'left' };
 
@@ -26,6 +30,8 @@ export function Community() {
   // noise to do it made a simple job slower than it needed to be.
   const [updates, setUpdates] = useState([]);
   const [updatesOpen, setUpdatesOpen] = useState(false);
+  const [hovered, setHovered] = useState(null);
+
 
   const loadReports = () => api.get('/api/studio/reports').then((d) => setReports(d.reports || [])).catch(() => {});
 
@@ -180,36 +186,62 @@ export function Community() {
           </>
         )}
         <div style={{ position: 'relative', zIndex: 2, padding: communityBg ? 14 : 0 }}>
-          {posts.length === 0 && <T.muted>No community posts yet.</T.muted>}
-          <div style={{ display: 'grid', gap: 10 }}>
-            {posts.map((p) => (
-              <div key={p.id} style={{ ...S.card, background: communityBg ? 'rgba(22,20,16,0.9)' : S.card.background, opacity: p.removed ? 0.4 : 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, gap: 12 }}>
-                  <div style={S.rowSub}>
-                    {p.is_artist ? '★ Jinal' : (p.display_name || 'Member')} · {new Date(p.created_at).toLocaleDateString()}
-                    {p.pinned && <span style={{ color: colors.accent, marginLeft: 8 }}>· Pinned</span>}
-                    {p.removed && <span style={{ color: '#D99A9A', marginLeft: 8 }}>· Removed</span>}
+          {posts.length === 0 && <T.muted>Nothing said yet.</T.muted>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '58vh', overflowY: 'auto' }}>
+            {[...posts].reverse().map((p) => {
+              const mine   = p.is_artist;
+              const parent = p.parent_id ? posts.find((x) => x.id === p.parent_id) : null;
+              return (
+                <div key={p.id}
+                     onMouseEnter={() => setHovered(p.id)}
+                     onMouseLeave={() => setHovered(null)}
+                     style={{ display: 'flex', flexDirection: 'column',
+                              alignItems: mine ? 'flex-end' : 'flex-start',
+                              opacity: p.removed ? 0.35 : 1 }}>
+                  <div style={{ fontFamily: sans, fontSize: 11, color: mine ? colors.accent : colors.muted, marginBottom: 3 }}>
+                    {mine ? '★ Jinal' : (p.display_name || 'Member')}
+                    {p.pinned  && <span style={{ color: colors.accent, marginLeft: 6 }}>· pinned</span>}
+                    {p.removed && <span style={{ color: '#D99A9A', marginLeft: 6 }}>· removed</span>}
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    <button
-                      onClick={() => updatePost(p.id, { pinned: !p.pinned })}
-                      style={{ ...S.btn, background: p.pinned ? 'rgba(193,125,74,0.15)' : 'transparent', color: p.pinned ? '#C17D4A' : '#9B8F83', border: '1px solid rgba(242,235,224,0.08)', fontSize: 11, padding: '4px 8px' }}
-                    >
+
+                  <div style={{ ...msgBubble,
+                                background: mine ? 'rgba(193,125,74,0.12)' : 'rgba(22,20,16,0.92)',
+                                border: `1px solid ${mine ? 'rgba(193,125,74,0.25)' : colors.border}` }}>
+                    {parent && (
+                      <div style={quoteBox}>
+                        <div style={{ fontFamily: sans, fontSize: 10, color: colors.accent, marginBottom: 2 }}>
+                          {parent.is_artist ? 'Jinal' : (parent.display_name || 'Member')}
+                        </div>
+                        <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, lineHeight: 1.4,
+                                      overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
+                                      WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                          {parent.content}
+                        </div>
+                      </div>
+                    )}
+                    {p.content}
+                  </div>
+
+                  {/* Her controls, on the message itself. Shown on hover so the
+                      room reads as a conversation rather than a control panel,
+                      and always shown on a removed one so it can be put back. */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3,
+                                opacity: (hovered === p.id || p.removed || p.pinned) ? 1 : 0,
+                                transition: 'opacity 120ms ease' }}>
+                    <span style={{ fontFamily: mono, fontSize: 10, color: colors.muted }}>
+                      {new Date(p.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <button onClick={() => updatePost(p.id, { pinned: !p.pinned })} style={modBtn}>
                       {p.pinned ? 'Unpin' : 'Pin'}
                     </button>
-                    <button
-                      onClick={() => updatePost(p.id, { removed: !p.removed })}
-                      style={{ ...S.btn, background: p.removed ? 'rgba(156,90,90,0.15)' : 'transparent', color: p.removed ? '#D99A9A' : '#9B8F83', border: '1px solid rgba(242,235,224,0.08)', fontSize: 11, padding: '4px 8px' }}
-                    >
+                    <button onClick={() => updatePost(p.id, { removed: !p.removed })}
+                            style={{ ...modBtn, color: p.removed ? '#8FC88F' : '#D99A9A' }}>
                       {p.removed ? 'Restore' : 'Remove'}
                     </button>
                   </div>
                 </div>
-                <div style={{ fontFamily: sans, fontSize: 14, color: colors.text, lineHeight: 1.6 }}>
-                  {p.content}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

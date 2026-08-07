@@ -822,6 +822,24 @@ router.post('/community/question-window', async (req, res) => {
   } finally { client.release(); }
 });
 
+// Speaking in the room from Studio. It is her own post, so it goes in exactly
+// as one from the fan side would.
+router.post('/community/post', async (req, res) => {
+  const { content, parentId } = req.body;
+  if (!content?.trim()) return res.status(400).json({ error: 'Say something first' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO community_posts (user_id, content, is_system, parent_id)
+       VALUES ($1, $2, FALSE, $3) RETURNING *`,
+      [req.user.userId, content.trim(), parentId || null]
+    );
+    res.json({ ok: true, post: rows[0] });
+  } catch (err) {
+    console.error('studio/community/post error:', err);
+    res.status(500).json({ error: 'Could not post that' });
+  }
+});
+
 // Pinning somebody else's message. Costs nothing to build and means a great
 // deal to receive — being singled out by name in a room you share is worth more
 // than most things that can be bought here.
