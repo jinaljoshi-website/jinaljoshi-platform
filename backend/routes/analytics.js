@@ -431,7 +431,7 @@ router.get('/member-activity', async (req, res) => {
          UNION ALL
          SELECT cr.created_at, 'call',
                 u.display_name, u.email, u.tier,
-                cr.call_type, COALESCE(cr.total_cost, 0), cr.status
+                cr.call_type, COALESCE(cr.coins_charged, 0), cr.status
          FROM call_requests cr
          JOIN users u ON u.id = cr.user_id
          WHERE u.is_test = FALSE
@@ -456,7 +456,7 @@ router.get('/member-activity', async (req, res) => {
          UNION ALL
          SELECT r.created_at, 'request',
                 u.display_name, u.email, u.tier,
-                COALESCE(r.type, r.topic), COALESCE(r.coins_charged, 0), r.status
+                COALESCE(r.type, LEFT(r.details, 60)), COALESCE(r.coins_charged, 0), r.status
          FROM custom_requests r
          JOIN users u ON u.id = r.user_id
          WHERE u.is_test = FALSE
