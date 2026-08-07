@@ -267,10 +267,30 @@ export default function Community() {
         </div>
       </div>
 
+      <div style={{ ...composer, padding: '10px 16px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+            placeholder="Say something to the community…"
+            style={composerInput}
+            rows={2}
+          />
+          <button
+            onClick={handleSend}
+            disabled={sending || !message.trim()}
+            style={{ ...sendBtn, opacity: (sending || !message.trim()) ? 0.5 : 1 }}
+          >
+            {sending ? '…' : 'Send'}
+          </button>
+        </div>
+      </div>
+
       {updates.length > 0 && (
         <div style={updatesBar}>
           <button onClick={() => setUpdatesOpen(!updatesOpen)} style={updatesToggle}>
-            <span>{updates.length} update{updates.length === 1 ? '' : 's'} in the last two days</span>
+            <span>{updates.length} system update{updates.length === 1 ? '' : 's'} in the last two days</span>
             <span style={{ color: C.accent }}>{updatesOpen ? 'Hide' : 'See them'}</span>
           </button>
           {updatesOpen && (
@@ -331,25 +351,6 @@ export default function Community() {
         </div>
       )}
 
-      <div style={{ ...composer, padding: '10px 16px', flexShrink: 0 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-          <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-            placeholder="Say something to the community…"
-            style={composerInput}
-            rows={2}
-          />
-          <button
-            onClick={handleSend}
-            disabled={sending || !message.trim()}
-            style={{ ...sendBtn, opacity: (sending || !message.trim()) ? 0.5 : 1 }}
-          >
-            {sending ? '…' : 'Send'}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -425,7 +426,7 @@ const systemBubble = { fontFamily: F.sans, fontSize: 12, color: C.muted, backgro
 const timestamp    = { fontFamily: F.sans, fontSize: 10, color: C.muted, marginTop: 3 };
 const errorBox     = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: 12, borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
 const successBox   = { background: 'rgba(100,160,100,0.1)', border: '1px solid rgba(100,160,100,0.3)', color: '#8FC88F', padding: 12, borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
-const updatesBar    = { borderTop: `1px solid ${C.border}`, background: C.bg, padding: '8px 16px', flexShrink: 0, position: 'relative', zIndex: 3 };
+const updatesBar    = { borderTop: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.015)', padding: '8px 16px', flexShrink: 0, position: 'relative', zIndex: 3 };
 const updatesToggle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: F.sans, fontSize: 12, color: C.muted };
 const updateRow     = { padding: '8px 0', borderBottom: `1px solid ${C.border}` };
 const updateTime    = { fontFamily: F.mono, fontSize: 10, color: C.muted, opacity: 0.7, marginTop: 3 };
