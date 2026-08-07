@@ -64,7 +64,10 @@ router.get('/posts', authMid, async (req, res) => {
        FROM community_posts cp
        JOIN users u ON u.id = cp.user_id
        WHERE cp.removed = FALSE AND cp.is_system = FALSE
-       ORDER BY cp.pinned DESC, cp.created_at ASC
+       -- Pinned last, not first. The room reads bottom-up and opens scrolled to
+       -- the newest message, so anything put at the top is behind everything
+       -- that has been said since — which is the opposite of pinning it.
+       ORDER BY cp.pinned ASC, cp.created_at ASC
        LIMIT 300`
     );
 

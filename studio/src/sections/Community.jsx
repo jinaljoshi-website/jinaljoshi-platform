@@ -4,7 +4,10 @@ import { api } from '../api';
 import { T, S, Card, Eyebrow, colors } from '../ui';
 
 const sans = "'DM Sans', system-ui, sans-serif";
-const mono = "'DM Mono', 'Courier New', monospace";
+const mono    = "'DM Mono', 'Courier New', monospace";
+const display = "'Cormorant Garamond', Georgia, serif";
+
+const studioPoll = { background: 'rgba(22,20,16,0.92)', border: `1px solid ${colors.accent}`, borderRadius: 12, padding: '14px 16px' };
 
 const msgBubble = { maxWidth: '72%', fontFamily: sans, fontSize: 14, color: colors.text, lineHeight: 1.6, padding: '10px 14px', borderRadius: 12 };
 const quoteBox  = { borderLeft: `2px solid ${colors.accent}`, paddingLeft: 8, marginBottom: 6, opacity: 0.85 };
@@ -39,9 +42,18 @@ export function Community() {
   const [askPrompt, setAskPrompt] = useState('');
   const [askHours,  setAskHours]  = useState(1);
 
+  const [polls,           setPolls]           = useState([]);
+  const [questionWindows, setQuestionWindows] = useState([]);
+
+  const pollByPost = {};
+  polls.forEach((p) => { pollByPost[p.postId] = p; });
+  const windowByPost = {};
+  questionWindows.forEach((w) => { windowByPost[w.postId] = w; });
+
   const refresh = async () => {
     const d = await api.get('/api/studio/community');
     setPosts(d.posts || []); setUpdates(d.updates || []);
+    setPolls(d.polls || []); setQuestionWindows(d.questionWindows || []);
   };
 
   const createPoll = async () => {
@@ -75,6 +87,8 @@ export function Community() {
       .then((d) => {
         setPosts(d.posts || []);
         setUpdates(d.updates || []);
+        setPolls(d.polls || []);
+        setQuestionWindows(d.questionWindows || []);
         setCommunityBg(d.communityBg || '');
       })
       .finally(() => setLoading(false));
@@ -308,6 +322,56 @@ export function Community() {
           {posts.length === 0 && <T.muted>Nothing said yet.</T.muted>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '58vh', overflowY: 'auto' }}>
             {[...posts].reverse().map((p) => {
+              const poll = pollByPost[p.id];
+              if (poll) return (
+                <div key={p.id} style={{ alignSelf: 'stretch' }}>
+                  <div style={studioPoll}>
+                    <div style={{ fontFamily: display, fontSize: 16, color: colors.text, marginBottom: 10 }}>
+                      {poll.question}
+                    </div>
+                    <div style={{ display: 'grid', gap: 7,
+                                  gridTemplateColumns: poll.optionKind === 'image' ? 'repeat(auto-fit, minmax(110px, 1fr))' : '1fr' }}>
+                      {poll.options.map((o) => (
+                        <div key={o.index} style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: '8px 10px' }}>
+                          {o.imageUrl
+                            ? <img src={o.imageUrl} alt="" style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 5, display: 'block' }} />
+                            : <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{o.label}</div>}
+                          <div style={{ height: 3, background: 'rgba(255,255,255,0.07)', borderRadius: 2, marginTop: 7, overflow: 'hidden' }}>
+                            <div style={{ height: 3, width: `${o.pct}%`, background: colors.accent, borderRadius: 2 }} />
+                          </div>
+                          <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 3 }}>
+                            {o.pct}% · {o.votes} vote{o.votes === 1 ? '' : 's'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 10 }}>
+                      {poll.closed ? 'Closed' : 'Running'} · {poll.totalVotes} vote{poll.totalVotes === 1 ? '' : 's'}
+                      {' · '}
+                      <button onClick={() => updatePost(p.id, { pinned: !p.pinned })} style={modBtn}>
+                        {p.pinned ? 'Unpin' : 'Pin'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+
+              const win = windowByPost[p.id];
+              if (win) return (
+                <div key={p.id} style={{ alignSelf: 'stretch' }}>
+                  <div style={{ ...studioPoll, borderColor: win.closed ? colors.border : colors.accent }}>
+                    <div style={{ fontFamily: display, fontSize: 16, color: colors.text, marginBottom: 5 }}>{win.prompt}</div>
+                    <div style={{ fontFamily: sans, fontSize: 11, color: win.closed ? colors.muted : colors.accent }}>
+                      {win.closed ? 'Closed' : `Open until ${new Date(win.closesAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                      {' · '}
+                      <button onClick={() => updatePost(p.id, { pinned: !p.pinned })} style={modBtn}>
+                        {p.pinned ? 'Unpin' : 'Pin'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+
               const mine   = p.is_artist;
               const parent = p.parent_id ? posts.find((x) => x.id === p.parent_id) : null;
               return (

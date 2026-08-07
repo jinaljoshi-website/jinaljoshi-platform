@@ -281,9 +281,17 @@ export default function Community() {
           )}
           {visiblePosts.map((post) => {
             const poll = pollByPost[post.id];
-            if (poll) return <PollCard key={post.id} poll={poll} onVote={vote} voting={voting} />;
+            if (poll) return (
+              <div key={post.id} style={post.pinned ? stickyWrap : undefined}>
+                <PollCard poll={poll} onVote={vote} voting={voting} />
+              </div>
+            );
             const win = windowByPost[post.id];
-            if (win) return <QuestionWindowCard key={post.id} window={win} onAsk={setReplyTo} />;
+            if (win) return (
+              <div key={post.id} style={post.pinned ? stickyWrap : undefined}>
+                <QuestionWindowCard window={win} onAsk={setReplyTo} />
+              </div>
+            );
             return (
             <PostBubble
               key={post.id}
@@ -581,6 +589,8 @@ const updatesBar    = { borderTop: `1px solid ${C.border}`, background: 'rgba(25
 const updatesToggle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: F.sans, fontSize: 12, color: C.muted };
 const updateRow     = { padding: '8px 0', borderBottom: `1px solid ${C.border}` };
 const replyingTo = { display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(193,125,74,0.08)', borderLeft: `2px solid ${C.accent}`, borderRadius: 6, padding: '6px 10px', marginBottom: 8 };
+
+const stickyWrap = { position: 'sticky', bottom: 0, zIndex: 4, paddingTop: 6 };
 
 const pollCard   = { background: 'rgba(22,20,16,0.92)', border: `1px solid ${C.accent}`, borderRadius: 12, padding: '16px 18px', margin: '4px 0' };
 const pollOption = { border: '1px solid', borderRadius: 8, padding: '10px 12px', textAlign: 'left', width: '100%', background: 'transparent' };

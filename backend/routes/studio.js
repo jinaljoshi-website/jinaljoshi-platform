@@ -2247,8 +2247,51 @@ router.get('/community', async (req, res) => {
          AND cp.created_at > NOW() - INTERVAL '48 hours'
        ORDER BY cp.created_at DESC LIMIT 100`
     );
+    // Polls with their results, so Studio shows what fans see rather than the
+    // bare question as though it were an ordinary message.
+    const { rows: polls } = await pool.query(
+      `SELECT p.id, p.post_id, p.question, p.option_kind, p.options, p.closes_at,
+              (SELECT json_agg(json_build_object('i', v.option_index, 'n', v.n))
+               FROM (SELECT option_index, count(*)::int AS n
+                     FROM community_poll_votes WHERE poll_id = p.id
+                     GROUP BY option_index) v) AS tally
+       FROM community_polls p`
+    );
+
+    const { rows: windows } = await pool.query(
+      `SELECT id, post_id, prompt, closes_at FROM community_question_windows`
+    );
+
+    const toUrl = (k) => (!k ? null : k.startsWith('http') ? k : `${process.env.R2_PUBLIC_URL}/${k}`);
+
     const { rows: bgRows } = await pool.query(`SELECT value FROM platform_config WHERE key = 'community_chat_bg'`);
-    res.json({ posts: rows, updates, communityBg: bgRows[0]?.value || '' });
+    res.json({
+      posts: rows,
+      updates,
+      polls: polls.map((p) => {
+        const tally = {};
+        (p.tally || []).forEach((t) => { tally[t.i] = t.n; });
+        const total = Object.values(tally).reduce((a, b) => a + b, 0);
+        return {
+          id: p.id, postId: p.post_id, question: p.question,
+          optionKind: p.option_kind, closesAt: p.closes_at,
+          closed: new Date(p.closes_at) <= new Date(),
+          totalVotes: total,
+          options: (p.options || []).map((o, i) => ({
+            index: i,
+            label:    p.option_kind === 'image' ? null : o,
+            imageUrl: p.option_kind === 'image' ? toUrl(o) : null,
+            votes: tally[i] || 0,
+            pct: total ? Math.round(((tally[i] || 0) / total) * 100) : 0,
+          })),
+        };
+      }),
+      questionWindows: windows.map((w) => ({
+        id: w.id, postId: w.post_id, prompt: w.prompt,
+        closesAt: w.closes_at, closed: new Date(w.closes_at) <= new Date(),
+      })),
+      communityBg: bgRows[0]?.value || '',
+    });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load posts' });
   }
