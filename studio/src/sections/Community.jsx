@@ -1,6 +1,7 @@
 // studio/src/sections/Community.jsx
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import BackgroundPicker from '../components/BackgroundPicker';
 import { T, S, Card, Eyebrow, colors } from '../ui';
 
 const sans = "'DM Sans', system-ui, sans-serif";
@@ -141,6 +142,14 @@ export function Community() {
     <div>
       <Eyebrow>Everyone, in one place</Eyebrow>
       <T.title>Public Corner</T.title>
+
+      {/* The wallpaper for this room, set from inside it. */}
+      <BackgroundPicker
+        type="community"
+        current={communityBg}
+        onChange={setCommunityBg}
+        label="Public Corner background"
+      />
 
       {updates.length > 0 && (
         <div style={updatesPanel}>

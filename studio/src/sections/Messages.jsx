@@ -1,6 +1,7 @@
 // studio/src/sections/Messages.jsx
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
+import BackgroundPicker from '../components/BackgroundPicker';
 import { T, S, Card, Eyebrow, Badge, Field, TokenField, colors } from '../ui';
 import { StreamChat } from 'stream-chat';
 import CropTool from '../components/CropTool';
@@ -73,6 +74,13 @@ export function Messages() {
   const [allFans,       setAllFans]       = useState([]);
   const [fanSearch,     setFanSearch]     = useState('');
   const [showNewChat,   setShowNewChat]   = useState(false);
+  const [defaultChatBg, setDefaultChatBg] = useState(null);
+
+  useEffect(() => {
+    api.get('/api/studio/config')
+      .then((d) => setDefaultChatBg(d.config?.personal_chat_bg || null))
+      .catch(() => {});
+  }, []);
   const [fanLastRead,   setFanLastRead]   = useState(null);
   const [recording,     setRecording]     = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -549,6 +557,15 @@ export function Messages() {
     }>
       {showList && (
         <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, flex: isMobile ? 1 : undefined, minHeight: 0 }}>
+          {/* Above the conversations, so the default wallpaper for chats is set
+              where the chats are rather than through an admin screen. */}
+          <BackgroundPicker
+            type="personal"
+            current={defaultChatBg}
+            onChange={setDefaultChatBg}
+            label="Default chat background"
+          />
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
             <Eyebrow>Conversations</Eyebrow>
             <button onClick={() => setShowNewChat((v) => !v)} style={{ ...S.ghostBtn, fontSize: 12, padding: '5px 10px' }}>+ New</button>
