@@ -115,6 +115,20 @@ export default function Community() {
   const [olderCount,    setOlderCount]    = useState(0);
   const [expandedRuns,  setExpandedRuns]  = useState([]);
   const [replyTo,       setReplyTo]       = useState(null);
+  const [polls,           setPolls]           = useState([]);
+  const [questionWindows, setQuestionWindows] = useState([]);
+  const [voting,          setVoting]          = useState(false);
+
+  // Refetched after a vote rather than adjusted locally, so the tally shown is
+  // the tally stored — a count nudged optimistically would drift from the real
+  // one the moment two people voted at once.
+  const vote = async (pollId, optionIndex) => {
+    setVoting(true);
+    try {
+      await api.post(`/api/community/polls/${pollId}/vote`, { optionIndex });
+      await load(true);
+    } catch (err) { setError(err.message); } finally { setVoting(false); }
+  };
 
   const loadUpdates = (hours = 48) => api.get(`/api/community/updates?hours=${hours}`)
     .then((d) => { setUpdates(d.updates || []); setOlderCount(d.olderAvailable || 0); })
@@ -127,6 +141,8 @@ export default function Community() {
   const load = (silent = false) => api.get('/api/community/posts')
     .then((d) => {
       setPosts(d.posts || []);
+      setPolls(d.polls || []);
+      setQuestionWindows(d.questionWindows || []);
       if (!silent) setLoading(false);
     })
     .catch((err) => { if (!silent) setError(err.message); setLoading(false); });
@@ -221,6 +237,12 @@ export default function Community() {
   const postById = {};
   posts.forEach((p) => { postById[p.id] = p; });
 
+  const pollByPost = {};
+  (polls || []).forEach((p) => { pollByPost[p.postId] = p; });
+
+  const windowByPost = {};
+  (questionWindows || []).forEach((w) => { windowByPost[w.postId] = w; });
+
   return (
     <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: C.bg, borderRadius: communityBg ? 10 : 0, overflow: 'hidden' }}>
       <div style={{ ...stickyHeader, padding: '10px 16px' }}>
@@ -257,7 +279,12 @@ export default function Community() {
               {posts.length === 0 ? 'Be the first to say something!' : 'No messages to show right now.'}
             </div>
           )}
-          {visiblePosts.map((post) => (
+          {visiblePosts.map((post) => {
+            const poll = pollByPost[post.id];
+            if (poll) return <PollCard key={post.id} poll={poll} onVote={vote} voting={voting} />;
+            const win = windowByPost[post.id];
+            if (win) return <QuestionWindowCard key={post.id} window={win} onAsk={setReplyTo} />;
+            return (
             <PostBubble
               key={post.id}
               post={post}
@@ -273,7 +300,8 @@ export default function Community() {
               onSubmitReport={() => submitReport(post.id)}
               reportSending={reportSending}
             />
-          ))}
+            );
+          })}
           <div ref={bottomRef} />
         </div>
       </div>
@@ -383,6 +411,79 @@ export default function Community() {
 // The message being replied to, shown above the reply itself. Without it a
 // reply to something said twenty messages ago is unreadable, which is why
 // every group chat does this.
+// A poll, in the room. Results appear the moment you vote and not before —
+// seeing the tally first tells you what everyone else picked, and most people
+// then pick that.
+function PollCard({ poll, onVote, voting }) {
+  const voted = poll.myVote !== null && poll.myVote !== undefined;
+  const show  = voted || poll.closed;
+
+  return (
+    <div style={pollCard}>
+      <div style={{ fontFamily: F.display, fontSize: 17, color: C.text, marginBottom: 12, lineHeight: 1.35 }}>
+        {poll.question}
+      </div>
+
+      <div style={{ display: 'grid', gap: 8,
+                    gridTemplateColumns: poll.optionKind === 'image' ? 'repeat(auto-fit, minmax(120px, 1fr))' : '1fr' }}>
+        {poll.options.map((o) => {
+          const mine = poll.myVote === o.index;
+          return (
+            <button key={o.index}
+                    onClick={() => !poll.closed && onVote(poll.id, o.index)}
+                    disabled={poll.closed || voting}
+                    style={{ ...pollOption, cursor: poll.closed ? 'default' : 'pointer',
+                             borderColor: mine ? C.accent : C.border,
+                             background: mine ? 'rgba(193,125,74,0.12)' : 'transparent' }}>
+              {o.imageUrl
+                ? <img src={o.imageUrl} alt="" style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                : <span style={{ fontFamily: F.sans, fontSize: 13, color: mine ? C.accent : C.text }}>{o.label}</span>}
+
+              {show && (
+                <>
+                  <div style={pollTrack}><div style={{ ...pollFill, width: `${o.pct}%` }} /></div>
+                  <div style={{ fontFamily: F.mono, fontSize: 10, color: C.muted, marginTop: 3 }}>
+                    {o.pct}% · {o.votes}
+                  </div>
+                </>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 10 }}>
+        {poll.closed
+          ? `Closed · ${poll.totalVotes} vote${poll.totalVotes === 1 ? '' : 's'}`
+          : voted
+            ? `${poll.totalVotes} voted so far · you can change your mind until it closes`
+            : 'Tap one to see what everyone else thinks'}
+      </div>
+    </div>
+  );
+}
+
+// An hour where questions are wanted. The countdown is the point — it is why
+// people write now rather than meaning to later.
+function QuestionWindowCard({ window: w, onAsk }) {
+  const mins = Math.max(0, Math.round((new Date(w.closesAt) - Date.now()) / 60000));
+  return (
+    <div style={{ ...pollCard, borderColor: w.closed ? C.border : C.accent }}>
+      <div style={{ fontFamily: F.display, fontSize: 17, color: C.text, marginBottom: 6, lineHeight: 1.35 }}>
+        {w.prompt}
+      </div>
+      <div style={{ fontFamily: F.sans, fontSize: 12, color: w.closed ? C.muted : C.accent, marginBottom: w.closed ? 0 : 10 }}>
+        {w.closed
+          ? 'This window has closed'
+          : mins > 60 ? `Open for another ${Math.round(mins / 60)} hours` : `Closes in ${mins} minutes`}
+      </div>
+      {!w.closed && (
+        <button onClick={() => onAsk(w)} style={askBtn}>Ask something →</button>
+      )}
+    </div>
+  );
+}
+
 function QuotedParent({ parent }) {
   if (!parent) return null;
   return (
@@ -480,6 +581,12 @@ const updatesBar    = { borderTop: `1px solid ${C.border}`, background: 'rgba(25
 const updatesToggle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: F.sans, fontSize: 12, color: C.muted };
 const updateRow     = { padding: '8px 0', borderBottom: `1px solid ${C.border}` };
 const replyingTo = { display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(193,125,74,0.08)', borderLeft: `2px solid ${C.accent}`, borderRadius: 6, padding: '6px 10px', marginBottom: 8 };
+
+const pollCard   = { background: 'rgba(22,20,16,0.92)', border: `1px solid ${C.accent}`, borderRadius: 12, padding: '16px 18px', margin: '4px 0' };
+const pollOption = { border: '1px solid', borderRadius: 8, padding: '10px 12px', textAlign: 'left', width: '100%', background: 'transparent' };
+const pollTrack  = { height: 3, background: 'rgba(255,255,255,0.07)', borderRadius: 2, marginTop: 8, overflow: 'hidden' };
+const pollFill   = { height: 3, background: C.accent, borderRadius: 2, transition: 'width 0.3s' };
+const askBtn     = { background: 'rgba(193,125,74,0.12)', border: `1px solid ${C.accent}`, color: C.accent, fontFamily: F.sans, fontSize: 12, padding: '7px 14px', borderRadius: 8, cursor: 'pointer' };
 
 const quoteBox = { borderLeft: `2px solid ${C.accent}`, paddingLeft: 8, marginBottom: 6, opacity: 0.85 };
 const replyBtn = { background: 'none', border: 'none', color: C.muted, fontFamily: F.sans, fontSize: 11, cursor: 'pointer', padding: 0 };

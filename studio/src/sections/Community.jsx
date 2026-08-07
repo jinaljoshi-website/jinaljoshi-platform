@@ -32,6 +32,41 @@ export function Community() {
   const [updatesOpen, setUpdatesOpen] = useState(false);
   const [hovered, setHovered] = useState(null);
 
+  const [mode,      setMode]      = useState('say');
+  const [pollQ,     setPollQ]     = useState('');
+  const [pollKind,  setPollKind]  = useState('text');
+  const [pollOpts,  setPollOpts]  = useState(['', '']);
+  const [askPrompt, setAskPrompt] = useState('');
+  const [askHours,  setAskHours]  = useState(1);
+
+  const refresh = async () => {
+    const d = await api.get('/api/studio/community');
+    setPosts(d.posts || []); setUpdates(d.updates || []);
+  };
+
+  const createPoll = async () => {
+    setPosting(true);
+    try {
+      await api.post('/api/studio/community/poll', {
+        question: pollQ.trim(), optionKind: pollKind,
+        options: pollOpts.map((o) => o.trim()).filter(Boolean),
+      });
+      setPollQ(''); setPollOpts(['', '']); setMode('say');
+      await refresh();
+    } catch (err) { setError(err.message); } finally { setPosting(false); }
+  };
+
+  const openWindow = async () => {
+    setPosting(true);
+    try {
+      await api.post('/api/studio/community/question-window', {
+        prompt: askPrompt.trim(), hours: askHours,
+      });
+      setAskPrompt(''); setMode('say');
+      await refresh();
+    } catch (err) { setError(err.message); } finally { setPosting(false); }
+  };
+
 
   const loadReports = () => api.get('/api/studio/reports').then((d) => setReports(d.reports || [])).catch(() => {});
 
@@ -156,19 +191,103 @@ export function Community() {
       <Card style={{ marginBottom: 24 }}>
         <T.sectionTitle>Post to community</T.sectionTitle>
         {error && <div style={S.error}>{error}</div>}
-        <textarea
+
+        {/* Three ways to start something, in one place. A poll and a question
+            window are both just a post with a shape, so they belong beside the
+            box rather than behind a menu somewhere else. */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+          {[
+            { key: 'say',   label: 'Say something' },
+            { key: 'poll',  label: 'Run a poll' },
+            { key: 'ask',   label: 'Open questions' },
+          ].map((m) => (
+            <button key={m.key} onClick={() => setMode(m.key)}
+              style={{
+                fontFamily: sans, fontSize: 12, padding: '6px 14px', borderRadius: 999, cursor: 'pointer',
+                background: mode === m.key ? 'rgba(193,125,74,0.12)' : 'transparent',
+                border:     mode === m.key ? `1px solid ${colors.accent}` : `1px solid ${colors.border}`,
+                color:      mode === m.key ? colors.accent : colors.muted,
+              }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'poll' && (
+          <div style={{ marginBottom: 10 }}>
+            <input value={pollQ} onChange={(e) => setPollQ(e.target.value)}
+                   placeholder="What do you want to ask them?"
+                   style={{ ...S.input, width: '100%', boxSizing: 'border-box', marginBottom: 8 }} />
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+              {['text', 'image'].map((k) => (
+                <button key={k} onClick={() => setPollKind(k)}
+                  style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 12px',
+                           ...(pollKind === k ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
+                  {k === 'text' ? 'Words' : 'Pictures'}
+                </button>
+              ))}
+            </div>
+            {pollOpts.map((o, i) => (
+              <input key={i} value={o}
+                     onChange={(e) => setPollOpts(pollOpts.map((x, j) => (j === i ? e.target.value : x)))}
+                     placeholder={pollKind === 'image' ? `Image ${i + 1} — paste the URL` : `Option ${i + 1}`}
+                     style={{ ...S.input, width: '100%', boxSizing: 'border-box', marginBottom: 6 }} />
+            ))}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {pollOpts.length < 4 && (
+                <button onClick={() => setPollOpts([...pollOpts, ''])} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 12px' }}>
+                  Add another
+                </button>
+              )}
+              {pollOpts.length > 2 && (
+                <button onClick={() => setPollOpts(pollOpts.slice(0, -1))} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 12px' }}>
+                  One fewer
+                </button>
+              )}
+            </div>
+            <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 8 }}>
+              Stays at the top for 48 hours, then drops into the room with the result kept.
+            </div>
+          </div>
+        )}
+
+        {mode === 'ask' && (
+          <div style={{ marginBottom: 10 }}>
+            <input value={askPrompt} onChange={(e) => setAskPrompt(e.target.value)}
+                   placeholder="Ask me anything about the shoot — open for an hour"
+                   style={{ ...S.input, width: '100%', boxSizing: 'border-box', marginBottom: 8 }} />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted }}>Open for</span>
+              {[1, 2, 4].map((h) => (
+                <button key={h} onClick={() => setAskHours(h)}
+                  style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 12px',
+                           ...(askHours === h ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
+                  {h} hour{h === 1 ? '' : 's'}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 8 }}>
+              A window that closes gets a burst worth sitting down to. One left open gets a trickle.
+            </div>
+          </div>
+        )}
+
+        {mode === 'say' && <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
           placeholder="Write something for your members…"
           rows={3}
           style={{ ...S.input, width: '100%', boxSizing: 'border-box', resize: 'vertical', marginBottom: 10 }}
-        />
+        />}
+
         <button
-          onClick={handlePost}
-          disabled={posting || !content.trim()}
-          style={{ ...S.btn, opacity: (posting || !content.trim()) ? 0.5 : 1 }}
+          onClick={mode === 'poll' ? createPoll : mode === 'ask' ? openWindow : handlePost}
+          disabled={posting || (mode === 'say' ? !content.trim() : mode === 'poll'
+            ? (!pollQ.trim() || pollOpts.filter(Boolean).length < 2)
+            : !askPrompt.trim())}
+          style={{ ...S.btn, opacity: posting ? 0.5 : 1 }}
         >
-          {posting ? 'Posting…' : 'Post'}
+          {posting ? 'Posting…' : mode === 'poll' ? 'Start the poll' : mode === 'ask' ? 'Open the window' : 'Post'}
         </button>
       </Card>
 
