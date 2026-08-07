@@ -64,14 +64,14 @@ function tierGetsSelfies(tierId) {
 // four columns of numbers; a description tells them which one is theirs. The
 // numbers still follow underneath — the prose sells, the figures reassure.
 export const TIER_DESCRIPTIONS = {
-  community: { line: 'For someone just starting their journey',
-               sub:  'Explore the community and the extra content that comes with being here.' },
-  insider:   { line: 'For those who love being here',
-               sub:  'Communicate freely and reach more of what she posts.' },
-  premium:   { line: 'For those who belong here',
-               sub:  'More content, and better prices across the platform.' },
-  supreme:   { line: 'For the ones who would rather not think about limits',
-               sub:  'All content, and the best prices anywhere on the platform.' },
+  community: { line: 'If you are just finding your way here',
+               sub:  'The community, and a first taste of what I post.' },
+  insider:   { line: 'If you love being here',
+               sub:  'Talk to me freely, and reach more of what I post.' },
+  premium:   { line: 'If you belong here',
+               sub:  'More of everything, and better prices across the platform.' },
+  supreme:   { line: 'If you would rather not think about limits',
+               sub:  'Everything, always. No caps, no counting, nothing held back.' },
 };
 
 export function tierDescription(tierId) {
@@ -83,11 +83,11 @@ export function tierDescription(tierId) {
 export const MEMBERSHIP_NOTES = [
   {
     title: 'Fair usage',
-    text: 'All content in your membership tier stays open at no cost, up to 15 set unlocks a month. From the 16th onwards, one token per additional set. Supreme exempt.',
+    text: 'Everything at your level stays open at no cost, up to 15 sets a month. Past that it is one token per set, and it resets on your membership date. Supreme has no limit at all.',
   },
   {
     title: 'Purchasable content',
-    text: 'Some content is marked purchase-only and sits outside membership, whatever your tier.',
+    text: 'Some things I mark purchase-only. Those sit outside membership whatever your tier, including Supreme.',
   },
   {
     // The perk itself now names where the discount applies, so this only has to
@@ -95,7 +95,7 @@ export const MEMBERSHIP_NOTES = [
     // wrong. Messages are priced by tier already; outfits are flat so a bid
     // means the same from everyone.
     title: 'Discounts',
-    text: 'Messages are already priced by your tier, so no further discount applies. One-of-One Outfits are flat-priced for everyone.',
+    text: 'Messages are already priced by your tier, so no further discount applies there. One-of-One Outfits are flat-priced for everyone.',
   },
 ];
 
@@ -109,12 +109,18 @@ export function tierPerks(tierId) {
   }
   // Access, not an allowance. A sentence that gets stronger as Jinal posts more,
   // where a fixed number of unlocks would get weaker.
-  perks.push(`All ${TIERS[tierId]?.name || tierId} content, included`);
+  const uncapped = cfgNum(`tier_open_cap_${tierId}`) === 0;
+  perks.push(uncapped
+    ? 'Every set and selfie, as I post them'
+    : `All ${TIERS[tierId]?.name || tierId} content, included`);
   if (tierGetsSelfies(tierId)) {
     perks.push('Selfie of the Day, free');
   }
   if (e.discountPct) {
     perks.push(`${e.discountPct}% additional off on Gallery, Merchandise & Calls`);
+  }
+  if (uncapped) {
+    perks.push('No fair usage limit');
   }
   return perks;
 }
