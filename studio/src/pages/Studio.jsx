@@ -49,11 +49,21 @@ const ADMIN_NAV = [
   { id: 'analytics',     label: 'Money'         },
   { id: 'invoices',      label: 'Invoices'      },
   { id: 'photographers', label: 'Photographers' },
+  { id: 'notifications', label: 'Send a push'   },
   { id: 'website',       label: 'Website'       },
   { id: 'settings',      label: 'Settings'      },
 ];
 
 const ADMIN_IDS = new Set(ADMIN_NAV.map((n) => n.id));
+
+// Availability, Selfie of the Day and the request menu are now tabs inside
+// Calls, Gallery and Custom Requests. Kept resolvable so an old link or a
+// dashboard card still lands on the right tab rather than an empty screen.
+const MERGED_INTO = {
+  availability: ['calls',    { filter: 'availability' }],
+  selfies:      ['content',  { filter: 'selfies' }],
+  extras:       ['requests', { filter: 'menu' }],
+};
 
 // One renderer for both layouts. The drawer and the sidebar had copies of the
 // same markup, which is how they end up subtly different.
@@ -171,6 +181,12 @@ export default function Studio() {
   // Cleared on a plain nav click, so a filter set by a dashboard card does not
   // silently persist the next time she opens that section herself.
   const goTo = (section, state = null) => {
+    const merged = MERGED_INTO[section];
+    if (merged) {
+      setSectionState(merged[1]);
+      selectSection(merged[0]);
+      return;
+    }
     setSectionState(state);
     selectSection(section);
   };

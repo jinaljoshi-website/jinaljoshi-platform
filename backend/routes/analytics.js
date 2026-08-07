@@ -484,4 +484,93 @@ router.get('/member-activity', async (req, res) => {
   }
 });
 
+// The money position, in the four figures that actually matter.
+//
+// Revenue alone does not tell you what you keep: GST collected is the
+// government's and has to be set aside, the IGST on exports paid in rupees
+// comes back as a refund, and a zero-rated export carries no tax at all. Those
+// are three different kinds of money inside one total, and reading them as one
+// number is how a tax bill becomes a surprise.
+router.get('/money', async (req, res) => {
+  try {
+    const [totals, byMonth, donations] = await Promise.all([
+      pool.query(
+        `SELECT
+           COALESCE(SUM(i.amount_inr_equivalent), 0)                                     AS collected,
+           COALESCE(SUM(i.taxable_amount_inr), 0)                                   AS taxable,
+           COALESCE(SUM(i.gst_amount_inr), 0)                                       AS gst_collected,
+           COALESCE(SUM(i.gst_amount_inr) FILTER (WHERE i.export_with_tax), 0)      AS gst_refundable,
+           COALESCE(SUM(i.amount_inr_equivalent) FILTER (WHERE i.is_export), 0)          AS zero_rated,
+           COUNT(*)                                                                 AS invoices,
+           COUNT(*) FILTER (WHERE i.is_export)                                      AS export_count,
+           COUNT(*) FILTER (WHERE i.export_with_tax)                                AS export_with_tax_count
+         FROM invoices i
+         JOIN users u ON u.id = i.user_id
+         WHERE u.is_test = FALSE`
+      ),
+      pool.query(
+        `SELECT to_char(date_trunc('month', i.issued_at), 'YYYY-MM')            AS month,
+                COALESCE(SUM(i.amount_inr_equivalent), 0)                            AS collected,
+                COALESCE(SUM(i.gst_amount_inr), 0)                              AS gst,
+                COALESCE(SUM(i.gst_amount_inr) FILTER (WHERE i.export_with_tax), 0) AS refundable,
+                COALESCE(SUM(i.amount_inr_equivalent) FILTER (WHERE i.is_export), 0) AS zero_rated
+         FROM invoices i
+         JOIN users u ON u.id = i.user_id
+         WHERE u.is_test = FALSE
+         GROUP BY 1 ORDER BY 1 DESC LIMIT 12`
+      ),
+      // Outfit sales carry a share pledged to charity. Collected as part of the
+      // sale but not income — money passing through rather than in. Held on the
+      // item as a percentage of what it sold for, and settled when Jinal
+      // records the transfer.
+      pool.query(
+        `SELECT COALESCE(SUM(m.sold_price_coins * m.csr_pct / 100.0), 0) AS pledged_tokens,
+                COALESCE(SUM(m.sold_price_coins * m.csr_pct / 100.0)
+                         FILTER (WHERE m.donation_confirmed_at IS NOT NULL), 0) AS settled_tokens,
+                COUNT(*) AS sales
+         FROM merchandise m
+         WHERE m.is_auction_item = TRUE AND m.auction_status = 'sold'
+           AND m.csr_pct IS NOT NULL AND m.sold_price_coins IS NOT NULL`
+      ),
+    ]);
+
+    const t = totals.rows[0];
+    const d = donations.rows[0];
+    const n = (v) => Math.round((Number(v) || 0) * 100) / 100;
+
+    const { rows: rateRows } = await pool.query(
+      `SELECT value FROM platform_config WHERE key = 'token_rate_inr'`
+    );
+    const tokenRate = parseFloat(rateRows[0]?.value) || 0;
+    const pledged = Number(d.pledged_tokens) * tokenRate;
+    const settled = Number(d.settled_tokens) * tokenRate;
+
+    res.json({
+      collected:     n(t.collected),
+      taxableValue:  n(t.taxable),
+      gstCollected:  n(t.gst_collected),
+      gstRefundable: n(t.gst_refundable),
+      zeroRated:     n(t.zero_rated),
+      // What is genuinely yours: everything collected, less the tax that is not
+      // yours to keep, plus back the portion you will reclaim.
+      netOfTax:      n(Number(t.collected) - Number(t.gst_collected) + Number(t.gst_refundable)),
+      invoices:      Number(t.invoices),
+      exportCount:   Number(t.export_count),
+      exportWithTaxCount: Number(t.export_with_tax_count),
+      donations: {
+        pledged: n(pledged), settled: n(settled),
+        outstanding: n(pledged - settled),
+        sales: Number(d.sales),
+      },
+      byMonth: byMonth.rows.map((r) => ({
+        month: r.month, collected: n(r.collected), gst: n(r.gst),
+        refundable: n(r.refundable), zeroRated: n(r.zero_rated),
+      })),
+    });
+  } catch (err) {
+    console.error('analytics/money error:', err);
+    res.status(500).json({ error: 'Failed to load the money position' });
+  }
+});
+
 module.exports = router;

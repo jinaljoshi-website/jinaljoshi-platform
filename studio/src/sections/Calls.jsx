@@ -1,6 +1,8 @@
 // studio/src/sections/Calls.jsx
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../api';
+import { Availability } from './Availability';
+import { SectionTabs } from '../components/SectionTabs';
 import { T, S, Eyebrow, Badge, colors } from '../ui';
 import { CallTimer } from '../components/CallTimer';
 import { IncomingCallOverlay } from '../components/IncomingCallOverlay';
@@ -15,7 +17,10 @@ import {
 } from '@stream-io/video-react-sdk';
 import '@stream-io/video-react-sdk/dist/css/styles.css';
 
-export function Calls() {
+export function Calls({ openWith }) {
+  // Setting when you are free and seeing who asked are one job. They were two
+  // screens, so doing either meant checking the other.
+  const [tab, setTab] = useState(openWith?.filter === 'availability' ? 'availability' : 'requests');
   const [calls,      setCalls]      = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [creating,   setCreating]   = useState(null);
@@ -201,8 +206,20 @@ export function Calls() {
 
   return (
     <div>
-      <Eyebrow>Call requests</Eyebrow>
+      <Eyebrow>Calls</Eyebrow>
       <T.title>Calls</T.title>
+
+      <SectionTabs
+        tabs={[
+          { key: 'requests',     label: 'Requests', count: needsResponse.length },
+          { key: 'availability', label: 'When you are free' },
+        ]}
+        active={tab} onChange={setTab}
+      />
+
+      {tab === 'availability' && <Availability />}
+
+      {tab === 'requests' && <>
 
       {error && <div style={S.error}>{error}</div>}
       {calls.length === 0 && <T.muted>No call requests yet.</T.muted>}
@@ -377,6 +394,7 @@ export function Calls() {
           </div>
         </div>
       )}
+    </>}
     </div>
   );
 }

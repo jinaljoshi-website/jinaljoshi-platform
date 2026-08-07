@@ -1,9 +1,14 @@
 // studio/src/sections/Requests.jsx
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { Extras } from './Extras';
+import { SectionTabs } from '../components/SectionTabs';
 import { T, S, Eyebrow, Badge, colors } from '../ui';
 
-export function Requests() {
+export function Requests({ openWith }) {
+  // What can be asked for, and what has been asked for. Two screens for one
+  // subject meant editing the menu and reading the replies were separate trips.
+  const [tab, setTab] = useState(openWith?.filter === 'menu' ? 'menu' : 'inbox');
   const [requests, setRequests] = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [rejecting, setRejecting] = useState(null);
@@ -72,7 +77,19 @@ export function Requests() {
   return (
     <div>
       <Eyebrow>Custom requests</Eyebrow>
-      <T.title>Requests</T.title>
+      <T.title>Custom Requests</T.title>
+
+      <SectionTabs
+        tabs={[
+          { key: 'inbox', label: 'Received', count: pending.length },
+          { key: 'menu',  label: 'What can be asked for' },
+        ]}
+        active={tab} onChange={setTab}
+      />
+
+      {tab === 'menu' && <Extras />}
+
+      {tab === 'inbox' && <>
 
       {error && <div style={S.error}>{error}</div>}
       {requests.length === 0 && <T.muted>No requests yet.</T.muted>}
@@ -134,6 +151,7 @@ export function Requests() {
           </div>
         </div>
       )}
+    </>}
     </div>
   );
 }

@@ -61,13 +61,14 @@ function SpendRow({ item, total }) {
 }
 
 export function Analytics() {
-  const [tab,  setTab]  = useState('purchased');
+  const [tab,  setTab]  = useState('money');
   const [data, setData] = useState({});
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (data[tab]) return;
-    const path = tab === 'purchased' ? 'purchased'
+    const path = tab === 'money'     ? 'money'
+               : tab === 'purchased' ? 'purchased'
                : tab === 'gifted'    ? 'gifted'
                : tab === 'activity'  ? 'activity'
                : 'sets';
@@ -87,6 +88,7 @@ export function Analytics() {
 
       <div style={{ display: 'flex', gap: 8, margin: '18px 0 22px', flexWrap: 'wrap' }}>
         {[
+          { key: 'money',     label: 'The position'     },
           { key: 'purchased', label: 'Purchased tokens' },
           { key: 'gifted',    label: 'Gifted tokens'    },
           { key: 'sets',      label: 'Sets'             },
@@ -104,7 +106,77 @@ export function Analytics() {
         ))}
       </div>
 
-      {!d ? <T.muted>Loading…</T.muted> : tab === 'purchased' ? (
+      {!d ? <T.muted>Loading…</T.muted> : tab === 'money' ? (
+        <>
+          <div style={S.statsRow}>
+            <Stat head="Collected" value={rupees(d.collected)}
+                  sub={`${d.invoices} invoice${d.invoices === 1 ? '' : 's'} · everything charged`} />
+            <Stat head="GST collected" value={rupees(d.gstCollected)} tone="#D9A45C"
+                  sub="the government's, not yours — set it aside" />
+            <Stat head="GST you get back" value={rupees(d.gstRefundable)} tone={colors.success}
+                  sub={`${d.exportWithTaxCount} export${d.exportWithTaxCount === 1 ? '' : 's'} paid in rupees · reclaim against the FIRC`} />
+            <Stat head="Zero-rated" value={rupees(d.zeroRated)}
+                  sub={`${d.exportCount} export${d.exportCount === 1 ? '' : 's'} in foreign currency · no tax at all`} />
+          </div>
+
+          {/* The figure that answers "what did I actually keep" — which none of
+              the four above does on its own. */}
+          <div style={netBox}>
+            <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
+              Yours, after tax
+            </div>
+            <div style={{ fontFamily: display, fontSize: 34, color: colors.success, fontWeight: 300 }}>
+              {rupees(d.netOfTax)}
+            </div>
+            <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 6, lineHeight: 1.6 }}>
+              Everything collected, less the GST that is not yours, plus back the part you will reclaim.
+            </div>
+          </div>
+
+          {d.donations.pledged > 0 && (
+            <>
+              <T.sectionTitle style={{ marginTop: 26 }}>Pledged to charity</T.sectionTitle>
+              <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 12, maxWidth: 620, lineHeight: 1.6 }}>
+                From outfit sales. Collected as part of the sale but never income — it is money
+                passing through, and the outstanding figure is what still has to be sent on.
+              </p>
+              <div style={S.statsRow}>
+                <Stat head="Pledged"     value={rupees(d.donations.pledged)}
+                      sub={`across ${d.donations.sales} sale${d.donations.sales === 1 ? '' : 's'}`} />
+                <Stat head="Sent"        value={rupees(d.donations.settled)} tone={colors.success} />
+                <Stat head="Still to go" value={rupees(d.donations.outstanding)}
+                      tone={d.donations.outstanding > 0 ? '#D9A45C' : colors.muted} />
+              </div>
+            </>
+          )}
+
+          <T.sectionTitle style={{ marginTop: 26 }}>By month</T.sectionTitle>
+          <div style={{ overflowX: 'auto', marginTop: 10 }}>
+            <table style={actTbl}>
+              <thead>
+                <tr>{['Month', 'Collected', 'GST', 'Refundable', 'Zero-rated'].map((h) => (
+                  <th key={h} style={actTh}>{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {d.byMonth.length === 0 ? (
+                  <tr><td colSpan={5} style={{ ...actTd, color: colors.muted }}>Nothing yet.</td></tr>
+                ) : d.byMonth.map((m) => (
+                  <tr key={m.month}>
+                    <td style={actTd}>
+                      {new Date(m.month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+                    </td>
+                    <td style={{ ...actTd, textAlign: 'right' }}>{rupees(m.collected)}</td>
+                    <td style={{ ...actTd, textAlign: 'right', color: '#D9A45C' }}>{rupees(m.gst)}</td>
+                    <td style={{ ...actTd, textAlign: 'right', color: colors.success }}>{m.refundable ? rupees(m.refundable) : '—'}</td>
+                    <td style={{ ...actTd, textAlign: 'right' }}>{m.zeroRated ? rupees(m.zeroRated) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : tab === 'purchased' ? (
         <>
           <div style={S.statsRow}>
             <Stat head="Revenue" value={rupees(d.revenueInr)} tone={colors.success}
@@ -297,6 +369,8 @@ export function Analytics() {
     </div>
   );
 }
+
+const netBox = { background: 'rgba(143,200,143,0.06)', border: '1px solid rgba(143,200,143,0.25)', borderRadius: 12, padding: '18px 22px', marginTop: 16 };
 
 const actTbl = { width: '100%', borderCollapse: 'collapse', fontFamily: sans, fontSize: 12 };
 const actTh  = { textAlign: 'left', padding: '8px 10px', borderBottom: `1px solid ${colors.border}`, color: colors.muted, fontFamily: mono, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', whiteSpace: 'nowrap' };

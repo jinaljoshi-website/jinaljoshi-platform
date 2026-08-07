@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { createCompressPool } from '../workers/compressPool';
+import { Selfies } from './Selfies';
+import { SectionTabs } from '../components/SectionTabs';
 import { T, S, Card, Eyebrow, Field, TokenField, colors } from '../ui';
 
 const TOKEN_RATE   = 66;
@@ -118,7 +120,10 @@ function emptyCategoryFiles() {
   return obj;
 }
 
-export function Content() {
+export function Content({ openWith }) {
+  // Mirrors what fans see: sets and Selfie of the Day are one Gallery to them,
+  // so they should be one screen here too.
+  const [tab, setTab] = useState(openWith?.filter === 'selfies' ? 'selfies' : 'sets');
   const [sets,    setSets]    = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
@@ -597,8 +602,20 @@ export function Content() {
 
   return (
     <div>
-      <Eyebrow>Content</Eyebrow>
-      <T.title>Upload & manage</T.title>
+      <Eyebrow>Gallery</Eyebrow>
+      <T.title>Gallery</T.title>
+
+      <SectionTabs
+        tabs={[
+          { key: 'sets',    label: 'Media' },
+          { key: 'selfies', label: 'Selfie of the Day' },
+        ]}
+        active={tab} onChange={setTab}
+      />
+
+      {tab === 'selfies' && <Selfies />}
+
+      {tab === 'sets' && <>
 
       {error   && <div style={S.error}>{error}</div>}
       {success && <div style={S.success}>{success}</div>}
@@ -1161,6 +1178,7 @@ export function Content() {
           categories={CATEGORIES}
         />
       )}
+    </>}
     </div>
   );
 }
