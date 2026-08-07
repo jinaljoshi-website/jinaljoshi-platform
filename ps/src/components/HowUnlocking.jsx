@@ -11,7 +11,7 @@
 import { useState } from 'react';
 import { C, F } from '../tokens';
 
-export default function HowUnlocking({ tier, opensRemaining, openCap, overageCost }) {
+export default function HowUnlocking({ tier, opensRemaining, opensUsed, openCap, bands }) {
   const [open, setOpen] = useState(false);
   const isGuest = !tier || tier === 'guest';
 
@@ -79,10 +79,17 @@ export default function HowUnlocking({ tier, opensRemaining, openCap, overageCos
               <div style={rule} />
               <div style={{ ...h, marginBottom: 6 }}>Is there a limit?</div>
               <p style={{ ...sub, marginBottom: 10 }}>
-                A generous one, and most people never reach it. You can open{' '}
-                <strong style={{ color: C.accent }}>{openCap} sets a month</strong> at your own level —
-                you have <strong style={{ color: C.accent }}>{opensRemaining}</strong> left. Beyond
-                that, a further set at your level is {overageCost === 1 ? 'one token' : `${overageCost} tokens`}.
+                A generous one, and most people never reach it. The first{' '}
+                <strong style={{ color: C.accent }}>{openCap} sets a month</strong> at your own level
+                are included — you have <strong style={{ color: C.accent }}>{opensRemaining}</strong> left.
+                After that the price climbs gently rather than jumping:
+              </p>
+              <div style={{ ...sub, marginBottom: 10 }}>
+                · Sets {openCap + 1} to {bands?.band2Until ?? 30} — {bands?.band2Cost ?? 1} token each<br />
+                · Sets {(bands?.band2Until ?? 30) + 1} to {bands?.band3Until ?? 50} — {bands?.band3Cost ?? 3} tokens each<br />
+                · Beyond {bands?.band3Until ?? 50} — the set's own price for your tier
+              </div>
+              <p style={{ ...sub, marginBottom: 10 }}>
                 It resets on your membership date each month.
               </p>
               {/* Said plainly, because it is the one thing that surprises people

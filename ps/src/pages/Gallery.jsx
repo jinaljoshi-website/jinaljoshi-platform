@@ -277,8 +277,9 @@ export default function Gallery() {
                 : <>You've opened all {data.openCap} included sets for this period</>}
             </div>
             <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 3 }}>
-              {data.opensUsed} of {data.openCap} used · after that,{' '}
-              {data.overageCost === 1 ? 'one token' : `${data.overageCost} tokens`} per set.
+              {data.opensUsed} of {data.openCap} used · then {data.bands?.band2Cost ?? 1} token
+              to {data.bands?.band2Until ?? 30}, {data.bands?.band3Cost ?? 3} tokens
+              to {data.bands?.band3Until ?? 50}, full price after that.
               {/* The period runs from the day they joined, not the 1st, so the
                   date is stated rather than implied. */}
               {data.opensResetOn && ` Resets ${new Date(data.opensResetOn).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}.`}
@@ -291,7 +292,7 @@ export default function Gallery() {
       )}
 
       {activeTab !== 'selfies' && (
-        <HowUnlocking tier={data?.userTier} opensRemaining={data?.opensRemaining} openCap={data?.openCap} overageCost={data?.overageCost} />
+        <HowUnlocking tier={data?.userTier} opensRemaining={data?.opensRemaining} opensUsed={data?.opensUsed} openCap={data?.openCap} bands={data?.bands} />
       )}
 
       {activeTab !== 'selfies' && (

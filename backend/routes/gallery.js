@@ -36,7 +36,22 @@ function isEffectivelyUnlocked(grantType, membershipCurrentlyActive) {
   return true;
 }
 
-function computeSegments(items, userTier, basePrice, discountPct, isGuest, guestMultiplier, capReached = false, overageCost = 1) {
+// What the next set at your own level costs, given how many you have already
+// opened this period. A ladder rather than a cliff: generous where nearly
+// everybody is, a little where somebody is reading a lot, and full price only
+// where the membership has plainly stopped being a membership.
+//
+// A cap of 0 means uncapped, which is how a tier is exempted entirely.
+function nextOpenCost(opened, bands, fullTierPrice) {
+  const { openCap, band2Until, band2Cost, band3Until, band3Cost } = bands;
+  if (!openCap)                 return 0;              // uncapped
+  if (opened < openCap)         return 0;              // included
+  if (opened < band2Until)      return band2Cost;
+  if (opened < band3Until)      return band3Cost;
+  return fullTierPrice;                                 // no longer a membership
+}
+
+function computeSegments(items, userTier, basePrice, discountPct, isGuest, guestMultiplier, opensUsed = 0, bands = {}) {
   const total = items.length || 1;
 
   const freeItems        = items.filter((i) => i.tier_category === 'free');
@@ -55,9 +70,10 @@ function computeSegments(items, userTier, basePrice, discountPct, isGuest, guest
   // still counted, and capped generously, so a single month cannot be used to
   // strip the library; past the cap a further set at your own level costs one
   // token. Guests have no tier to reach, so they pay the full price as before.
+  const fullTierPrice = applyDiscount(rawTierPrice, discountPct);
   const tierPrice = isGuest
     ? roundTokensUp(rawTierPrice * guestMultiplier)
-    : (capReached ? overageCost : 0);
+    : nextOpenCost(opensUsed, bands, fullTierPrice);
 
   // Anything above your tier is still bought, priced by how much of the set it
   // is, and discounted by your tier.
@@ -69,7 +85,10 @@ function computeSegments(items, userTier, basePrice, discountPct, isGuest, guest
     upsellPortionCount,
     hasUpsell: upsellPortionCount > 0,
     tierPrice,
-    tierIncluded: !isGuest && !capReached && tierPortionCount > 0,
+    // What this portion would cost outright, used once somebody is far enough
+    // past the allowance that the membership no longer covers it.
+    tierFullPrice: fullTierPrice,
+    tierIncluded: !isGuest && tierPrice === 0 && tierPortionCount > 0,
     upsellPrice,
     tierPreviewKey: tierEligibleItems[0]?.r2_key || null,
     upsellPreviewKey: upsellItems[0]?.r2_key || null,
@@ -101,10 +120,14 @@ router.get('/sets', authMid, async (req, res) => {
     // is a ceiling high enough that no ordinary month reaches it, and low
     // enough that a single month cannot be used to take the whole library.
     const monthKey = getAllotmentPeriodKey(user.membership_started_at);
-    const [openCap, overageCost] = await Promise.all([
+    const [openCap, band2Until, band2Cost, band3Until, band3Cost] = await Promise.all([
       isGuest ? 0 : getConfigNumber(`tier_open_cap_${userTier}`).catch(() => 0),
-      getConfigNumber('tier_open_overage_cost').catch(() => 1),
+      getConfigNumber('tier_open_band2_until').catch(() => 30),
+      getConfigNumber('tier_open_band2_cost').catch(() => 1),
+      getConfigNumber('tier_open_band3_until').catch(() => 50),
+      getConfigNumber('tier_open_band3_cost').catch(() => 3),
     ]);
+    const bands = { openCap, band2Until, band2Cost, band3Until, band3Cost };
 
     let opensUsed = 0;
     if (!isGuest) {
@@ -189,7 +212,7 @@ router.get('/sets', authMid, async (req, res) => {
       const counts = { photos: 0, videos: 0 };
       items.forEach((i) => { if (i.media_type === 'video') counts.videos++; else counts.photos++; });
 
-      const segments = computeSegments(items, userTier, s.price_coins, discountPct, isGuest, guestMultiplier, capReached, overageCost);
+      const segments = computeSegments(items, userTier, s.price_coins, discountPct, isGuest, guestMultiplier, opensUsed, bands);
 
       const tierGrant   = grantsBySet[s.id]?.tier;
       const upsellGrant = grantsBySet[s.id]?.upsell;
@@ -273,7 +296,7 @@ router.get('/sets', authMid, async (req, res) => {
       openCap,
       opensUsed,
       opensResetOn,
-      overageCost,
+      bands: { openCap, band2Until, band2Cost, band3Until, band3Cost },
       // Kept under the old names so anything still reading them keeps working
       // through the deploy.
       creditsRemaining: opensRemaining,
@@ -372,19 +395,20 @@ router.post('/unlock', authMid, async (req, res) => {
     let useCredit = false;
     let price = scope === 'tier' ? segments.tierPrice : segments.upsellPrice;
 
-    // Opening a set at your own level is included in the membership, and every
-    // open is recorded. The count is a ceiling rather than a budget: high
-    // enough that a normal month never reaches it, low enough that one month
-    // cannot be used to take everything. Past it, a further set at your own
-    // level costs one token.
+    // Opening a set at your own level is included, and every open is recorded.
+    // Past the included allowance the price climbs in bands rather than jumping
+    // to one flat figure — the 16th set and the 60th are not the same thing.
     //
-    // Counted only for members, and only for the tier scope — an upsell is
-    // bought separately and has nothing to do with the ceiling.
+    // Counted only for members, and only for the tier scope: an upsell is bought
+    // separately and has nothing to do with the allowance.
     if (scope === 'tier' && segments.tierPortionCount > 0 && !isGuest) {
       const monthKey = getAllotmentPeriodKey(user.membership_started_at);
-      const [openCap, overageCost] = await Promise.all([
+      const [openCap, band2Until, band2Cost, band3Until, band3Cost] = await Promise.all([
         getConfigNumber(`tier_open_cap_${userTier}`).catch(() => 0),
-        getConfigNumber('tier_open_overage_cost').catch(() => 1),
+        getConfigNumber('tier_open_band2_until').catch(() => 30),
+        getConfigNumber('tier_open_band2_cost').catch(() => 1),
+        getConfigNumber('tier_open_band3_until').catch(() => 50),
+        getConfigNumber('tier_open_band3_cost').catch(() => 3),
       ]);
 
       const { rows: allotRows } = await client.query(
@@ -393,13 +417,11 @@ router.post('/unlock', authMid, async (req, res) => {
       );
       const used = allotRows[0]?.unlocks_used || 0;
 
-      // A cap of 0 means uncapped, which is how a tier is exempted.
-      if (openCap === 0 || used < openCap) {
-        useCredit = true;
-        price = 0;
-      } else {
-        price = overageCost;
-      }
+      // Recomputed here rather than trusting what the gallery sent, so the
+      // charge cannot be influenced by a stale page.
+      price = nextOpenCost(used, { openCap, band2Until, band2Cost, band3Until, band3Cost },
+                           segments.tierFullPrice);
+      useCredit = price === 0;
 
       // Recorded either way — what it cost does not change the fact that they
       // opened it, and the count is what a later cap would be measured against.

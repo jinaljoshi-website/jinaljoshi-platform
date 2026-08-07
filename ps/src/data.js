@@ -83,7 +83,7 @@ export function tierDescription(tierId) {
 export const MEMBERSHIP_NOTES = [
   {
     title: 'Fair usage',
-    text: 'Everything at your level stays open at no cost, up to 15 sets a month. Past that it is one token per set, and it resets on your membership date. Supreme has no limit at all.',
+    text: 'Everything at your level is included for the first 15 sets a month. After that it is 1 token a set up to 30, 3 tokens a set up to 50, and the set\'s own price beyond that. It resets on your membership date. Supreme has no limit at all.',
   },
   {
     title: 'Purchasable content',
