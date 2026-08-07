@@ -35,6 +35,17 @@ function resolveCustomPricing(fanSettings, tierOverageCost) {
 // Strips real media from a locked message that hasn't been paid for yet,
 // replacing it with just enough info to render an "Unlock for X tokens" placeholder
 function toFanSafeMessage(row) {
+  // A deleted message keeps its place and loses its contents. The fan is told
+  // something was there rather than left to wonder — and nothing of the
+  // original is sent, so "deleted" means deleted rather than hidden.
+  if (row.deleted_at) {
+    return {
+      id: row.id, sender_id: row.sender_id, recipient_id: row.recipient_id,
+      created_at: row.created_at, parent_id: row.parent_id,
+      deleted: true, content: null, media_url: null, locked_media_urls: null,
+    };
+  }
+
   const isLocked = row.unlock_price_coins !== null && row.unlock_price_coins !== undefined && !row.unlocked_at;
   if (!isLocked) return row;
 
@@ -249,7 +260,7 @@ router.get('/status', authMid, async (req, res) => {
 // ─────────────────────────────────────────────
 
 router.post('/send', authMid, async (req, res) => {
-  const { content, mediaUrl, mediaType } = req.body;
+  const { content, mediaUrl, mediaType, parentId } = req.body;
 
   if (!content?.trim() && !mediaUrl) {
     return res.status(400).json({ error: 'Message or media is required' });
@@ -378,10 +389,10 @@ router.post('/send', authMid, async (req, res) => {
     }
 
     const { rows: msgRows } = await client.query(
-      `INSERT INTO direct_messages (sender_id, recipient_id, content, media_url, media_type, tokens_charged)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, sender_id, recipient_id, content, media_url, media_type, tokens_charged, created_at`,
-      [req.user.userId, artistId, content?.trim() || null, mediaUrl || null, mediaType || null, tokensCharged]
+      `INSERT INTO direct_messages (sender_id, recipient_id, content, media_url, media_type, tokens_charged, parent_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, sender_id, recipient_id, content, media_url, media_type, tokens_charged, created_at, parent_id`,
+      [req.user.userId, artistId, content?.trim() || null, mediaUrl || null, mediaType || null, tokensCharged, parentId || null]
     );
 
     await client.query(

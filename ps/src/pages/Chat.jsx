@@ -14,6 +14,17 @@ function rectsEqual(a, b) {
   return a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height;
 }
 
+function collapseDeleted(list) {
+  const out = [];
+  for (const m of list) {
+    const last = out[out.length - 1];
+    if (m.deleted && last?.deletedRun) { last.count += 1; last.last = m; continue; }
+    if (m.deleted) { out.push({ deletedRun: true, id: m.id, count: 1, last: m }); continue; }
+    out.push(m);
+  }
+  return out;
+}
+
 export default function Chat() {
   const [messages,   setMessages]   = useState([]);
   const [status,     setStatus]     = useState(null);
@@ -24,6 +35,11 @@ export default function Chat() {
   const [error,      setError]      = useState('');
   const [topUp,      setTopUp]      = useState(null);
   const [unlocking,  setUnlocking]  = useState(null);
+  const [replyTo,    setReplyTo]    = useState(null);
+
+  // So a reply can show what it answers without another request.
+  const msgById = {};
+  messages.forEach((m) => { msgById[m.id] = m; });
   const [recording,  setRecording]  = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const bottomRef   = useRef(null);
@@ -363,8 +379,10 @@ export default function Chat() {
         content:   content || undefined,
         mediaUrl:  mediaUrl || undefined,
         mediaType: mediaType || undefined,
+        parentId:  replyTo?.id || undefined,
       });
       setMessage('');
+      setReplyTo(null);
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
       if (data.newBalance !== undefined) {
@@ -549,13 +567,21 @@ export default function Chat() {
           {messages.length === 0 && (
             <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14, textAlign: 'center', paddingTop: 40 }}>No messages yet. Say hello!</div>
           )}
-          {messages.map((msg) => (
-            <MessageBubble
-              key={msg.stream_id || msg.id}
-              msg={msg}
-              onUnlock={() => unlockMedia(msg.id)}
-              unlocking={unlocking === msg.id}
-            />
+          {collapseDeleted(messages).map((msg) => (
+            msg.deletedRun ? (
+              <div key={msg.id} style={tombstone}>
+                {msg.count === 1 ? 'This message was deleted' : `${msg.count} messages were deleted`}
+              </div>
+            ) : (
+              <MessageBubble
+                key={msg.stream_id || msg.id}
+                msg={msg}
+                parent={msg.parent_id ? msgById[msg.parent_id] : null}
+                onReply={setReplyTo}
+                onUnlock={() => unlockMedia(msg.id)}
+                unlocking={unlocking === msg.id}
+              />
+            )
           ))}
           {typing && (
             <div style={{ alignSelf: 'flex-start' }}>
@@ -589,6 +615,21 @@ export default function Chat() {
             <button onClick={stopRecording} style={sendBtn}>Send</button>
           </div>
         ) : (
+          <>
+          {replyTo && (
+            <div style={replyingBar}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: F.sans, fontSize: 10, color: C.accent }}>
+                  Replying to {replyTo.is_mine ? 'yourself' : 'Jinal'}
+                </div>
+                <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, overflow: 'hidden',
+                              textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {replyTo.deleted ? 'This message was deleted' : replyTo.content}
+                </div>
+              </div>
+              <button onClick={() => setReplyTo(null)} style={{ ...replyLink, color: C.accent }}>✕</button>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
             <button onClick={startRecording} disabled={sending} style={{ ...micBtn, opacity: sending ? 0.5 : 1 }} title="Record a voice note">🎙️</button>
             <textarea
@@ -604,6 +645,7 @@ export default function Chat() {
               {sending ? '…' : 'Send'}
             </button>
           </div>
+          </>
         )}
       </div>
 
@@ -614,7 +656,7 @@ export default function Chat() {
   );
 }
 
-function MessageBubble({ msg, onUnlock, unlocking }) {
+function MessageBubble({ msg, parent, onReply, onUnlock, unlocking }) {
   const isMe = msg.is_mine;
 
   if (msg.is_locked_media) {
@@ -669,9 +711,26 @@ function MessageBubble({ msg, onUnlock, unlocking }) {
         {msg.media_url && msg.media_type === 'image' && <img src={msg.media_url} alt="" style={{ width: '100%', maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: msg.content ? 8 : 0 }} />}
         {msg.media_url && msg.media_type === 'video' && <video src={msg.media_url} controls style={{ width: '100%', maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: msg.content ? 8 : 0 }} />}
         {msg.media_url && msg.media_type === 'audio' && <audio src={msg.media_url} controls style={{ width: '100%', minWidth: 220 }} />}
+        {parent && (
+          <div style={quoted}>
+            <div style={{ fontFamily: F.sans, fontSize: 10, color: C.accent, marginBottom: 2 }}>
+              {parent.is_mine ? 'You' : 'Jinal'}
+            </div>
+            <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, lineHeight: 1.45,
+                          overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
+                          WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+              {parent.deleted ? 'This message was deleted' : parent.content}
+            </div>
+          </div>
+        )}
         {msg.content && (
           <div style={{ padding: msg.media_url ? '0 8px 8px' : 0, whiteSpace: 'pre-wrap' }}>
             {msg.content}
+          </div>
+        )}
+        {onReply && (
+          <div style={{ padding: '0 8px 6px' }}>
+            <button onClick={() => onReply(msg)} style={replyLink}>Reply</button>
           </div>
         )}
       </div>
@@ -703,3 +762,7 @@ const micBtn       = { background: 'transparent', border: `1px solid ${C.border}
 const recordingBar = { display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(156,90,90,0.1)', border: '1px solid rgba(156,90,90,0.3)', borderRadius: 8, padding: '10px 14px' };
 const recordingDot = { width: 10, height: 10, borderRadius: '50%', background: '#D99A9A', flexShrink: 0 };
 const cancelRecordBtn = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 8, cursor: 'pointer' };
+const tombstone = { alignSelf: 'center', fontFamily: F.sans, fontSize: 11, color: C.muted, fontStyle: 'italic', opacity: 0.7, padding: '6px 0' };
+const quoted    = { borderLeft: `2px solid ${C.accent}`, paddingLeft: 8, marginBottom: 6, opacity: 0.85 };
+const replyLink = { background: 'none', border: 'none', color: C.muted, fontFamily: F.sans, fontSize: 11, cursor: 'pointer', padding: 0 };
+const replyingBar = { display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(193,125,74,0.08)', borderLeft: `2px solid ${C.accent}`, borderRadius: 6, padding: '6px 10px', marginBottom: 8 };

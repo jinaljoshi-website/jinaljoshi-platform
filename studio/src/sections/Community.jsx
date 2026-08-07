@@ -1,5 +1,5 @@
 // studio/src/sections/Community.jsx
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import BackgroundPicker from '../components/BackgroundPicker';
 import { T, S, Card, Eyebrow, colors } from '../ui';
@@ -7,6 +7,8 @@ import { T, S, Card, Eyebrow, colors } from '../ui';
 const sans = "'DM Sans', system-ui, sans-serif";
 const mono    = "'DM Mono', 'Courier New', monospace";
 const display = "'Cormorant Garamond', Georgia, serif";
+
+const pollTile = { border: `1px solid ${colors.border}`, borderRadius: 8, padding: 8 };
 
 const studioPoll = { background: 'rgba(22,20,16,0.92)', border: `1px solid ${colors.accent}`, borderRadius: 12, padding: '14px 16px' };
 
@@ -42,6 +44,24 @@ export function Community() {
   const [pollOpts,  setPollOpts]  = useState(['', '']);
   const [askPrompt, setAskPrompt] = useState('');
   const [askHours,  setAskHours]  = useState(1);
+
+  const pollFileRef = useRef(null);
+  const [pollSlot,      setPollSlot]      = useState(null);
+  const [pollUploading, setPollUploading] = useState(false);
+
+  const handlePollImage = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || pollSlot === null) return;
+    setPollUploading(true); setError('');
+    try {
+      const { uploadUrl, publicUrl } = await api.post('/api/upload/presign', {
+        filename: file.name, contentType: file.type, context: 'content',
+      });
+      await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
+      setPollOpts((prev) => prev.map((x, j) => (j === pollSlot ? publicUrl : x)));
+    } catch (err) { setError(err.message); } finally { setPollUploading(false); }
+  };
 
   const [polls,           setPolls]           = useState([]);
   const [questionWindows, setQuestionWindows] = useState([]);
@@ -250,12 +270,38 @@ export function Community() {
                 </button>
               ))}
             </div>
-            {pollOpts.map((o, i) => (
-              <input key={i} value={o}
-                     onChange={(e) => setPollOpts(pollOpts.map((x, j) => (j === i ? e.target.value : x)))}
-                     placeholder={pollKind === 'image' ? `Image ${i + 1} — paste the URL` : `Option ${i + 1}`}
-                     style={{ ...S.input, width: '100%', boxSizing: 'border-box', marginBottom: 6 }} />
-            ))}
+            {pollKind === 'image' ? (
+              // Uploaded, not pasted. Asking her to host an image somewhere else
+              // and paste a link would mean the most useful poll type is the
+              // most awkward one to run.
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, marginBottom: 8 }}>
+                {pollOpts.map((o, i) => (
+                  <div key={i} style={pollTile}>
+                    {o
+                      ? <img src={o} alt="" style={{ width: '100%', height: 96, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                      : <div style={{ height: 96, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      fontFamily: sans, fontSize: 11, color: colors.muted }}>
+                          Option {i + 1}
+                        </div>}
+                    <button onClick={() => { setPollSlot(i); pollFileRef.current?.click(); }}
+                            disabled={pollUploading}
+                            style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', width: '100%', marginTop: 6 }}>
+                      {pollUploading && pollSlot === i ? 'Uploading…' : o ? 'Change' : 'Choose'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              pollOpts.map((o, i) => (
+                <input key={i} value={o}
+                       onChange={(e) => setPollOpts(pollOpts.map((x, j) => (j === i ? e.target.value : x)))}
+                       placeholder={`Option ${i + 1}`}
+                       style={{ ...S.input, width: '100%', boxSizing: 'border-box', marginBottom: 6 }} />
+              ))
+            )}
+
+            <input ref={pollFileRef} type="file" accept="image/*" style={{ display: 'none' }}
+                   onChange={handlePollImage} />
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {pollOpts.length < 4 && (
                 <button onClick={() => setPollOpts([...pollOpts, ''])} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 12px' }}>

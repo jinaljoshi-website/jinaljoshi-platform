@@ -108,6 +108,32 @@ router.post('/config/publish', async (req, res) => {
   }
 });
 
+// Deleting messages. Several at once, because tidying a conversation one
+// message at a time is not tidying.
+//
+// The row stays and is marked instead of being removed: a message that vanishes
+// without trace leaves the other person wondering whether they imagined it, and
+// on a platform built on closeness that is a worse outcome than admitting
+// something was withdrawn.
+router.post('/dms/delete', async (req, res) => {
+  const { messageIds } = req.body;
+  if (!Array.isArray(messageIds) || !messageIds.length) {
+    return res.status(400).json({ error: 'Nothing selected' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `UPDATE direct_messages SET deleted_at = NOW()
+       WHERE id = ANY($1) AND deleted_at IS NULL
+       RETURNING id`,
+      [messageIds]
+    );
+    res.json({ ok: true, deleted: rows.length });
+  } catch (err) {
+    console.error('studio/dms/delete error:', err);
+    res.status(500).json({ error: 'Could not delete those' });
+  }
+});
+
 // ─────────────────────────────────────────────
 // CHAT BACKGROUNDS
 // ─────────────────────────────────────────────
@@ -392,9 +418,9 @@ router.post('/dms/:fanId/reply', async (req, res) => {
   if (!content?.trim() && !mediaUrl) return res.status(400).json({ error: 'Message or media is required' });
   try {
     const { rows } = await pool.query(
-      `INSERT INTO direct_messages (sender_id, recipient_id, content, media_url, media_type, tokens_charged)
-       VALUES ($1, $2, $3, $4, $5, 0) RETURNING *`,
-      [req.user.userId, req.params.fanId, content?.trim() || null, mediaUrl || null, mediaType || null]
+      `INSERT INTO direct_messages (sender_id, recipient_id, content, media_url, media_type, tokens_charged, parent_id)
+       VALUES ($1, $2, $3, $4, $5, 0, $6) RETURNING *`,
+      [req.user.userId, req.params.fanId, content?.trim() || null, mediaUrl || null, mediaType || null, req.body.parentId || null]
     );
     res.json({ ok: true, message: { ...rows[0], is_mine: true } });
 

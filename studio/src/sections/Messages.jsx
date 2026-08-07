@@ -45,6 +45,11 @@ function isCurrentlyBlocked(blockedUntil) {
 
 const mono = "'DM Mono', 'Courier New', monospace";
 
+const msgActionBtn    = { background: 'none', border: 'none', color: '#9B8F83', fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 11, cursor: 'pointer', padding: 0 };
+const quotedInStudio  = { borderLeft: '2px solid #C17D4A', paddingLeft: 8, marginBottom: 6, opacity: 0.85 };
+const deleteBar       = { position: 'sticky', bottom: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#100F0C', border: '1px solid rgba(156,90,90,0.4)', borderRadius: 10, padding: '10px 14px', marginTop: 10, zIndex: 5 };
+const studioReplyBar  = { display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(193,125,74,0.08)', borderLeft: '2px solid #C17D4A', borderRadius: 6, padding: '6px 10px', marginBottom: 8 };
+
 function whenLabel(ts) {
   if (!ts) return '';
   const then = new Date(ts);
@@ -75,6 +80,30 @@ export function Messages() {
   const [fanSearch,     setFanSearch]     = useState('');
   const [showNewChat,   setShowNewChat]   = useState(false);
   const [defaultChatBg, setDefaultChatBg] = useState(null);
+
+  const [hoveredMsg, setHoveredMsg] = useState(null);
+  const [pickedMsgs, setPickedMsgs] = useState([]);
+  const [replyTo,    setReplyTo]    = useState(null);
+  const [deleting,   setDeleting]   = useState(false);
+  const selecting = pickedMsgs.length > 0;
+
+  // So a reply can show what it answers without another request.
+  const msgById = {};
+  (thread || []).forEach((x) => { msgById[x.id] = x; });
+
+  const toggleSelect = (id) =>
+    setPickedMsgs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  // Marked rather than removed. A message that vanishes without trace leaves
+  // the other person wondering whether they imagined it.
+  const deleteSelected = async () => {
+    setDeleting(true);
+    try {
+      await api.post('/api/studio/dms/delete', { messageIds: pickedMsgs });
+      setPickedMsgs([]);
+      if (selected) resyncThread(selected);
+    } catch (err) { console.error(err); } finally { setDeleting(false); }
+  };
 
   useEffect(() => {
     api.get('/api/studio/config')
@@ -302,7 +331,9 @@ export function Messages() {
         content:   reply.trim() || undefined,
         mediaUrl:  mediaUrl  || undefined,
         mediaType: mediaType || undefined,
+        parentId:  replyTo?.id || undefined,
       });
+      setReplyTo(null);
 
       setThread((prev) => [...prev, data.message]);
       setReply('');
@@ -823,13 +854,30 @@ export function Messages() {
                     const isLockedBundle = msg.unlock_price_coins !== null && msg.unlock_price_coins !== undefined;
                     const isRead = msg.is_mine && fanLastRead && new Date(msg.created_at) <= fanLastRead;
                     return (
-                      <div key={msg.id || msg.stream_id} style={{ alignSelf: msg.is_mine ? 'flex-end' : 'flex-start', maxWidth: '75%' }}>
+                      <div key={msg.id || msg.stream_id}
+                           onMouseEnter={() => setHoveredMsg(msg.id)}
+                           onMouseLeave={() => setHoveredMsg(null)}
+                           style={{ alignSelf: msg.is_mine ? 'flex-end' : 'flex-start', maxWidth: '75%',
+                                    opacity: msg.deleted ? 0.4 : 1 }}>
                         {!msg.is_mine && (
                           <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 3 }}>
                             {fan?.display_name || fan?.email}
                           </div>
                         )}
-                        <div style={{ fontFamily: sans, fontSize: 14, color: colors.text, lineHeight: 1.6, textAlign: 'left', padding: (msg.media_url || isLockedBundle) ? 6 : '10px 14px', borderRadius: 10, wordBreak: 'break-word', overflow: 'hidden', background: msg.is_mine ? 'rgba(193,125,74,0.15)' : 'rgba(22,20,16,0.9)', border: msg.is_mine ? '1px solid rgba(193,125,74,0.25)' : `1px solid ${colors.border}` }}>
+                        <div onClick={() => selecting && toggleSelect(msg.id)}
+                             style={{ fontFamily: sans, fontSize: 14, color: colors.text, lineHeight: 1.6, textAlign: 'left', padding: (msg.media_url || isLockedBundle) ? 6 : '10px 14px', borderRadius: 10, wordBreak: 'break-word', overflow: 'hidden', cursor: selecting ? 'pointer' : 'default', background: pickedMsgs.includes(msg.id) ? 'rgba(156,90,90,0.18)' : msg.is_mine ? 'rgba(193,125,74,0.15)' : 'rgba(22,20,16,0.9)', border: pickedMsgs.includes(msg.id) ? '1px solid rgba(156,90,90,0.5)' : msg.is_mine ? '1px solid rgba(193,125,74,0.25)' : `1px solid ${colors.border}` }}>
+                          {msg.parent_id && msgById[msg.parent_id] && (
+                            <div style={quotedInStudio}>
+                              <div style={{ fontFamily: sans, fontSize: 10, color: colors.accent, marginBottom: 2 }}>
+                                {msgById[msg.parent_id].is_mine ? 'You' : (fan?.display_name || 'Them')}
+                              </div>
+                              <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, lineHeight: 1.4,
+                                            overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
+                                            WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                                {msgById[msg.parent_id].deleted ? 'This message was deleted' : msgById[msg.parent_id].content}
+                              </div>
+                            </div>
+                          )}
                           {isLockedBundle ? (
                             <>
                               <div style={{ display: 'grid', gridTemplateColumns: msg.locked_media_urls?.length > 1 ? '1fr 1fr' : '1fr', gap: 4 }}>
@@ -856,6 +904,20 @@ export function Messages() {
                             </div>
                           )}
                         </div>
+                        {/* Shown on hover, so the thread reads as a conversation
+                            rather than a list of things to act on. */}
+                        {!msg.deleted && (
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 3,
+                                        alignSelf: msg.is_mine ? 'flex-end' : 'flex-start',
+                                        opacity: (hoveredMsg === msg.id || selecting) ? 1 : 0,
+                                        transition: 'opacity 120ms ease' }}>
+                            <button onClick={() => setReplyTo(msg)} style={msgActionBtn}>Reply</button>
+                            <button onClick={() => toggleSelect(msg.id)} style={msgActionBtn}>
+                              {pickedMsgs.includes(msg.id) ? 'Deselect' : 'Select'}
+                            </button>
+                          </div>
+                        )}
+
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, alignSelf: msg.is_mine ? 'flex-end' : 'flex-start' }}>
                           <span style={{ fontFamily: sans, fontSize: 10, color: colors.muted }}>
                             {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -897,12 +959,41 @@ export function Messages() {
                       <button onClick={startRecording} disabled={sending} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', opacity: sending ? 0.5 : 1 }} title="Record a voice note">
                         🎙️
                       </button>
+                      {pickedMsgs.length > 0 && (
+                        <div style={deleteBar}>
+                          <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+                            {pickedMsgs.length} selected
+                          </span>
+                          <button onClick={deleteSelected} disabled={deleting}
+                                  style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 14px', color: '#D99A9A', borderColor: 'rgba(156,90,90,0.4)' }}>
+                            {deleting ? 'Deleting…' : 'Delete for everyone'}
+                          </button>
+                          <button onClick={() => setPickedMsgs([])} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 14px' }}>
+                            Cancel
+                          </button>
+                        </div>
+                      )}
+
+                      {replyTo && (
+                        <div style={studioReplyBar}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontFamily: sans, fontSize: 10, color: colors.accent }}>
+                              Replying to {replyTo.is_mine ? 'yourself' : (fan?.display_name || 'them')}
+                            </div>
+                            <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {replyTo.content}
+                            </div>
+                          </div>
+                          <button onClick={() => setReplyTo(null)} style={{ ...msgActionBtn, color: colors.accent }}>✕</button>
+                        </div>
+                      )}
+
                       <textarea
                         ref={replyRef}
                         value={reply}
                         onChange={(e) => { setReply(e.target.value); handleTyping(); autoGrow(e.target); }}
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
-                        placeholder="Reply… (Enter to send)"
+                        placeholder={replyTo ? 'Write your reply…' : 'Reply… (Enter to send)'}
                         rows={3}
                         style={{ flex: 1, background: 'rgba(22,20,16,0.9)', border: `1px solid ${colors.border}`, color: colors.text, fontFamily: sans, fontSize: 14, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', textAlign: 'left', maxHeight: 160 }}
                       />

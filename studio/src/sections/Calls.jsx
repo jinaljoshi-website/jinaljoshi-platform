@@ -21,6 +21,11 @@ export function Calls({ openWith }) {
   // Setting when you are free and seeing who asked are one job. They were two
   // screens, so doing either meant checking the other.
   const [tab, setTab] = useState(openWith?.filter === 'availability' ? 'availability' : 'requests');
+
+  // Arriving from a dashboard card that said three calls need answering should
+  // show those three, not the whole history to search through.
+  const [showAll, setShowAll] = useState(false);
+  const onlyPending = openWith?.filter === 'pending' && !showAll;
   const [calls,      setCalls]      = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [creating,   setCreating]   = useState(null);
@@ -197,6 +202,8 @@ export function Calls({ openWith }) {
   const others        = calls.filter((c) => ['completed', 'rejected', 'missed'].includes(c.status));
 
   const sans = "'DM Sans', system-ui, sans-serif";
+  const filterNote = { fontFamily: sans, fontSize: 12, color: colors.muted, background: 'rgba(193,125,74,0.06)', border: `1px solid rgba(193,125,74,0.2)`, borderRadius: 8, padding: '8px 12px', marginBottom: 14 };
+  const filterLink = { background: 'none', border: 'none', color: colors.accent, fontFamily: sans, fontSize: 12, cursor: 'pointer', padding: 0, textDecoration: 'underline' };
 
   const statusColor = (status) => {
     if (status === 'completed') return colors.success;
@@ -292,6 +299,15 @@ export function Calls({ openWith }) {
           </div>
         </div>
       )}
+
+      {onlyPending && (
+        <div style={filterNote}>
+          Showing only what needs you.{' '}
+          <button onClick={() => setShowAll(true)} style={filterLink}>Show everything</button>
+        </div>
+      )}
+
+      {(!onlyPending || showAll) && <>
 
       {/* Waiting on fan's decision */}
       {waitingOnFan.length > 0 && (
@@ -394,6 +410,7 @@ export function Calls({ openWith }) {
           </div>
         </div>
       )}
+      </>}
     </>}
     </div>
   );
