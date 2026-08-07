@@ -1,13 +1,46 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { C, F } from '../tokens';
 import { api, getUser } from '../api';
-import { useNavigate } from 'react-router-dom';
 
 const ARTIST_ID = import.meta.env.VITE_ARTIST_USER_ID;
 
 function rectsEqual(a, b) {
   if (!a || !b) return false;
   return a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height;
+}
+
+// What a run of the same thing is called when it is collapsed. Keyed on the
+// leading emoji, which every system message already carries and which is a
+// more reliable marker than parsing the sentence.
+const RUN_LABELS = {
+  '🔓': ['set unlocked',       'sets unlocked'],
+  '📞': ['call booked',        'calls booked'],
+  '🔴': ['priority call',      'priority calls'],
+  '🛍️': ['order',              'orders'],
+  '🌟': ['request',            'requests'],
+  '💫': ['bid',                'bids'],
+  '🎉': ['person joined',      'people joined'],
+  '✨': ['membership',         'memberships'],
+  '⬆️': ['upgrade',            'upgrades'],
+  '🎁': ['gift',               'gifts'],
+};
+
+// Consecutive updates of the same kind fold into one line. Ten separate
+// "someone unlocked a set" entries read as noise and push everything else off
+// the screen; "6 sets unlocked" reads as a busy room and takes one line.
+// Strictly in time order — nothing is reordered, only adjacent runs merged.
+function groupUpdates(list) {
+  const out = [];
+  for (const u of list) {
+    const emoji = (u.content.match(/^(\p{Extended_Pictographic}\uFE0F?)/u) || [])[1] || '';
+    const last  = out[out.length - 1];
+    if (last && last.emoji === emoji && RUN_LABELS[emoji]) {
+      last.items.push(u);
+    } else {
+      out.push({ emoji, items: [u] });
+    }
+  }
+  return out;
 }
 
 export default function Community() {
@@ -18,9 +51,8 @@ export default function Community() {
   const [error,   setError]   = useState('');
   const [communityBg, setCommunityBg] = useState('');
   const [hideSystemPosts, setHideSystemPosts] = useState(false);
-  const [isMember,      setIsMember]      = useState(true);
-  const [freeRemaining, setFreeRemaining] = useState(null);
-  const navigate = useNavigate();
+  const [updates,     setUpdates]     = useState([]);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
   const [reportingId, setReportingId] = useState(null);
   const [reportReason, setReportReason] = useState('');
   const [reportSending, setReportSending] = useState(false);
@@ -70,6 +102,8 @@ export default function Community() {
     }
   }, []);
 
+  useEffect(() => { recomputeFeedRect(); }, [updates.length, updatesOpen]);
+
   useEffect(() => {
     window.addEventListener('resize', recomputeFeedRect);
     return () => {
@@ -77,6 +111,17 @@ export default function Community() {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, []);
+
+  const [olderCount,    setOlderCount]    = useState(0);
+  const [expandedRuns,  setExpandedRuns]  = useState([]);
+
+  const loadUpdates = (hours = 48) => api.get(`/api/community/updates?hours=${hours}`)
+    .then((d) => { setUpdates(d.updates || []); setOlderCount(d.olderAvailable || 0); })
+    .catch(() => {});
+
+  // A month is as far back as this goes. Beyond that it stops being catching up
+  // and becomes an archive nobody reads.
+  const loadOlder = () => loadUpdates(720);
 
   const load = (silent = false) => api.get('/api/community/posts')
     .then((d) => {
@@ -89,15 +134,12 @@ export default function Community() {
     .then((d) => {
       setCommunityBg(d.communityBg || '');
       setHideSystemPosts(!!d.hideSystemPosts);
-      // Members post without limit. Guests get a daily allowance, and should see
-      // it before they hit it rather than discovering it as a red error.
-      setIsMember(!!(d.isArtist || d.isMember || d.unlimited));
-      setFreeRemaining(typeof d.freeRemaining === 'number' ? d.freeRemaining : null);
     })
     .catch(() => {});
 
   useEffect(() => {
     load();
+    loadUpdates();
     loadStatus();
     const interval = setInterval(() => load(true), 8000);
     return () => clearInterval(interval);
@@ -126,7 +168,6 @@ export default function Community() {
       setMessage('');
       isAtBottom.current = true;
       load(true);
-      loadStatus();
     } catch (err) {
       setError(err.message);
     } finally { setSending(false); }
@@ -169,7 +210,7 @@ export default function Community() {
 
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading community…</div>;
 
-  const visiblePosts = hideSystemPosts ? posts.filter((p) => !p.is_system) : posts;
+  const visiblePosts = posts;
 
   return (
     <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: C.bg, borderRadius: communityBg ? 10 : 0, overflow: 'hidden' }}>
@@ -179,10 +220,9 @@ export default function Community() {
             <div style={eyebrow}>Updates</div>
             <h1 style={title}>Public Corner</h1>
           </div>
-          <button onClick={toggleSystemPosts} style={systemToggleBtn}>
-            <span style={{ ...toggleDot, background: hideSystemPosts ? C.muted : C.accent }} />
-            {hideSystemPosts ? 'Updates hidden' : 'Updates shown'}
-          </button>
+          <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, textAlign: 'right' }}>
+            Everyone, in one place
+          </div>
         </div>
         {error && <div style={{ ...errorBox, marginTop: 8 }}>{error}</div>}
         {reportMsg && <div style={{ ...successBox, marginTop: 8 }}>{reportMsg}</div>}
@@ -227,17 +267,71 @@ export default function Community() {
         </div>
       </div>
 
+      {updates.length > 0 && (
+        <div style={updatesBar}>
+          <button onClick={() => setUpdatesOpen(!updatesOpen)} style={updatesToggle}>
+            <span>{updates.length} update{updates.length === 1 ? '' : 's'} in the last two days</span>
+            <span style={{ color: C.accent }}>{updatesOpen ? 'Hide' : 'See them'}</span>
+          </button>
+          {updatesOpen && (
+            <div style={{ maxHeight: 220, overflowY: 'auto', marginTop: 10 }}>
+              {groupUpdates(updates).map((g, gi) => {
+                const single = g.items.length === 1;
+                const open   = expandedRuns.includes(gi);
+                const labels = RUN_LABELS[g.emoji];
+                return (
+                  <div key={gi} style={updateRow}>
+                    {single ? (
+                      <>
+                        <div style={{ fontFamily: F.sans, fontSize: 12, color: g.items[0].kind === 'news' ? C.text : C.muted, lineHeight: 1.6 }}>
+                          {g.items[0].content}
+                        </div>
+                        <div style={updateTime}>
+                          {new Date(g.items[0].created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={() => setExpandedRuns(open ? expandedRuns.filter((x) => x !== gi) : [...expandedRuns, gi])}
+                                style={runToggle}>
+                          <span>{g.emoji} {g.items.length} {labels[1]}</span>
+                          <span style={{ color: C.accent, fontSize: 11 }}>{open ? 'Less' : 'See which'}</span>
+                        </button>
+                        {open && (
+                          <div style={{ marginTop: 6 }}>
+                            {g.items.map((u) => (
+                              <div key={u.id} style={{ padding: '5px 0 5px 14px', borderLeft: `1px solid ${C.border}`, marginLeft: 2 }}>
+                                <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, lineHeight: 1.55 }}>{u.content}</div>
+                                <div style={updateTime}>
+                                  {new Date(u.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {!open && (
+                          <div style={updateTime}>
+                            {new Date(g.items[g.items.length - 1].created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                            {' – '}
+                            {new Date(g.items[0].created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+              {olderCount > 0 && (
+                <button onClick={loadOlder} style={olderBtn}>
+                  Load older · {olderCount} more from the last month
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={{ ...composer, padding: '10px 16px', flexShrink: 0 }}>
-        {!isMember && freeRemaining !== null && (
-          <div style={guestNote}>
-            {freeRemaining > 0
-              ? `${freeRemaining} free message${freeRemaining === 1 ? '' : 's'} left today. `
-              : `You've used today's free message. `}
-            <span onClick={() => navigate('/platform/membership')} style={joinLink}>
-              Join a membership to post as much as you like →
-            </span>
-          </div>
-        )}
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <textarea
             value={message}
@@ -249,8 +343,8 @@ export default function Community() {
           />
           <button
             onClick={handleSend}
-            disabled={sending || !message.trim() || (!isMember && freeRemaining === 0)}
-            style={{ ...sendBtn, opacity: (sending || !message.trim() || (!isMember && freeRemaining === 0)) ? 0.5 : 1 }}
+            disabled={sending || !message.trim()}
+            style={{ ...sendBtn, opacity: (sending || !message.trim()) ? 0.5 : 1 }}
           >
             {sending ? '…' : 'Send'}
           </button>
@@ -331,8 +425,14 @@ const systemBubble = { fontFamily: F.sans, fontSize: 12, color: C.muted, backgro
 const timestamp    = { fontFamily: F.sans, fontSize: 10, color: C.muted, marginTop: 3 };
 const errorBox     = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: 12, borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
 const successBox   = { background: 'rgba(100,160,100,0.1)', border: '1px solid rgba(100,160,100,0.3)', color: '#8FC88F', padding: 12, borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
-const guestNote    = { fontFamily: F.sans, fontSize: 12, color: C.muted, lineHeight: 1.6, marginBottom: 8 };
-const joinLink     = { color: C.accent, cursor: 'pointer', textDecoration: 'underline' };
+const updatesBar    = { borderTop: `1px solid ${C.border}`, background: C.bg, padding: '8px 16px', flexShrink: 0, position: 'relative', zIndex: 3 };
+const updatesToggle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: F.sans, fontSize: 12, color: C.muted };
+const updateRow     = { padding: '8px 0', borderBottom: `1px solid ${C.border}` };
+const updateTime    = { fontFamily: F.mono, fontSize: 10, color: C.muted, opacity: 0.7, marginTop: 3 };
+const runToggle     = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: F.sans, fontSize: 12, color: C.muted, textAlign: 'left' };
+
+const olderBtn      = { width: '100%', background: 'none', border: 'none', color: C.accent, fontFamily: F.sans, fontSize: 11, padding: '10px 0 2px', cursor: 'pointer', textAlign: 'center' };
+
 const composer     = { flexShrink: 0, borderTop: `1px solid ${C.border}`, background: 'rgba(13,12,10,1)' };
 const composerInput = { flex: 1, width: '100%', background: 'rgba(22,20,16,0.9)', border: `1px solid ${C.border}`, color: C.text, fontFamily: F.sans, fontSize: 16, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', lineHeight: 1.5, boxSizing: 'border-box' };
 const sendBtn      = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 14, fontWeight: 700, padding: '10px 20px', borderRadius: 8, flexShrink: 0, cursor: 'pointer' };

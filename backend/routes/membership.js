@@ -155,7 +155,7 @@ router.post('/purchase', authMid, async (req, res) => {
 
     await client.query('COMMIT');
 
-    postSystemMessage(`✨ ${fanLabel} just joined as a ${tier.charAt(0).toUpperCase() + tier.slice(1)} member!`);
+    postSystemMessage(`✨ ${fanLabel} just joined as a ${tier.charAt(0).toUpperCase() + tier.slice(1)} member!`, { kind: 'arrival' });
 
     // Only after the purchase is committed — a note thanking someone for
     // becoming a member must not arrive if the transaction rolled back. The
@@ -255,7 +255,7 @@ router.post('/upgrade', authMid, async (req, res) => {
 
     await client.query('COMMIT');
 
-    postSystemMessage(`⬆️ ${fanLabel} just upgraded to ${newTier.charAt(0).toUpperCase() + newTier.slice(1)}!`);
+    postSystemMessage(`⬆️ ${fanLabel} just upgraded to ${newTier.charAt(0).toUpperCase() + newTier.slice(1)}!`, { kind: 'arrival' });
 
     res.json({
       ok:         true,
@@ -405,7 +405,7 @@ router.post('/gift', authMid, async (req, res) => {
 
     await client.query('COMMIT');
 
-    postSystemMessage(`🎁 ${fanLabel} just received a ${tier} membership gift!`);
+    postSystemMessage(`🎁 ${fanLabel} just received a ${tier} membership gift!`, { kind: 'arrival' });
 
     res.json({ ok: true, message: `${tier} membership gifted to ${fan.email}` });
   } catch (err) {

@@ -247,7 +247,7 @@ router.post('/buy', authMid, async (req, res) => {
       url:   '/merch',
     });
 
-    postSystemMessage(`🛍️ ${fanLabel} just ordered "${item.title}"!`);
+    postSystemMessage(`🛍️ ${fanLabel} just ordered "${item.title}"!`, { kind: 'activity', name: fanLabel });
 
     res.json({
       ok:         true,

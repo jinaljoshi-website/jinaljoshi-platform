@@ -160,7 +160,7 @@ router.post('/request', authMid, async (req, res) => {
       url:   '/requests',
     });
 
-    postSystemMessage(`🌟 ${fanLabel} just requested a ${itemTitle}!`);
+    postSystemMessage(`🌟 ${fanLabel} just requested a ${itemTitle}!`, { kind: 'activity', name: fanLabel });
 
     res.json({
       ok:         true,

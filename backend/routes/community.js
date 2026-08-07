@@ -11,13 +11,36 @@ const { getLocalDateStr } = require('../lib/time');
 // message-credit system is gone entirely.
 
 // ── Helper: post a system message ────────────────────────────────────────────
-async function postSystemMessage(content) {
+// Three kinds, and they are treated differently on purpose.
+//
+//   news      Jinal posted something. Always shown.
+//   arrival   somebody joined, took a membership or upgraded. Always named —
+//             this is the welcome, and a welcome without a name is not one.
+//   activity  what a member did afterwards. Named only if Jinal chooses;
+//             otherwise "Someone", because what a person unlocks or orders is
+//             their business and announcing it by name is a different thing
+//             from celebrating that they arrived.
+//
+// Anonymising replaces the name in the sentence rather than dropping the post,
+// so the room keeps its signs of life without reporting on anybody.
+async function postSystemMessage(content, { kind = 'activity', name = null } = {}) {
   try {
     const artistId = process.env.ARTIST_USER_ID;
+    let text = content;
+
+    if (kind === 'activity' && name) {
+      const { rows } = await pool.query(
+        `SELECT value FROM platform_config WHERE key = 'name_member_activity'`
+      );
+      if (rows[0]?.value === 'false') {
+        text = text.split(name).join('Someone');
+      }
+    }
+
     await pool.query(
-      `INSERT INTO community_posts (user_id, content, is_system, pinned)
-       VALUES ($1, $2, TRUE, FALSE)`,
-      [artistId, content]
+      `INSERT INTO community_posts (user_id, content, is_system, pinned, update_kind)
+       VALUES ($1, $2, TRUE, FALSE, $3)`,
+      [artistId, text, kind]
     );
   } catch (err) {
     console.error('postSystemMessage error:', err.message);
@@ -32,15 +55,29 @@ async function postSystemMessage(content) {
 router.get('/posts', authMid, async (req, res) => {
   try {
     const { rows } = await pool.query(
+      // People only. Announcements about unlocks and purchases were mixed in
+      // with the conversation, which meant a room that is meant to feel like
+      // people talking read like a feed of transactions instead.
       `SELECT cp.id, cp.content, cp.pinned, cp.is_system, cp.created_at,
               u.id AS user_id, u.display_name, u.email, u.is_artist, u.tier
        FROM community_posts cp
        JOIN users u ON u.id = cp.user_id
-       WHERE cp.removed = FALSE
+       WHERE cp.removed = FALSE AND cp.is_system = FALSE
        ORDER BY cp.pinned DESC, cp.created_at ASC
        LIMIT 200`
     );
-    res.json({ posts: rows });
+
+    // The room is Jinal's, so the background is hers to set. Fans cannot change
+    // it — a shared space everyone restyles belongs to nobody.
+    const { rows: cfg } = await pool.query(
+      `SELECT value FROM platform_config WHERE key = 'community_background_key'`
+    );
+    const bg = cfg[0]?.value;
+
+    res.json({
+      posts: rows,
+      backgroundUrl: bg ? (bg.startsWith('http') ? bg : `${process.env.R2_PUBLIC_URL}/${bg}`) : null,
+    });
   } catch (err) {
     console.error('community/posts error:', err);
     res.status(500).json({ error: 'Failed to load posts' });
@@ -215,4 +252,43 @@ router.post('/preferences', authMid, async (req, res) => {
 });
 
 module.exports = router;
+// What the platform has announced, kept out of the conversation and available
+// underneath it. Two days deliberately — older than that and it is history
+// rather than news, and the point is catching up on what was missed.
+router.get('/updates', authMid, async (req, res) => {
+  try {
+    // 48 hours unless asked for more, capped at a month.
+    const hours = Math.min(parseInt(req.query.hours, 10) || 48, 720);
+    const { rows } = await pool.query(
+      // Two days by default. Older is available on request up to a month —
+      // beyond that it is history rather than catching up, and nobody scrolls
+      // a month of announcements.
+      `SELECT id, content, created_at, COALESCE(update_kind, 'member') AS kind
+       FROM community_posts
+       WHERE is_system = TRUE AND removed = FALSE
+         AND created_at > NOW() - ($1 || ' hours')::interval
+       ORDER BY created_at DESC
+       LIMIT 200`,
+      [String(hours)]
+    );
+
+    const { rows: older } = await pool.query(
+      `SELECT count(*)::int AS n FROM community_posts
+       WHERE is_system = TRUE AND removed = FALSE
+         AND created_at <= NOW() - ($1 || ' hours')::interval
+         AND created_at > NOW() - INTERVAL '30 days'`,
+      [String(hours)]
+    );
+
+    res.json({
+      updates: rows,
+      hours,
+      olderAvailable: hours < 720 ? older[0].n : 0,
+    });
+  } catch (err) {
+    console.error('community/updates error:', err);
+    res.status(500).json({ error: 'Failed to load updates' });
+  }
+});
+
 module.exports.postSystemMessage = postSystemMessage;

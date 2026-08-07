@@ -279,14 +279,14 @@ router.post('/book', authMid, async (req, res) => {
         // Rings for as long as the call actually rings, read from the same
         // config the fan's countdown uses — so the two can never disagree.
       }, { durationMs: (await getCallRingWindowSeconds()) * 1000 });
-      postSystemMessage(`🔴 ${fanLabel} just started a priority call with Jinal!`);
+      postSystemMessage(`🔴 ${fanLabel} just started a priority call with Jinal!`, { kind: 'activity', name: fanLabel });
     } else {
       notifyArtist({
         title: `📞 Call request from ${fanLabel}`,
         body:  `${tierLabel} · ${callType} · ${durationMinutes} min · ${totalCost} tokens · proposed ${proposedDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`,
         url:   '/calls',
       });
-      postSystemMessage(`📞 ${fanLabel} just booked a call with Jinal!`);
+      postSystemMessage(`📞 ${fanLabel} just booked a call with Jinal!`, { kind: 'activity', name: fanLabel });
     }
 
     res.json({

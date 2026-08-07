@@ -202,7 +202,7 @@ router.post('/verify-email', async (req, res) => {
     try {
       const { postSystemMessage } = require('./community');
       const welcomeName = rows[0].display_name || 'A new member';
-      postSystemMessage(`🎉 ${welcomeName} just joined Personal Space. Welcome!`);
+      postSystemMessage(`🎉 ${welcomeName} just joined Personal Space. Welcome!`, { kind: 'arrival' });
     } catch {}
 
     await createSessionAndRespond(rows[0], req, res, timezone);

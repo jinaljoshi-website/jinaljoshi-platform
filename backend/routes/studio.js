@@ -511,7 +511,7 @@ router.post('/content', async (req, res) => {
     await client.query('COMMIT');
 
     if (visible) {
-      postSystemMessage(`📸 Jinal just dropped "${title.trim()}"! Check the Gallery!`);
+      postSystemMessage(`📸 Jinal just dropped "${title.trim()}"! Check the Gallery!`, { kind: 'news' });
     }
     res.json({ ok: true, set: rows[0] });
   } catch (err) {
@@ -1247,7 +1247,7 @@ router.patch('/content/:id', async (req, res) => {
     await client.query('COMMIT');
 
     if (wasHidden && becomingVisible) {
-      postSystemMessage(`📸 Jinal just dropped "${rows[0].title}"! Check the Gallery!`);
+      postSystemMessage(`📸 Jinal just dropped "${rows[0].title}"! Check the Gallery!`, { kind: 'news' });
     }
 
     res.json({ ok: true, set: rows[0] });
@@ -1563,10 +1563,10 @@ router.post('/merch', async (req, res) => {
     await setMerchImages(client, rows[0].id, photoList);
     await client.query('COMMIT');
     if (visible && !isAuction) {
-      postSystemMessage(`🛍️ Jinal just dropped "${title.trim()}"! Check the Shop!`);
+      postSystemMessage(`🛍️ Jinal just dropped "${title.trim()}"! Check the Shop!`, { kind: 'news' });
     }
     if (visible && isAuction) {
-      postSystemMessage(`👗 A new Shoot Wardrobe piece just joined the queue: "${title.trim()}"`);
+      postSystemMessage(`👗 A new Shoot Wardrobe piece just joined the queue: "${title.trim()}"`, { kind: 'news' });
     }
     res.json({ ok: true, item: { ...rows[0], img_key: photoList[0] || null, images: photoList } });
   } catch (err) {
@@ -1618,7 +1618,7 @@ router.patch('/merch/:id', async (req, res) => {
     }
 
     if (wasHidden && becomingVisible) {
-      postSystemMessage(`🛍️ Jinal just dropped new merch: "${rows[0].title}"! Check the Shop!`);
+      postSystemMessage(`🛍️ Jinal just dropped new merch: "${rows[0].title}"! Check the Shop!`, { kind: 'news' });
     }
 
     const [withImages] = await attachImages([

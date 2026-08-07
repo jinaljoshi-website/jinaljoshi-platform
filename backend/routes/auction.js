@@ -305,7 +305,7 @@ router.post('/bid', authMid, async (req, res) => {
       }).catch((e) => console.error('outbid push failed:', e.message));
     }
 
-    postSystemMessage(`💫 A new bid just came in on this week's Shoot Wardrobe item!`);
+    postSystemMessage(`💫 A new bid just came in on this week's Shoot Wardrobe item!`, { kind: 'activity' });
     notifyArtist({ title: 'New auction bid', body: `${user.display_name || 'A member'} bid ${amount} tokens on "${item.title}"`, url: '/merch' });
 
     res.json({ ok: true, currentBid: amount, minNextBid: amount + MIN_BID_INCREMENT });
@@ -607,7 +607,7 @@ async function promoteNextItem() {
        WHERE id = $1`,
       [rows[0].id]
     );
-    postSystemMessage(`✨ This week's Shoot Wardrobe auction is live: "${rows[0].title}"! Members can bid, everyone can Buy Now.`);
+    postSystemMessage(`✨ This week's Shoot Wardrobe auction is live: "${rows[0].title}"! Members can bid, everyone can Buy Now.`, { kind: 'news' });
   } catch (err) {
     console.error('auction/promoteNextItem error:', err.message);
   }

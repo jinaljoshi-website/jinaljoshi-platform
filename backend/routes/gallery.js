@@ -452,7 +452,7 @@ router.post('/unlock', authMid, async (req, res) => {
 
     await client.query('COMMIT');
 
-    postSystemMessage(`🔓 ${fanLabel} unlocked "${set.title}"!`);
+    postSystemMessage(`🔓 ${fanLabel} unlocked "${set.title}"!`, { kind: 'activity', name: fanLabel });
 
     // Told after the transaction commits, so an unlock that rolled back is never
     // announced. How it was paid for matters as much as the fact of it — a
