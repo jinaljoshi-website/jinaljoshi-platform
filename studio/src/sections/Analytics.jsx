@@ -113,8 +113,8 @@ export function Analytics() {
                   sub={`${d.invoices} invoice${d.invoices === 1 ? '' : 's'} · everything charged`} />
             <Stat head="GST collected" value={rupees(d.gstCollected)} tone="#D9A45C"
                   sub="the government's, not yours — set it aside" />
-            <Stat head="GST you get back" value={rupees(d.gstRefundable)} tone={colors.success}
-                  sub={`${d.exportWithTaxCount} export${d.exportWithTaxCount === 1 ? '' : 's'} paid in rupees · reclaim against the FIRC`} />
+            <Stat head="May be reclaimed" value={rupees(d.gstRefundable)} tone="#D9A45C"
+                  sub={`${d.exportWithTaxCount} export${d.exportWithTaxCount === 1 ? '' : 's'} paid in rupees · claim against the FIRC, subject to approval`} />
             <Stat head="Zero-rated" value={rupees(d.zeroRated)}
                   sub={`${d.exportCount} export${d.exportCount === 1 ? '' : 's'} in foreign currency · no tax at all`} />
           </div>
@@ -129,8 +129,14 @@ export function Analytics() {
               {rupees(d.netOfTax)}
             </div>
             <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 6, lineHeight: 1.6 }}>
-              Everything collected, less the GST that is not yours, plus back the part you will reclaim.
+              Everything collected, less all the GST. Nothing reclaimable is counted here — that
+              has to be claimed and approved first, and until it arrives it is not yours.
             </div>
+            {d.gstRefundable > 0 && (
+              <div style={{ fontFamily: sans, fontSize: 11, color: '#D9A45C', marginTop: 8, lineHeight: 1.6 }}>
+                {rupees(d.gstRefundable)} may come back on top, if the refund claim is approved.
+              </div>
+            )}
           </div>
 
           {d.donations.pledged > 0 && (

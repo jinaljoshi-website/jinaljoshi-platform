@@ -551,9 +551,12 @@ router.get('/money', async (req, res) => {
       gstCollected:  n(t.gst_collected),
       gstRefundable: n(t.gst_refundable),
       zeroRated:     n(t.zero_rated),
-      // What is genuinely yours: everything collected, less the tax that is not
-      // yours to keep, plus back the portion you will reclaim.
-      netOfTax:      n(Number(t.collected) - Number(t.gst_collected) + Number(t.gst_refundable)),
+      // Everything collected, less all the GST. The refundable portion is NOT
+      // added back: it has to be claimed, the claim has to be approved, and
+      // until the money arrives it is the government's. Counting it as earnings
+      // would overstate what is available by exactly the amount most likely to
+      // be spent before it lands.
+      netOfTax:      n(Number(t.collected) - Number(t.gst_collected)),
       invoices:      Number(t.invoices),
       exportCount:   Number(t.export_count),
       exportWithTaxCount: Number(t.export_with_tax_count),
