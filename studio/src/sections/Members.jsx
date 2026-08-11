@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { T, S, Card, Eyebrow, Badge, Field, TokenField, colors } from '../ui';
+import { SectionTabs } from '../components/SectionTabs';
 
 const TOKEN_RATE = 66;
 const sans = "'DM Sans', system-ui, sans-serif";
@@ -82,6 +83,24 @@ export function Members() {
   const [summary,     setSummary]     = useState(null);
   const [spentOn,     setSpentOn]     = useState([]);
   const [histTab,     setHistTab]     = useState('summary');
+  const [refundingId, setRefundingId] = useState(null);
+
+  const refundEntry = async (entry, fanId) => {
+    const label = entry.detail ? `"${entry.detail}"` : 'this';
+    if (!window.confirm(`Refund ${entry.tokens} tokens for ${label}? Each part goes back to where it came from.`)) return;
+    setRefundingId(entry.ledgerId);
+    setError(''); setSuccess('');
+    try {
+      const d = await api.post('/api/studio/refund', {
+        ledgerId: entry.ledgerId,
+        reason: entry.detail || undefined,
+      });
+      setSuccess(d.message || 'Refunded.');
+      const h = await api.get(`/api/studio/fans/${fanId}/history`);
+      setHistory(h.rows || []); setSummary(h.summary || null); setSpentOn(h.spentOn || []);
+      loadFans();
+    } catch (err) { setError(err.message); } finally { setRefundingId(null); }
+  };
 
   const openHistory = async (fan) => {
     if (historyFor === fan.id) { setHistoryFor(null); return; }
@@ -101,6 +120,7 @@ export function Members() {
 
   const [modLog, setModLog] = useState([]);
   const [showLog, setShowLog] = useState(false);
+  const [tab,     setTab]     = useState('people');
 
   const loadFans = () => api.get('/api/studio/fans').then((d) => setFans(d.fans || []));
   const loadModLog = () => api.get('/api/studio/moderation-log').then((d) => setModLog(d.log || [])).catch(() => {});
@@ -199,7 +219,18 @@ export function Members() {
       {error   && <div style={S.error}>{error}</div>}
       {success && <div style={S.success}>{success}</div>}
 
-      {/* Gift membership */}
+      <SectionTabs
+        tabs={[
+          { key: 'people',     label: `Members (${fans.length})` },
+          { key: 'membership', label: 'Gift a membership' },
+          { key: 'tokens',     label: 'Send tokens' },
+        ]}
+        active={tab} onChange={setTab}
+      />
+
+      {tab !== 'people' && (
+        <div style={{ marginBottom: 20 }}>
+      {tab === 'membership' && (<>
       <Card style={{ marginBottom: 20 }}>
         <T.sectionTitle>Gift a membership</T.sectionTitle>
         {conflict ? (
@@ -243,7 +274,9 @@ export function Members() {
         )}
       </Card>
 
-      {/* Token grant */}
+      </>)}
+
+      {tab === 'tokens' && (<>
       <Card style={{ marginBottom: 28 }}>
         <T.sectionTitle>Send tokens to a fan</T.sectionTitle>
         <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14, lineHeight: 1.6 }}>
@@ -265,6 +298,11 @@ export function Members() {
         </div>
       </Card>
 
+      </>)}
+        </div>
+      )}
+
+      {tab === 'people' && (<>
       {/* Fan list */}
       <T.sectionTitle>All fans ({fans.length})</T.sectionTitle>
       <div style={{ display: 'grid', gap: 8, marginBottom: 32 }}>
@@ -366,11 +404,27 @@ export function Members() {
                                 {h.extra && ` · ${h.extra}`}
                               </div>
                             </div>
-                            {h.tokens > 0 && (
-                              <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted, flexShrink: 0 }}>
-                                {h.tokens} tokens
-                              </span>
-                            )}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                              {h.tokens > 0 && (
+                                <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
+                                  {h.tokens} tokens
+                                </span>
+                              )}
+                              {/* Only where there is a ledger entry to reverse.
+                                  Each part goes back where it came from — gifted
+                                  as a fresh grant, purchased to the balance —
+                                  rather than handing out new tokens and hoping
+                                  the amounts line up. */}
+                              {h.refundedAt ? (
+                                <span style={{ fontFamily: sans, fontSize: 10, color: '#8FC88F' }}>refunded</span>
+                              ) : h.ledgerId && h.tokens > 0 ? (
+                                <button onClick={() => refundEntry(h, fan.id)}
+                                        disabled={refundingId === h.ledgerId}
+                                        style={{ ...S.ghostBtn, fontSize: 10, padding: '3px 9px' }}>
+                                  {refundingId === h.ledgerId ? '…' : 'Refund'}
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
                         );
                       })}
@@ -450,6 +504,7 @@ export function Members() {
           </div>
         )}
       </div>
+      </>)}
     </div>
   );
 }
