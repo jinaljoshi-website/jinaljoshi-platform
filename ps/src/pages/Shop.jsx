@@ -125,7 +125,7 @@ export default function Shop() {
                 {outOfStock ? 'Out of stock' : `${item.remaining} remaining`}
               </div>
               <div style={{ fontFamily: F.display, fontSize: 24, color: C.text, marginBottom: 4 }}>{item.title}</div>
-              {item.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 10 }}>{item.description}</div>}
+              {item.description && <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 10, whiteSpace: 'pre-wrap' }}>{item.description}</div>}
               <div style={{ marginBottom: 6 }}><WonderCoinAmount amount={price} size={18} /></div>
               {data?.discountPct > 0 && <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 4 }}>{data.discountPct}% member discount</div>}
               {data?.isGuest && <GuestNudge compact message={`Members pay ${nudge} tokens with Supreme`} />}

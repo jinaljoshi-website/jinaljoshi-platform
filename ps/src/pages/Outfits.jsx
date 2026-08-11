@@ -144,7 +144,7 @@ export default function Outfits() {
           <div style={liveTag}>Live now{countdown ? ` · ${countdown} left` : ''}</div>
           <PhotoStrip images={live.images?.length ? live.images : (live.img_key ? [live.img_key] : [])} alt={live.title} height={320} />
           <div style={featureTitle}>{live.title}</div>
-          <Clamped text={live.description} lines={3} style={{ ...text, margin: 0 }} />
+          <Clamped text={live.description} lines={8} style={{ ...text, margin: 0, whiteSpace: 'pre-wrap' }} />
           {live.csrPct != null && (
             <div style={csrPill}>{live.csrPct}% of the proceeds go to a charity you choose</div>
           )}
@@ -259,8 +259,8 @@ export default function Outfits() {
                 <div key={item.id} style={card}>
                   <PhotoStrip images={item.images?.length ? item.images : (item.img_key ? [item.img_key] : [])} alt={item.title} height={180} showThumbs={false} />
                   <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 4 }}>{item.title}</div>
-                  <Clamped text={item.description} lines={2}
-                           style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6 }} />
+                  <Clamped text={item.description} lines={3}
+                           style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, whiteSpace: 'pre-wrap' }} />
                   {item.csrPct != null && <div style={{ ...csrPill, fontSize: 11 }}>{item.csrPct}% to charity</div>}
                   <div style={{ margin: '10px 0 4px' }}><WonderCoinAmount amount={item.buyNowPrice} size={18} /></div>
                   <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 8 }}>

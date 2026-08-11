@@ -241,7 +241,13 @@ export function Merch() {
             <input style={S.input} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Signature tee — black" />
           </Field>
           <Field label="Description">
-            <input style={S.input} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Short description for fans" />
+            <textarea
+              style={{ ...S.input, minHeight: 190, resize: 'vertical', lineHeight: 1.6, fontFamily: sans }}
+              rows={9}
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder={'What it is, how it was worn, why it matters.\n\nLine breaks are kept exactly as you type them.'}
+            />
           </Field>
           <TokenField
             label="Price (tokens)"
@@ -331,7 +337,12 @@ export function Merch() {
                         <input style={S.input} value={editForm.title || ''} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
                       </Field>
                       <Field label="Description">
-                        <input style={S.input} value={editForm.description || ''} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+                        <textarea
+                          style={{ ...S.input, minHeight: 150, resize: 'vertical', lineHeight: 1.6, fontFamily: sans }}
+                          rows={7}
+                          value={editForm.description || ''}
+                          onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                        />
                       </Field>
                       <TokenField label="Listed price (tokens)" value={editForm.price_coins}
                                   onChange={(v) => setEditForm({ ...editForm, price_coins: v })} tokenRateInr={tokenRate} />
@@ -710,7 +721,12 @@ function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, 
               <input style={S.input} value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
             </Field>
             <Field label="Description">
-              <input style={S.input} value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+              <textarea
+                style={{ ...S.input, minHeight: 150, resize: 'vertical', lineHeight: 1.6, fontFamily: sans }}
+                rows={7}
+                value={editForm.description}
+                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+              />
             </Field>
             <TokenField label="Price (tokens)" value={editForm.price_coins} onChange={(v) => setEditForm({ ...editForm, price_coins: v })} tokenRateInr={tokenRate} />
             <Field label="Remaining stock">
@@ -737,7 +753,9 @@ function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, 
           )}
           <div style={{ flex: 1 }}>
             <div style={S.rowTitle}>{item.title}</div>
-            {item.description && <div style={{ ...S.rowSub, marginBottom: 4 }}>{item.description}</div>}
+            {item.description && (
+              <div style={{ ...S.rowSub, marginBottom: 4, whiteSpace: 'pre-wrap' }}>{item.description}</div>
+            )}
             <div style={S.rowSub}>
               {item.price_coins} tokens (₹{(item.price_coins * tokenRate).toLocaleString('en-IN')}) ·{' '}
               {soldOut ? <span style={{ color: '#D99A9A' }}>0/{item.total_stock} remaining</span> : `${item.remaining}/${item.total_stock} remaining`}
