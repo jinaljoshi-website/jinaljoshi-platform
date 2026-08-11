@@ -3,13 +3,13 @@
 //
 // Sized to the machine rather than a fixed number: hardwareConcurrency reports
 // the cores available, and one is left free so the interface stays responsive
-// while the rest are busy. Capped at 4 because beyond that the gains flatten and
-// memory grows — each worker holds a decoded bitmap, and a 12MP photo is around
-// 48MB decoded.
+// while the rest are busy. Capped at 3 because each worker holds a decoded
+// bitmap — a 12MP photo is around 48MB decoded — and a browser that runs out of
+// memory mid-upload fails in ways that look like network problems.
 
 const MAX_WORKERS = 3;
 
-export function createCompressPool({ maxPx = 2048, quality = 0.85 } = {}) {
+export function createCompressPool({ maxPx = 2048, quality = 0.85, blurThreshold = 60 } = {}) {
   const size = Math.max(1, Math.min(MAX_WORKERS, (navigator.hardwareConcurrency || 4) - 1));
 
   const workers = [];
@@ -20,16 +20,15 @@ export function createCompressPool({ maxPx = 2048, quality = 0.85 } = {}) {
   let disposed = false;
 
   const spawn = () => {
-    // Vite resolves this at build time; the worker ships as its own chunk.
     const w = new Worker(new URL('./compressWorker.js', import.meta.url), { type: 'module' });
     w.onmessage = (e) => {
-      const { id, ok, blob, error } = e.data;
+      const { id, ok, blob, error, metrics } = e.data;
       const job = pending.get(id);
       pending.delete(id);
       idle.push(w);
       pump();
       if (!job) return;
-      if (ok) job.resolve(new File([blob], job.name, { type: 'image/jpeg' }));
+      if (ok) job.resolve({ file: new File([blob], job.name, { type: 'image/jpeg' }), metrics });
       else    job.reject(new Error(error || 'compression failed'));
     };
     w.onerror = (err) => {
@@ -58,24 +57,23 @@ export function createCompressPool({ maxPx = 2048, quality = 0.85 } = {}) {
       const job = queue.shift();
       job.worker = w;
       pending.set(job.id, job);
-      w.postMessage({ id: job.id, file: job.file, maxPx, quality });
+      w.postMessage({ id: job.id, file: job.file, maxPx, quality, blurThreshold });
     }
   }
 
   return {
     size,
-    // Resolves to a compressed File, or the original if compression was not
-    // possible. Never rejects — losing a photo to a codec quirk would be worse
-    // than uploading a large one.
+    // Resolves to { file, metrics }. Never rejects — losing a photo to a codec
+    // quirk would be worse than uploading a large one unmeasured.
     compress(file) {
-      if (disposed) return Promise.resolve(file);
+      if (disposed) return Promise.resolve({ file, metrics: null });
       return new Promise((resolve) => {
         const job = {
           id: nextId++,
           file,
           name: file.name.replace(/\.[^.]+$/, '.jpg'),
           resolve,
-          reject: () => resolve(file),
+          reject: () => resolve({ file, metrics: null }),
         };
         queue.push(job);
         pump();
