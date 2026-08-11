@@ -1414,7 +1414,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
   // How many bits two hashes may differ by and still be the same moment. Ten of
   // sixty-four: tight enough that two separate shots never group, loose enough
   // that a burst does even when the exposure shifted between frames.
-  const NEAR = 10;
+  const NEAR = 12;
   const hamming = (a, b) => {
     if (!a || !b || a.length !== b.length) return 99;
     let d = 0;
@@ -1425,23 +1425,28 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
     return d;
   };
 
-  // Runs of near-identical frames, in the order they were taken. Grouped rather
-  // than flagged: five frames of the same moment are not a mistake, they are a
-  // choice waiting to be made, and the useful thing is to put them side by side.
+  // Runs of near-identical frames, found among *consecutive* photos only.
+  //
+  // Comparing every frame with every other collapses on a set like these: 250
+  // photos of one outfit against one background are all somewhat alike, so a
+  // threshold loose enough to catch a burst would merge the whole set into a
+  // single run. A burst is consecutive by definition — the frames either side
+  // of it are the ones worth comparing, and nothing else is.
+  //
+  // Each frame is compared with the one before it, so a run continues as long
+  // as the drift stays small rather than requiring every frame to resemble the
+  // first. A slow pan over eight frames still groups; a change of pose does not.
   const nearGroups = (() => {
-    const withHash = items.filter((i) => i.quality?.hash);
-    const seen = new Set();
+    const seq = items.filter((i) => i.quality?.hash);
     const groups = [];
-    for (const a of withHash) {
-      if (seen.has(a.id)) continue;
-      const run = [a];
-      seen.add(a.id);
-      for (const b of withHash) {
-        if (seen.has(b.id)) continue;
-        if (hamming(a.quality.hash, b.quality.hash) <= NEAR) { run.push(b); seen.add(b.id); }
-      }
-      if (run.length > 1) groups.push(run);
+    let run = [];
+    for (let i = 0; i < seq.length; i++) {
+      if (!run.length) { run = [seq[i]]; continue; }
+      const d = hamming(run[run.length - 1].quality.hash, seq[i].quality.hash);
+      if (d <= NEAR) run.push(seq[i]);
+      else { if (run.length > 1) groups.push(run); run = [seq[i]]; }
     }
+    if (run.length > 1) groups.push(run);
     return groups;
   })();
 
