@@ -656,17 +656,110 @@ export function Merch() {
 
 const partnerBox = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, marginBottom: 20 };
 
+const pickerOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
+const pickerModal   = { width: '100%', maxWidth: 720, maxHeight: '85vh', overflowY: 'auto', background: '#1A1714', border: '1px solid rgba(193,125,74,0.25)', borderRadius: 14, padding: 24 };
+
 const auctionToggle = { display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 14, padding: '12px 14px', background: 'rgba(193,125,74,0.05)', border: '1px solid rgba(193,125,74,0.2)', borderRadius: 8, fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: '#9B8F83', cursor: 'pointer', lineHeight: 1.5 };
 
+function LibraryPicker({ onPick, onClose }) {
+  const [media,   setMedia]   = useState([]);
+  const [page,    setPage]    = useState(1);
+  const [pages,   setPages]   = useState(1);
+  const [chosen,  setChosen]  = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    // Unused only. A one-of-one photograph belongs to one listing, so showing
+    // the attached ones would only invite listing the same piece twice.
+    api.get(`/api/studio/merch/media?page=${page}&unattached=1`)
+      .then((d) => { setMedia(d.media || []); setPages(d.totalPages || 1); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [page]);
+
+  const toggle = (m2) => setChosen((prev) =>
+    prev.find((x) => x.id === m2.id) ? prev.filter((x) => x.id !== m2.id) : [...prev, m2]);
+
+  return (
+    <div style={pickerOverlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div style={pickerModal}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 12 }}>
+          <div>
+            <div style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 22, color: colors.text }}>
+              From the library
+            </div>
+            <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 2 }}>
+              Photos uploaded but not yet used on a listing
+            </div>
+          </div>
+          <button onClick={onClose} style={S.ghostBtn}>Close</button>
+        </div>
+
+        {loading ? <T.muted>Loading…</T.muted>
+         : media.length === 0 ? <T.muted>Nothing unused. Upload some in Media library first.</T.muted>
+         : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 10 }}>
+            {media.map((m2) => {
+              const on = !!chosen.find((x) => x.id === m2.id);
+              return (
+                <div key={m2.id} onClick={() => toggle(m2)}
+                     style={{ cursor: 'pointer', border: on ? `2px solid ${colors.accent}` : `1px solid ${colors.border}`,
+                              borderRadius: 8, padding: 5, background: on ? 'rgba(193,125,74,0.1)' : 'transparent' }}>
+                  <img src={m2.r2_key} alt="" loading="lazy"
+                       style={{ width: '100%', aspectRatio: '3 / 4', objectFit: 'cover', borderRadius: 5, display: 'block' }} />
+                  <div style={{ fontFamily: sans, fontSize: 10, color: on ? colors.accent : colors.muted, marginTop: 4,
+                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {m2.original_filename || m2.id.slice(0, 8)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {pages > 1 && (
+              <>
+                <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1}
+                        style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', opacity: page === 1 ? 0.4 : 1 }}>←</button>
+                <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>{page} / {pages}</span>
+                <button onClick={() => setPage(Math.min(pages, page + 1))} disabled={page === pages}
+                        style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', opacity: page === pages ? 0.4 : 1 }}>→</button>
+              </>
+            )}
+          </div>
+          <button onClick={() => { onPick(chosen.map((c) => ({ url: c.r2_key }))); onClose(); }}
+                  disabled={!chosen.length}
+                  style={{ ...S.btn, opacity: chosen.length ? 1 : 0.5 }}>
+            {chosen.length ? `Use ${chosen.length} photo${chosen.length === 1 ? '' : 's'}` : 'Choose photos'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PhotoManager({ list, setList, inputRef, onPick, uploading, compact }) {
+  const [picking, setPicking] = useState(false);
   const size = compact ? 52 : 64;
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: list.length ? 8 : 0 }}>
         <input ref={inputRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={onPick} />
         <button onClick={() => inputRef.current?.click()} style={S.ghostBtn}>
-          {list.length ? 'Add more photos' : 'Choose photos'}
+          {list.length ? 'Add more photos' : 'Upload photos'}
         </button>
+        <button onClick={() => setPicking(true)} style={S.ghostBtn}>
+          From library
+        </button>
+        {picking && (
+          <LibraryPicker
+            onPick={(chosen) => setList([...list, ...chosen])}
+            onClose={() => setPicking(false)}
+          />
+        )}
         {uploading && <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: colors.muted }}>Uploading…</span>}
         {list.length > 1 && (
           <span style={{ fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 11, color: colors.muted }}>
