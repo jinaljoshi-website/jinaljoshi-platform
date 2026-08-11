@@ -343,7 +343,53 @@ router.get('/fans/:id/history', async (req, res) => {
       [req.params.id]
     );
 
+    // Where their money and their attention actually went. The history says
+    // what happened; this says what it adds up to, which is the question you
+    // arrive with.
+    const { rows: sum } = await pool.query(
+      `SELECT
+         (SELECT COALESCE(SUM(payment_amount_inr), 0) FROM coin_ledger
+          WHERE user_id = $1 AND type = 'recharge' AND direction = 'credit')        AS paid_inr,
+         (SELECT COALESCE(SUM(amount), 0) FROM coin_ledger
+          WHERE user_id = $1 AND type = 'recharge' AND direction = 'credit')        AS tokens_bought,
+         (SELECT COALESCE(SUM(g.amount), 0) FROM gifted_grants g WHERE g.user_id = $1) AS tokens_gifted,
+         (SELECT count(*) FROM access_grants WHERE user_id = $1 AND scope = 'tier')  AS sets_opened,
+         (SELECT count(*) FROM access_grants WHERE user_id = $1 AND scope = 'upsell') AS extras_bought,
+         (SELECT count(*) FROM set_views v WHERE v.user_id = $1
+            AND NOT EXISTS (SELECT 1 FROM access_grants g2
+                            WHERE g2.user_id = v.user_id AND g2.set_id = v.set_id))  AS looked_only,
+         (SELECT count(*) FROM direct_messages WHERE sender_id = $1)                 AS messages,
+         (SELECT count(*) FROM call_requests WHERE user_id = $1)                     AS calls,
+         (SELECT COALESCE(SUM(coin_balance), 0) FROM users WHERE id = $1)            AS balance`,
+      [req.params.id]
+    );
+
+    // What they spent it on, by kind. A member who spends everything on messages
+    // is a different person from one who spends it on sets, and the total alone
+    // hides which.
+    const { rows: byType } = await pool.query(
+      `SELECT type, COALESCE(SUM(amount), 0)::int AS tokens, count(*) AS times
+       FROM coin_ledger WHERE user_id = $1 AND direction = 'debit'
+       GROUP BY type ORDER BY 2 DESC`,
+      [req.params.id]
+    );
+
+    const t = sum[0];
     res.json({
+      summary: {
+        paidInr:      Number(t.paid_inr),
+        tokensBought: Number(t.tokens_bought),
+        tokensGifted: Number(t.tokens_gifted),
+        setsOpened:   Number(t.sets_opened),
+        extrasBought: Number(t.extras_bought),
+        lookedOnly:   Number(t.looked_only),
+        messages:     Number(t.messages),
+        calls:        Number(t.calls),
+        balance:      Number(t.balance),
+      },
+      spentOn: byType.map((r) => ({
+        type: r.type, tokens: Number(r.tokens), times: Number(r.times),
+      })),
       rows: rows.map((r) => ({
         at: r.at, kind: r.kind, detail: r.detail,
         tokens: Number(r.tokens) || 0, extra: r.extra,

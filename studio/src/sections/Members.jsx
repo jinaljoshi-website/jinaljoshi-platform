@@ -7,6 +7,9 @@ const TOKEN_RATE = 66;
 const sans = "'DM Sans', system-ui, sans-serif";
 const mono = "'DM Mono', 'Courier New', monospace";
 
+const sumGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 };
+const sumCard = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 12px' };
+
 const historyBox = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12, marginTop: 4 };
 const historyRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '7px 0', borderBottom: `1px solid ${colors.border}` };
 
@@ -28,6 +31,31 @@ const HISTORY_KINDS = {
   message:    { label: 'Sent a message',         colour: '#C17D4A' },
   call:       { label: 'Call',                   colour: '#C17D4A' },
 };
+
+// The ledger's own vocabulary, in words Jinal would use.
+const SPEND_LABELS = {
+  dm_charge:           'Messages',
+  chat_media_unlock:   'Media in chat',
+  content_unlock:      'Sets and selfies',
+  call_charge:         'Calls',
+  merch_purchase:      'Merchandise',
+  custom_request:      'Custom requests',
+  membership_purchase: 'Membership',
+  membership_upgrade:  'Upgrade',
+  membership_extend:   'Extension',
+};
+
+function Sum({ label, value, sub, tone }) {
+  return (
+    <div style={sumCard}>
+      <div style={{ fontFamily: mono, fontSize: 9, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+        {label}
+      </div>
+      <div style={{ fontFamily: sans, fontSize: 18, color: tone || colors.text, marginTop: 4 }}>{value}</div>
+      {sub && <div style={{ fontFamily: sans, fontSize: 10, color: colors.muted, marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
 
 export function Members() {
   const [fans,     setFans]     = useState([]);
@@ -51,6 +79,9 @@ export function Members() {
   const [mutingId,    setMutingId]    = useState(null);
   const [historyFor,  setHistoryFor]  = useState(null);
   const [history,     setHistory]     = useState(null);
+  const [summary,     setSummary]     = useState(null);
+  const [spentOn,     setSpentOn]     = useState([]);
+  const [histTab,     setHistTab]     = useState('summary');
 
   const openHistory = async (fan) => {
     if (historyFor === fan.id) { setHistoryFor(null); return; }
@@ -58,6 +89,8 @@ export function Members() {
     try {
       const d = await api.get(`/api/studio/fans/${fan.id}/history`);
       setHistory(d.rows || []);
+      setSummary(d.summary || null);
+      setSpentOn(d.spentOn || []);
     } catch (err) { setError(err.message); }
   };
   const [blockingId,  setBlockingId]  = useState(null);
@@ -243,6 +276,11 @@ export function Members() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 180 }}>
                   <div style={S.rowTitle}>{fan.display_name || fan.email}</div>
+                  {fan.display_name && (
+                    <div style={{ fontFamily: mono, fontSize: 11, color: colors.muted, marginTop: 2 }}>
+                      {fan.email}
+                    </div>
+                  )}
                   <div style={S.rowSub}>
                     Joined {new Date(fan.created_at).toLocaleDateString()} · {fan.coin_balance} tokens
                     {isActive && ` · expires ${new Date(fan.membership_expires_at).toLocaleDateString()}`}
@@ -263,7 +301,54 @@ export function Members() {
 
               {historyFor === fan.id && (
                 <div style={historyBox}>
-                  {!history ? <T.muted>Loading…</T.muted>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                    {[{ k: 'summary', l: 'Summary' }, { k: 'history', l: 'Everything they did' }].map((t) => (
+                      <button key={t.k} onClick={() => setHistTab(t.k)}
+                        style={{
+                          fontFamily: sans, fontSize: 11, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
+                          background: histTab === t.k ? 'rgba(193,125,74,0.12)' : 'transparent',
+                          border:     histTab === t.k ? `1px solid ${colors.accent}` : `1px solid ${colors.border}`,
+                          color:      histTab === t.k ? colors.accent : colors.muted,
+                        }}>
+                        {t.l}
+                      </button>
+                    ))}
+                  </div>
+
+                  {histTab === 'summary' && summary && (
+                    <div style={{ marginBottom: 4 }}>
+                      <div style={sumGrid}>
+                        <Sum label="Paid"          value={`₹${summary.paidInr.toLocaleString('en-IN')}`}
+                             sub={`${summary.tokensBought} tokens bought`} tone={summary.paidInr > 0 ? '#8FC88F' : null} />
+                        <Sum label="Gifted to them" value={summary.tokensGifted} sub="tokens" />
+                        <Sum label="Balance now"    value={summary.balance} sub="tokens" />
+                        <Sum label="Sets opened"    value={summary.setsOpened}
+                             sub={`${summary.extrasBought} extra portions bought`} />
+                        <Sum label="Looked, no unlock" value={summary.lookedOnly} sub="sets browsed only" />
+                        <Sum label="Messages"       value={summary.messages} sub={`${summary.calls} call${summary.calls === 1 ? '' : 's'}`} />
+                      </div>
+
+                      {spentOn.length > 0 && (
+                        <>
+                          <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase', margin: '14px 0 8px' }}>
+                            Where their tokens went
+                          </div>
+                          {spentOn.map((s2) => (
+                            <div key={s2.type} style={historyRow}>
+                              <span style={{ fontFamily: sans, fontSize: 12, color: colors.text }}>
+                                {SPEND_LABELS[s2.type] || s2.type.replace(/_/g, ' ')}
+                              </span>
+                              <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
+                                {s2.tokens} tokens · {s2.times} time{s2.times === 1 ? '' : 's'}
+                              </span>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {histTab === 'history' && (!history ? <T.muted>Loading…</T.muted>
                    : history.length === 0 ? <T.muted>Nothing yet.</T.muted>
                    : (
                     <div style={{ display: 'grid', gap: 5, maxHeight: 320, overflowY: 'auto' }}>
@@ -290,7 +375,7 @@ export function Members() {
                         );
                       })}
                     </div>
-                  )}
+                  ))}
                 </div>
               )}
 
