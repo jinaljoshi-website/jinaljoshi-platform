@@ -2150,7 +2150,7 @@ router.delete('/availability/:id', async (req, res) => {
 router.get('/calls/ringing', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT cr.id, cr.call_type, cr.duration_minutes, cr.total_cost, cr.created_at,
+      `SELECT cr.id, cr.call_type, cr.coins_per_min, cr.coins_charged, cr.created_at,
               u.display_name, u.email, u.tier
        FROM call_requests cr JOIN users u ON u.id = cr.user_id
        WHERE cr.status = 'ringing'
