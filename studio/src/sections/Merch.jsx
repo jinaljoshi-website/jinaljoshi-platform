@@ -710,7 +710,7 @@ function LibraryPicker({ onPick, onClose }) {
                        style={{ width: '100%', aspectRatio: '3 / 4', objectFit: 'cover', borderRadius: 5, display: 'block' }} />
                   <div style={{ fontFamily: sans, fontSize: 10, color: on ? colors.accent : colors.muted, marginTop: 4,
                                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {m2.original_filename || m2.id.slice(0, 8)}
+                    {m2.original_filename || (m2.file_uuid || m2.id).slice(0, 8)}
                   </div>
                 </div>
               );

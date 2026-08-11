@@ -1906,6 +1906,7 @@ router.get('/merch/media', async (req, res) => {
 
     const { rows } = await pool.query(
       `SELECT m.id, m.r2_key, m.original_filename, m.width, m.height, m.bytes, m.uploaded_at,
+              regexp_replace(m.r2_key, '^.*/([^/.]+)\\.[^.]+$', '\\1') AS file_uuid,
               ${attachedClause} AS attached,
               (SELECT mi2.merch_id FROM merchandise_images mi2 WHERE mi2.url = m.r2_key LIMIT 1) AS merch_id,
               (SELECT mm.title FROM merchandise_images mi3

@@ -34,6 +34,7 @@ export function MerchMedia() {
   // rather than being a number that quietly does not add up.
   const [queue,   setQueue]   = useState([]);   // [{ name, status, error }]
   const [busy,    setBusy]    = useState(false);
+  const [copied,  setCopied]  = useState(null);
 
   const fileRef = useRef(null);
   const poolRef = useRef(null);
@@ -188,7 +189,7 @@ export function MerchMedia() {
               {/* The full-size URL is in the markup rather than assembled in
                   JavaScript when clicked, so the library can be read
                   programmatically as well as by eye. */}
-              <a href={m.r2_key} data-src={m.r2_key} data-uuid={m.id}
+              <a href={m.r2_key} data-src={m.r2_key} data-uuid={m.file_uuid || m.id}
                  data-filename={m.original_filename || ''}
                  target="_blank" rel="noopener noreferrer">
                 <img src={m.r2_key} alt={m.original_filename || ''} loading="lazy"
@@ -199,9 +200,14 @@ export function MerchMedia() {
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {m.original_filename || '—'}
               </div>
-              <div style={{ fontFamily: mono, fontSize: 9, color: colors.muted, marginTop: 2,
-                            overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {m.id}
+              {/* The UUID in the URL, not the database row's — one identifier
+                  for a photograph, so a CSV row and a library tile always mean
+                  the same file. Click to copy. */}
+              <div onClick={() => { navigator.clipboard?.writeText(m.file_uuid || m.id); setCopied(m.id); setTimeout(() => setCopied(null), 1200); }}
+                   title="Click to copy"
+                   style={{ fontFamily: mono, fontSize: 9, color: copied === m.id ? colors.success : colors.muted,
+                            marginTop: 2, cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {copied === m.id ? 'copied' : (m.file_uuid || m.id)}
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginTop: 5 }}>
                 <span style={{ fontFamily: sans, fontSize: 10, color: m.attached ? colors.success : colors.muted }}>
