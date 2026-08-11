@@ -3,127 +3,133 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { T, S, Card, Eyebrow, Badge, Field, TokenField, colors } from '../ui';
 
+const TOKEN_RATE = 66;
 const sans = "'DM Sans', system-ui, sans-serif";
+const mono = "'DM Mono', 'Courier New', monospace";
+
+const historyBox = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12, marginTop: 4 };
+const historyRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '7px 0', borderBottom: `1px solid ${colors.border}` };
 
 function isCurrentlyBlocked(blockedUntil) {
   return blockedUntil && new Date(blockedUntil) > new Date();
 }
 
+// What a member has actually done, in order.
+//
+// Deliberately separates looking from buying. A set somebody opened and did not
+// unlock is a visit, not a purchase, and reporting both as "opened" is how a
+// paid set with no buyers ends up looking popular.
+const HISTORY_KINDS = {
+  unlock:     { label: 'Unlocked',              colour: '#8FC88F' },
+  viewed:     { label: 'Looked, did not unlock', colour: null     },
+  recharge:   { label: 'Bought tokens',          colour: '#8FC88F' },
+  membership: { label: 'Membership',             colour: '#C17D4A' },
+  spend:      { label: 'Spent tokens',           colour: null     },
+  message:    { label: 'Sent a message',         colour: '#C17D4A' },
+  call:       { label: 'Call',                   colour: '#C17D4A' },
+};
+
 export function Members() {
-  const [fans,      setFans]      = useState([]);
-  const [tokenRate, setTokenRate] = useState(null);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState('');
-  const [success,   setSuccess]   = useState('');
+  const [fans,     setFans]     = useState([]);
+  const [loading,  setLoading]  = useState(true);
 
-  // Per-fan panels — only one open at a time, keyed by fan id
-  const [panel,     setPanel]     = useState(null);   // { fanId, kind: 'tokens' | 'membership' }
-  const [amount,    setAmount]    = useState('');
-  const [reason,    setReason]    = useState('');
-  const [tier,      setTier]      = useState('community');
-  const [term,      setTerm]      = useState('monthly');
-  const [note,      setNote]      = useState('');
-  const [busy,      setBusy]      = useState(false);
-  const [conflict,  setConflict]  = useState(null);
+  // Gift membership
+  const [email,    setEmail]    = useState('');
+  const [tier,     setTier]     = useState('community');
+  const [term,     setTerm]     = useState('monthly');
+  const [note,     setNote]     = useState('');
+  const [gifting,  setGifting]  = useState(false);
+  const [conflict, setConflict] = useState(null);
 
-  // Refunds — a fan's spends, loaded on demand when the panel opens
-  const [txns,      setTxns]      = useState([]);
-  const [txnLoading, setTxnLoading] = useState(false);
-  const [refundId,  setRefundId]  = useState(null);
-  const [refundNote, setRefundNote] = useState('');
+  // Token grant
+  const [grantEmail,  setGrantEmail]  = useState('');
+  const [grantAmt,    setGrantAmt]    = useState('');
+  const [grantReason, setGrantReason] = useState('');
+  const [granting,    setGranting]    = useState(false);
 
   // Moderation
   const [mutingId,    setMutingId]    = useState(null);
+  const [historyFor,  setHistoryFor]  = useState(null);
+  const [history,     setHistory]     = useState(null);
+
+  const openHistory = async (fan) => {
+    if (historyFor === fan.id) { setHistoryFor(null); return; }
+    setHistoryFor(fan.id); setHistory(null);
+    try {
+      const d = await api.get(`/api/studio/fans/${fan.id}/history`);
+      setHistory(d.rows || []);
+    } catch (err) { setError(err.message); }
+  };
   const [blockingId,  setBlockingId]  = useState(null);
   const [blockReason, setBlockReason] = useState('');
 
-  const [modLog,  setModLog]  = useState([]);
+  const [error,   setError]   = useState('');
+  const [success, setSuccess] = useState('');
+
+  const [modLog, setModLog] = useState([]);
   const [showLog, setShowLog] = useState(false);
 
-  const loadFans   = () => api.get('/api/studio/fans').then((d) => setFans(d.fans || []));
+  const loadFans = () => api.get('/api/studio/fans').then((d) => setFans(d.fans || []));
   const loadModLog = () => api.get('/api/studio/moderation-log').then((d) => setModLog(d.log || [])).catch(() => {});
 
   useEffect(() => {
-    Promise.all([
-      loadFans(),
-      api.get('/api/studio/config').then((d) => {
-        const r = parseFloat(d.config?.token_rate_inr);
-        if (!Number.isNaN(r)) setTokenRate(r);
-      }),
-    ]).finally(() => setLoading(false));
+    loadFans().finally(() => setLoading(false));
     loadModLog();
   }, []);
 
-  const openPanel = (fanId, kind) => {
-    setPanel({ fanId, kind });
-    setAmount(''); setReason(''); setNote(''); setConflict(null);
-    setRefundId(null); setRefundNote(''); setTxns([]);
-    setError(''); setSuccess('');
-    if (kind === 'refund') {
-      setTxnLoading(true);
-      api.get(`/api/studio/fans/${fanId}/transactions`)
-        .then((d) => setTxns(d.transactions || []))
-        .catch((err) => setError(err.message))
-        .finally(() => setTxnLoading(false));
+  const handleGift = async (action = 'gift') => {
+    setError(''); setSuccess(''); setConflict(null); setGifting(true);
+    try {
+      const endpoint = action === 'extend' ? '/api/membership/gift/extend'
+                     : action === 'change'  ? '/api/membership/gift/change'
+                     : '/api/membership/gift';
+      const body = action === 'extend' ? { email, term } : { email, tier, term, note };
+      const data = await api.post(endpoint, body);
+      setSuccess(data.message || 'Done.');
+      setEmail(''); setNote('');
+      loadFans();
+    } catch (err) {
+      if (err.message === 'ALREADY_MEMBER') setConflict({ email });
+      else setError(err.message);
+    } finally {
+      setGifting(false);
     }
   };
 
-  const issueRefund = async (fanId) => {
-    setError(''); setSuccess(''); setBusy(true);
-    try {
-      const data = await api.post('/api/studio/refund', {
-        ledgerId: refundId,
-        reason:   refundNote.trim() || undefined,
-      });
-      setSuccess(data.message);
-      closePanel();
-      loadFans();
-    } catch (err) {
-      setError(err.message);
-    } finally { setBusy(false); }
-  };
-  const closePanel = () => { setPanel(null); setConflict(null); };
-
-  const giftTokens = async (fan) => {
-    setError(''); setSuccess(''); setBusy(true);
+  const handleGrantTokens = async () => {
+    setError(''); setSuccess(''); setGranting(true);
     try {
       const data = await api.post('/api/studio/grant-tokens', {
-        email:  fan.email,
-        amount: parseInt(amount),
-        reason: reason.trim() || 'Token gift from Jinal',
+        email:  grantEmail.toLowerCase().trim(),
+        amount: parseInt(grantAmt),
+        reason: grantReason || 'Token grant from Jinal',
       });
       setSuccess(data.message);
-      closePanel();
+      setGrantEmail(''); setGrantAmt(''); setGrantReason('');
       loadFans();
     } catch (err) {
       setError(err.message);
-    } finally { setBusy(false); }
-  };
-
-  const giftMembership = async (fan, action = 'gift') => {
-    setError(''); setSuccess(''); setConflict(null); setBusy(true);
-    try {
-      const endpoint = action === 'extend' ? '/api/membership/gift/extend'
-                     : action === 'change' ? '/api/membership/gift/change'
-                     : '/api/membership/gift';
-      const body = action === 'extend' ? { email: fan.email, term } : { email: fan.email, tier, term, note };
-      const data = await api.post(endpoint, body);
-      setSuccess(data.message || 'Done.');
-      closePanel();
-      loadFans();
-    } catch (err) {
-      if (err.message === 'ALREADY_MEMBER') setConflict(fan.id);
-      else setError(err.message);
-    } finally { setBusy(false); }
+    } finally {
+      setGranting(false);
+    }
   };
 
   const toggleMute = async (fanId, currentlyMuted) => {
-    setError(''); setSuccess(''); setMutingId(fanId);
+    setError(''); setSuccess('');
+    setMutingId(fanId);
     try {
       await api.post(`/api/studio/fan-settings/${fanId}/mute`, { muted: !currentlyMuted });
-      loadFans(); loadModLog();
-    } catch (err) { setError(err.message); } finally { setMutingId(null); }
+      loadFans();
+      loadModLog();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setMutingId(null);
+    }
   };
+
+  const startBlock = (fanId) => { setBlockingId(fanId); setBlockReason(''); };
+  const cancelBlock = () => { setBlockingId(null); setBlockReason(''); };
 
   const confirmBlock = async (fanId) => {
     setError('');
@@ -131,8 +137,11 @@ export function Members() {
       const data = await api.post(`/api/studio/fan-settings/${fanId}/block`, { reason: blockReason.trim() || undefined });
       setSuccess(data.message);
       setBlockingId(null); setBlockReason('');
-      loadFans(); loadModLog();
-    } catch (err) { setError(err.message); }
+      loadFans();
+      loadModLog();
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   const unblock = async (fanId) => {
@@ -140,8 +149,11 @@ export function Members() {
     try {
       const data = await api.post(`/api/studio/fan-settings/${fanId}/unblock`, {});
       setSuccess(data.message);
-      loadFans(); loadModLog();
-    } catch (err) { setError(err.message); }
+      loadFans();
+      loadModLog();
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   if (loading) return <T.muted>Loading members…</T.muted>;
@@ -154,60 +166,145 @@ export function Members() {
       {error   && <div style={S.error}>{error}</div>}
       {success && <div style={S.success}>{success}</div>}
 
-      <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, lineHeight: 1.7, marginBottom: 20, maxWidth: 760 }}>
-        Gifted tokens can be spent on messages and content only, and expire after 30 days.
-        They cannot be used for merchandise, outfits, calls or membership — gift a membership
-        directly if that is what you mean to give.
-      </p>
+      {/* Gift membership */}
+      <Card style={{ marginBottom: 20 }}>
+        <T.sectionTitle>Gift a membership</T.sectionTitle>
+        {conflict ? (
+          <div>
+            <div style={S.error}>{conflict.email} already has an active membership.</div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+              <button onClick={() => handleGift('extend')} style={S.btn}>Add {term} to their membership</button>
+              <button onClick={() => handleGift('change')} style={S.ghostBtn}>Change tier to {tier}</button>
+              <button onClick={() => setConflict(null)} style={S.ghostBtn}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div style={S.formGrid}>
+            <Field label="Fan email">
+              <input style={S.input} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="fan@example.com" />
+            </Field>
+            <Field label="Tier">
+              <select style={S.input} value={tier} onChange={(e) => setTier(e.target.value)}>
+                <option value="community">Community</option>
+                <option value="insider">Insider</option>
+                <option value="premium">Premium</option>
+                <option value="supreme">Supreme</option>
+              </select>
+            </Field>
+            <Field label="Duration">
+              <select style={S.input} value={term} onChange={(e) => setTerm(e.target.value)}>
+                <option value="monthly">1 month</option>
+                <option value="quarterly">3 months</option>
+                <option value="annual">12 months</option>
+              </select>
+            </Field>
+            <Field label="Note (optional)">
+              <input style={S.input} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Internal note" />
+            </Field>
+            <div style={{ alignSelf: 'flex-end' }}>
+              <button onClick={() => handleGift('gift')} disabled={gifting || !email.trim()} style={{ ...S.btn, opacity: (gifting || !email.trim()) ? 0.5 : 1 }}>
+                {gifting ? 'Gifting…' : 'Gift membership'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Card>
 
+      {/* Token grant */}
+      <Card style={{ marginBottom: 28 }}>
+        <T.sectionTitle>Send tokens to a fan</T.sectionTitle>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14, lineHeight: 1.6 }}>
+          Use this for refunds, compensation for failed calls or requests, or goodwill gestures. The fan sees a balance change and receives a notification.
+        </p>
+        <div style={S.formGrid}>
+          <Field label="Fan email">
+            <input style={S.input} value={grantEmail} onChange={(e) => setGrantEmail(e.target.value)} placeholder="fan@example.com" />
+          </Field>
+          <TokenField label="Amount to send" value={grantAmt} onChange={setGrantAmt} tokenRateInr={TOKEN_RATE} />
+          <Field label="Reason">
+            <input style={S.input} value={grantReason} onChange={(e) => setGrantReason(e.target.value)} placeholder="e.g. Refund for call that didn't connect" />
+          </Field>
+          <div style={{ alignSelf: 'flex-end' }}>
+            <button onClick={handleGrantTokens} disabled={granting || !grantEmail.trim() || !grantAmt} style={{ ...S.btn, opacity: (granting || !grantEmail.trim() || !grantAmt) ? 0.5 : 1 }}>
+              {granting ? 'Sending…' : 'Send tokens'}
+            </button>
+          </div>
+        </div>
+      </Card>
+
+      {/* Fan list */}
       <T.sectionTitle>All fans ({fans.length})</T.sectionTitle>
       <div style={{ display: 'grid', gap: 8, marginBottom: 32 }}>
         {fans.map((fan) => {
           const isActive  = fan.membership_expires_at && new Date(fan.membership_expires_at) > new Date();
           const isBlocked = isCurrentlyBlocked(fan.blocked_until);
-          const openHere  = panel?.fanId === fan.id;
-
           return (
             <div key={fan.id} style={{ ...S.card, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, minWidth: 200 }}>
-                  <div style={S.rowTitle}>{fan.display_name || fan.email.split('@')[0]}</div>
-                  <div style={{ ...S.rowSub, fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{fan.email}</div>
-                  <div style={{ ...S.rowSub, marginTop: 4 }}>
-                    Joined {new Date(fan.created_at).toLocaleDateString()} · {fan.coin_balance} purchased
-                    {fan.gifted_balance > 0 && (
-                      <span style={{ color: '#8FC88F' }}>
-                        {' '}· {fan.gifted_balance} gifted
-                        {fan.gifted_expires_at && ` (to ${new Date(fan.gifted_expires_at).toLocaleDateString()})`}
-                      </span>
-                    )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 180 }}>
+                  <div style={S.rowTitle}>{fan.display_name || fan.email}</div>
+                  <div style={S.rowSub}>
+                    Joined {new Date(fan.created_at).toLocaleDateString()} · {fan.coin_balance} tokens
                     {isActive && ` · expires ${new Date(fan.membership_expires_at).toLocaleDateString()}`}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                  {fan.is_muted && <span style={mutedPill}>Muted</span>}
-                  {isBlocked && <span style={blockedPill}>Blocked until {new Date(fan.blocked_until).toLocaleString()}</span>}
+                  {fan.is_muted && (
+                    <span style={{ fontFamily: sans, fontSize: 10, color: '#D9A45C', background: 'rgba(217,164,92,0.1)', border: '1px solid rgba(217,164,92,0.3)', borderRadius: 999, padding: '3px 8px' }}>Muted</span>
+                  )}
+                  {isBlocked && (
+                    <span style={{ fontFamily: sans, fontSize: 10, color: '#D99A9A', background: 'rgba(156,90,90,0.1)', border: '1px solid rgba(156,90,90,0.3)', borderRadius: 999, padding: '3px 8px' }}>
+                      Blocked until {new Date(fan.blocked_until).toLocaleString()}
+                    </span>
+                  )}
                   <Badge tier={isActive ? fan.tier : 'guest'} />
                 </div>
               </div>
 
-              {/* Actions */}
+              {historyFor === fan.id && (
+                <div style={historyBox}>
+                  {!history ? <T.muted>Loading…</T.muted>
+                   : history.length === 0 ? <T.muted>Nothing yet.</T.muted>
+                   : (
+                    <div style={{ display: 'grid', gap: 5, maxHeight: 320, overflowY: 'auto' }}>
+                      {history.map((h, i) => {
+                        const k = HISTORY_KINDS[h.kind] || { label: h.kind, colour: null };
+                        return (
+                          <div key={i} style={historyRow}>
+                            <div style={{ flex: 1, minWidth: 180 }}>
+                              <div style={{ fontFamily: sans, fontSize: 12, color: colors.text }}>
+                                <span style={{ color: k.colour || colors.muted }}>{k.label}</span>
+                                {h.detail && <span style={{ color: colors.muted }}> · {h.detail}</span>}
+                              </div>
+                              <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
+                                {new Date(h.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                {h.extra && ` · ${h.extra}`}
+                              </div>
+                            </div>
+                            {h.tokens > 0 && (
+                              <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted, flexShrink: 0 }}>
+                                {h.tokens} tokens
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderTop: `1px solid ${colors.border}`, paddingTop: 10 }}>
-                <button onClick={() => openHere && panel.kind === 'tokens' ? closePanel() : openPanel(fan.id, 'tokens')}
-                        style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', color: '#8FC88F' }}>
-                  Gift tokens
-                </button>
-                <button onClick={() => openHere && panel.kind === 'membership' ? closePanel() : openPanel(fan.id, 'membership')}
-                        style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', color: colors.accent }}>
-                  {isActive ? 'Extend or change membership' : 'Gift membership'}
-                </button>
-                <button onClick={() => openHere && panel.kind === 'refund' ? closePanel() : openPanel(fan.id, 'refund')}
+                <button onClick={() => openHistory(fan)}
                         style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
-                  Refund a transaction
+                  {historyFor === fan.id ? 'Hide history' : 'History'}
                 </button>
 
-                <button onClick={() => toggleMute(fan.id, fan.is_muted)} disabled={mutingId === fan.id}
-                        style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', opacity: mutingId === fan.id ? 0.5 : 1 }}>
+                <button
+                  onClick={() => toggleMute(fan.id, fan.is_muted)}
+                  disabled={mutingId === fan.id}
+                  style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', opacity: mutingId === fan.id ? 0.5 : 1 }}
+                >
                   {mutingId === fan.id ? '…' : fan.is_muted ? 'Unmute' : 'Mute chat & calls'}
                 </button>
 
@@ -217,168 +314,23 @@ export function Members() {
                   </button>
                 ) : blockingId === fan.id ? (
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <input value={blockReason} onChange={(e) => setBlockReason(e.target.value)}
-                           placeholder="Reason (internal, optional)"
-                           style={{ ...S.input, width: 200, padding: '5px 10px', fontSize: 11 }} />
+                    <input
+                      value={blockReason}
+                      onChange={(e) => setBlockReason(e.target.value)}
+                      placeholder="Reason (internal, optional)"
+                      style={{ ...S.input, width: 200, padding: '5px 10px', fontSize: 11 }}
+                    />
                     <button onClick={() => confirmBlock(fan.id)} style={{ ...S.btn, fontSize: 11, padding: '5px 10px', background: '#9C5A5A', border: 'none' }}>
                       Confirm restriction
                     </button>
-                    <button onClick={() => { setBlockingId(null); setBlockReason(''); }} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>Cancel</button>
+                    <button onClick={cancelBlock} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>Cancel</button>
                   </div>
                 ) : (
-                  <button onClick={() => { setBlockingId(fan.id); setBlockReason(''); }}
-                          style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', color: '#D99A9A', border: '1px solid rgba(156,90,90,0.3)' }}>
+                  <button onClick={() => startBlock(fan.id)} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', color: '#D99A9A', border: '1px solid rgba(156,90,90,0.3)' }}>
                     Restrict account {fan.block_count > 0 && `(offense #${fan.block_count + 1})`}
                   </button>
                 )}
               </div>
-
-              {/* Gift tokens panel */}
-              {openHere && panel.kind === 'tokens' && (
-                <div style={panelBox}>
-                  <div style={panelTitle}>Gift tokens to {fan.display_name || fan.email}</div>
-                  <div style={S.formGrid}>
-                    {tokenRate === null ? (
-                      <Field label="Amount"><input style={S.input} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="e.g. 10" /></Field>
-                    ) : (
-                      <TokenField label="Amount" value={amount} onChange={setAmount} tokenRateInr={tokenRate} />
-                    )}
-                    <Field label="Reason (shown in their history)">
-                      <input style={S.input} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Welcome gift" />
-                    </Field>
-                    <div style={{ alignSelf: 'flex-end', display: 'flex', gap: 8 }}>
-                      <button onClick={() => giftTokens(fan)} disabled={busy || !amount}
-                              style={{ ...S.btn, opacity: (busy || !amount) ? 0.5 : 1 }}>
-                        {busy ? 'Sending…' : 'Send gift'}
-                      </button>
-                      <button onClick={closePanel} style={S.ghostBtn}>Cancel</button>
-                    </div>
-                  </div>
-                  <div style={panelNote}>Expires 30 days from now · messages and content only</div>
-                </div>
-              )}
-
-              {/* Refund panel */}
-              {openHere && panel.kind === 'refund' && (
-                <div style={panelBox}>
-                  <div style={panelTitle}>Refund a transaction for {fan.display_name || fan.email}</div>
-                  {txnLoading ? (
-                    <T.muted>Loading transactions…</T.muted>
-                  ) : txns.length === 0 ? (
-                    <T.muted>This fan has not spent anything yet.</T.muted>
-                  ) : (
-                    <>
-                      <div style={{ display: 'grid', gap: 4, maxHeight: 260, overflowY: 'auto', marginBottom: 12 }}>
-                        {txns.map((t) => {
-                          const done     = !!t.refunded_at;
-                          const selected = refundId === t.id;
-                          return (
-                            <button
-                              key={t.id}
-                              onClick={() => !done && setRefundId(selected ? null : t.id)}
-                              disabled={done}
-                              style={{
-                                ...txnRow,
-                                cursor: done ? 'default' : 'pointer',
-                                opacity: done ? 0.45 : 1,
-                                border: selected ? `1px solid ${colors.accent}` : `1px solid ${colors.border}`,
-                                background: selected ? 'rgba(193,125,74,0.08)' : 'transparent',
-                              }}
-                            >
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontFamily: sans, fontSize: 12, color: colors.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {t.label || t.type}
-                                </div>
-                                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 10, color: colors.muted, marginTop: 2 }}>
-                                  {new Date(t.created_at).toLocaleString()} · {t.type}
-                                  {t.from_gifted > 0 && ` · ${t.from_gifted} gifted`}
-                                  {t.from_purchased > 0 && ` · ${t.from_purchased} purchased`}
-                                  {done && ' · already refunded'}
-                                </div>
-                              </div>
-                              <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, flexShrink: 0, marginLeft: 10 }}>
-                                {t.amount}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <div style={S.formGrid}>
-                        <Field label="Reason (shown to the fan in their history)">
-                          <input style={S.input} value={refundNote} onChange={(e) => setRefundNote(e.target.value)}
-                                 placeholder="e.g. Call did not connect" />
-                        </Field>
-                        <div style={{ alignSelf: 'flex-end', display: 'flex', gap: 8 }}>
-                          <button onClick={() => issueRefund(fan.id)} disabled={busy || !refundId}
-                                  style={{ ...S.btn, opacity: (busy || !refundId) ? 0.5 : 1 }}>
-                            {busy ? 'Refunding…' : 'Issue refund'}
-                          </button>
-                          <button onClick={closePanel} style={S.ghostBtn}>Cancel</button>
-                        </div>
-                      </div>
-                      <div style={panelNote}>
-                        Each part goes back where it came from — purchased tokens to their balance,
-                        gifted tokens as a fresh 30-day grant. A transaction can only be refunded once.
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Gift membership panel */}
-              {openHere && panel.kind === 'membership' && (
-                <div style={panelBox}>
-                  <div style={panelTitle}>
-                    {isActive ? `Change or extend ${fan.display_name || fan.email}'s membership` : `Gift a membership to ${fan.display_name || fan.email}`}
-                  </div>
-                  {conflict === fan.id ? (
-                    <div>
-                      <div style={S.error}>This fan already has an active membership.</div>
-                      <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-                        <button onClick={() => giftMembership(fan, 'extend')} style={S.btn}>Add {term} to their membership</button>
-                        <button onClick={() => giftMembership(fan, 'change')} style={S.ghostBtn}>Change tier to {tier}</button>
-                        <button onClick={closePanel} style={S.ghostBtn}>Cancel</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div style={S.formGrid}>
-                        <Field label="Tier">
-                          <select style={S.input} value={tier} onChange={(e) => setTier(e.target.value)}>
-                            <option value="community">Community</option>
-                            <option value="insider">Insider</option>
-                            <option value="premium">Premium</option>
-                            <option value="supreme">Supreme</option>
-                          </select>
-                        </Field>
-                        <Field label="Duration">
-                          <select style={S.input} value={term} onChange={(e) => setTerm(e.target.value)}>
-                            <option value="monthly">1 month</option>
-                            <option value="quarterly">3 months</option>
-                            <option value="annual">12 months</option>
-                          </select>
-                        </Field>
-                        <Field label="Note (internal, optional)">
-                          <input style={S.input} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why this was gifted" />
-                        </Field>
-                        <div style={{ alignSelf: 'flex-end', display: 'flex', gap: 8 }}>
-                          <button onClick={() => giftMembership(fan, isActive ? 'extend' : 'gift')} disabled={busy}
-                                  style={{ ...S.btn, opacity: busy ? 0.5 : 1 }}>
-                            {busy ? 'Working…' : isActive ? `Add ${term}` : 'Gift membership'}
-                          </button>
-                          {isActive && (
-                            <button onClick={() => giftMembership(fan, 'change')} disabled={busy} style={S.ghostBtn}>
-                              Change tier to {tier}
-                            </button>
-                          )}
-                          <button onClick={closePanel} style={S.ghostBtn}>Cancel</button>
-                        </div>
-                      </div>
-                      <div style={panelNote}>Gifted memberships cost the fan nothing and do not auto-renew.</div>
-                    </>
-                  )}
-                </div>
-              )}
             </div>
           );
         })}
@@ -416,10 +368,3 @@ export function Members() {
     </div>
   );
 }
-
-const mutedPill   = { fontFamily: sans, fontSize: 10, color: '#D9A45C', background: 'rgba(217,164,92,0.1)', border: '1px solid rgba(217,164,92,0.3)', borderRadius: 999, padding: '3px 8px' };
-const blockedPill = { fontFamily: sans, fontSize: 10, color: '#D99A9A', background: 'rgba(156,90,90,0.1)', border: '1px solid rgba(156,90,90,0.3)', borderRadius: 999, padding: '3px 8px' };
-const txnRow      = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', padding: '8px 10px', borderRadius: 6, background: 'transparent' };
-const panelBox    = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: 14, marginTop: 4 };
-const panelTitle  = { fontFamily: sans, fontSize: 13, color: colors.text, marginBottom: 12, fontWeight: 600 };
-const panelNote   = { fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 10, fontStyle: 'italic' };

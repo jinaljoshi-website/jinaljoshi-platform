@@ -286,6 +286,75 @@ router.post('/refund', async (req, res) => {
 // FANS
 // ─────────────────────────────────────────────
 
+// One member's whole history, in the order it happened.
+//
+// Deliberately distinguishes looking from buying. A set somebody opened and did
+// not unlock says something quite different from one they paid for, and a
+// screen that shows both as "opened" is how a paid set with no buyers ends up
+// looking like a popular one.
+router.get('/fans/:id/history', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM (
+         SELECT g.granted_at AS at, 'unlock' AS kind,
+                s.title AS detail,
+                COALESCE(g.coins_paid, 0) AS tokens,
+                g.scope AS extra
+         FROM access_grants g JOIN sets s ON s.id = g.set_id
+         WHERE g.user_id = $1
+
+         UNION ALL
+         -- Looked but did not unlock. Only where no grant exists, so a set they
+         -- later paid for shows once, as the purchase.
+         SELECT v.first_seen, 'viewed', s.title, 0, NULL
+         FROM set_views v JOIN sets s ON s.id = v.set_id
+         WHERE v.user_id = $1
+           AND NOT EXISTS (SELECT 1 FROM access_grants g2
+                           WHERE g2.user_id = v.user_id AND g2.set_id = v.set_id)
+
+         UNION ALL
+         SELECT l.created_at, 'recharge', l.label, l.amount, l.payment_amount_inr::text
+         FROM coin_ledger l
+         WHERE l.user_id = $1 AND l.type = 'recharge' AND l.direction = 'credit'
+
+         UNION ALL
+         SELECT l.created_at, 'membership', l.label, l.amount, NULL
+         FROM coin_ledger l
+         WHERE l.user_id = $1 AND l.direction = 'debit'
+           AND l.type IN ('membership_purchase','membership_upgrade','membership_extend')
+
+         UNION ALL
+         SELECT l.created_at, 'spend', l.label, l.amount, l.type
+         FROM coin_ledger l
+         WHERE l.user_id = $1 AND l.direction = 'debit'
+           AND l.type NOT IN ('membership_purchase','membership_upgrade','membership_extend','content_unlock')
+
+         UNION ALL
+         SELECT m.created_at, 'message', LEFT(m.content, 60), COALESCE(m.tokens_charged, 0), NULL
+         FROM direct_messages m
+         WHERE m.sender_id = $1
+
+         UNION ALL
+         SELECT cr.created_at, 'call', cr.call_type, COALESCE(cr.coins_charged, 0), cr.status
+         FROM call_requests cr WHERE cr.user_id = $1
+       ) x
+       ORDER BY at DESC
+       LIMIT 300`,
+      [req.params.id]
+    );
+
+    res.json({
+      rows: rows.map((r) => ({
+        at: r.at, kind: r.kind, detail: r.detail,
+        tokens: Number(r.tokens) || 0, extra: r.extra,
+      })),
+    });
+  } catch (err) {
+    console.error('studio/fan history error:', err);
+    res.status(500).json({ error: 'Failed to load their history' });
+  }
+});
+
 router.get('/fans', async (req, res) => {
   try {
     const { rows } = await pool.query(

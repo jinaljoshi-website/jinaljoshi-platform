@@ -1074,7 +1074,7 @@ export function Content({ openWith }) {
                   {sets.find((s) => s.id === unlocksFor)?.title}
                 </div>
                 <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 3 }}>
-                  Who unlocked this, and what it earned
+                  Who has opened it, who has unlocked it, and what it earned
                 </div>
               </div>
               <button onClick={() => setUnlocksFor(null)} style={{ ...S.ghostBtn, fontSize: 14, padding: '6px 12px' }}>✕</button>
@@ -1087,13 +1087,24 @@ export function Content({ openWith }) {
              : (
               <>
                 <div style={S.statsRow}>
+                  {/* Two different things, and conflating them made a paid set
+                      nobody had bought describe itself as free. Opening the page
+                      is not unlocking: somebody who looked at a locked set and
+                      left is a visitor, not a customer. */}
                   <div style={S.statCard}>
-                    <div style={uLabel}>Opened by</div>
+                    <div style={uLabel}>Looked at it</div>
                     <div style={uValue}>{unlockData.totals.views}</div>
+                    <div style={uSub}>opened the set, whatever they could see</div>
+                  </div>
+                  <div style={S.statCard}>
+                    <div style={uLabel}>Actually unlocked</div>
+                    <div style={{ ...uValue, color: unlockData.totals.unlocks > 0 ? colors.text : colors.muted }}>
+                      {unlockData.totals.unlocks}
+                    </div>
                     <div style={uSub}>
                       {unlockData.totals.unlocks > 0
-                        ? `${unlockData.totals.unlocks} unlocked · ${unlockData.totals.byAllowance} through membership`
-                        : 'free set — nothing to unlock'}
+                        ? `${unlockData.totals.byAllowance} through membership`
+                        : 'nobody yet'}
                     </div>
                   </div>
                   <div style={S.statCard}>
@@ -1115,9 +1126,9 @@ export function Content({ openWith }) {
                 </div>
 
                 <div style={{ display: 'grid', gap: 6, marginTop: 16 }}>
-                  {/* A free set has no unlocks, so the view list is the whole
-                      story. Shown only in that case, to avoid listing the same
-                      people twice on a set that does have unlocks. */}
+                  {/* With no unlocks the view list is the whole story. Shown
+                      only then, so nobody is listed twice on a set that has
+                      both. */}
                   {unlockData.unlocks.length === 0 && unlockData.views.map((v, i) => (
                     <div key={i} style={unlockRow}>
                       <div style={{ flex: 1, minWidth: 180 }}>
@@ -1127,7 +1138,9 @@ export function Content({ openWith }) {
                           {' · '}{v.tier}
                         </div>
                       </div>
-                      <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted }}>opened</span>
+                      <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted }}>
+                        looked, did not unlock
+                      </span>
                     </div>
                   ))}
 
