@@ -789,7 +789,7 @@ router.get('/content/:id/pricing', async (req, res) => {
 router.get('/content/:id/items', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, set_id, type, media_type, r2_key, position, tier_category, created_at
+      `SELECT id, set_id, type, media_type, r2_key, position, tier_category, created_at, quality
        FROM set_items WHERE set_id = $1
        ORDER BY tier_category, position ASC, created_at ASC`,
       [req.params.id]
@@ -1454,9 +1454,10 @@ router.post('/content/item', async (req, res) => {
   }
   try {
     const { rows } = await pool.query(
-      `INSERT INTO set_items (set_id, type, r2_key, position, media_type, tier_category)
-       VALUES ($1, $2, $3, $4, $2, $5) RETURNING *`,
-      [setId, type, r2Key, position ?? 0, tierCategory]
+      `INSERT INTO set_items (set_id, type, r2_key, position, media_type, tier_category, quality)
+       VALUES ($1, $2, $3, $4, $2, $5, $6::jsonb) RETURNING *`,
+      [setId, type, r2Key, position ?? 0, tierCategory,
+       req.body.quality ? JSON.stringify(req.body.quality) : null]
     );
     res.json({ ok: true, item: rows[0] });
   } catch (err) {

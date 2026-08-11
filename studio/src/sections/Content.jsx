@@ -217,8 +217,10 @@ export function Content({ openWith }) {
     } catch (err) { setError(err.message); } finally { setBackfilling(false); }
   };
 
-  const compressImage = (file) =>
-    poolRef.current ? poolRef.current.compress(file) : compressOnMainThread(file);
+  const compressImage = async (file) =>
+    poolRef.current
+      ? poolRef.current.compress(file)
+      : { file: await compressOnMainThread(file), metrics: null };
 
   const [filesByCategory, setFilesByCategory] = useState(emptyCategoryFiles());
   const [coverFile,      setCoverFile]      = useState(null);
@@ -478,8 +480,16 @@ export function Content({ openWith }) {
       }
       mark(cat, i, { status: 'uploading' });
       try {
+        // Measured while the photo is already decoded for compression, so
+        // flagging costs nothing beyond what the upload was doing anyway.
+        let metrics = null;
         const publicUrl = await withRetry(async () => {
-          let fileToUpload = item.isVideo ? item.file : await compressImage(item.file);
+          let fileToUpload = item.file;
+          if (!item.isVideo) {
+            const out = await compressImage(item.file);
+            fileToUpload = out.file || out;
+            metrics = out.metrics || null;
+          }
           try {
             return await uploadFile(fileToUpload, 'content');
           } finally {
@@ -491,6 +501,7 @@ export function Content({ openWith }) {
         await withRetry(() => api.post('/api/studio/content/item', {
           setId, type: item.isVideo ? 'video' : 'image', r2Key: publicUrl,
           position: startPosition + n, tierCategory: cat,
+          quality: metrics,
         }));
         if (!firstImageUrl && !item.isVideo) {
           firstImageUrl = publicUrl;
@@ -1345,6 +1356,9 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
   items.forEach((i) => { (byTier[i.tier_category] ||= []).push(i); });
   const ordered = categories.flatMap((cat) => byTier[cat.key] || []);
 
+  const [onlyFlagged, setOnlyFlagged] = useState(false);
+  const flaggedCount = items.filter((i) => i.quality?.flag).length;
+
   const at = typeof lightbox === 'number' ? lightbox : -1;
   const current = at >= 0 ? ordered[at] : null;
 
@@ -1452,6 +1466,19 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
           </div>
         )}
 
+        {flaggedCount > 0 && !ordering && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
+            <button onClick={() => setOnlyFlagged(!onlyFlagged)}
+                    style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
+                             ...(onlyFlagged ? { color: '#D9A45C', borderColor: 'rgba(217,164,92,0.4)' } : {}) }}>
+              {onlyFlagged ? 'Show everything' : `Needs a look · ${flaggedCount}`}
+            </button>
+            <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
+              Soft focus or odd exposure. Measured, not judged — keep whatever you meant to keep.
+            </span>
+          </div>
+        )}
+
         {ordering ? (
           <SequenceView items={ordered} mediaUrl={mediaUrl} busy={orderBusy} onSave={onSaveOrder} />
         ) : loading ? <div style={{ fontFamily: sans, fontSize: 13, color: colors.muted }}>Loading…</div>
@@ -1468,7 +1495,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
               </button>
             </div>
             <div style={reviewGrid}>
-              {byTier[cat.key].map((item) => (
+              {(onlyFlagged ? byTier[cat.key].filter((i) => i.quality?.flag) : byTier[cat.key]).map((item) => (
                 <div key={item.id} style={{ position: 'relative' }}>
                   {/* Once anything is selected, clicking selects rather than opens —
                       otherwise a stray click mid-selection loses the lot. */}
@@ -1482,6 +1509,9 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
                                style={{ ...reviewThumb, cursor: 'pointer',
                                         outline: isSelected(item.id) ? `2px solid ${colors.accent}` : 'none', outlineOffset: -2,
                                         opacity: selecting && !isSelected(item.id) ? 0.55 : 1 }} />
+                  )}
+                  {item.quality?.flag && (
+                    <div style={flagChip}>{item.quality.flag}</div>
                   )}
                   <button onClick={(e) => { e.stopPropagation(); toggle(item, e.shiftKey); }}
                           title={isSelected(item.id) ? 'Deselect' : 'Select'}
@@ -1585,6 +1615,7 @@ const seqBar    = { position: 'sticky', bottom: 0, display: 'flex', alignItems: 
 
 const reviewGrid    = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 10 };
 const reviewThumb   = { width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}`, background: 'rgba(255,255,255,0.03)', display: 'block' };
+const flagChip  = { position: 'absolute', bottom: 4, left: 4, background: 'rgba(217,164,92,0.9)', color: '#1A1714', fontFamily: sans, fontSize: 9, padding: '2px 6px', borderRadius: 4, pointerEvents: 'none' };
 const selectDot = { position: 'absolute', top: 4, left: 4, width: 20, height: 20, borderRadius: '50%', border: `1px solid rgba(255,255,255,0.35)`, fontSize: 11, lineHeight: 1, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' };
 const bulkBar   = { position: 'sticky', bottom: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#100F0C', border: `1px solid ${colors.accent}`, borderRadius: 10, padding: '12px 14px', marginTop: 16, zIndex: 5 };
 const itemDeleteBtn = { position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.7)', color: '#D99A9A', fontSize: 14, lineHeight: 1, cursor: 'pointer', padding: 0 };
