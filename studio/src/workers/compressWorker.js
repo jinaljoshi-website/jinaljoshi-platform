@@ -40,6 +40,37 @@ function exposure(data, w, h) {
   return { darkPct: dark / total, brightPct: bright / total };
 }
 
+// A difference hash. The image is squashed to 9x8 greyscale and each pixel
+// compared with the one to its right, giving 64 bits that describe the shape of
+// the picture rather than its pixels. Two frames from the same burst differ in
+// only a handful of those bits; two different photographs differ in dozens.
+//
+// Robust to the things that should not matter -- exposure, small crops, a
+// slight change of angle -- which is exactly what makes it useful for finding
+// the five near-identical frames where only one is wanted.
+function differenceHash(bitmap) {
+  const W = 9, H = 8;
+  const c = new OffscreenCanvas(W, H);
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(bitmap, 0, 0, W, H);
+  const d = ctx.getImageData(0, 0, W, H).data;
+
+  let bits = '';
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W - 1; x++) {
+      const i = (y * W + x) * 4;
+      const j = (y * W + x + 1) * 4;
+      const a = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      const b = 0.299 * d[j] + 0.587 * d[j + 1] + 0.114 * d[j + 2];
+      bits += a > b ? '1' : '0';
+    }
+  }
+  // Hex, so it stores compactly and compares quickly.
+  let hex = '';
+  for (let i = 0; i < 64; i += 4) hex += parseInt(bits.slice(i, i + 4), 2).toString(16);
+  return hex;
+}
+
 self.onmessage = async (e) => {
   const { id, file, maxPx, quality, blurThreshold = 60 } = e.data;
   try {
@@ -73,7 +104,13 @@ self.onmessage = async (e) => {
       else if (brightPct > 0.35)          flag = 'very bright';
       else if (darkPct   > 0.55)          flag = 'very dark';
 
-      metrics = { sharp: Math.round(sharp), darkPct: +darkPct.toFixed(3), brightPct: +brightPct.toFixed(3), flag };
+      metrics = {
+        sharp: Math.round(sharp),
+        darkPct: +darkPct.toFixed(3),
+        brightPct: +brightPct.toFixed(3),
+        flag,
+        hash: differenceHash(bitmap),
+      };
     } catch { /* a failed measurement must never fail the upload */ }
 
     bitmap.close();

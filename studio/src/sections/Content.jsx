@@ -1238,7 +1238,7 @@ function LazyThumb({ src, alt, onClick, style }) {
 // for the common case of promoting one photo to the front — dragging item 200
 // up to position 3 across a long grid is miserable, and that is the move people
 // actually want to make.
-function SequenceView({ items, mediaUrl, busy, onSave }) {
+function SequenceView({ items, mediaUrl, busy, onSave, groupOf = {} }) {
   const [list, setList] = useState(items);
   const [dragging, setDragging] = useState(null);
   const dirty = list.some((it, i) => it.id !== items[i]?.id);
@@ -1253,8 +1253,41 @@ function SequenceView({ items, mediaUrl, busy, onSave }) {
     setList(next);
   };
 
+  // Frames of the same moment brought together, keeping the order they were
+  // taken in and holding each run where its first frame already sat. A burst
+  // scattered through a set reads as repetition; the same frames adjacent read
+  // as a sequence, which is what they are.
+  const gatherAlike = () => {
+    const runs = new Map();
+    const singles = [];
+    list.forEach((it) => {
+      const g = groupOf[it.id];
+      if (g === undefined) { singles.push(it); return; }
+      if (!runs.has(g)) runs.set(g, []);
+      runs.get(g).push(it);
+    });
+    const out = [];
+    const placed = new Set();
+    list.forEach((it) => {
+      const g = groupOf[it.id];
+      if (g === undefined) { out.push(it); return; }
+      if (placed.has(g)) return;
+      placed.add(g);
+      out.push(...runs.get(g));
+    });
+    setList(out);
+  };
+
+  const hasRuns = list.some((it) => groupOf[it.id] !== undefined);
+
   return (
     <div>
+      {hasRuns && (
+        <button onClick={gatherAlike} disabled={busy}
+                style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', marginBottom: 12 }}>
+          Bring similar shots together
+        </button>
+      )}
       <div style={seqGrid}>
         {list.map((item, idx) => (
           <div
@@ -1357,7 +1390,64 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
   const ordered = categories.flatMap((cat) => byTier[cat.key] || []);
 
   const [onlyFlagged, setOnlyFlagged] = useState(false);
-  const flaggedCount = items.filter((i) => i.quality?.flag).length;
+  const [blurThreshold, setBlurThreshold] = useState(null);
+
+  useEffect(() => {
+    api.get('/api/studio/config')
+      .then((d) => setBlurThreshold(Number(d.config?.quality_blur_threshold) || 60))
+      .catch(() => setBlurThreshold(60));
+  }, []);
+
+  const flagFor = (item) => {
+    const q = item.quality;
+    if (!q || blurThreshold === null) return null;
+    if (typeof q.sharp === 'number') {
+      if (q.sharp < blurThreshold / 3) return 'very soft';
+      if (q.sharp < blurThreshold)     return 'soft focus';
+    }
+    if (q.brightPct > 0.35) return 'very bright';
+    if (q.darkPct   > 0.55) return 'very dark';
+    return null;
+  };
+  const [onlyNear,    setOnlyNear]    = useState(false);
+
+  // How many bits two hashes may differ by and still be the same moment. Ten of
+  // sixty-four: tight enough that two separate shots never group, loose enough
+  // that a burst does even when the exposure shifted between frames.
+  const NEAR = 10;
+  const hamming = (a, b) => {
+    if (!a || !b || a.length !== b.length) return 99;
+    let d = 0;
+    for (let i = 0; i < a.length; i++) {
+      let x = parseInt(a[i], 16) ^ parseInt(b[i], 16);
+      while (x) { d += x & 1; x >>= 1; }
+    }
+    return d;
+  };
+
+  // Runs of near-identical frames, in the order they were taken. Grouped rather
+  // than flagged: five frames of the same moment are not a mistake, they are a
+  // choice waiting to be made, and the useful thing is to put them side by side.
+  const nearGroups = (() => {
+    const withHash = items.filter((i) => i.quality?.hash);
+    const seen = new Set();
+    const groups = [];
+    for (const a of withHash) {
+      if (seen.has(a.id)) continue;
+      const run = [a];
+      seen.add(a.id);
+      for (const b of withHash) {
+        if (seen.has(b.id)) continue;
+        if (hamming(a.quality.hash, b.quality.hash) <= NEAR) { run.push(b); seen.add(b.id); }
+      }
+      if (run.length > 1) groups.push(run);
+    }
+    return groups;
+  })();
+
+  const groupOf = {};
+  nearGroups.forEach((g, gi) => g.forEach((it) => { groupOf[it.id] = gi; }));
+  const flaggedCount = items.filter((i) => flagFor(i)).length;
 
   const at = typeof lightbox === 'number' ? lightbox : -1;
   const current = at >= 0 ? ordered[at] : null;
@@ -1466,21 +1556,32 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
           </div>
         )}
 
-        {flaggedCount > 0 && !ordering && (
+        {(flaggedCount > 0 || nearGroups.length > 0) && !ordering && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
-            <button onClick={() => setOnlyFlagged(!onlyFlagged)}
-                    style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
-                             ...(onlyFlagged ? { color: '#D9A45C', borderColor: 'rgba(217,164,92,0.4)' } : {}) }}>
-              {onlyFlagged ? 'Show everything' : `Needs a look · ${flaggedCount}`}
-            </button>
+            {flaggedCount > 0 && (
+              <button onClick={() => { setOnlyFlagged(!onlyFlagged); setOnlyNear(false); }}
+                      style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
+                               ...(onlyFlagged ? { color: '#D9A45C', borderColor: 'rgba(217,164,92,0.4)' } : {}) }}>
+                {onlyFlagged ? 'Show everything' : `Needs a look · ${flaggedCount}`}
+              </button>
+            )}
+            {nearGroups.length > 0 && (
+              <button onClick={() => { setOnlyNear(!onlyNear); setOnlyFlagged(false); }}
+                      style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
+                               ...(onlyNear ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
+                {onlyNear ? 'Show everything' : `${nearGroups.length} near-identical run${nearGroups.length === 1 ? '' : 's'}`}
+              </button>
+            )}
             <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
-              Soft focus or odd exposure. Measured, not judged — keep whatever you meant to keep.
+              {onlyNear
+                ? 'Frames of the same moment, side by side. Keep the one you want.'
+                : 'Measured, not judged — keep whatever you meant to keep.'}
             </span>
           </div>
         )}
 
         {ordering ? (
-          <SequenceView items={ordered} mediaUrl={mediaUrl} busy={orderBusy} onSave={onSaveOrder} />
+          <SequenceView items={ordered} mediaUrl={mediaUrl} busy={orderBusy} onSave={onSaveOrder} groupOf={groupOf} />
         ) : loading ? <div style={{ fontFamily: sans, fontSize: 13, color: colors.muted }}>Loading…</div>
          : items.length === 0 ? <div style={{ fontFamily: sans, fontSize: 13, color: colors.muted }}>This set has no items yet.</div>
          : categories.filter((cat) => byTier[cat.key]?.length).map((cat) => (
@@ -1495,7 +1596,10 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
               </button>
             </div>
             <div style={reviewGrid}>
-              {(onlyFlagged ? byTier[cat.key].filter((i) => i.quality?.flag) : byTier[cat.key]).map((item) => (
+              {(onlyFlagged ? byTier[cat.key].filter((i) => flagFor(i))
+                : onlyNear  ? byTier[cat.key].filter((i) => groupOf[i.id] !== undefined)
+                              .sort((a, b) => groupOf[a.id] - groupOf[b.id])
+                : byTier[cat.key]).map((item) => (
                 <div key={item.id} style={{ position: 'relative' }}>
                   {/* Once anything is selected, clicking selects rather than opens —
                       otherwise a stray click mid-selection loses the lot. */}
@@ -1510,8 +1614,13 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
                                         outline: isSelected(item.id) ? `2px solid ${colors.accent}` : 'none', outlineOffset: -2,
                                         opacity: selecting && !isSelected(item.id) ? 0.55 : 1 }} />
                   )}
-                  {item.quality?.flag && (
-                    <div style={flagChip}>{item.quality.flag}</div>
+                  {flagFor(item) && (
+                    <div style={flagChip}>{flagFor(item)}</div>
+                  )}
+                  {groupOf[item.id] !== undefined && (
+                    <div style={{ ...groupChip, background: GROUP_COLOURS[groupOf[item.id] % GROUP_COLOURS.length] }}>
+                      {nearGroups[groupOf[item.id]].length} alike
+                    </div>
                   )}
                   <button onClick={(e) => { e.stopPropagation(); toggle(item, e.shiftKey); }}
                           title={isSelected(item.id) ? 'Deselect' : 'Select'}
@@ -1615,6 +1724,11 @@ const seqBar    = { position: 'sticky', bottom: 0, display: 'flex', alignItems: 
 
 const reviewGrid    = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 10 };
 const reviewThumb   = { width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 6, border: `1px solid ${colors.border}`, background: 'rgba(255,255,255,0.03)', display: 'block' };
+// Different colours so two adjacent runs read as two runs rather than one long
+// one. Muted deliberately — this is a hint, not an alarm.
+const GROUP_COLOURS = ['rgba(139,157,195,0.9)', 'rgba(160,180,150,0.9)', 'rgba(190,160,190,0.9)', 'rgba(200,175,140,0.9)'];
+const groupChip = { position: 'absolute', top: 4, left: 4, color: '#1A1714', fontFamily: sans, fontSize: 9, padding: '2px 6px', borderRadius: 4, pointerEvents: 'none' };
+
 const flagChip  = { position: 'absolute', bottom: 4, left: 4, background: 'rgba(217,164,92,0.9)', color: '#1A1714', fontFamily: sans, fontSize: 9, padding: '2px 6px', borderRadius: 4, pointerEvents: 'none' };
 const selectDot = { position: 'absolute', top: 4, left: 4, width: 20, height: 20, borderRadius: '50%', border: `1px solid rgba(255,255,255,0.35)`, fontSize: 11, lineHeight: 1, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' };
 const bulkBar   = { position: 'sticky', bottom: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#100F0C', border: `1px solid ${colors.accent}`, borderRadius: 10, padding: '12px 14px', marginTop: 16, zIndex: 5 };
