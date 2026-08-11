@@ -22,6 +22,7 @@ import { Invoices }      from '../sections/Invoices';
 import { Selfies }       from '../sections/Selfies';
 import { Photographers } from '../sections/Photographers';
 import { Activity }      from '../sections/Activity';
+import { MerchMedia }    from '../sections/MerchMedia';
 import { RingWatch }     from '../components/RingWatch';
 
 // Two groups, because two different jobs share this login. Jinal answers
@@ -49,6 +50,7 @@ const ADMIN_NAV = [
   { id: 'analytics',     label: 'Money'         },
   { id: 'invoices',      label: 'Invoices'      },
   { id: 'photographers', label: 'Photographers' },
+  { id: 'merchmedia',    label: 'Media library' },
   { id: 'notifications', label: 'Send a push'   },
   { id: 'website',       label: 'Website'       },
   { id: 'settings',      label: 'Settings'      },
@@ -120,6 +122,7 @@ const SECTIONS = {
   selfies:       Selfies,
   photographers: Photographers,
   activity:      Activity,
+  merchmedia:    MerchMedia,
   merch:         Merch,
   extras:        Extras,
   members:       Members,

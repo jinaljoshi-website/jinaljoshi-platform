@@ -1884,6 +1884,119 @@ router.patch('/merch/:id', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// MERCH MEDIA LIBRARY
+// ─────────────────────────────────────────────
+
+// Photos uploaded ahead of the listings that will use them.
+//
+// Paginated rather than infinite — a page you can link to is a page you can
+// come back to, which matters when the job is matching a hundred descriptions
+// to a hundred photographs over more than one sitting.
+router.get('/merch/media', async (req, res) => {
+  const perPage = 20;
+  const page    = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const unattachedOnly = req.query.unattached === '1' || req.query.unattached === 'true';
+
+  try {
+    // Attached means the file is referenced by a listing. Checked against the
+    // images table rather than a flag on the row, so it stays true even if a
+    // photo is attached by some other route.
+    const attachedClause = `EXISTS (SELECT 1 FROM merchandise_images mi WHERE mi.url = m.r2_key)`;
+    const where = unattachedOnly ? `WHERE NOT ${attachedClause}` : '';
+
+    const { rows } = await pool.query(
+      `SELECT m.id, m.r2_key, m.original_filename, m.width, m.height, m.bytes, m.uploaded_at,
+              ${attachedClause} AS attached,
+              (SELECT mi2.merch_id FROM merchandise_images mi2 WHERE mi2.url = m.r2_key LIMIT 1) AS merch_id,
+              (SELECT mm.title FROM merchandise_images mi3
+                 JOIN merchandise mm ON mm.id = mi3.merch_id
+                 WHERE mi3.url = m.r2_key LIMIT 1) AS merch_title
+       FROM merch_media m
+       ${where}
+       ORDER BY m.uploaded_at DESC
+       LIMIT $1 OFFSET $2`,
+      [perPage, (page - 1) * perPage]
+    );
+
+    const { rows: countRows } = await pool.query(
+      `SELECT count(*)::int AS total,
+              count(*) FILTER (WHERE NOT ${attachedClause})::int AS unattached
+       FROM merch_media m`
+    );
+
+    res.json({
+      media: rows,
+      page,
+      perPage,
+      total:      countRows[0].total,
+      unattached: countRows[0].unattached,
+      totalPages: Math.max(1, Math.ceil((unattachedOnly ? countRows[0].unattached : countRows[0].total) / perPage)),
+    });
+  } catch (err) {
+    console.error('studio/merch/media error:', err);
+    res.status(500).json({ error: 'Failed to load the media library' });
+  }
+});
+
+// Recorded after the file itself is in storage. Several at once, because a
+// hundred separate calls is a hundred chances for one to fail unnoticed.
+router.post('/merch/media', async (req, res) => {
+  const { items } = req.body;
+  if (!Array.isArray(items) || !items.length) {
+    return res.status(400).json({ error: 'Nothing to record' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const saved = [];
+    for (const it of items) {
+      if (!it.r2Key) continue;
+      const { rows } = await client.query(
+        `INSERT INTO merch_media (r2_key, original_filename, width, height, bytes)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [it.r2Key, it.originalFilename || null, it.width || null, it.height || null, it.bytes || null]
+      );
+      saved.push(rows[0]);
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true, saved: saved.length, media: saved });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('studio/merch/media create error:', err);
+    res.status(500).json({ error: 'Could not record those uploads' });
+  } finally { client.release(); }
+});
+
+// Removing a photo from the library. Refused if a listing is using it — the
+// file would vanish from a live product page, and the listing would have no way
+// to say what happened.
+router.delete('/merch/media/:id', async (req, res) => {
+  try {
+    const { rows: found } = await pool.query(
+      `SELECT r2_key FROM merch_media WHERE id = $1`, [req.params.id]
+    );
+    if (!found.length) return res.status(404).json({ error: 'Not found' });
+
+    const { rows: used } = await pool.query(
+      `SELECT mm.title FROM merchandise_images mi
+       JOIN merchandise mm ON mm.id = mi.merch_id
+       WHERE mi.url = $1 LIMIT 1`,
+      [found[0].r2_key]
+    );
+    if (used.length) {
+      return res.status(409).json({ error: `That photo is being used by "${used[0].title}". Remove it from the listing first.` });
+    }
+
+    await pool.query(`DELETE FROM merch_media WHERE id = $1`, [req.params.id]);
+    deleteObjects([found[0].r2_key]).catch((e) => console.error('r2 cleanup:', e.message));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('studio/merch/media delete error:', err);
+    res.status(500).json({ error: 'Could not remove that' });
+  }
+});
+
+// ─────────────────────────────────────────────
 // AUCTION FULFILMENT
 // ─────────────────────────────────────────────
 
