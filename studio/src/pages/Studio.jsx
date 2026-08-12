@@ -150,45 +150,28 @@ const text    = '#F2EBE0';
 const muted   = '#9B8F83';
 const border  = 'rgba(242,235,224,0.08)';
 
-// The height of what is actually visible, keyboard included.
+// The height of what is actually visible.
 //
-// 100vh on a phone is the viewport with the browser chrome hidden -- taller
-// than the screen -- so the page ran off the bottom and the composer sat below
-// the fold. 100dvh fixes that but still leaves iOS free to scroll the whole
-// document up when the keyboard opens, which is what made the page appear to
-// expand and shrink.
+// 100vh on a phone means the viewport with the browser chrome hidden, which is
+// taller than the screen -- so the page ran past the bottom and the composer
+// sat below the fold. visualViewport reports the region genuinely in view,
+// keyboard included, so pinning the shell to it means the keyboard takes space
+// from the message list and nothing else moves.
 //
-// visualViewport reports the region genuinely in view. Pinning the shell to it
-// means the keyboard takes space from the message list, and nothing else moves.
+// Deliberately minimal. An earlier version also fixed the body and corrected
+// document scroll; the first took the page out of flow and rendered it
+// somewhere unreachable, and the second fed itself -- the correction fired a
+// scroll event, which fired the correction, which on a phone reads as the
+// screen shaking. Sizing the shell is enough on its own.
 function useViewportHeight() {
   const [h, setH] = useState(() => window.visualViewport?.height || window.innerHeight);
+
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
 
-    // The document itself must not scroll. Everything inside the shell manages
-    // its own overflow, so any scroll at this level is the browser moving the
-    // page to reveal something -- which is exactly the movement being fixed.
-    const html = document.documentElement;
-    const prev = { htmlH: html.style.height, bodyH: document.body.style.height,
-                   bodyOverflow: document.body.style.overflow,
-                   bodyPosition: document.body.style.position };
-    html.style.height = '100%';
-    document.body.style.height = '100%';
-    document.body.style.overflow = 'hidden';
-    document.body.style.position = 'fixed';
-    document.body.style.width = '100%';
-
-    // Only the height, and only on resize.
-    //
-    // The previous version also corrected document scroll on every scroll
-    // event, which fed itself: the correction fired a scroll event, which
-    // fired the correction. On a phone that reads as the screen vibrating.
-    // With the body fixed there is nothing to correct anyway.
-    //
-    // Rounded, and only written when it actually changes, so a one-pixel
-    // fluctuation as the keyboard animates does not re-render the whole shell
-    // forty times on the way.
+    // Only written when it changes by more than a pixel, so the keyboard's
+    // animation does not re-render the shell on every frame of the way up.
     let last = 0;
     const update = () => {
       const next = Math.round(vv.height);
@@ -196,18 +179,16 @@ function useViewportHeight() {
       last = next;
       setH(next);
     };
+
     update();
     vv.addEventListener('resize', update);
     window.addEventListener('orientationchange', update);
     return () => {
       vv.removeEventListener('resize', update);
       window.removeEventListener('orientationchange', update);
-      html.style.height = prev.htmlH;
-      document.body.style.height = prev.bodyH;
-      document.body.style.overflow = prev.bodyOverflow;
-      document.body.style.position = prev.bodyPosition;
     };
   }, []);
+
   return h;
 }
 

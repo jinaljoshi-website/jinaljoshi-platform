@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>Studio - PS</title>
 
     <!-- PWA -->
@@ -15,6 +15,22 @@
 
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="/wonder-coin-192.png" />
+
+    <style>
+      /* The document itself never scrolls. Every screen manages its own
+         overflow, so any movement at this level is the browser repositioning
+         the page — which is what makes a chat jump when the keyboard opens.
+
+         overflow: hidden rather than position: fixed. Fixing the body takes it
+         out of flow and the page renders somewhere unreachable. */
+      html, body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
+      #root { height: 100%; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
