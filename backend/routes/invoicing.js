@@ -48,14 +48,39 @@ router.get('/issued', async (req, res) => {
       params
     );
 
-    const totals = rows.reduce((t, r) => ({
+    // Received is the sum of what was actually sent, at the certified rate.
+    // A flag could only say paid or not; an invoice half paid is neither.
+    const { rows: recv } = await pool.query(
+      `SELECT invoice_id,
+              COALESCE(SUM(amount_in_currency * COALESCE(exchange_rate, 1)), 0) AS gross,
+              COALESCE(SUM(amount_credited_inr), 0) AS credited,
+              count(*)::int AS n
+       FROM invoice_receipts GROUP BY invoice_id`
+    );
+    const byInvoice = {};
+    recv.forEach((r) => { byInvoice[r.invoice_id] = r; });
+
+    const withReceipts = rows.map((r) => {
+      const g = byInvoice[r.id];
+      const received = g ? Math.round(Number(g.gross) * 100) / 100 : 0;
+      return {
+        ...r,
+        receivedGross: received,
+        receivedCredited: g ? Math.round(Number(g.credited) * 100) / 100 : 0,
+        receiptCount: g ? g.n : 0,
+        outstanding: Math.max(0, Math.round((Number(r.total_amount) - received) * 100) / 100),
+      };
+    });
+
+    const totals = withReceipts.reduce((t, r) => ({
       taxable: t.taxable + Number(r.taxable_amount),
       tax:     t.tax     + Number(r.cgst_amount) + Number(r.sgst_amount) + Number(r.igst_amount),
       total:   t.total   + Number(r.total_amount),
-      unpaid:  t.unpaid  + (r.paid_at ? 0 : Number(r.total_amount)),
-    }), { taxable: 0, tax: 0, total: 0, unpaid: 0 });
+      received: t.received + r.receivedGross,
+      unpaid:  t.unpaid  + (r.settled_at ? 0 : r.outstanding),
+    }), { taxable: 0, tax: 0, total: 0, received: 0, unpaid: 0 });
 
-    res.json({ invoices: rows, totals });
+    res.json({ invoices: withReceipts, totals });
   } catch (err) {
     console.error('invoicing/issued error:', err);
     res.status(500).json({ error: 'Failed to load invoices' });
@@ -192,6 +217,215 @@ router.post('/issued/:id/paid', async (req, res) => {
   } catch (err) {
     console.error('invoicing/paid error:', err);
     res.status(500).json({ error: 'Failed to update payment status' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// RECEIPTS AGAINST AN INVOICE
+// ─────────────────────────────────────────────
+
+// What has actually been received, and what the transfer cost.
+//
+// Gross is what the payer sent, valued at the certified rate. Credited is what
+// the bank paid in. The difference is charges -- derived rather than guessed,
+// and claimable as an expense.
+async function receiptsFor(invoiceId) {
+  const { rows } = await pool.query(
+    `SELECT * FROM invoice_receipts WHERE invoice_id = $1 ORDER BY received_on ASC, created_at ASC`,
+    [invoiceId]
+  );
+  const totals = rows.reduce((t, r) => {
+    const rate   = Number(r.exchange_rate) || 1;
+    const gross  = Number(r.amount_in_currency) * rate;
+    const credit = Number(r.amount_credited_inr);
+    return {
+      gross:    t.gross + gross,
+      credited: t.credited + credit,
+      charges:  t.charges + Math.max(0, gross - credit),
+    };
+  }, { gross: 0, credited: 0, charges: 0 });
+
+  const round = (n) => Math.round(n * 100) / 100;
+  return {
+    receipts: rows.map((r) => {
+      const rate  = Number(r.exchange_rate) || 1;
+      const gross = round(Number(r.amount_in_currency) * rate);
+      return {
+        id: r.id, receiptNumber: r.receipt_number, receivedOn: r.received_on,
+        currency: r.currency, amount: Number(r.amount_in_currency),
+        exchangeRate: r.exchange_rate ? Number(r.exchange_rate) : null,
+        grossInr: gross,
+        creditedInr: Number(r.amount_credited_inr),
+        chargesInr: round(Math.max(0, gross - Number(r.amount_credited_inr))),
+        method: r.method, reference: r.reference,
+        efircNumber: r.efirc_number, efircFileKey: r.efirc_file_key,
+        note: r.note,
+      };
+    }),
+    totals: { gross: round(totals.gross), credited: round(totals.credited), charges: round(totals.charges) },
+  };
+}
+
+router.get('/issued/:id/receipts', async (req, res) => {
+  try {
+    const { rows: inv } = await pool.query(
+      `SELECT total_amount, currency, settled_at FROM issued_invoices WHERE id = $1`, [req.params.id]
+    );
+    if (!inv.length) return res.status(404).json({ error: 'Invoice not found' });
+
+    const data = await receiptsFor(req.params.id);
+    const invoiced = Number(inv[0].total_amount);
+
+    // Measured against gross, not what the bank credited. An invoice is settled
+    // when the payer has sent what they owe -- what a correspondent bank took on
+    // the way is a cost, not an unpaid balance.
+    const tolerancePct = 2;
+    const outstanding  = Math.max(0, Math.round((invoiced - data.totals.gross) * 100) / 100);
+    const withinTolerance = invoiced > 0 && outstanding <= (invoiced * tolerancePct) / 100;
+
+    res.json({
+      ...data,
+      invoiced,
+      currency: inv[0].currency,
+      outstanding,
+      fullyPaid: data.totals.gross >= invoiced || withinTolerance,
+      settledAt: inv[0].settled_at,
+    });
+  } catch (err) {
+    console.error('invoicing/receipts error:', err);
+    res.status(500).json({ error: 'Failed to load receipts' });
+  }
+});
+
+router.post('/issued/:id/receipts', async (req, res) => {
+  const { receivedOn, currency, amount, exchangeRate, amountCreditedInr,
+          method, reference, efircNumber, efircFileKey, note } = req.body;
+
+  const amt = parseFloat(amount);
+  if (!amt || amt <= 0) return res.status(400).json({ error: 'An amount is required' });
+
+  const cur  = (currency || 'INR').trim().toUpperCase();
+  const rate = cur === 'INR' ? 1 : parseFloat(exchangeRate);
+  if (cur !== 'INR' && (!rate || rate <= 0)) {
+    return res.status(400).json({ error: 'A foreign payment needs the rate from the e-FIRC' });
+  }
+
+  // Defaults to the gross rather than requiring it twice. For a rupee payment
+  // the two are always the same, and for a foreign one this is the figure to
+  // correct once the bank statement arrives.
+  const credited = amountCreditedInr === undefined || amountCreditedInr === null || amountCreditedInr === ''
+    ? Math.round(amt * rate * 100) / 100
+    : parseFloat(amountCreditedInr);
+
+  try {
+    const { rows: inv } = await pool.query(
+      `SELECT invoice_number, settled_at FROM issued_invoices WHERE id = $1`, [req.params.id]
+    );
+    if (!inv.length) return res.status(404).json({ error: 'Invoice not found' });
+    if (inv[0].settled_at) {
+      return res.status(409).json({ error: 'This invoice is settled. Reopen it to add a payment.' });
+    }
+
+    // Numbered against the invoice, so a client asking which payment a document
+    // refers to has an answer.
+    const { rows: countRows } = await pool.query(
+      `SELECT count(*)::int AS n FROM invoice_receipts WHERE invoice_id = $1`, [req.params.id]
+    );
+    const receiptNumber = `${inv[0].invoice_number}-R${countRows[0].n + 1}`;
+
+    const { rows } = await pool.query(
+      `INSERT INTO invoice_receipts
+         (invoice_id, receipt_number, received_on, currency, amount_in_currency,
+          exchange_rate, amount_credited_inr, method, reference, efirc_number,
+          efirc_file_key, note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [req.params.id, receiptNumber, receivedOn || new Date(), cur, amt, rate, credited,
+       method?.trim() || null, reference?.trim() || null, efircNumber?.trim() || null,
+       efircFileKey || null, note?.trim() || null]
+    );
+    res.json({ ok: true, receipt: rows[0] });
+  } catch (err) {
+    console.error('invoicing/receipts create error:', err);
+    res.status(500).json({ error: 'Could not record that payment' });
+  }
+});
+
+// Editable until the invoice is settled. A rate is often provisional until the
+// e-FIRC arrives weeks later, and an entry that cannot be corrected would mean
+// carrying a wrong number rather than fixing it.
+router.patch('/receipts/:id', async (req, res) => {
+  const f = req.body;
+  try {
+    const { rows: r } = await pool.query(
+      `SELECT ir.*, ii.settled_at FROM invoice_receipts ir
+       JOIN issued_invoices ii ON ii.id = ir.invoice_id WHERE ir.id = $1`,
+      [req.params.id]
+    );
+    if (!r.length) return res.status(404).json({ error: 'Payment not found' });
+    if (r[0].settled_at) {
+      return res.status(409).json({ error: 'This invoice is settled. Reopen it to make a change.' });
+    }
+
+    const cur  = (f.currency || r[0].currency).trim().toUpperCase();
+    const rate = cur === 'INR' ? 1 : (f.exchangeRate !== undefined ? parseFloat(f.exchangeRate) : Number(r[0].exchange_rate));
+    const amt  = f.amount !== undefined ? parseFloat(f.amount) : Number(r[0].amount_in_currency);
+    const credited = f.amountCreditedInr !== undefined && f.amountCreditedInr !== ''
+      ? parseFloat(f.amountCreditedInr)
+      : Number(r[0].amount_credited_inr);
+
+    const { rows } = await pool.query(
+      `UPDATE invoice_receipts SET
+         received_on = COALESCE($1, received_on),
+         currency = $2, amount_in_currency = $3, exchange_rate = $4, amount_credited_inr = $5,
+         method = COALESCE($6, method), reference = COALESCE($7, reference),
+         efirc_number = COALESCE($8, efirc_number), efirc_file_key = COALESCE($9, efirc_file_key),
+         note = COALESCE($10, note), updated_at = NOW()
+       WHERE id = $11 RETURNING *`,
+      [f.receivedOn || null, cur, amt, rate, credited,
+       f.method?.trim() ?? null, f.reference?.trim() ?? null, f.efircNumber?.trim() ?? null,
+       f.efircFileKey ?? null, f.note?.trim() ?? null, req.params.id]
+    );
+    res.json({ ok: true, receipt: rows[0] });
+  } catch (err) {
+    console.error('invoicing/receipts patch error:', err);
+    res.status(500).json({ error: 'Could not update that payment' });
+  }
+});
+
+router.delete('/receipts/:id', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM invoice_receipts ir USING issued_invoices ii
+       WHERE ir.id = $1 AND ii.id = ir.invoice_id AND ii.settled_at IS NULL
+       RETURNING ir.id`,
+      [req.params.id]
+    );
+    if (!rows.length) {
+      return res.status(409).json({ error: 'Not found, or the invoice is settled.' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('invoicing/receipts delete error:', err);
+    res.status(500).json({ error: 'Could not remove that payment' });
+  }
+});
+
+// Closing an invoice, and reopening it. Reopening exists because an e-FIRC
+// arriving late is normal, and a document that can never be corrected is worse
+// than one that records the correction.
+router.post('/issued/:id/settle', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      req.body.reopen
+        ? `UPDATE issued_invoices SET settled_at = NULL WHERE id = $1 RETURNING id, settled_at`
+        : `UPDATE issued_invoices SET settled_at = NOW(), paid_at = COALESCE(paid_at, NOW()) WHERE id = $1 RETURNING id, settled_at`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Invoice not found' });
+    res.json({ ok: true, settledAt: rows[0].settled_at });
+  } catch (err) {
+    console.error('invoicing/settle error:', err);
+    res.status(500).json({ error: 'Could not update the invoice' });
   }
 });
 

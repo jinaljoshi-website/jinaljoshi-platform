@@ -45,9 +45,10 @@ export function Invoices() {
   const [success,  setSuccess]  = useState('');
   const [creating, setCreating] = useState(false);
   const [busy,     setBusy]     = useState(false);
-  const [payRef,   setPayRef]   = useState({});
 
   const [form, setForm] = useState(null);
+
+  const [openReceipts, setOpenReceipts] = useState(null);
 
   const loadIssued = () => api.get('/api/studio/invoicing/issued')
     .then((d) => { setIssued(d.invoices || []); setTotals(d.totals); });
@@ -136,17 +137,6 @@ export function Invoices() {
     } catch (err) { setError(err.message); }
   };
 
-  const togglePaid = async (inv) => {
-    setError('');
-    try {
-      await api.post(`/api/studio/invoicing/issued/${inv.id}/paid`, {
-        reference: payRef[inv.id]?.trim() || undefined,
-        unpay: !!inv.paid_at,
-      });
-      loadIssued();
-    } catch (err) { setError(err.message); }
-  };
-
   if (loading) return <T.muted>Loading invoices…</T.muted>;
 
   const list = issued.filter((i) => i.kind === (tab === 'b2b' ? 'b2b' : 'manual'));
@@ -162,7 +152,7 @@ export function Invoices() {
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
         {[
           { key: 'b2b',      label: 'B2B — acting & promotions' },
-          { key: 'manual',   label: 'Manual receipts' },
+          { key: 'manual',   label: 'B2C — direct invoices' },
           { key: 'platform', label: 'Platform token sales' },
         ].map((t) => (
           <button key={t.key} onClick={() => { setTab(t.key); setCreating(false); }}
@@ -436,11 +426,18 @@ export function Invoices() {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontFamily: sans, fontSize: 17, color: colors.text }}>{rupees(inv.total_amount, inv.currency)}</div>
-                      {inv.paid_at
-                        ? <div style={{ fontFamily: sans, fontSize: 11, color: colors.success, marginTop: 3 }}>
-                            Paid {new Date(inv.paid_at).toLocaleDateString('en-IN')}{inv.payment_reference ? ` · ${inv.payment_reference}` : ''}
-                          </div>
-                        : <div style={{ fontFamily: sans, fontSize: 11, color: '#D9A45C', marginTop: 3 }}>Unpaid</div>}
+                      {inv.settled_at ? (
+                        <div style={{ fontFamily: sans, fontSize: 11, color: colors.success, marginTop: 3 }}>
+                          Settled {new Date(inv.settled_at).toLocaleDateString('en-IN')}
+                        </div>
+                      ) : inv.receivedGross > 0 ? (
+                        <div style={{ fontFamily: sans, fontSize: 11, color: '#D9A45C', marginTop: 3 }}>
+                          {rupees(inv.receivedGross, inv.currency)} received
+                          {inv.outstanding > 0 && ` · ${rupees(inv.outstanding, inv.currency)} to come`}
+                        </div>
+                      ) : (
+                        <div style={{ fontFamily: sans, fontSize: 11, color: '#D9A45C', marginTop: 3 }}>Nothing received yet</div>
+                      )}
                     </div>
                   </div>
 
@@ -448,16 +445,15 @@ export function Invoices() {
                     <button onClick={() => downloadPdf(inv)} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
                       Download PDF
                     </button>
-                    {!inv.paid_at && (
-                      <input value={payRef[inv.id] || ''} onChange={(e) => setPayRef({ ...payRef, [inv.id]: e.target.value })}
-                             placeholder="Payment reference"
-                             style={{ ...S.input, width: 160, padding: '5px 10px', fontSize: 11 }} />
-                    )}
-                    <button onClick={() => togglePaid(inv)}
-                            style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', color: inv.paid_at ? colors.muted : colors.success }}>
-                      {inv.paid_at ? 'Mark unpaid' : 'Mark paid'}
+                    <button onClick={() => setOpenReceipts(openReceipts === inv.id ? null : inv.id)}
+                            style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
+                      {openReceipts === inv.id ? 'Hide payments' : `Payments${inv.receiptCount ? ` · ${inv.receiptCount}` : ''}`}
                     </button>
                   </div>
+
+                  {openReceipts === inv.id && (
+                    <ReceiptsPanel invoice={inv} onChanged={loadIssued} />
+                  )}
                 </div>
               ))}
             </div>
@@ -472,3 +468,204 @@ const lineRow    = { display: 'flex', gap: 8, alignItems: 'center', marginBottom
 const totalBox   = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: 14, marginTop: 16, maxWidth: 380, marginLeft: 'auto' };
 const totalRow   = { display: 'flex', justifyContent: 'space-between', fontFamily: sans, fontSize: 13, color: colors.muted, padding: '3px 0' };
 const exportNote = { fontFamily: sans, fontSize: 12, color: '#8FC88F', background: 'rgba(100,160,100,0.08)', border: '1px solid rgba(100,160,100,0.25)', borderRadius: 8, padding: '10px 12px', marginTop: 12, lineHeight: 1.6 };
+// ── Payments against one invoice ──────────────────────────────────────────────
+//
+// An advance and a balance is the ordinary shape of this work, and a foreign
+// transfer arrives as a different number from the one that was sent. Three
+// figures per payment: what the payer sent, the rate the bank certified, and
+// what actually landed. The difference between the second two is what the
+// transfer cost -- a real expense that stays invisible unless it is written
+// down.
+function ReceiptsPanel({ invoice, onChanged }) {
+  const [data,    setData]    = useState(null);
+  const [error,   setError]   = useState('');
+  const [saving,  setSaving]  = useState(false);
+  const [editing, setEditing] = useState(null);
+  const blank = {
+    receivedOn: new Date().toISOString().slice(0, 10),
+    currency: invoice.currency || 'INR',
+    amount: '', exchangeRate: '', amountCreditedInr: '',
+    method: '', reference: '', efircNumber: '', note: '',
+  };
+  const [form, setForm] = useState(blank);
+
+  const load = () => api.get(`/api/studio/invoicing/issued/${invoice.id}/receipts`)
+    .then(setData).catch((e) => setError(e.message));
+
+  useEffect(() => { load(); }, [invoice.id]);
+
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const foreign = (form.currency || 'INR').toUpperCase() !== 'INR';
+
+  const gross = foreign
+    ? (parseFloat(form.amount) || 0) * (parseFloat(form.exchangeRate) || 0)
+    : (parseFloat(form.amount) || 0);
+  const credited = form.amountCreditedInr === '' ? gross : parseFloat(form.amountCreditedInr) || 0;
+  const charges  = Math.max(0, gross - credited);
+
+  const save = async () => {
+    setSaving(true); setError('');
+    try {
+      if (editing) await api.patch(`/api/studio/invoicing/receipts/${editing}`, form);
+      else         await api.post(`/api/studio/invoicing/issued/${invoice.id}/receipts`, form);
+      setForm(blank); setEditing(null);
+      await load(); onChanged?.();
+    } catch (err) { setError(err.message); } finally { setSaving(false); }
+  };
+
+  const remove = async (r) => {
+    if (!window.confirm(`Remove ${r.receiptNumber || 'this payment'}?`)) return;
+    try { await api.delete(`/api/studio/invoicing/receipts/${r.id}`); await load(); onChanged?.(); }
+    catch (err) { setError(err.message); }
+  };
+
+  const settle = async (reopen) => {
+    try {
+      await api.post(`/api/studio/invoicing/issued/${invoice.id}/settle`, { reopen });
+      await load(); onChanged?.();
+    } catch (err) { setError(err.message); }
+  };
+
+  if (!data) return <div style={panelBox}><T.muted>Loading payments…</T.muted></div>;
+
+  const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
+  return (
+    <div style={panelBox}>
+      {error && <div style={{ ...S.error, fontSize: 12 }}>{error}</div>}
+
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
+        <Sum label="Invoiced"  value={inr(data.invoiced)} />
+        <Sum label="Received"  value={inr(data.totals.gross)} tone={colors.success} />
+        <Sum label="Still due" value={inr(data.outstanding)} tone={data.outstanding > 0 ? '#D9A45C' : colors.muted} />
+        {data.totals.charges > 0 && (
+          <Sum label="Bank charges" value={inr(data.totals.charges)} sub="claimable expense" />
+        )}
+      </div>
+
+      {data.receipts.map((r) => (
+        <div key={r.id} style={receiptRow}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+              {r.currency === 'INR' ? inr(r.amount) : `${r.currency} ${r.amount.toLocaleString('en-IN')}`}
+              {r.currency !== 'INR' && (
+                <span style={{ color: colors.muted }}>
+                  {' '}at {r.exchangeRate} → {inr(r.grossInr)}
+                </span>
+              )}
+            </div>
+            <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 3 }}>
+              {r.receiptNumber} · {new Date(r.receivedOn).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+              {r.method && ` · ${r.method}`}
+              {r.reference && ` · ${r.reference}`}
+              {r.efircNumber && ` · e-FIRC ${r.efircNumber}`}
+            </div>
+            {r.chargesInr > 0 && (
+              <div style={{ fontFamily: sans, fontSize: 10, color: colors.muted, marginTop: 2 }}>
+                {inr(r.creditedInr)} credited · {inr(r.chargesInr)} in charges
+              </div>
+            )}
+          </div>
+          {!data.settledAt && (
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              <button onClick={() => { setEditing(r.id); setForm({
+                receivedOn: String(r.receivedOn).slice(0, 10), currency: r.currency,
+                amount: String(r.amount), exchangeRate: r.exchangeRate ? String(r.exchangeRate) : '',
+                amountCreditedInr: String(r.creditedInr), method: r.method || '',
+                reference: r.reference || '', efircNumber: r.efircNumber || '', note: r.note || '',
+              }); }} style={miniBtn}>Edit</button>
+              <button onClick={() => remove(r)} style={{ ...miniBtn, color: '#D99A9A' }}>Remove</button>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {data.settledAt ? (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 12 }}>
+          <span style={{ fontFamily: sans, fontSize: 12, color: colors.success }}>
+            Settled — payments are locked.
+          </span>
+          <button onClick={() => settle(true)} style={miniBtn}>Reopen to correct</button>
+        </div>
+      ) : (
+        <>
+          <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase', margin: '14px 0 8px' }}>
+            {editing ? 'Edit this payment' : 'Log a payment'}
+          </div>
+          <div style={S.formGrid}>
+            <Field label="Received on">
+              <input style={S.input} type="date" value={form.receivedOn} onChange={(e) => set('receivedOn', e.target.value)} />
+            </Field>
+            <Field label="Currency">
+              <input style={S.input} value={form.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} />
+            </Field>
+            <Field label={`Amount sent${foreign ? ` (${form.currency})` : ''}`}>
+              <input style={S.input} type="number" step="0.01" value={form.amount} onChange={(e) => set('amount', e.target.value)} />
+            </Field>
+            {foreign && (
+              <Field label="Rate on the e-FIRC">
+                <input style={S.input} type="number" step="0.0001" placeholder="INR per unit"
+                       value={form.exchangeRate} onChange={(e) => set('exchangeRate', e.target.value)} />
+              </Field>
+            )}
+            <Field label="Credited to the account (INR)">
+              <input style={S.input} type="number" step="0.01"
+                     placeholder={gross ? String(Math.round(gross * 100) / 100) : ''}
+                     value={form.amountCreditedInr} onChange={(e) => set('amountCreditedInr', e.target.value)} />
+            </Field>
+            <Field label="Method">
+              <input style={S.input} value={form.method} placeholder="wire, UPI, cheque"
+                     onChange={(e) => set('method', e.target.value)} />
+            </Field>
+            <Field label="Reference">
+              <input style={S.input} value={form.reference} onChange={(e) => set('reference', e.target.value)} />
+            </Field>
+            {foreign && (
+              <Field label="e-FIRC number">
+                <input style={S.input} value={form.efircNumber} onChange={(e) => set('efircNumber', e.target.value)} />
+              </Field>
+            )}
+          </div>
+
+          {gross > 0 && (
+            <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 10, lineHeight: 1.6 }}>
+              Counts {inr(gross)} against the invoice
+              {charges > 0 && <>, with <strong style={{ color: colors.text }}>{inr(charges)}</strong> lost to bank charges</>}.
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            <button onClick={save} disabled={saving || !form.amount}
+                    style={{ ...S.btn, fontSize: 12, padding: '7px 14px', opacity: (saving || !form.amount) ? 0.5 : 1 }}>
+              {saving ? 'Saving…' : editing ? 'Save changes' : 'Add payment'}
+            </button>
+            {editing && (
+              <button onClick={() => { setEditing(null); setForm(blank); }} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 14px' }}>
+                Cancel
+              </button>
+            )}
+            {data.fullyPaid && (
+              <button onClick={() => settle(false)} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 14px', color: colors.success }}>
+                Mark settled
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Sum({ label, value, sub, tone }) {
+  return (
+    <div>
+      <div style={{ fontFamily: mono, fontSize: 9, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontFamily: sans, fontSize: 16, color: tone || colors.text, marginTop: 3 }}>{value}</div>
+      {sub && <div style={{ fontFamily: sans, fontSize: 10, color: colors.muted, marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+}
+
+const panelBox   = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: 14, marginTop: 12 };
+const receiptRow = { display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', padding: '9px 0', borderBottom: `1px solid ${colors.border}` };
+const miniBtn    = { background: 'none', border: 'none', color: colors.muted, fontFamily: sans, fontSize: 11, cursor: 'pointer', padding: 0 };
