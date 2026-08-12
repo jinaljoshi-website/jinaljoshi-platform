@@ -28,6 +28,17 @@
         overscroll-behavior: none;
       }
       #root { height: 100%; }
+
+      /* iOS magnifies the page when a focused field is smaller than 16px.
+         That is what made the screen grow and slide sideways when the keyboard
+         opened -- not scrolling, which is why nothing about scroll behaviour
+         fixed it. 16 is a browser threshold, not a design choice.
+
+         Set here rather than field by field so a new input added later cannot
+         reintroduce it. */
+      input, textarea, select {
+        font-size: 16px;
+      }
     </style>
   </head>
   <body>

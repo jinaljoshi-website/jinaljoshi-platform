@@ -995,7 +995,7 @@ export function Messages() {
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
                         placeholder={replyTo ? 'Write your reply…' : 'Reply… (Enter to send)'}
                         rows={3}
-                        style={{ flex: 1, background: 'rgba(22,20,16,0.9)', border: `1px solid ${colors.border}`, color: colors.text, fontFamily: sans, fontSize: 14, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', textAlign: 'left', maxHeight: 160 }}
+                        style={{ flex: 1, background: 'rgba(22,20,16,0.9)', border: `1px solid ${colors.border}`, color: colors.text, fontFamily: sans, fontSize: 16, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', textAlign: 'left', maxHeight: 160 }}
                       />
                       <button onClick={() => sendReply()} disabled={sending || !reply.trim()} style={{ ...S.btn, opacity: (sending || !reply.trim()) ? 0.5 : 1 }}>
                         {sending ? '…' : 'Send'}
