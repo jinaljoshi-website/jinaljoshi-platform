@@ -52,12 +52,42 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
     document.body.appendChild(script);
   }, []);
 
+  const [offer,      setOffer]      = useState(null);
+  const [code,       setCode]       = useState('');
+  const [codeOpen,   setCodeOpen]   = useState(false);
+  const [codeState,  setCodeState]  = useState(null);   // null | 'checking' | 'bad'
+
+  useEffect(() => {
+    api.get('/api/coins/bonus-offer')
+      .then((d) => setOffer(d.offer || null))
+      .catch(() => {});
+  }, []);
+
+  const applyCode = async () => {
+    if (!code.trim()) return;
+    setCodeState('checking');
+    try {
+      const d = await api.get(`/api/coins/bonus-offer?code=${encodeURIComponent(code.trim())}`);
+      if (!d.offer) { setCodeState('bad'); return; }
+      setOffer(d.offer);
+      // Offers are never combined. If what came back is not the code, the
+      // sitewide offer was the better of the two and that is what applies.
+      setCodeState(d.offer.hasCode ? 'applied' : 'beaten');
+    } catch { setCodeState('bad'); }
+  };
+
   const tokenAmount = useCustom
     ? (parseInt(custom) || 0)
     : selected;
 
   const rate    = tokenRateInr();
   const pricing = rechargePrice(tokenAmount);
+
+  // Always rounded down, matching the server exactly -- a figure shown here that
+  // the server then reduced would be worse than showing nothing.
+  const bonusTokens = offer && tokenAmount >= (offer.minTokens || 0)
+    ? Math.floor((tokenAmount * offer.bonusPct) / 100)
+    : 0;
 
   const handleRecharge = async () => {
     if (tokenAmount < 1) {
@@ -66,7 +96,10 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
     }
     setError(''); setProcessing(true);
     try {
-      const data = await api.post('/api/coins/recharge/initiate', { tokens: tokenAmount });
+      const data = await api.post('/api/coins/recharge/initiate', {
+        tokens: tokenAmount,
+        bonusCode: offer?.hasCode ? code.trim() : undefined,
+      });
 
       if (typeof window.Razorpay === 'undefined') {
         setError('Razorpay is not loaded. Please refresh and try again.');
@@ -91,6 +124,7 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature:  response.razorpay_signature,
               tokens:              tokenAmount,
+              bonusCode:           offer?.hasCode ? code.trim() : undefined,
             });
             onSuccess?.(verifyData.newBalance);
             onClose();
@@ -146,6 +180,20 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
           </div>
           <button onClick={onClose} style={closeBtn}>✕</button>
         </div>
+
+        {offer && (
+          <div style={offerBar}>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <strong style={{ color: C.accent }}>
+                {offer.label || `${offer.bonusPct}% bonus tokens`}
+              </strong>
+              <div style={{ fontSize: 11, marginTop: 2, lineHeight: 1.5 }}>
+                {offer.minTokens > 0 && `On ${offer.minTokens} tokens or more. `}
+                {endsIn(offer.endsAt)}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Pack selector */}
         <div style={{ marginBottom: 16 }}>
@@ -248,8 +296,24 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
         <div style={summary}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontFamily: F.sans, fontSize: 14, color: C.muted }}>You get</span>
-            <WonderCoinAmount amount={tokenAmount || 0} size={18} fontSize={20} />
+            <WonderCoinAmount amount={tokenAmount || 0} size={18} fontSize={20} showInr={false} />
           </div>
+          {bonusTokens > 0 && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                <span style={{ fontFamily: F.sans, fontSize: 14, color: '#8FC88F' }}>
+                  Bonus tokens
+                </span>
+                <span style={{ fontFamily: F.sans, fontSize: 20, color: '#8FC88F', fontWeight: 600 }}>
+                  + {bonusTokens}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+                <span style={{ fontFamily: F.sans, fontSize: 14, color: C.text }}>Total tokens</span>
+                <WonderCoinAmount amount={tokenAmount + bonusTokens} size={18} fontSize={22} showInr={false} />
+              </div>
+            </>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
             <span style={{ fontFamily: F.sans, fontSize: 14, color: C.muted }}>You pay</span>
             <span style={{ fontFamily: F.sans, fontSize: 20, color: C.text, fontWeight: 600 }}>
@@ -262,6 +326,40 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
             </div>
           )}
         </div>
+
+        {!codeOpen && !offer?.hasCode && (
+          <button onClick={() => setCodeOpen(true)} style={codeLink}>Have a code?</button>
+        )}
+        {(codeOpen || offer?.hasCode) && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+            <input
+              value={code}
+              onChange={(e) => { setCode(e.target.value.toUpperCase()); setCodeState(null); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') applyCode(); }}
+              placeholder="Enter your code"
+              style={{ ...customInput, flex: 1, minWidth: 140, textTransform: 'uppercase' }}
+            />
+            <button onClick={applyCode} disabled={codeState === 'checking'} style={{ ...codeBtn, opacity: codeState === 'checking' ? 0.5 : 1 }}>
+              {codeState === 'checking' ? '…' : 'Apply'}
+            </button>
+            {codeState === 'bad' && (
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: '#D99A9A', width: '100%' }}>
+                That code is not valid, or it has expired.
+              </div>
+            )}
+            {codeState === 'applied' && (
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: '#8FC88F', width: '100%' }}>
+                Code applied.
+              </div>
+            )}
+            {codeState === 'beaten' && (
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: '#8FC88F', width: '100%', lineHeight: 1.5 }}>
+                The offer already running gives you more than that code, so you are getting
+                the better of the two.
+              </div>
+            )}
+          </div>
+        )}
 
         {error && <div style={errorBox}>{error}</div>}
 
@@ -281,7 +379,23 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
   );
 }
 
+// How long is left, in the largest unit that still reads as urgent. "Ends in 3
+// hours" moves somebody in a way "ends at 11:47pm" does not.
+function endsIn(endsAt) {
+  const ms = new Date(endsAt) - Date.now();
+  if (ms <= 0) return 'Ending now';
+  const mins = Math.round(ms / 60000);
+  if (mins < 60)  return `Ends in ${mins} minute${mins === 1 ? '' : 's'}`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48)   return `Ends in ${hrs} hour${hrs === 1 ? '' : 's'}`;
+  return `Ends ${new Date(endsAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+}
+
 // ── STYLES ──────────────────────────────────
+
+const offerBar = { display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'rgba(100,160,100,0.1)', border: '1px solid rgba(100,160,100,0.3)', borderRadius: 10, padding: '12px 14px', marginBottom: 16, fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: '#9B8F83' };
+const codeLink = { background: 'none', border: 'none', color: '#C17D4A', fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 14, textDecoration: 'underline' };
+const codeBtn  = { background: 'transparent', border: '1px solid rgba(193,125,74,0.4)', color: '#C17D4A', fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, padding: '10px 16px', borderRadius: 8, cursor: 'pointer' };
 
 const overlay = {
   position:   'fixed',

@@ -9,6 +9,7 @@ export default function Coins() {
   const [balance,  setBalance]  = useState(null);
   const [gifted,   setGifted]   = useState(0);
   const [giftedDays, setGiftedDays] = useState(null);
+  const [bonus,    setBonus]    = useState(0);
   const [ledger,   setLedger]   = useState([]);
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(true);
@@ -26,6 +27,7 @@ export default function Coins() {
         setBalance(data.purchasedBalance ?? data.balance ?? 0);
         setGifted(data.giftedBalance ?? 0);
         setGiftedDays(data.giftedExpiresInDays ?? null);
+        setBonus(data.bonusBalance ?? 0);
         setLedger(data.ledger || []);
       })
       .catch((err) => setError(err.message || 'Could not load coin balance.'))
@@ -141,19 +143,27 @@ export default function Coins() {
         <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>Your tokens</div>
         {balance === null
           ? <div style={{ fontFamily: F.display, fontSize: 44, color: C.text }}>—</div>
-          : <WonderCoinAmount amount={balance + gifted} size={44} fontSize={52} />
+          : <WonderCoinAmount amount={balance + bonus + gifted} size={44} fontSize={52} />
         }
         <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginTop: 8 }}>
           ≈ {money((balance || 0) * rate)} of purchased tokens
         </div>
 
-        {gifted > 0 && (
+        {(gifted > 0 || bonus > 0) && (
           <div style={potsRow}>
             <div style={pot}>
               <div style={potLabel}>Purchased</div>
               <WonderCoinAmount amount={balance || 0} size={18} fontSize={20} />
               <div style={potNote}>Never expires · use anywhere</div>
             </div>
+            {bonus > 0 && (
+              <div style={{ ...pot, borderColor: 'rgba(193,125,74,0.3)' }}>
+                <div style={{ ...potLabel, color: C.accent }}>Bonus</div>
+                <WonderCoinAmount amount={bonus} size={18} fontSize={20} textColor={C.accent} showInr={false} />
+                <div style={potNote}>Never expires · use anywhere</div>
+              </div>
+            )}
+            {gifted > 0 && (
             <div style={{ ...pot, borderColor: 'rgba(100,160,100,0.3)' }}>
               <div style={{ ...potLabel, color: '#8FC88F' }}>Gifted 🎁</div>
               <WonderCoinAmount amount={gifted} size={18} fontSize={20} textColor="#8FC88F" />
@@ -162,6 +172,7 @@ export default function Coins() {
                 messages &amp; content only
               </div>
             </div>
+            )}
           </div>
         )}
       </div>

@@ -2449,13 +2449,38 @@ router.post('/requests/:id/counter', async (req, res) => {
       const refundAmount = current.coins_charged - price;
       if (refundAmount > 0) {
         // Only part of the original spend comes back, so this cannot go through
-        // refundByRelated, which reverses a whole transaction. Custom requests are
-        // always paid for with purchased tokens, so the refund is purchased too.
-        await client.query(`UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`, [refundAmount, current.user_id]);
+        // refundByRelated, which reverses a whole transaction.
+        //
+        // Returned to the pots it came from. This used to assume a request was
+        // always paid with purchased tokens, which was true when there were two
+        // pots -- a bonus token returned as purchased would turn a discount into
+        // money the platform never received. Real money comes back first, since
+        // that is the part the fan actually paid.
+        const { rows: origRows } = await client.query(
+          `SELECT from_purchased, from_bonus FROM coin_ledger
+           WHERE user_id = $1 AND type = 'custom_request' AND related_id = $2
+             AND direction = 'debit' AND refunded_at IS NULL
+           ORDER BY created_at DESC LIMIT 1`,
+          [current.user_id, current.id]
+        );
+        const paidPurchased = origRows[0]?.from_purchased ?? refundAmount;
+        const backPurchased = Math.min(refundAmount, paidPurchased);
+        const backBonus     = refundAmount - backPurchased;
+
+        if (backPurchased > 0) {
+          await client.query(`UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
+                             [backPurchased, current.user_id]);
+        }
+        if (backBonus > 0) {
+          await client.query(`UPDATE users SET bonus_balance = COALESCE(bonus_balance, 0) + $1 WHERE id = $2`,
+                             [backBonus, current.user_id]);
+        }
         await client.query(
-          `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id, from_gifted, from_purchased)
-           VALUES ($1, 'request_refund', 'credit', $2, $3, $4, 0, $2)`,
-          [current.user_id, refundAmount, `Price adjusted for: ${current.topic}`, current.id]
+          `INSERT INTO coin_ledger (user_id, type, direction, amount, label, related_id,
+                                    from_gifted, from_purchased, from_bonus)
+           VALUES ($1, 'request_refund', 'credit', $2, $3, $4, 0, $5, $6)`,
+          [current.user_id, refundAmount, `Price adjusted for: ${current.topic}`, current.id,
+           backPurchased, backBonus]
         );
       }
       await client.query(

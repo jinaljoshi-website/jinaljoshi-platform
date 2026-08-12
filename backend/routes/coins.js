@@ -7,7 +7,7 @@ const { getClientIp, lookupIpCountry } = require('../lib/geoip');
 const { issueInvoiceForPurchase } = require('../lib/invoice');
 const payments = require('../lib/payments');
 const { getConfigNumber, getConfigValue } = require('../lib/config');
-const { getBalances } = require('../lib/tokens');
+const { getBalances, activeBonusOffer, bonusFor, grantBonusTokens } = require('../lib/tokens');
 const fx = require('../lib/fx');
 
 
@@ -61,6 +61,7 @@ router.get('/balance', authMid, async (req, res) => {
 
     res.json({
       balance: userRows[0]?.coin_balance || 0,
+      bonusBalance: bal.bonus,
       giftedBalance: bal.gifted,
       giftedExpiresInDays: bal.giftedExpiresInDays,
       spendableBalance: bal.total,
@@ -219,8 +220,17 @@ router.post('/recharge/initiate', authMid, async (req, res) => {
       amountInCurrency: fxQuote ? fxQuote.amount   : priceINR,
     });
 
+    // What they will actually receive, quoted with the order so the number on
+    // the button and the number credited cannot disagree.
+    const offer = await activeBonusOffer(pool, req.body.bonusCode);
+    const bonus = bonusFor(amount, offer);
+
     res.json({
       orderId:     order.orderId,
+      bonusTokens: bonus,
+      bonusPct:    offer ? parseFloat(offer.bonus_pct) : 0,
+      bonusLabel:  offer?.label || null,
+      totalTokens: amount + bonus,
       amount:      fxQuote ? fxQuote.amount : priceINR,
       amountInr:   priceINR,
       currency:    fxQuote ? fxQuote.currency : 'INR',
@@ -310,6 +320,15 @@ router.post('/recharge/verify', authMid, async (req, res) => {
         [req.user.userId, amount, `Recharge ${amount} tokens${discountPct > 0 ? ` (${discountPct}% off)` : ''}`, razorpay_payment_id, priceINR]
       );
       coinLedgerId = ledgerRows[0].id;
+
+      // Granted as its own credit rather than added to the purchase, so the
+      // ledger says plainly what was bought and what was given. Every revenue
+      // figure reads from_purchased, so a bonus can never be counted as money.
+      const offer = await activeBonusOffer(client, req.body.bonusCode);
+      const bonus = bonusFor(amount, offer);
+      if (bonus > 0) {
+        await grantBonusTokens(client, { userId: req.user.userId, amount: bonus, offer });
+      }
 
       const { rows: userRows } = await client.query(`SELECT coin_balance FROM users WHERE id = $1`, [req.user.userId]);
       newBalance = userRows[0].coin_balance;
@@ -401,6 +420,15 @@ router.post('/recharge/webhook', async (req, res) => {
       [userId, tokens, `Recharge via webhook — ${tokens} tokens`, paymentId, priceINR]
     );
 
+    // The webhook is the backstop for a payment whose confirmation never
+    // reached us. Somebody in that position must still get their bonus, or a
+    // dropped connection quietly costs them the offer.
+    try {
+      const offer = await activeBonusOffer(pool);
+      const bonus = bonusFor(tokens, offer);
+      if (bonus > 0) await grantBonusTokens(pool, { userId, amount: bonus, offer });
+    } catch (e) { console.error('bonus grant via webhook failed:', e.message); }
+
     postSystemMessage('🪙 Someone just recharged their J Tokens!');
 
     try {
@@ -429,6 +457,27 @@ router.post('/recharge/webhook', async (req, res) => {
   } catch (err) {
     console.error('webhook error:', err);
     res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
+
+// What is on offer right now, so the interface can say so before somebody
+// reaches the checkout rather than surprising them at it.
+router.get('/bonus-offer', authMid, async (req, res) => {
+  try {
+    const offer = await activeBonusOffer(pool, req.query.code);
+    if (!offer) return res.json({ offer: null });
+    res.json({
+      offer: {
+        bonusPct:  parseFloat(offer.bonus_pct),
+        label:     offer.label,
+        endsAt:    offer.ends_at,
+        minTokens: offer.min_tokens || 0,
+        hasCode:   !!offer.code,
+      },
+    });
+  } catch (err) {
+    console.error('coins/bonus-offer error:', err);
+    res.json({ offer: null });
   }
 });
 

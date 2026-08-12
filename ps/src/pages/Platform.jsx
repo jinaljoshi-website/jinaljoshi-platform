@@ -75,6 +75,17 @@ const PROFILE_POLL_MS = 20000;
 // sign in and the policy pages render outside it and are ordinary scrolling
 // pages -- locking those made a long form impossible to finish on a phone,
 // which is how somebody found this.
+// Time left, in the largest unit that still reads as urgent.
+function bonusEndsIn(endsAt) {
+  const ms = new Date(endsAt) - Date.now();
+  if (ms <= 0) return 'ending now';
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} left`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48)  return `${hrs} hour${hrs === 1 ? '' : 's'} left`;
+  return `until ${new Date(endsAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+}
+
 function useLockedDocument() {
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -202,6 +213,18 @@ export default function Platform() {
   // prices drawn in rupees a moment earlier are rewritten rather than left
   // inconsistent with the rest of the page.
   const [currencyReady, setCurrencyReady] = useState(0);
+
+  const [offer, setOffer] = useState(null);
+  useEffect(() => {
+    const load = () => api.get('/api/coins/bonus-offer')
+      .then((d) => setOffer(d.offer || null))
+      .catch(() => {});
+    load();
+    // Re-read every few minutes so a banner does not outlive the offer it
+    // advertises, and so one starting mid-session appears without a reload.
+    const id = setInterval(load, 180000);
+    return () => clearInterval(id);
+  }, []);
 
   const [currency, setCurrency] = useState(null);
   const [noticeSeen, setNoticeSeen] = useState(() => {
@@ -332,6 +355,20 @@ export default function Platform() {
         </div>
       )}
 
+      {offer && (
+        <div style={offerBanner} onClick={() => navigate('/platform/coins')}>
+          <span style={{ flex: 1, minWidth: 200 }}>
+            <strong style={{ color: '#1A1714' }}>
+              {offer.label || `${offer.bonusPct}% bonus tokens`}
+            </strong>
+            {' — '}
+            {offer.minTokens > 0 ? `on ${offer.minTokens} tokens or more. ` : 'on every top up. '}
+            {bonusEndsIn(offer.endsAt)}
+          </span>
+          <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Top up →</span>
+        </div>
+      )}
+
       {/* ── CONTENT AREA ── */}
       {isMobile ? (
         <div style={{
@@ -414,6 +451,8 @@ export default function Platform() {
 // so the nav keeps its shape either way.
 const unreadPill = { background: C.accent, color: '#1A1714', fontFamily: F.sans, fontSize: 10, fontWeight: 700, minWidth: 17, height: 17, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px', flexShrink: 0 };
 const navDot = { width: 6, height: 6, borderRadius: '50%', background: '#8FC88F', flexShrink: 0, boxShadow: '0 0 0 3px rgba(143,200,143,0.18)' };
+
+const offerBanner = { display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0, background: C.accent, color: '#1A1714', fontFamily: F.sans, fontSize: 13, lineHeight: 1.5, padding: '10px 16px', cursor: 'pointer' };
 
 const currencyNotice = { display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0, background: 'rgba(193,125,74,0.08)', borderBottom: `1px solid rgba(193,125,74,0.2)`, color: C.muted, fontFamily: F.sans, fontSize: 12, lineHeight: 1.6, padding: '10px 16px' };
 const noticeClose    = { background: 'transparent', border: `1px solid ${C.border}`, color: C.accent, fontFamily: F.sans, fontSize: 12, padding: '5px 12px', borderRadius: 8, cursor: 'pointer', flexShrink: 0 };
