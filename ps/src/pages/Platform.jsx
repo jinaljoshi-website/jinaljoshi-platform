@@ -68,6 +68,20 @@ const PROFILE_POLL_MS = 20000;
 // viewport, sized to what is visible, and pushed down by exactly the amount iOS
 // pushed the viewport up. The two cancel, and the page appears not to move at
 // all while the keyboard takes its space from the message list.
+// Holds the document still for as long as the app shell is on screen.
+//
+// Deliberately scoped to the shell rather than set globally in CSS. Sign up,
+// sign in and the policy pages render outside it and are ordinary scrolling
+// pages -- locking those made a long form impossible to finish on a phone,
+// which is how somebody found this.
+function useLockedDocument() {
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+}
+
 function useVisualViewport() {
   const read = () => ({
     height: window.visualViewport?.height ?? window.innerHeight,
@@ -78,6 +92,7 @@ function useVisualViewport() {
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
+
 
     let frame = null;
     const update = () => {
@@ -176,6 +191,7 @@ export default function Platform() {
   const location  = useLocation();
   const isMobile  = useIsMobile();
   const vp = useVisualViewport();
+  useLockedDocument();
 
   // Which currency this fan reads prices in. Their own if they chose one and
   // are actually abroad; rupees otherwise. Fetched once here rather than per

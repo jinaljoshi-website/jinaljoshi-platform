@@ -17,19 +17,21 @@
     <link rel="icon" type="image/png" href="/wonder-coin-192.png" />
 
     <style>
-      /* The document itself never scrolls. Every screen manages its own
-         overflow, so any movement at this level is the browser repositioning
-         the page — which is what makes a chat jump when the keyboard opens.
+      /* Only rubber-banding is suppressed here. An earlier version also set
+         overflow: hidden on the body to stop the chat jumping when the
+         keyboard opened -- but that applies to every page, and the pages
+         outside the app shell have no scrolling container of their own. Sign
+         up became impossible to complete on a phone: the form ran past the
+         bottom of the screen with no way to reach the rest of it.
 
-         overflow: hidden rather than position: fixed. Fixing the body takes it
-         out of flow and the page renders somewhere unreachable. */
+         The shell locks its own overflow. Anything not inside it -- sign up,
+         sign in, the policy pages -- scrolls like an ordinary page, which is
+         what it is. */
       html, body {
-        height: 100%;
         margin: 0;
-        overflow: hidden;
-        overscroll-behavior: none;
+        min-height: 100%;
+        overscroll-behavior-y: none;
       }
-      #root { height: 100%; }
 
       /* iOS magnifies the page when a focused field is smaller than 16px.
          That is what made the screen grow and slide sideways when the keyboard
