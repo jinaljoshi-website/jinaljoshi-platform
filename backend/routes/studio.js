@@ -1895,6 +1895,112 @@ router.patch('/merch/:id', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// BONUS OFFERS
+// ─────────────────────────────────────────────
+
+// Everything that has run, with what it actually did. A promotion is only worth
+// repeating if you can see whether it moved anything, and that means the money
+// taken during it, not just how many people used it.
+router.get('/bonus-offers', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT o.*,
+              (o.ends_at > NOW() AND o.starts_at <= NOW() AND o.active) AS running,
+              COALESCE((SELECT SUM(l.amount) FROM coin_ledger l
+                        WHERE l.bonus_offer_id = o.id), 0)::int AS bonus_given,
+              COALESCE((SELECT SUM(r.payment_amount_inr) FROM coin_ledger r
+                        WHERE r.type = 'recharge' AND r.direction = 'credit'
+                          AND r.created_at BETWEEN o.starts_at AND LEAST(o.ends_at, NOW())), 0) AS inr_during
+       FROM bonus_offers o
+       ORDER BY o.starts_at DESC LIMIT 40`
+    );
+    res.json({
+      offers: rows.map((o) => ({
+        id: o.id, code: o.code, bonusPct: parseFloat(o.bonus_pct), label: o.label,
+        startsAt: o.starts_at, endsAt: o.ends_at, minTokens: o.min_tokens,
+        maxUses: o.max_uses, uses: o.uses, active: o.active, running: o.running,
+        bonusGiven: Number(o.bonus_given),
+        inrDuring: Math.round(Number(o.inr_during)),
+      })),
+    });
+  } catch (err) {
+    console.error('studio/bonus-offers error:', err);
+    res.status(500).json({ error: 'Failed to load offers' });
+  }
+});
+
+router.post('/bonus-offers', async (req, res) => {
+  const { bonusPct, hours, endsAt, code, label, minTokens, maxUses } = req.body;
+  const pct = parseFloat(bonusPct);
+
+  if (Number.isNaN(pct) || pct < 5 || pct > 100) {
+    return res.status(400).json({ error: 'A bonus is between 5% and 100%' });
+  }
+
+  // An end time, not a duration -- decided when she starts it, so it cannot
+  // drift and everybody sees the same deadline.
+  const ends = endsAt ? new Date(endsAt) : new Date(Date.now() + (parseFloat(hours) || 4) * 3600000);
+  if (!(ends > new Date())) return res.status(400).json({ error: 'That end time has already passed' });
+
+  try {
+    // One sitewide offer at a time. Two would leave the platform picking
+    // between them, and whichever it picked would be the wrong one to explain.
+    if (!code) {
+      const { rows: clash } = await pool.query(
+        `SELECT id FROM bonus_offers
+         WHERE active = TRUE AND code IS NULL AND ends_at > NOW() AND starts_at <= NOW()`
+      );
+      if (clash.length) {
+        return res.status(409).json({
+          error: 'A sitewide offer is already running. End it first, or give this one a code.',
+        });
+      }
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO bonus_offers (code, bonus_pct, label, ends_at, min_tokens, max_uses)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [code?.trim().toUpperCase() || null, pct, label?.trim() || null,
+       ends.toISOString(), parseInt(minTokens, 10) || 0,
+       maxUses ? parseInt(maxUses, 10) : null]
+    );
+
+    // Told to everyone, because an offer nobody knows about is not an offer.
+    // Only for a sitewide one -- a code is for the people given it.
+    if (!code) {
+      postSystemMessage(
+        `\u2728 ${label?.trim() || `${pct}% bonus tokens`} — on every top up, for a limited time.`,
+        { kind: 'news' }
+      );
+    }
+
+    res.json({ ok: true, offer: rows[0] });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'That code already exists' });
+    }
+    console.error('studio/bonus-offers create error:', err);
+    res.status(500).json({ error: 'Could not start the offer' });
+  }
+});
+
+// Ends it now rather than deleting it, so what it did stays on the record.
+router.post('/bonus-offers/:id/end', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE bonus_offers SET active = FALSE, ends_at = LEAST(ends_at, NOW())
+       WHERE id = $1 RETURNING id`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Offer not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('studio/bonus-offers end error:', err);
+    res.status(500).json({ error: 'Could not end that offer' });
+  }
+});
+
+// ─────────────────────────────────────────────
 // MERCH MEDIA LIBRARY
 // ─────────────────────────────────────────────
 

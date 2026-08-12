@@ -7,6 +7,11 @@ import CropTool from '../components/CropTool';
 const confirmBox = { background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.3)', borderRadius: 10, padding: 16 };
 
 const sans = "'DM Sans', system-ui, sans-serif";
+const ladderBox = { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(242,235,224,0.08)', borderRadius: 8, padding: 14, marginTop: 16 };
+const ladderRow = { display: 'flex', justifyContent: 'space-between', gap: 12, fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 12, color: '#9B8F83', padding: '5px 0' };
+const offerRow = { display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '10px 0', borderBottom: '1px solid rgba(242,235,224,0.08)' };
+const codeChip = { fontFamily: "'DM Mono', monospace", fontSize: 10, color: '#C17D4A', background: 'rgba(193,125,74,0.12)', border: '1px solid rgba(193,125,74,0.3)', borderRadius: 4, padding: '2px 6px', marginLeft: 8 };
+const toggleRow = { display: 'flex', alignItems: 'flex-start', gap: 10, fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 13, color: '#9B8F83', cursor: 'pointer', lineHeight: 1.5 };
 const mono = "'DM Mono', 'Courier New', monospace";
 const TIERS = ['community', 'insider', 'premium', 'supreme'];
 const CHAT_BG_ASPECT      = 9 / 16;
@@ -19,6 +24,8 @@ const SUBSECTIONS = [
   { id: 'calls',       label: 'Call Rates'           },
   { id: 'messages',    label: 'Direct Messages'     },
   { id: 'backgrounds', label: 'Backgrounds'          },
+  { id: 'offers',      label: 'Bonus Offers'         },
+  { id: 'currency',    label: 'International'        },
   { id: 'legal',       label: 'Legal Details'        },
 ];
 
@@ -79,6 +86,8 @@ export function Settings() {
       {active === 'pricing'     && <PricingSection     draft={draft} set={set} config={config} setConfig={setConfig} tokenRate={tokenRate} />}
       {active === 'community'   && <CommunitySection    draft={draft} set={set} config={config} setConfig={setConfig} />}
       {active === 'gallery'     && <GallerySection       draft={draft} set={set} config={config} setConfig={setConfig} />}
+      {active === 'currency'    && <CurrencySection      draft={draft} set={set} config={config} setConfig={setConfig} />}
+      {active === 'offers'      && <OffersSection />}
       {active === 'calls'       && <CallsSection         draft={draft} set={set} config={config} setConfig={setConfig} tokenRate={tokenRate} />}
       {active === 'messages'    && <MessagesSection      draft={draft} set={set} config={config} setConfig={setConfig} tokenRate={tokenRate} />}
       {active === 'backgrounds' && <BackgroundsSection config={config} setConfig={setConfig} />}
@@ -241,7 +250,7 @@ function PricingSection({ draft, set, config, setConfig, tokenRate }) {
 // that allowance is still configurable, so only that is shown — the old fields
 // described a mechanism that had already been removed.
 function CommunitySection({ draft, set, config, setConfig }) {
-  const keys = ['community_guest_daily_messages'];
+  const keys = ['community_guest_daily_messages', 'community_pin_hours', 'gift_expiry_days'];
 
   return (
     <div>
@@ -260,7 +269,21 @@ function CommunitySection({ draft, set, config, setConfig }) {
                    value={draft.community_guest_daily_messages ?? 1}
                    onChange={(e) => set('community_guest_daily_messages', e.target.value)} />
           </Field>
+          <Field label="A poll stays at the top for (hours)">
+            <input style={S.input} type="number" min={1}
+                   value={draft.community_pin_hours ?? 48}
+                   onChange={(e) => set('community_pin_hours', e.target.value)} />
+          </Field>
+          <Field label="Gifted tokens last (days)">
+            <input style={S.input} type="number" min={1}
+                   value={draft.gift_expiry_days ?? 30}
+                   onChange={(e) => set('gift_expiry_days', e.target.value)} />
+          </Field>
         </div>
+        <p style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 10, lineHeight: 1.6 }}>
+          Changing how long a gift lasts applies to gifts sent from now on. Tokens already
+          given keep the expiry they were given with.
+        </p>
         <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 12, fontStyle: 'italic' }}>
           Set to 0 to close the Public Corner to guests entirely. Members are unaffected either way.
         </p>
@@ -271,23 +294,312 @@ function CommunitySection({ draft, set, config, setConfig }) {
   );
 }
 
-// ── Gallery ───────────────────────────────────────────────────────────────────
-function GallerySection({ draft, set, config, setConfig }) {
-  const keys = TIERS.map((t) => `gallery_unlocks_${t}`);
+// ── Bonus offers ──────────────────────────────────────────────────────────────
+//
+// A discount given as quantity rather than price: full price collected, full
+// price taxed, more tokens handed over. The fan is no worse off than with a
+// percentage off, the invoice stays simple, and the tokens given are never
+// counted as revenue anywhere.
+function OffersSection() {
+  const [offers,  setOffers]  = useState(null);
+  const [pct,     setPct]     = useState('20');
+  const [hours,   setHours]   = useState(4);
+  const [code,    setCode]    = useState('');
+  const [label,   setLabel]   = useState('');
+  const [minTok,  setMinTok]  = useState('');
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState('');
+  const [success, setSuccess] = useState('');
+
+  const load = () => api.get('/api/studio/bonus-offers')
+    .then((d) => setOffers(d.offers || []))
+    .catch((e) => setError(e.message));
+
+  useEffect(() => { load(); }, []);
+
+  const start = async () => {
+    setSaving(true); setError(''); setSuccess('');
+    try {
+      await api.post('/api/studio/bonus-offers', {
+        bonusPct: pct, hours, code: code.trim() || undefined,
+        label: label.trim() || undefined, minTokens: minTok || 0,
+      });
+      setSuccess(code.trim() ? `Code ${code.trim().toUpperCase()} is live.` : 'Offer is live and announced.');
+      setCode(''); setLabel(''); setMinTok('');
+      load();
+    } catch (err) { setError(err.message); } finally { setSaving(false); }
+  };
+
+  const end = async (o) => {
+    if (!window.confirm(`End "${o.label || `${o.bonusPct}% bonus`}" now?`)) return;
+    setError('');
+    try { await api.post(`/api/studio/bonus-offers/${o.id}/end`); load(); }
+    catch (err) { setError(err.message); }
+  };
+
+  const running = (offers || []).filter((o) => o.running);
+  const past    = (offers || []).filter((o) => !o.running);
+
+  return (
+    <div>
+      {error   && <div style={S.error}>{error}</div>}
+      {success && <div style={S.success}>{success}</div>}
+
+      <Card style={{ marginBottom: 20 }}>
+        <T.sectionTitle>Start an offer</T.sectionTitle>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14, lineHeight: 1.7 }}>
+          Extra tokens rather than money off. Somebody buying 500 at 20% pays the same and receives
+          600 — you collect the full price and the tax is on the full price, which is simpler for
+          everyone. Bonus tokens spend anywhere, never expire, and never count as earnings.
+        </p>
+
+        <div style={S.formGrid}>
+          <Field label="Bonus (%)">
+            <input style={S.input} type="number" min={5} max={100} value={pct}
+                   onChange={(e) => setPct(e.target.value)} />
+          </Field>
+          <Field label="Only on purchases of (tokens)">
+            <input style={S.input} type="number" min={0} value={minTok} placeholder="any amount"
+                   onChange={(e) => setMinTok(e.target.value)} />
+          </Field>
+          <Field label="Code — leave empty for everyone" full>
+            <input style={S.input} value={code} placeholder="e.g. WEEKEND"
+                   onChange={(e) => setCode(e.target.value.toUpperCase())} />
+          </Field>
+          <Field label="What to call it" full>
+            <input style={S.input} value={label} placeholder={`e.g. ${pct}% bonus tokens tonight`}
+                   onChange={(e) => setLabel(e.target.value)} />
+          </Field>
+        </div>
+
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 8 }}>Runs for</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {[[4, '4 hours'], [24, '24 hours'], [72, '3 days'], [168, 'a week'], [720, 'a month']].map(([h, l]) => (
+              <button key={h} onClick={() => setHours(h)}
+                      style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
+                               ...(hours === h ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ ...ladderBox, marginTop: 14 }}>
+          <div style={{ fontFamily: sans, fontSize: 12, color: colors.text }}>
+            Somebody buying 500 tokens would receive{' '}
+            <strong style={{ color: colors.accent }}>{500 + Math.floor((500 * (parseFloat(pct) || 0)) / 100)}</strong>
+            {' '}and pay the same as always.
+          </div>
+          {!code.trim() && (
+            <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 6 }}>
+              A sitewide offer is announced in the Public Corner and shown at the top of every page.
+            </div>
+          )}
+        </div>
+
+        <button onClick={start} disabled={saving} style={{ ...S.btn, marginTop: 14, opacity: saving ? 0.5 : 1 }}>
+          {saving ? 'Starting…' : code.trim() ? 'Create the code' : 'Start it now'}
+        </button>
+      </Card>
+
+      {running.length > 0 && (
+        <Card style={{ marginBottom: 20 }}>
+          <T.sectionTitle>Running now</T.sectionTitle>
+          {running.map((o) => (
+            <div key={o.id} style={offerRow}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>
+                  {o.label || `${o.bonusPct}% bonus`}
+                  {o.code && <span style={codeChip}>{o.code}</span>}
+                </div>
+                <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 3 }}>
+                  Ends {new Date(o.endsAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  {o.minTokens > 0 && ` · on ${o.minTokens}+ tokens`}
+                  {' · '}used {o.uses} time{o.uses === 1 ? '' : 's'}
+                </div>
+              </div>
+              <button onClick={() => end(o)} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 12px', color: '#D99A9A' }}>
+                End now
+              </button>
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {past.length > 0 && (
+        <Card>
+          <T.sectionTitle>Finished</T.sectionTitle>
+          <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 10, lineHeight: 1.6 }}>
+            What each one gave away, against what came in while it ran. Worth reading before
+            repeating one.
+          </p>
+          {past.slice(0, 12).map((o) => (
+            <div key={o.id} style={offerRow}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+                  {o.label || `${o.bonusPct}% bonus`}
+                  {o.code && <span style={codeChip}>{o.code}</span>}
+                </div>
+                <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 3 }}>
+                  {new Date(o.startsAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                  {' · '}used {o.uses} time{o.uses === 1 ? '' : 's'}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', fontFamily: sans, fontSize: 11, color: colors.muted }}>
+                <div style={{ color: colors.success }}>₹{o.inrDuring.toLocaleString('en-IN')} in</div>
+                <div>{o.bonusGiven} bonus tokens given</div>
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {offers && offers.length === 0 && <T.muted>No offers yet.</T.muted>}
+    </div>
+  );
+}
+
+// ── International ─────────────────────────────────────────────────────────────
+function CurrencySection({ draft, set, config, setConfig }) {
+  const keys = ['international_payments_live', 'fx_buffer_pct', 'fx_max_age_hours'];
+  const live = String(draft.international_payments_live) === 'true';
 
   return (
     <div>
       <Card style={{ marginBottom: 20 }}>
-        <T.sectionTitle>Free monthly unlock credits per tier</T.sectionTitle>
-        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>
-          How many sets each membership tier can unlock for free per month, using their monthly credit. Beyond this, fans pay the flat listed price for any set.
+        <T.sectionTitle>Accepting foreign currency</T.sectionTitle>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14, lineHeight: 1.7 }}>
+          A fan outside India can pay in their own money or in US dollars. Both make the sale a
+          zero-rated export, which is why it is worth offering. Switch this off and everybody pays
+          in rupees, which always works — worth doing if the payment provider has a bad day rather
+          than letting purchases fail.
+        </p>
+        <label style={toggleRow}>
+          <input type="checkbox" checked={live}
+                 onChange={(e) => set('international_payments_live', e.target.checked ? 'true' : 'false')} />
+          <span>
+            <strong style={{ color: colors.text }}>
+              {live ? 'Foreign currency is being offered' : 'Everybody pays in rupees'}
+            </strong>
+            <span style={{ display: 'block', fontSize: 11, marginTop: 2 }}>
+              Applies to anyone we can see is outside India.
+            </span>
+          </span>
+        </label>
+      </Card>
+
+      <Card style={{ marginBottom: 20 }}>
+        <T.sectionTitle>Exchange rates</T.sectionTitle>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14, lineHeight: 1.7 }}>
+          Rates refresh twice a day. The buffer absorbs movement between quoting a price and the
+          money actually settling, which can take days — without it, a rupee that weakens overnight
+          means banking less than the price advertised. A rate older than the limit below is not
+          used at all, and that currency is simply not offered until it refreshes.
+        </p>
+        <div style={S.formGrid}>
+          <Field label="Buffer on every conversion (%)">
+            <input style={S.input} type="number" min={0} max={20} step="0.5"
+                   value={draft.fx_buffer_pct ?? ''}
+                   onChange={(e) => set('fx_buffer_pct', e.target.value)} />
+          </Field>
+          <Field label="Stop using a rate after (hours)">
+            <input style={S.input} type="number" min={1}
+                   value={draft.fx_max_age_hours ?? ''}
+                   onChange={(e) => set('fx_max_age_hours', e.target.value)} />
+          </Field>
+        </div>
+      </Card>
+
+      <SectionSave keys={keys} draft={draft} config={config} setConfig={setConfig} />
+    </div>
+  );
+}
+
+// ── Gallery ───────────────────────────────────────────────────────────────────
+function GallerySection({ draft, set, config, setConfig }) {
+  const keys = [
+    ...TIERS.map((t) => `tier_open_cap_${t}`),
+    'tier_open_band2_until', 'tier_open_band2_cost',
+    'tier_open_band3_until', 'tier_open_band3_cost',
+  ];
+
+  const n = (k, d) => {
+    const v = parseInt(draft[k], 10);
+    return Number.isNaN(v) ? d : v;
+  };
+  const cap   = n('tier_open_cap_premium', 15);
+  const b2To  = n('tier_open_band2_until', 30);
+  const b2    = n('tier_open_band2_cost', 1);
+  const b3To  = n('tier_open_band3_until', 50);
+  const b3    = n('tier_open_band3_cost', 3);
+
+  return (
+    <div>
+      <Card style={{ marginBottom: 20 }}>
+        <T.sectionTitle>Sets included with a membership</T.sectionTitle>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14, lineHeight: 1.7 }}>
+          Everything at a member's own level opens without spending anything, up to the number
+          below. A cap of <strong style={{ color: colors.text }}>0 means no limit at all</strong> —
+          which is how Supreme is exempted.
         </p>
         <div style={S.formGrid}>
           {TIERS.map((tier) => (
-            <Field key={tier} label={`${tier.charAt(0).toUpperCase() + tier.slice(1)} — unlocks / month`}>
-              <input style={S.input} type="number" min={0} value={draft[`gallery_unlocks_${tier}`] ?? 0} onChange={(e) => set(`gallery_unlocks_${tier}`, e.target.value)} />
+            <Field key={tier} label={`${tier.charAt(0).toUpperCase() + tier.slice(1)} — sets a month`}>
+              <input style={S.input} type="number" min={0}
+                     value={draft[`tier_open_cap_${tier}`] ?? ''}
+                     onChange={(e) => set(`tier_open_cap_${tier}`, e.target.value)} />
             </Field>
           ))}
+        </div>
+      </Card>
+
+      <Card style={{ marginBottom: 20 }}>
+        <T.sectionTitle>After that</T.sectionTitle>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14, lineHeight: 1.7 }}>
+          The price climbs in steps rather than jumping to one figure — the sixteenth set and the
+          sixtieth are not the same thing. Past the last step a set costs its own price for that
+          tier, which is the point at which a membership has stopped being a membership.
+        </p>
+        <div style={S.formGrid}>
+          <Field label="Second band runs to">
+            <input style={S.input} type="number" min={0} value={draft.tier_open_band2_until ?? ''}
+                   onChange={(e) => set('tier_open_band2_until', e.target.value)} />
+          </Field>
+          <Field label="Tokens per set in that band">
+            <input style={S.input} type="number" min={0} value={draft.tier_open_band2_cost ?? ''}
+                   onChange={(e) => set('tier_open_band2_cost', e.target.value)} />
+          </Field>
+          <Field label="Third band runs to">
+            <input style={S.input} type="number" min={0} value={draft.tier_open_band3_until ?? ''}
+                   onChange={(e) => set('tier_open_band3_until', e.target.value)} />
+          </Field>
+          <Field label="Tokens per set in that band">
+            <input style={S.input} type="number" min={0} value={draft.tier_open_band3_cost ?? ''}
+                   onChange={(e) => set('tier_open_band3_cost', e.target.value)} />
+          </Field>
+        </div>
+
+        {/* Worked out rather than described. Four numbers do not read as a
+            ladder until you see what somebody actually pays at each step. */}
+        <div style={ladderBox}>
+          <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
+            What a member pays
+          </div>
+          {[
+            [`Sets 1 to ${cap}`, 'included'],
+            [`Sets ${cap + 1} to ${b2To}`, `${b2} token${b2 === 1 ? '' : 's'} each`],
+            [`Sets ${b2To + 1} to ${b3To}`, `${b3} token${b3 === 1 ? '' : 's'} each`],
+            [`Beyond ${b3To}`, 'the set\u2019s own price'],
+          ].map(([band, cost]) => (
+            <div key={band} style={ladderRow}>
+              <span style={{ color: colors.text }}>{band}</span>
+              <span>{cost}</span>
+            </div>
+          ))}
+          <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 10, lineHeight: 1.6 }}>
+            Resets on each member's own renewal date, not the 1st.
+          </div>
         </div>
       </Card>
 
@@ -462,7 +774,7 @@ function BackgroundsSection({ config, setConfig }) {
 
 // ── Legal Details ─────────────────────────────────────────────────────────────
 function LegalDetailsSection({ draft, set, config, setConfig }) {
-  const keys = ['legal_registered_address', 'legal_gstin'];
+  const keys = ['legal_registered_address', 'legal_gstin', 'domestic_gst_rate_pct'];
 
   return (
     <Card>
@@ -479,6 +791,18 @@ function LegalDetailsSection({ draft, set, config, setConfig }) {
       </Field>
       <Field label="GSTIN">
         <input style={S.input} value={draft.legal_gstin ?? ''} onChange={(e) => set('legal_gstin', e.target.value)} />
+        </Field>
+
+        <Field label="GST rate (%)">
+          <input style={S.input} type="number" min={0} max={100} step="0.01"
+                 value={draft.domestic_gst_rate_pct ?? ''}
+                 onChange={(e) => set('domestic_gst_rate_pct', e.target.value)} />
+          <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 6, lineHeight: 1.6 }}>
+            Changes with the law, not with a decision. Token prices already include this — the
+            rate here is what gets stripped out to work out the taxable value on an invoice, the
+            share a charity receives, and what a photographer's work generated. Changing it
+            changes all three.
+          </div>
       </Field>
 
       <SectionSave keys={keys} draft={draft} config={config} setConfig={setConfig} />
