@@ -8,6 +8,9 @@ const TOKEN_RATE = 66;
 const sans = "'DM Sans', system-ui, sans-serif";
 const mono = "'DM Mono', 'Courier New', monospace";
 
+const unverifiedChip = { fontFamily: sans, fontSize: 10, color: '#D9A45C', background: 'rgba(217,164,92,0.1)', border: '1px solid rgba(217,164,92,0.3)', borderRadius: 999, padding: '3px 8px' };
+const unverifiedNote = { fontFamily: sans, fontSize: 12, color: colors.muted, lineHeight: 1.6, background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.25)', borderRadius: 8, padding: '10px 14px', marginBottom: 14 };
+
 const sumGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 };
 const sumCard = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 12px' };
 
@@ -219,6 +222,15 @@ export function Members() {
       {error   && <div style={S.error}>{error}</div>}
       {success && <div style={S.success}>{success}</div>}
 
+      {fans.filter((f) => f.email_verified === false).length > 0 && (
+        <div style={unverifiedNote}>
+          <strong style={{ color: colors.text }}>
+            {fans.filter((f) => f.email_verified === false).length} {fans.filter((f) => f.email_verified === false).length === 1 ? 'person has' : 'people have'} not confirmed their email
+          </strong>
+          <span> — they cannot sign in, and nothing tells them why.</span>
+        </div>
+      )}
+
       <SectionTabs
         tabs={[
           { key: 'people',     label: `Members (${fans.length})` },
@@ -321,10 +333,22 @@ export function Members() {
                   )}
                   <div style={S.rowSub}>
                     Joined {new Date(fan.created_at).toLocaleDateString()} · {fan.coin_balance} tokens
+                    {fan.gifted_balance > 0 && (
+                      <span style={{ color: '#8FC88F' }}>
+                        {' + '}{fan.gifted_balance} gifted
+                        {fan.gifted_expires_at && ` (until ${new Date(fan.gifted_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })})`}
+                      </span>
+                    )}
                     {isActive && ` · expires ${new Date(fan.membership_expires_at).toLocaleDateString()}`}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {/* Registered but never confirmed. They cannot sign in and
+                      have no way of knowing why, so this is worth seeing before
+                      wondering why somebody went quiet. */}
+                  {fan.email_verified === false && (
+                    <span style={unverifiedChip}>Not verified</span>
+                  )}
                   {fan.is_muted && (
                     <span style={{ fontFamily: sans, fontSize: 10, color: '#D9A45C', background: 'rgba(217,164,92,0.1)', border: '1px solid rgba(217,164,92,0.3)', borderRadius: 999, padding: '3px 8px' }}>Muted</span>
                   )}

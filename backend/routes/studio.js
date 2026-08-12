@@ -412,6 +412,7 @@ router.get('/fans', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT u.id, u.email, u.display_name, u.tier, u.membership_expires_at,
               u.coin_balance, u.created_at, u.is_muted, u.blocked_until, u.block_count,
+              u.email_verified,
               COALESCE((
                 SELECT SUM(g.remaining) FROM gifted_grants g
                 WHERE g.user_id = u.id AND g.remaining > 0 AND g.expires_at > NOW()

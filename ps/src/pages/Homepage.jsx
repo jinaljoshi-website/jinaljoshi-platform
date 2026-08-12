@@ -220,6 +220,7 @@ export default function Homepage() {
           })}
         </div>
         <div style={termNote}>
+          Prices in rupees. Outside India you can pay in your own currency or in US dollars. &nbsp;<br />
           Quarterly billing = {cfgNum('quarterly_billing_months')} months charged, 3 months access. &nbsp;
           Annual billing = {cfgNum('annual_billing_months')} months charged, 12 months access.
         </div>
@@ -243,7 +244,7 @@ export default function Homepage() {
           <div style={sectionHead}>
             <div style={eyebrow}>J Tokens</div>
             <h2 style={sectionTitle}>Simple, transparent pricing</h2>
-            <p style={sectionSubtext}>1 J Token = ₹{tokenRate} incl. GST. Buy any amount. The more you buy, the more you save.</p>
+            <p style={sectionSubtext}>1 J Token = ₹{tokenRate} incl. GST. Buy any amount. The more you buy, the more you save. Outside India, you can pay in your own currency or in US dollars — just say so when you sign in.</p>
           </div>
           <div style={tokenGrid}>
             {tokenPackages.map((pkg) => (

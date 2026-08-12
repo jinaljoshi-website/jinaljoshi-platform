@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { C, F } from '../tokens';
-import { tierPerks, tierDescription, MEMBERSHIP_NOTES, cfgNum } from '../data';
+import { tierPerks, tierDescription, MEMBERSHIP_NOTES, cfgNum, money } from '../data';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
@@ -240,7 +240,7 @@ export default function Membership() {
               {/* INR price */}
               {inrCost !== null && (
                 <div style={{ fontFamily: F.sans, fontSize: 20, color: C.text, fontWeight: 600, marginBottom: 4 }}>
-                  ₹{inrCost.toLocaleString('en-IN')}
+                  {money(inrCost)}
                 </div>
               )}
               <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 8 }}>
