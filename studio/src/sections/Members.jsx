@@ -14,6 +14,9 @@ const unverifiedNote = { fontFamily: sans, fontSize: 12, color: colors.muted, li
 const sumGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 };
 const sumCard = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 12px' };
 
+const giftBox   = { background: 'rgba(193,125,74,0.06)', border: `1px solid rgba(193,125,74,0.25)`, borderRadius: 8, padding: 14, marginTop: 4, marginBottom: 10 };
+const giftLabel = { fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 5 };
+
 const historyBox = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12, marginTop: 4 };
 const historyRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '7px 0', borderBottom: `1px solid ${colors.border}` };
 
@@ -168,6 +171,45 @@ export function Members() {
     } finally {
       setGranting(false);
     }
+  };
+
+  const [giftFor,   setGiftFor]   = useState(null);   // fan id
+  const [giftKind,  setGiftKind]  = useState('tokens');
+  const [giftAmt,   setGiftAmt]   = useState('');
+  const [giftTier,  setGiftTier]  = useState('community');
+  const [giftTerm,  setGiftTerm]  = useState('monthly');
+  const [giftNote,  setGiftNote]  = useState('');
+  const [giftBusy,  setGiftBusy]  = useState(false);
+
+  const openGift = (fan, kind) => {
+    if (giftFor === fan.id && giftKind === kind) { setGiftFor(null); return; }
+    setGiftFor(fan.id); setGiftKind(kind);
+    setGiftAmt(''); setGiftNote(''); setError(''); setSuccess('');
+  };
+
+  const sendGift = async (fan) => {
+    setGiftBusy(true); setError(''); setSuccess('');
+    try {
+      if (giftKind === 'tokens') {
+        const d = await api.post('/api/studio/grant-tokens', {
+          email:  fan.email,
+          amount: parseInt(giftAmt, 10),
+          reason: giftNote.trim() || 'Token gift from Jinal',
+        });
+        setSuccess(d.message);
+      } else {
+        const d = await api.post('/api/membership/gift', {
+          email: fan.email, tier: giftTier, term: giftTerm, note: giftNote.trim() || undefined,
+        });
+        setSuccess(d.message || `${giftTier} membership gifted to ${fan.display_name || fan.email}.`);
+      }
+      setGiftFor(null); setGiftAmt(''); setGiftNote('');
+      loadFans();
+    } catch (err) {
+      setError(err.message === 'ALREADY_MEMBER'
+        ? 'They already have a membership. Use the Gift a membership tab to extend or change it.'
+        : err.message);
+    } finally { setGiftBusy(false); }
   };
 
   const toggleMute = async (fanId, currentlyMuted) => {
@@ -457,10 +499,85 @@ export function Members() {
                 </div>
               )}
 
+              {giftFor === fan.id && (
+                <div style={giftBox}>
+                  {giftKind === 'tokens' ? (
+                    <>
+                      <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 10, lineHeight: 1.6 }}>
+                        A gift goes into their gifted pot — spendable on messages and content,
+                        and it expires. It never counts as earnings.
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                        <div style={{ width: 110 }}>
+                          <div style={giftLabel}>Tokens</div>
+                          <input style={{ ...S.input, width: '100%', boxSizing: 'border-box' }} type="number" min={1}
+                                 value={giftAmt} onChange={(e) => setGiftAmt(e.target.value)} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 160 }}>
+                          <div style={giftLabel}>Why — they will see this</div>
+                          <input style={{ ...S.input, width: '100%', boxSizing: 'border-box' }}
+                                 value={giftNote} placeholder="e.g. sorry about the call"
+                                 onChange={(e) => setGiftNote(e.target.value)} />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 10, lineHeight: 1.6 }}>
+                        Starts now and runs for the term chosen. They are told, and nothing is charged.
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                        <div style={{ minWidth: 140 }}>
+                          <div style={giftLabel}>Tier</div>
+                          <select style={S.input} value={giftTier} onChange={(e) => setGiftTier(e.target.value)}>
+                            {['community', 'insider', 'premium', 'supreme'].map((t) => (
+                              <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div style={{ minWidth: 140 }}>
+                          <div style={giftLabel}>For</div>
+                          <select style={S.input} value={giftTerm} onChange={(e) => setGiftTerm(e.target.value)}>
+                            <option value="monthly">1 month</option>
+                            <option value="quarterly">3 months</option>
+                            <option value="annual">12 months</option>
+                          </select>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                    <button onClick={() => sendGift(fan)}
+                            disabled={giftBusy || (giftKind === 'tokens' && !giftAmt)}
+                            style={{ ...S.btn, fontSize: 12, padding: '7px 14px',
+                                     opacity: (giftBusy || (giftKind === 'tokens' && !giftAmt)) ? 0.5 : 1 }}>
+                      {giftBusy ? 'Sending…'
+                        : giftKind === 'tokens'
+                          ? `Send ${giftAmt || ''} to ${fan.display_name || fan.email.split('@')[0]}`
+                          : `Gift ${giftTier}`}
+                    </button>
+                    <button onClick={() => setGiftFor(null)} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 14px' }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderTop: `1px solid ${colors.border}`, paddingTop: 10 }}>
                 <button onClick={() => openHistory(fan)}
                         style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
                   {historyFor === fan.id ? 'Hide history' : 'History'}
+                </button>
+
+                <button onClick={() => openGift(fan, 'tokens')}
+                        style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px',
+                                 ...(giftFor === fan.id && giftKind === 'tokens' ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
+                  Gift tokens
+                </button>
+                <button onClick={() => openGift(fan, 'membership')}
+                        style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px',
+                                 ...(giftFor === fan.id && giftKind === 'membership' ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
+                  Gift membership
                 </button>
 
                 <button
