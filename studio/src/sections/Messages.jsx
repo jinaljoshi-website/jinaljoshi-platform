@@ -584,7 +584,7 @@ export function Messages() {
   return (
     <div style={isMobile
       ? { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }
-      : { display: 'grid', gridTemplateColumns: '240px 1fr', gap: 20, height: '85vh' }
+      : { display: 'grid', gridTemplateColumns: '240px 1fr', gap: 20, height: '100%', minHeight: 0 }
     }>
       {showList && (
         <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, flex: isMobile ? 1 : undefined, minHeight: 0 }}>

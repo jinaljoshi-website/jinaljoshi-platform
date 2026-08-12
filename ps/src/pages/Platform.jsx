@@ -86,25 +86,28 @@ function useViewportHeight() {
     document.body.style.position = 'fixed';
     document.body.style.width = '100%';
 
-    // offsetTop is how far the visual viewport has been pushed down the page.
-    // Subtracting it means the shell ends exactly where the visible area does,
-    // rather than extending underneath whatever pushed it.
+    // Only the height, and only on resize.
+    //
+    // The previous version also corrected document scroll on every scroll
+    // event, which fed itself: the correction fired a scroll event, which
+    // fired the correction. On a phone that reads as the screen vibrating.
+    // With the body fixed there is nothing to correct anyway.
+    //
+    // Rounded, and only written when it actually changes, so a one-pixel
+    // fluctuation as the keyboard animates does not re-render the whole shell
+    // forty times on the way.
+    let last = 0;
     const update = () => {
-      setH(Math.round(vv.height + vv.offsetTop));
-      // iOS scrolls the document itself to reveal a focused input. The shell is
-      // already sized to fit, so that scroll only pushes the top bar out of
-      // sight -- putting it back is what keeps the page still.
-      if (window.scrollY !== 0) window.scrollTo(0, 0);
+      const next = Math.round(vv.height);
+      if (Math.abs(next - last) < 2) return;
+      last = next;
+      setH(next);
     };
     update();
     vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
-    // Rotation and the address bar collapsing both change the height without
-    // always firing a visualViewport event.
     window.addEventListener('orientationchange', update);
     return () => {
       vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
       window.removeEventListener('orientationchange', update);
       html.style.height = prev.htmlH;
       document.body.style.height = prev.bodyH;

@@ -58,6 +58,11 @@ const ADMIN_NAV = [
 
 const ADMIN_IDS = new Set(ADMIN_NAV.map((n) => n.id));
 
+// Screens that manage their own height rather than scrolling as a page. A chat
+// is a fixed frame with a scrolling list inside it; putting one in a scrolling
+// wrapper is what lets the keyboard push the composer around.
+const FULLSCREEN_SECTIONS = new Set(['messages', 'community']);
+
 // Availability, Selfie of the Day and the request menu are now tabs inside
 // Calls, Gallery and Custom Requests. Kept resolvable so an old link or a
 // dashboard card still lands on the right tab rather than an empty screen.
@@ -174,25 +179,28 @@ function useViewportHeight() {
     document.body.style.position = 'fixed';
     document.body.style.width = '100%';
 
-    // offsetTop is how far the visual viewport has been pushed down the page.
-    // Subtracting it means the shell ends exactly where the visible area does,
-    // rather than extending underneath whatever pushed it.
+    // Only the height, and only on resize.
+    //
+    // The previous version also corrected document scroll on every scroll
+    // event, which fed itself: the correction fired a scroll event, which
+    // fired the correction. On a phone that reads as the screen vibrating.
+    // With the body fixed there is nothing to correct anyway.
+    //
+    // Rounded, and only written when it actually changes, so a one-pixel
+    // fluctuation as the keyboard animates does not re-render the whole shell
+    // forty times on the way.
+    let last = 0;
     const update = () => {
-      setH(Math.round(vv.height + vv.offsetTop));
-      // iOS scrolls the document itself to reveal a focused input. The shell is
-      // already sized to fit, so that scroll only pushes the top bar out of
-      // sight -- putting it back is what keeps the page still.
-      if (window.scrollY !== 0) window.scrollTo(0, 0);
+      const next = Math.round(vv.height);
+      if (Math.abs(next - last) < 2) return;
+      last = next;
+      setH(next);
     };
     update();
     vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
-    // Rotation and the address bar collapsing both change the height without
-    // always firing a visualViewport event.
     window.addEventListener('orientationchange', update);
     return () => {
       vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
       window.removeEventListener('orientationchange', update);
       html.style.height = prev.htmlH;
       document.body.style.height = prev.bodyH;
@@ -319,7 +327,9 @@ export default function Studio() {
 
       {/* ── CONTENT AREA ── */}
       {isMobile ? (
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 20, boxSizing: 'border-box' }}>
+        <div style={FULLSCREEN_SECTIONS.has(active)
+          ? { flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }
+          : { flex: 1, minHeight: 0, overflowY: 'auto', padding: 20, boxSizing: 'border-box' }}>
           <Section onNavigate={goTo} openWith={sectionState} />
         </div>
       ) : (
@@ -330,7 +340,9 @@ export default function Studio() {
             <AdminDoor open={adminOpen} onToggle={() => setAdminOpen(!adminOpen)}
                        active={active} onSelect={(id) => goTo(id)} />
           </aside>
-          <main style={{ padding: 32, overflowY: 'auto' }}>
+          <main style={FULLSCREEN_SECTIONS.has(active)
+            ? { minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 20 }
+            : { padding: 32, overflowY: 'auto' }}>
             <Section onNavigate={goTo} openWith={sectionState} />
           </main>
         </div>
