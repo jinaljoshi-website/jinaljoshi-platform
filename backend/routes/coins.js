@@ -7,6 +7,7 @@ const { getClientIp, lookupIpCountry } = require('../lib/geoip');
 const { issueInvoiceForPurchase } = require('../lib/invoice');
 const payments = require('../lib/payments');
 const { getConfigNumber, getConfigValue } = require('../lib/config');
+const { getBalances } = require('../lib/tokens');
 const fx = require('../lib/fx');
 
 
@@ -56,7 +57,16 @@ router.get('/balance', authMid, async (req, res) => {
       [req.user.userId]
     );
     const discountConfig = await getDiscountConfig();
-    res.json({ balance: userRows[0]?.coin_balance || 0, ledger, discountConfig });
+    const bal = await getBalances(pool, req.user.userId);
+
+    res.json({
+      balance: userRows[0]?.coin_balance || 0,
+      giftedBalance: bal.gifted,
+      giftedExpiresInDays: bal.giftedExpiresInDays,
+      spendableBalance: bal.total,
+      ledger,
+      discountConfig,
+    });
   } catch (err) {
     console.error('coins/balance error:', err);
     res.status(500).json({ error: 'Failed to load balance' });

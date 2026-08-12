@@ -125,7 +125,7 @@ export default function Outfits() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <WonderCoinAmount amount={myWin.claimPrice} size={22} fontSize={24} />
             <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>
-              incl. {data.handlingFee} handling &amp; packaging
+              includes {data.handlingFee} for packaging and shipping in India
             </span>
             <button
               onClick={() => data.purchasedBalance >= myWin.claimPrice
@@ -157,9 +157,10 @@ export default function Outfits() {
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={smallLabel}>Buy it outright</div>
-              <WonderCoinAmount amount={live.buyNowPrice} size={20} fontSize={22} />
-              <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 4 }}>
-                ends the auction · rises with each bid
+              <WonderCoinAmount amount={live.buyNowPrice + data.handlingFee} size={20} fontSize={22} />
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>
+                ends the auction · rises with each bid<br />
+                includes {data.handlingFee} for packaging and shipping in India
               </div>
             </div>
           </div>
@@ -205,6 +206,8 @@ export default function Outfits() {
                   <div style={{ fontFamily: F.sans, fontSize: 13, color: C.text, marginBottom: 8 }}>
                     Bidding <strong style={{ color: C.accent }}>{bidAmount}</strong> tokens
                     {live.currentBid ? '' : ' — the opening price'}.
+                    {' '}If you win, claiming it costs {bidAmount + data.handlingFee} —
+                    the bid plus {data.handlingFee} for packaging and shipping in India.
                     {bidAmount + data.handlingFee > data.purchasedBalance && (
                       <span style={{ color: '#D9A45C' }}>
                         {' '}You hold {data.purchasedBalance} — claiming would need{' '}
@@ -262,16 +265,25 @@ export default function Outfits() {
                   <Clamped text={item.description} lines={3}
                            style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.6, whiteSpace: 'pre-wrap' }} />
                   {item.csrPct != null && <div style={{ ...csrPill, fontSize: 11 }}>{item.csrPct}% to charity</div>}
-                  <div style={{ margin: '10px 0 4px' }}><WonderCoinAmount amount={item.buyNowPrice} size={18} /></div>
-                  <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 8 }}>
-                    listed price · plus {data.handlingFee} handling
+                  <div style={{ margin: '10px 0 4px' }}>
+                    <WonderCoinAmount amount={item.buyNowPrice + data.handlingFee} size={18} />
+                  </div>
+                  <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 8, lineHeight: 1.5 }}>
+                    includes {data.handlingFee} tokens for packaging and shipping within India.
+                    Shipping elsewhere is quoted separately once you order.
                   </div>
                   {data.isGuest && item.memberBuyNowPrice < item.buyNowPrice && (
                     <GuestNudge compact message={`Members pay ${item.memberBuyNowPrice} tokens for this`} />
                   )}
                   {!affordable && (
-                    <div style={{ fontFamily: F.sans, fontSize: 11, color: '#D99A9A', marginBottom: 6 }}>
-                      {item.buyNowPrice + data.handlingFee - data.purchasedBalance} tokens short
+                    <div style={{ marginBottom: 6 }}>
+                      <div style={{ fontFamily: F.sans, fontSize: 11, color: '#D99A9A' }}>
+                        {item.buyNowPrice + data.handlingFee - data.purchasedBalance} tokens short
+                      </div>
+                      <div style={{ fontFamily: F.sans, fontSize: 10, color: C.muted, marginTop: 3, lineHeight: 1.5 }}>
+                        Gifted tokens are for messages and content — a one-of-one is bought with
+                        purchased tokens.
+                      </div>
                     </div>
                   )}
                   {/* Never a dead button. Short of tokens opens the top-up with the

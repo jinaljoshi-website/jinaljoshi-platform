@@ -18,12 +18,15 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
   const packs = rechargePacks();
   const suggestedPack = packs.find((p) => p.tokens >= requiredTokens) || packs[packs.length - 1];
 
-  // requiredTokens means "you need at least this much" — rounding up to the next
-  // pack is correct there. exactTokens means the fan asked for a specific number,
-  // and must never be rounded up: they typed 200, they get 200.
+  // Whether the fan asked for a specific number or fell short of one, the amount
+  // is filled in exactly. Rounding a shortfall of 107 up to a 500-token pack
+  // charges four times what was needed, at the moment somebody is already
+  // hesitating -- and the packs remain one click away for anyone who would
+  // rather buy more.
+  const prefill = exactTokens || requiredTokens || 0;
   const [selected,    setSelected]    = useState(suggestedPack?.tokens ?? 0);
-  const [custom,      setCustom]      = useState(exactTokens ? String(exactTokens) : '');
-  const [useCustom,   setUseCustom]   = useState(!!exactTokens);
+  const [custom,      setCustom]      = useState(prefill ? String(prefill) : '');
+  const [useCustom,   setUseCustom]   = useState(!!prefill);
   const [processing,  setProcessing]  = useState(false);
   const [error,       setError]       = useState('');
   const overlayRef = useRef(null);
