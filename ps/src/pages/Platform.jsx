@@ -232,7 +232,7 @@ export default function Platform() {
       {isMobile && menuOpen && (
         <>
           <div onClick={() => setMenuOpen(false)} style={backdrop} />
-          <div style={drawer}>
+          <div style={{ ...drawer, height: `${vp.height}px`, transform: `translateY(${vp.offset}px)` }}>
             <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, paddingBottom: 14, borderBottom: `1px solid ${C.border}`, marginBottom: 10 }}>
               {user?.email}
             </div>
@@ -356,7 +356,7 @@ const hamLine     = { display: 'block', width: 22, height: 2, background: C.text
 const backButton  = { background: 'transparent', border: 'none', color: C.text, fontSize: 22, cursor: 'pointer', padding: '0 6px', lineHeight: 1, flexShrink: 0 };
 const ghostBtn    = { border: `1px solid ${C.border}`, background: 'transparent', color: C.text, borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontFamily: F.sans, fontSize: 13 };
 const backdrop    = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 40, backdropFilter: 'blur(4px)' };
-const drawer      = { position: 'fixed', top: 0, right: 0, width: 260, height: '100dvh', background: C.surface, borderLeft: `1px solid ${C.border}`, zIndex: 50, padding: '24px', paddingTop: 'calc(24px + env(safe-area-inset-top, 0px))', display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' };
+const drawer      = { position: 'fixed', top: 0, right: 0, width: 260, background: C.surface, borderLeft: `1px solid ${C.border}`, zIndex: 50, padding: '24px', paddingTop: 'calc(24px + env(safe-area-inset-top, 0px))', display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' };
 const drawerLink  = { textDecoration: 'none', fontFamily: F.sans, fontSize: 15, padding: '12px 14px', borderRadius: 8, display: 'block' };
 const desktopLayout = { display: 'grid', gridTemplateColumns: '200px 1fr', gap: 24, padding: '24px', maxWidth: 1200, width: '100%', margin: '0 auto', boxSizing: 'border-box' };
 const sidebar     = { display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'start', position: 'sticky', top: 24, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 };

@@ -99,7 +99,7 @@ function NavList({ items, active, onSelect, fontSize, padding }) {
 // accident while she is mid-conversation.
 function AdminDoor({ open, onToggle, active, onSelect }) {
   return (
-    <div style={{ marginTop: 'auto', paddingTop: 14, borderTop: `1px solid ${border}` }}>
+    <div style={{ paddingTop: 14, borderTop: `1px solid ${border}` }}>
       {open && (
         <div style={{ marginBottom: 8 }}>
           <NavList items={ADMIN_NAV} active={active} onSelect={onSelect} fontSize={13} padding="9px 14px" />
@@ -306,19 +306,23 @@ export default function Studio() {
       {isMobile && menuOpen && (
         <>
           <div onClick={() => setMenuOpen(false)} style={backdrop} />
-          <div style={drawer}>
+          <div style={{ ...drawer, height: `${vp.height}px`, transform: `translateY(${vp.offset}px)` }}>
             <div style={{ fontFamily: mono, fontSize: 10, color: muted, letterSpacing: '0.1em', marginBottom: 20, paddingBottom: 14, borderBottom: `1px solid ${border}` }}>
               {user?.email}
             </div>
-            <NavList items={NAV} active={active} onSelect={(id) => goTo(id)} fontSize={15} padding="12px 14px" />
-            <AdminDoor open={adminOpen} onToggle={() => setAdminOpen(!adminOpen)}
-                       active={active} onSelect={(id) => goTo(id)} />
-            <button
-              onClick={handleLogout}
-              style={{ background: 'transparent', border: `1px solid ${border}`, color: muted, fontFamily: sans, fontSize: 13, padding: '10px 14px', borderRadius: 8, cursor: 'pointer', marginTop: 20 }}
-            >
-              Sign out
-            </button>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+              <NavList items={NAV} active={active} onSelect={(id) => goTo(id)} fontSize={15} padding="12px 14px" />
+            </div>
+            <div style={{ flexShrink: 0 }}>
+              <AdminDoor open={adminOpen} onToggle={() => setAdminOpen(!adminOpen)}
+                         active={active} onSelect={(id) => goTo(id)} />
+              <button
+                onClick={handleLogout}
+                style={{ background: 'transparent', border: `1px solid ${border}`, color: muted, fontFamily: sans, fontSize: 13, padding: '10px 14px', borderRadius: 8, cursor: 'pointer', marginTop: 12, width: '100%', boxSizing: 'border-box', textAlign: 'left' }}
+              >
+                Sign out
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -332,11 +336,15 @@ export default function Studio() {
         </div>
       ) : (
         <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '220px 1fr', overflow: 'hidden' }}>
-          <aside style={{ background: surface, borderRight: `1px solid ${border}`, padding: 20, display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' }}>
+          <aside style={{ background: surface, borderRight: `1px solid ${border}`, padding: 20, display: 'flex', flexDirection: 'column', gap: 4, overflow: 'hidden' }}>
             <div style={{ fontFamily: mono, fontSize: 10, color: muted, letterSpacing: '0.1em', marginBottom: 24 }}>{user?.email}</div>
-            <NavList items={NAV} active={active} onSelect={(id) => goTo(id)} fontSize={14} padding="10px 14px" />
-            <AdminDoor open={adminOpen} onToggle={() => setAdminOpen(!adminOpen)}
-                       active={active} onSelect={(id) => goTo(id)} />
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+              <NavList items={NAV} active={active} onSelect={(id) => goTo(id)} fontSize={14} padding="10px 14px" />
+            </div>
+            <div style={{ flexShrink: 0 }}>
+              <AdminDoor open={adminOpen} onToggle={() => setAdminOpen(!adminOpen)}
+                         active={active} onSelect={(id) => goTo(id)} />
+            </div>
           </aside>
           <main style={FULLSCREEN_SECTIONS.has(active)
             ? { minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 20 }
@@ -355,4 +363,4 @@ const hamburgerBtn = { display: 'flex', alignItems: 'center', gap: 8, background
 const hamburgerIconWrap = { display: 'flex', flexDirection: 'column', gap: 5 };
 const hamLine   = { display: 'block', width: 18, height: 2, background: text, borderRadius: 2 };
 const backdrop  = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 40, backdropFilter: 'blur(4px)' };
-const drawer    = { position: 'fixed', top: 0, right: 0, width: 260, height: '100dvh', background: surface, borderLeft: `1px solid ${border}`, zIndex: 50, padding: '24px', paddingTop: 'calc(24px + env(safe-area-inset-top, 0px))', display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' };
+const drawer    = { position: 'fixed', top: 0, right: 0, width: 260, background: surface, borderLeft: `1px solid ${border}`, zIndex: 50, padding: '24px', paddingTop: 'calc(24px + env(safe-area-inset-top, 0px))', display: 'flex', flexDirection: 'column', gap: 4, overflow: 'hidden' };
