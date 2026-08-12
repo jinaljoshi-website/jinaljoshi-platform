@@ -150,46 +150,59 @@ const text    = '#F2EBE0';
 const muted   = '#9B8F83';
 const border  = 'rgba(242,235,224,0.08)';
 
-// The height of what is actually visible.
+// Where the visible area is, and how tall.
 //
-// 100vh on a phone means the viewport with the browser chrome hidden, which is
-// taller than the screen -- so the page ran past the bottom and the composer
-// sat below the fold. visualViewport reports the region genuinely in view,
-// keyboard included, so pinning the shell to it means the keyboard takes space
-// from the message list and nothing else moves.
+// The thing that took four attempts to understand: iOS does not scroll the
+// document when the keyboard opens. It slides the *visual viewport* upward to
+// reveal the focused input, and nothing inside the page can prevent that --
+// overflow: hidden does not apply, because no element is scrolling.
 //
-// Deliberately minimal. An earlier version also fixed the body and corrected
-// document scroll; the first took the page out of flow and rendered it
-// somewhere unreachable, and the second fed itself -- the correction fired a
-// scroll event, which fired the correction, which on a phone reads as the
-// screen shaking. Sizing the shell is enough on its own.
-function useViewportHeight() {
-  const [h, setH] = useState(() => window.visualViewport?.height || window.innerHeight);
+// So the shell stops fighting it and travels with it instead. Fixed to the
+// viewport, sized to what is visible, and pushed down by exactly the amount iOS
+// pushed the viewport up. The two cancel, and the page appears not to move at
+// all while the keyboard takes its space from the message list.
+function useVisualViewport() {
+  const read = () => ({
+    height: window.visualViewport?.height ?? window.innerHeight,
+    offset: window.visualViewport?.offsetTop ?? 0,
+  });
+  const [vp, setVp] = useState(read);
 
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
 
-    // Only written when it changes by more than a pixel, so the keyboard's
-    // animation does not re-render the shell on every frame of the way up.
-    let last = 0;
+    let frame = null;
     const update = () => {
-      const next = Math.round(vv.height);
-      if (Math.abs(next - last) < 2) return;
-      last = next;
-      setH(next);
+      // Coalesced into a frame. The viewport reports continuously while the
+      // keyboard animates, and re-rendering the shell on every report is what
+      // made an earlier version stutter.
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        setVp((prev) => {
+          const next = read();
+          return (Math.abs(next.height - prev.height) < 1 &&
+                  Math.abs(next.offset - prev.offset) < 1) ? prev : next;
+        });
+      });
     };
 
-    update();
+    // scroll matters as much as resize here: offsetTop only changes on scroll,
+    // and it is the half that keeps the shell still. Safe to listen to now that
+    // nothing writes back to the scroll position.
     vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
     window.addEventListener('orientationchange', update);
     return () => {
+      if (frame) cancelAnimationFrame(frame);
       vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
       window.removeEventListener('orientationchange', update);
     };
   }, []);
 
-  return h;
+  return vp;
 }
 
 function useIsMobile() {
@@ -216,7 +229,7 @@ export default function Studio() {
   const navigate  = useNavigate();
   const user      = getUser();
   const isMobile  = useIsMobile();
-  const viewportH = useViewportHeight();
+  const vp = useVisualViewport();
 
   const handleLogout = () => { logout(); navigate('/login'); };
   const Section = SECTIONS[active] || Dashboard;
@@ -258,7 +271,11 @@ export default function Studio() {
   }, []);
 
   return (
-    <div style={{ height: viewportH ? `${viewportH}px` : '100dvh', display: 'flex', flexDirection: 'column', background: bg, color: text, overflow: 'hidden' }}>
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0,
+                  height: `${vp.height}px`,
+                  transform: `translateY(${vp.offset}px)`,
+                  display: 'flex', flexDirection: 'column',
+                  background: bg, color: text, overflow: 'hidden' }}>
 
       <RingWatch onOpenCalls={() => setActive('calls')} />
 
