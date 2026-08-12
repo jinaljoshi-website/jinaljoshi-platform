@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { api, getUser, logout } from '../api';
-import { TIERS } from '../data';
+import { TIERS, setDisplayCurrency } from '../data';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import InstallPrompt    from '../components/InstallPrompt';
 import NotificationBell from '../components/NotificationBell';
@@ -176,6 +176,27 @@ export default function Platform() {
   const location  = useLocation();
   const isMobile  = useIsMobile();
   const vp = useVisualViewport();
+
+  // Which currency this fan reads prices in. Their own if they chose one and
+  // are actually abroad; rupees otherwise. Fetched once here rather than per
+  // screen, since every price on the platform depends on it.
+  //
+  // The counter exists only to force one re-render when the answer arrives, so
+  // prices drawn in rupees a moment earlier are rewritten rather than left
+  // inconsistent with the rest of the page.
+  const [currencyReady, setCurrencyReady] = useState(0);
+
+  useEffect(() => {
+    api.get('/api/coins/currencies')
+      .then((d) => {
+        const chosen = (d.options || []).find((o) => o.currency === d.current);
+        setDisplayCurrency(d.isForeign && chosen ? chosen : null);
+        // Re-rendered once the answer is in, so prices that drew in rupees a
+        // moment ago are rewritten rather than left inconsistent.
+        setCurrencyReady((n) => n + 1);
+      })
+      .catch(() => setCurrencyReady((n) => n + 1));
+  }, []);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const isFullscreen = FULLSCREEN_PAGES.includes(location.pathname);
@@ -255,13 +276,18 @@ export default function Platform() {
               );
             })}
             </div>
-            <div style={{ flexShrink: 0 }}>
-            <button
-              onClick={handleLogout}
-              style={{ ...drawerLink, color: C.muted, background: 'transparent', border: 'none', textAlign: 'left', cursor: 'pointer', borderTop: `1px solid ${C.border}`, paddingTop: 16 }}
-            >
-              Sign out
-            </button>
+            <div style={{ flexShrink: 0, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+              <button
+                onClick={handleLogout}
+                style={{
+                  width: '100%', boxSizing: 'border-box', display: 'block', textAlign: 'left',
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  fontFamily: F.sans, fontSize: 15, color: C.muted,
+                  padding: '12px 14px', borderRadius: 8,
+                }}
+              >
+                Sign out
+              </button>
             </div>
           </div>
         </>

@@ -1,6 +1,6 @@
 import coinUrl from '../assets/wonder-coin.svg';
 import { C, F } from '../tokens';
-import { tokenRateInr } from '../data';
+import { tokensToMoney } from '../data';
 
 export function WonderCoin({ size = 18, alt = 'Wonder Coin' }) {
   return (
@@ -24,7 +24,10 @@ export function WonderCoin({ size = 18, alt = 'Wonder Coin' }) {
 export function WonderCoinAmount({
   amount,
   size = 18,
-  showInr = false,
+  // On by default. A token is an abstraction, and somebody deciding whether to
+  // spend deserves to know what it costs without doing arithmetic. Anywhere it
+  // genuinely does not belong passes showInr={false}.
+  showInr = true,
   hideAmount = false,
   textColor = C.text,
   subColor = C.muted,
@@ -32,8 +35,8 @@ export function WonderCoinAmount({
   fontSize,
   subSize = 12,
 }) {
-  const rate     = tokenRateInr();
-  const inrValue = rate === null ? null : amount * rate;
+  // In whatever currency this fan chose to pay in, falling back to rupees.
+  const priceLabel = tokensToMoney(amount);
 
   return (
     <div
@@ -56,7 +59,7 @@ export function WonderCoinAmount({
           >
             {amount}
           </div>
-          {showInr && inrValue !== null && (
+          {showInr && priceLabel !== null && (
             <div
               style={{
                 fontFamily: F.sans,
@@ -66,7 +69,7 @@ export function WonderCoinAmount({
                 whiteSpace: 'nowrap',
               }}
             >
-              ₹{inrValue.toLocaleString('en-IN')}
+              {priceLabel}
             </div>
           )}
         </div>

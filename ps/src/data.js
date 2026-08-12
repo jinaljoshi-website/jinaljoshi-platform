@@ -30,6 +30,45 @@ export function tokenRateInr() {
   return cfgNum('token_rate_inr');
 }
 
+// ─────────────────────────────────────────────
+// WHAT A TOKEN IS WORTH, IN THE FAN'S OWN MONEY
+// ─────────────────────────────────────────────
+//
+// Prices are set in rupees, because that is what Jinal earns and what the tax
+// is calculated on. But a fan in Malta reading "7 tokens · Rs 462" has to do
+// arithmetic with a number that means nothing to them, so the rupee figure is
+// converted for display into whatever they chose to pay in.
+//
+// Display only. The charge itself is quoted fresh by the server at the moment
+// of purchase, so a rate that moved between page load and payment cannot make
+// somebody pay a figure they were not shown.
+export let DISPLAY_CURRENCY = null;
+
+export function setDisplayCurrency(c) {
+  DISPLAY_CURRENCY = c && c.currency && c.currency !== 'INR' ? c : null;
+}
+
+// An INR amount, written the way this fan would recognise it.
+export function money(amountInr) {
+  if (amountInr === null || amountInr === undefined) return null;
+  const c = DISPLAY_CURRENCY;
+  if (!c || !c.inrPerUnit) {
+    return `\u20B9${Math.round(amountInr).toLocaleString('en-IN')}`;
+  }
+  // Rounded up, matching how the server quotes a real charge -- so the figure
+  // shown is never lower than the figure billed.
+  const f = Math.pow(10, c.decimals ?? 2);
+  const value = Math.ceil((amountInr / c.inrPerUnit) * f) / f;
+  return `${c.symbol || c.currency + ' '}${value.toFixed(c.decimals ?? 2)}`;
+}
+
+// What a number of tokens is worth, in their money.
+export function tokensToMoney(tokens) {
+  const rate = tokenRateInr();
+  if (rate === null || tokens === null || tokens === undefined) return null;
+  return money(tokens * rate);
+}
+
 export function guestMultiplier() {
   return cfgNum('guest_price_multiplier');
 }
