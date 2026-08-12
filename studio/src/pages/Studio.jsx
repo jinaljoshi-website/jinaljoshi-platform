@@ -363,4 +363,4 @@ const hamburgerBtn = { display: 'flex', alignItems: 'center', gap: 8, background
 const hamburgerIconWrap = { display: 'flex', flexDirection: 'column', gap: 5 };
 const hamLine   = { display: 'block', width: 18, height: 2, background: text, borderRadius: 2 };
 const backdrop  = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 40, backdropFilter: 'blur(4px)' };
-const drawer    = { position: 'fixed', top: 0, right: 0, width: 260, background: surface, borderLeft: `1px solid ${border}`, zIndex: 50, padding: '24px', paddingTop: 'calc(24px + env(safe-area-inset-top, 0px))', display: 'flex', flexDirection: 'column', gap: 4, overflow: 'hidden' };
+const drawer    = { position: 'fixed', top: 0, right: 0, width: 260, background: surface, borderLeft: `1px solid ${border}`, zIndex: 50, padding: '24px', boxSizing: 'border-box', paddingTop: 'calc(24px + env(safe-area-inset-top, 0px))', paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))', display: 'flex', flexDirection: 'column', gap: 4, overflow: 'hidden' };
