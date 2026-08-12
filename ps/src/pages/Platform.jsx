@@ -57,6 +57,38 @@ function LiveDot({ show }) {
 const TOP_BAR_H = 56;
 const PROFILE_POLL_MS = 20000;
 
+// The height of what is actually visible, keyboard included.
+//
+// 100vh on a phone is the viewport with the browser chrome hidden -- taller
+// than the screen -- so the page ran off the bottom and the composer sat below
+// the fold. 100dvh fixes that but still leaves iOS free to scroll the whole
+// document up when the keyboard opens, which is what made the page appear to
+// expand and shrink.
+//
+// visualViewport reports the region genuinely in view. Pinning the shell to it
+// means the keyboard takes space from the message list, and nothing else moves.
+function useViewportHeight() {
+  const [h, setH] = useState(() => window.visualViewport?.height || window.innerHeight);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      setH(vv.height);
+      // iOS scrolls the document itself to reveal a focused input. The shell is
+      // already sized to fit, so that scroll only pushes the top bar out of
+      // sight -- putting it back is what keeps the page still.
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+    };
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
+  return h;
+}
+
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   useEffect(() => {
@@ -120,6 +152,7 @@ export default function Platform() {
   const navigate  = useNavigate();
   const location  = useLocation();
   const isMobile  = useIsMobile();
+  const viewportH = useViewportHeight();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const isFullscreen = FULLSCREEN_PAGES.includes(location.pathname);
@@ -135,7 +168,7 @@ export default function Platform() {
   const currentNav = navItems.find((n) => n.to === location.pathname);
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: C.bg, color: C.text, overflow: 'hidden' }}>
+    <div style={{ height: viewportH ? `${viewportH}px` : '100dvh', display: 'flex', flexDirection: 'column', background: C.bg, color: C.text, overflow: 'hidden' }}>
 
       {/* ── TOP BAR ── */}
       <div style={topBar}>
@@ -296,7 +329,7 @@ const hamLine     = { display: 'block', width: 22, height: 2, background: C.text
 const backButton  = { background: 'transparent', border: 'none', color: C.text, fontSize: 22, cursor: 'pointer', padding: '0 6px', lineHeight: 1, flexShrink: 0 };
 const ghostBtn    = { border: `1px solid ${C.border}`, background: 'transparent', color: C.text, borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontFamily: F.sans, fontSize: 13 };
 const backdrop    = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 40, backdropFilter: 'blur(4px)' };
-const drawer      = { position: 'fixed', top: 0, right: 0, width: 260, height: '100vh', background: C.surface, borderLeft: `1px solid ${C.border}`, zIndex: 50, padding: '24px', paddingTop: 'calc(24px + env(safe-area-inset-top, 0px))', display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' };
+const drawer      = { position: 'fixed', top: 0, right: 0, width: 260, height: '100dvh', background: C.surface, borderLeft: `1px solid ${C.border}`, zIndex: 50, padding: '24px', paddingTop: 'calc(24px + env(safe-area-inset-top, 0px))', display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' };
 const drawerLink  = { textDecoration: 'none', fontFamily: F.sans, fontSize: 15, padding: '12px 14px', borderRadius: 8, display: 'block' };
 const desktopLayout = { display: 'grid', gridTemplateColumns: '200px 1fr', gap: 24, padding: '24px', maxWidth: 1200, width: '100%', margin: '0 auto', boxSizing: 'border-box' };
 const sidebar     = { display: 'flex', flexDirection: 'column', gap: 6, alignSelf: 'start', position: 'sticky', top: 24, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 };

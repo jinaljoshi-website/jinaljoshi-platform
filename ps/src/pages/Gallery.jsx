@@ -242,6 +242,21 @@ export default function Gallery() {
         <p style={text}>
           Photo sets, videos and behind-the-scenes content.
         </p>
+        {data?.library && (
+          <div style={libraryLine}>
+            <span style={{ color: C.text }}>
+              {data.library.photos.toLocaleString('en-IN')} photos
+              {data.library.videos > 0 && ` and ${data.library.videos} video${data.library.videos === 1 ? '' : 's'}`}
+              {' '}in {data.library.totalSets} set{data.library.totalSets === 1 ? '' : 's'}
+            </span>
+            {data.library.totalSets > 0 && (
+              <>
+                <span style={{ opacity: 0.5 }}> · </span>
+                <span>you have opened <strong style={{ color: C.accent }}>{data.library.seenPct}%</strong> of them</span>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {data?.isGuest && <GuestNudge message="You're browsing as a guest — members see everything at their level without paying." />}
@@ -301,14 +316,18 @@ export default function Gallery() {
                   onChange={(e) => { setSort(e.target.value); load(e.target.value); }}
                   style={sortSelect}>
             <option value="newest">Newest first</option>
+            <option value="free_for_all">Free for all</option>
             <option value="free_for_me">Free for me</option>
+            <option value="locked">Locked media</option>
           </select>
         </div>
       )}
 
-      {activeTab === 'selfies' ? <Selfies /> : activeItems.length === 0 && sort === 'free_for_me' ? (
+      {activeTab === 'selfies' ? <Selfies /> : activeItems.length === 0 && sort !== 'newest' ? (
         <div style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.7 }}>
-          Nothing here is open to you at the moment.{' '}
+          {sort === 'locked' ? 'Nothing is locked for you — you can already open everything here. '
+           : sort === 'free_for_all' ? 'No sets are free to everyone right now. '
+           : 'Nothing here is open to you at the moment. '}
           {data?.isGuest ? 'Members see everything at their level without paying.' : 'New sets appear here as Jinal posts them.'}
         </div>
       ) : activeItems.length === 0 ? (
@@ -388,6 +407,8 @@ export default function Gallery() {
     </div>
   );
 }
+
+const libraryLine = { fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.7, marginTop: 6 };
 
 const capBar   = { display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px', marginBottom: 14 };
 const capTrack = { flex: '0 0 120px', height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 2, overflow: 'hidden' };

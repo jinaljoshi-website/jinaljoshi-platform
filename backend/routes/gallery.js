@@ -166,7 +166,7 @@ router.get('/sets', authMid, async (req, res) => {
     // a member pays nothing for their own level, so most sets cost the same and
     // the order came out identical to newest. What a fan actually wants to know
     // is which sets are open to them.
-    const sortBy = ['newest', 'free_for_me'].includes(req.query.sort)
+    const sortBy = ['newest', 'free_for_all', 'free_for_me', 'locked'].includes(req.query.sort)
       ? req.query.sort : 'newest';
 
     const { rows: sets } = await pool.query(
@@ -273,14 +273,43 @@ router.get('/sets', authMid, async (req, res) => {
     // above. The query's own ordering stands for 'newest'.
     // Open to them without paying: free to everyone, or within their tier.
     const freeToThem = (s) => s.isFreeForAll || (s.tierPortionCount > 0 && s.tierPrice === 0);
-    if (sortBy === 'free_for_me') {
-      setsWithData = setsWithData.filter(freeToThem);
-    }
+    if (sortBy === 'free_for_me')  setsWithData = setsWithData.filter(freeToThem);
+    if (sortBy === 'free_for_all') setsWithData = setsWithData.filter((s) => s.isFreeForAll);
+    // Anything with something still behind a wall for this fan — either the set
+    // itself, or an exclusive portion of it they have not bought.
+    if (sortBy === 'locked')       setsWithData = setsWithData.filter((s) => !freeToThem(s) || s.upsellPrice > 0);
 
     const freeForAll = setsWithData.filter((s) => s.isFreeForAll);
     const unlockable = setsWithData.filter((s) => !s.isFreeForAll);
 
+    // What the library holds, and how much of it this fan has been inside.
+    //
+    // Counted against every visible set, not only the ones at their level. A
+    // Community member seeing they have opened 12% is the honest number and it
+    // is also the argument for the next tier; showing 90% of what happens to be
+    // open to them would be flattering and say nothing.
+    const { rows: libRows } = await pool.query(
+      `SELECT
+         (SELECT count(*)::int FROM set_items i JOIN sets s2 ON s2.id = i.set_id
+           WHERE s2.visible = TRUE AND s2.is_vault = FALSE AND i.media_type <> 'video')  AS photos,
+         (SELECT count(*)::int FROM set_items i JOIN sets s2 ON s2.id = i.set_id
+           WHERE s2.visible = TRUE AND s2.is_vault = FALSE AND i.media_type = 'video')   AS videos,
+         (SELECT count(*)::int FROM sets s2
+           WHERE s2.visible = TRUE AND s2.is_vault = FALSE)                              AS total_sets,
+         (SELECT count(*)::int FROM set_views v JOIN sets s2 ON s2.id = v.set_id
+           WHERE v.user_id = $1 AND s2.visible = TRUE AND s2.is_vault = FALSE)           AS seen_sets`,
+      [req.user.userId]
+    );
+    const lib = libRows[0];
+
     res.json({
+      library: {
+        photos:    lib.photos,
+        videos:    lib.videos,
+        totalSets: lib.total_sets,
+        seenSets:  lib.seen_sets,
+        seenPct:   lib.total_sets ? Math.round((lib.seen_sets / lib.total_sets) * 100) : 0,
+      },
       sort: sortBy,
       // One list, already in the requested order. freeForAll and unlockable are
       // kept for anything still reading them, but concatenating those two is

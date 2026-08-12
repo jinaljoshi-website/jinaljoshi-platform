@@ -145,6 +145,38 @@ const text    = '#F2EBE0';
 const muted   = '#9B8F83';
 const border  = 'rgba(242,235,224,0.08)';
 
+// The height of what is actually visible, keyboard included.
+//
+// 100vh on a phone is the viewport with the browser chrome hidden -- taller
+// than the screen -- so the page ran off the bottom and the composer sat below
+// the fold. 100dvh fixes that but still leaves iOS free to scroll the whole
+// document up when the keyboard opens, which is what made the page appear to
+// expand and shrink.
+//
+// visualViewport reports the region genuinely in view. Pinning the shell to it
+// means the keyboard takes space from the message list, and nothing else moves.
+function useViewportHeight() {
+  const [h, setH] = useState(() => window.visualViewport?.height || window.innerHeight);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      setH(vv.height);
+      // iOS scrolls the document itself to reveal a focused input. The shell is
+      // already sized to fit, so that scroll only pushes the top bar out of
+      // sight -- putting it back is what keeps the page still.
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+    };
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
+  return h;
+}
+
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   useEffect(() => {
@@ -169,6 +201,7 @@ export default function Studio() {
   const navigate  = useNavigate();
   const user      = getUser();
   const isMobile  = useIsMobile();
+  const viewportH = useViewportHeight();
 
   const handleLogout = () => { logout(); navigate('/login'); };
   const Section = SECTIONS[active] || Dashboard;
@@ -210,7 +243,7 @@ export default function Studio() {
   }, []);
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: bg, color: text, overflow: 'hidden' }}>
+    <div style={{ height: viewportH ? `${viewportH}px` : '100dvh', display: 'flex', flexDirection: 'column', background: bg, color: text, overflow: 'hidden' }}>
 
       <RingWatch onOpenCalls={() => setActive('calls')} />
 
@@ -286,4 +319,4 @@ const hamburgerBtn = { display: 'flex', alignItems: 'center', gap: 8, background
 const hamburgerIconWrap = { display: 'flex', flexDirection: 'column', gap: 5 };
 const hamLine   = { display: 'block', width: 18, height: 2, background: text, borderRadius: 2 };
 const backdrop  = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 40, backdropFilter: 'blur(4px)' };
-const drawer    = { position: 'fixed', top: 0, right: 0, width: 260, height: '100vh', background: surface, borderLeft: `1px solid ${border}`, zIndex: 50, padding: '24px', paddingTop: 'calc(24px + env(safe-area-inset-top, 0px))', display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' };
+const drawer    = { position: 'fixed', top: 0, right: 0, width: 260, height: '100dvh', background: surface, borderLeft: `1px solid ${border}`, zIndex: 50, padding: '24px', paddingTop: 'calc(24px + env(safe-area-inset-top, 0px))', display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto' };
