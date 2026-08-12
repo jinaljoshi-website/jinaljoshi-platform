@@ -72,18 +72,44 @@ function useViewportHeight() {
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
+
+    // The document itself must not scroll. Everything inside the shell manages
+    // its own overflow, so any scroll at this level is the browser moving the
+    // page to reveal something -- which is exactly the movement being fixed.
+    const html = document.documentElement;
+    const prev = { htmlH: html.style.height, bodyH: document.body.style.height,
+                   bodyOverflow: document.body.style.overflow,
+                   bodyPosition: document.body.style.position };
+    html.style.height = '100%';
+    document.body.style.height = '100%';
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.width = '100%';
+
+    // offsetTop is how far the visual viewport has been pushed down the page.
+    // Subtracting it means the shell ends exactly where the visible area does,
+    // rather than extending underneath whatever pushed it.
     const update = () => {
-      setH(vv.height);
+      setH(Math.round(vv.height + vv.offsetTop));
       // iOS scrolls the document itself to reveal a focused input. The shell is
       // already sized to fit, so that scroll only pushes the top bar out of
       // sight -- putting it back is what keeps the page still.
       if (window.scrollY !== 0) window.scrollTo(0, 0);
     };
+    update();
     vv.addEventListener('resize', update);
     vv.addEventListener('scroll', update);
+    // Rotation and the address bar collapsing both change the height without
+    // always firing a visualViewport event.
+    window.addEventListener('orientationchange', update);
     return () => {
       vv.removeEventListener('resize', update);
       vv.removeEventListener('scroll', update);
+      window.removeEventListener('orientationchange', update);
+      html.style.height = prev.htmlH;
+      document.body.style.height = prev.bodyH;
+      document.body.style.overflow = prev.bodyOverflow;
+      document.body.style.position = prev.bodyPosition;
     };
   }, []);
   return h;

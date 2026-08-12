@@ -436,7 +436,9 @@ router.get('/dms', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT DISTINCT ON (CASE WHEN sender_id = $1 THEN recipient_id ELSE sender_id END)
-       dm.id, dm.content, dm.created_at, dm.tokens_charged, dm.read,
+       dm.id, dm.created_at, dm.tokens_charged, dm.read,
+       CASE WHEN dm.deleted_at IS NULL THEN dm.content ELSE NULL END AS content,
+       (dm.deleted_at IS NOT NULL) AS deleted,
        (dm.sender_id = $1) AS is_mine,
        CASE WHEN dm.sender_id = $1 THEN dm.recipient_id ELSE dm.sender_id END AS fan_id,
        u.email, u.display_name, u.tier
@@ -461,7 +463,15 @@ router.get('/dms', async (req, res) => {
 router.get('/dms/:fanId', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT dm.*, (dm.sender_id = $1) AS is_mine FROM direct_messages dm
+      `SELECT dm.id, dm.sender_id, dm.recipient_id, dm.created_at, dm.parent_id,
+              dm.tokens_charged, dm.read, dm.unlock_price_coins, dm.unlocked_at,
+              (dm.deleted_at IS NOT NULL) AS deleted,
+              CASE WHEN dm.deleted_at IS NULL THEN dm.content END            AS content,
+              CASE WHEN dm.deleted_at IS NULL THEN dm.media_url END          AS media_url,
+              CASE WHEN dm.deleted_at IS NULL THEN dm.media_type END         AS media_type,
+              CASE WHEN dm.deleted_at IS NULL THEN dm.locked_media_urls END  AS locked_media_urls,
+              (dm.sender_id = $1) AS is_mine
+       FROM direct_messages dm
        WHERE (dm.sender_id = $1 AND dm.recipient_id = $2) OR (dm.sender_id = $2 AND dm.recipient_id = $1)
        ORDER BY dm.created_at ASC`,
       [req.user.userId, req.params.fanId]
