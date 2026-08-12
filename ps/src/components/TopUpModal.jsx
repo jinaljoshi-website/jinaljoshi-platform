@@ -6,7 +6,11 @@ import { useEffect, useRef, useState } from 'react';
 import { C, F } from '../tokens';
 import { WonderCoin, WonderCoinAmount } from './WonderCoin';
 import { api } from '../api';
-import { rechargePacks, tokenRateInr, rechargePrice } from '../data';
+import { rechargePacks, tokenRateInr, rechargePrice, money } from '../data';
+
+// Currencies quoted without decimal places. Razorpay expects the smallest unit
+// of the currency, and for these the smallest unit is the currency itself.
+const ZERO_DECIMAL = new Set(['JPY','KRW','VND','CLP','ISK','HUF','TWD','UGX','RWF','XAF','XOF']);
 
 export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClose, onSuccess }) {
   // Find the smallest pack that covers the required amount,
@@ -14,14 +18,12 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
   const packs = rechargePacks();
   const suggestedPack = packs.find((p) => p.tokens >= requiredTokens) || packs[packs.length - 1];
 
-  // Whether the fan asked for a specific number (exactTokens) or fell short of one
-  // (requiredTokens), the amount is pre-filled exactly. Rounding silently up to the
-  // next pack charges more than was asked for. The packs stay visible and one click
-  // away for anyone who would rather buy more.
-  const prefill = exactTokens || requiredTokens || 0;
+  // requiredTokens means "you need at least this much" — rounding up to the next
+  // pack is correct there. exactTokens means the fan asked for a specific number,
+  // and must never be rounded up: they typed 200, they get 200.
   const [selected,    setSelected]    = useState(suggestedPack?.tokens ?? 0);
-  const [custom,      setCustom]      = useState(prefill ? String(prefill) : '');
-  const [useCustom,   setUseCustom]   = useState(!!prefill);
+  const [custom,      setCustom]      = useState(exactTokens ? String(exactTokens) : '');
+  const [useCustom,   setUseCustom]   = useState(!!exactTokens);
   const [processing,  setProcessing]  = useState(false);
   const [error,       setError]       = useState('');
   const overlayRef = useRef(null);
@@ -71,8 +73,11 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
 
       const rzp = new window.Razorpay({
         key:         data.razorpayKey,
-        amount:      Math.round(data.amount * 100), // Razorpay needs paise, backend returns INR
-        currency:    'INR',
+        // Whatever the server actually quoted. Zero-decimal currencies are
+        // sent as whole units, so multiplying blindly by 100 would ask for a
+        // hundred times the price in yen.
+        amount:      Math.round(data.amount * (ZERO_DECIMAL.has(data.currency) ? 1 : 100)),
+        currency:    data.currency || 'INR',
         name:        'Personal Space',
         description: `${tokenAmount} J Tokens`,
         order_id:    data.orderId,
@@ -131,8 +136,8 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
             {requiredTokens > 0 && (
               <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>
                 You need{' '}
-                <strong style={{ color: C.accent }}>{requiredTokens} more token{requiredTokens === 1 ? '' : 's'}</strong>
-                {' '}to complete this purchase
+                <strong style={{ color: C.accent }}>{requiredTokens} tokens</strong>
+                {' '}to continue
               </div>
             )}
           </div>
@@ -171,18 +176,18 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
                   {p.pct > 0 ? (
                     <>
                       <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, textDecoration: 'line-through', marginBottom: 2 }}>
-                        ₹{p.base.toLocaleString('en-IN')}
+                        {money(p.base)}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ fontFamily: F.sans, fontSize: 14, color: C.text, fontWeight: 600 }}>
-                          ₹{p.final.toLocaleString('en-IN')}
+                          {money(p.final)}
                         </span>
                         <span style={discountBadge}>{p.pct}% off</span>
                       </div>
                     </>
                   ) : (
                     <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>
-                      ₹{p.final.toLocaleString('en-IN')}
+                      {money(p.final)}
                     </div>
                   )}
 
@@ -218,13 +223,13 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
                 {rechargePrice(tokenAmount).pct > 0 ? (
                   <>
                     <span style={{ textDecoration: 'line-through', marginRight: 6 }}>
-                      ₹{rechargePrice(tokenAmount).base.toLocaleString('en-IN')}
+                      {money(rechargePrice(tokenAmount).base)}
                     </span>
-                    <span style={{ color: C.text }}>₹{rechargePrice(tokenAmount).final.toLocaleString('en-IN')}</span>
+                    <span style={{ color: C.text }}>{money(rechargePrice(tokenAmount).final)}</span>
                     <span style={{ ...discountBadge, marginLeft: 6 }}>{rechargePrice(tokenAmount).pct}% off</span>
                   </>
                 ) : (
-                  `₹${rechargePrice(tokenAmount).final.toLocaleString('en-IN')}`
+                  money(rechargePrice(tokenAmount).final)
                 )}
               </div>
             )}
@@ -245,12 +250,12 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
             <span style={{ fontFamily: F.sans, fontSize: 14, color: C.muted }}>You pay</span>
             <span style={{ fontFamily: F.sans, fontSize: 20, color: C.text, fontWeight: 600 }}>
-              ₹{pricing.final.toLocaleString('en-IN')}
+              {money(pricing.final)}
             </span>
           </div>
           {pricing.pct > 0 && (
             <div style={{ fontFamily: F.sans, fontSize: 11, color: '#8FC88F', marginTop: 6, textAlign: 'right' }}>
-              You save ₹{pricing.discount.toLocaleString('en-IN')} ({pricing.pct}% off)
+              You save {money(pricing.discount)} ({pricing.pct}% off)
             </div>
           )}
         </div>
@@ -262,11 +267,11 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
           disabled={processing || tokenAmount < 1}
           style={{ ...rechargeBtn, opacity: (processing || tokenAmount < 1) ? 0.5 : 1 }}
         >
-          {processing ? 'Opening payment…' : `Pay ₹${pricing.final.toLocaleString('en-IN')}`}
+          {processing ? 'Opening payment…' : `Pay ${money(pricing.final)}`}
         </button>
 
         <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, textAlign: 'center', marginTop: 10 }}>
-          1 J Token = ₹{rate} incl. GST · Secure payment via Razorpay
+          1 J Token = {money(rate)} incl. GST · Secure payment via Razorpay
         </div>
       </div>
     </div>
