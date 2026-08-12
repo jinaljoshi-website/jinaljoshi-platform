@@ -4,6 +4,7 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-r
 import { C, F } from '../tokens';
 import { api, getUser, logout } from '../api';
 import { TIERS, setDisplayCurrency } from '../data';
+import CurrencyPicker from '../components/CurrencyPicker';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import InstallPrompt    from '../components/InstallPrompt';
 import NotificationBell from '../components/NotificationBell';
@@ -202,15 +203,21 @@ export default function Platform() {
   // inconsistent with the rest of the page.
   const [currencyReady, setCurrencyReady] = useState(0);
 
+  const [currency, setCurrency] = useState(null);
+  const [noticeSeen, setNoticeSeen] = useState(() => {
+    try { return localStorage.getItem('currencyNoticeSeen') === '1'; } catch { return true; }
+  });
+
+  const applyCurrency = (d) => {
+    const chosen = (d.options || []).find((o) => o.currency === d.current);
+    setDisplayCurrency(d.isForeign && chosen ? chosen : null);
+    setCurrency(d);
+    setCurrencyReady((n) => n + 1);
+  };
+
   useEffect(() => {
     api.get('/api/coins/currencies')
-      .then((d) => {
-        const chosen = (d.options || []).find((o) => o.currency === d.current);
-        setDisplayCurrency(d.isForeign && chosen ? chosen : null);
-        // Re-rendered once the answer is in, so prices that drew in rupees a
-        // moment ago are rewritten rather than left inconsistent.
-        setCurrencyReady((n) => n + 1);
-      })
+      .then(applyCurrency)
       .catch(() => setCurrencyReady((n) => n + 1));
   }, []);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -249,6 +256,8 @@ export default function Platform() {
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
           <StatusBadge isMobile={isMobile} />
+          <CurrencyPicker state={currency} compact={isMobile}
+                          onChange={(code) => setCurrency((s) => ({ ...s, current: code, isForeign: code !== 'INR' }))} />
           <NotificationBell />
           {isMobile ? (
             <button onClick={() => setMenuOpen(!menuOpen)} style={hamburgerBtn} aria-label="Menu">
@@ -307,6 +316,20 @@ export default function Platform() {
             </div>
           </div>
         </>
+      )}
+
+      {currency?.autoSelected && !noticeSeen && (
+        <div style={currencyNotice}>
+          <span style={{ flex: 1, minWidth: 200 }}>
+            You are outside India, so prices are shown in{' '}
+            <strong style={{ color: C.text }}>
+              {currency.options?.find((o) => o.currency === currency.autoSelected)?.label || currency.autoSelected}
+            </strong>
+            . You can change that any time from the top of the page.
+          </span>
+          <button onClick={() => { setNoticeSeen(true); localStorage.setItem('currencyNoticeSeen', '1'); }}
+                  style={noticeClose}>Got it</button>
+        </div>
       )}
 
       {/* ── CONTENT AREA ── */}
@@ -391,6 +414,9 @@ export default function Platform() {
 // so the nav keeps its shape either way.
 const unreadPill = { background: C.accent, color: '#1A1714', fontFamily: F.sans, fontSize: 10, fontWeight: 700, minWidth: 17, height: 17, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px', flexShrink: 0 };
 const navDot = { width: 6, height: 6, borderRadius: '50%', background: '#8FC88F', flexShrink: 0, boxShadow: '0 0 0 3px rgba(143,200,143,0.18)' };
+
+const currencyNotice = { display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0, background: 'rgba(193,125,74,0.08)', borderBottom: `1px solid rgba(193,125,74,0.2)`, color: C.muted, fontFamily: F.sans, fontSize: 12, lineHeight: 1.6, padding: '10px 16px' };
+const noticeClose    = { background: 'transparent', border: `1px solid ${C.border}`, color: C.accent, fontFamily: F.sans, fontSize: 12, padding: '5px 12px', borderRadius: 8, cursor: 'pointer', flexShrink: 0 };
 
 const topBar      = { flexShrink: 0, minHeight: TOP_BAR_H, height: `calc(${TOP_BAR_H}px + env(safe-area-inset-top, 0px))`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `env(safe-area-inset-top, 0px) 16px 0`, background: 'rgba(13,12,10,0.97)', borderBottom: `1px solid ${C.border}`, zIndex: 30, boxSizing: 'border-box' };
 const statusBadge = { display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.03)', border: `1px solid ${C.border}`, borderRadius: 999, padding: '5px 10px' };

@@ -84,9 +84,28 @@ router.get('/currencies', authMid, async (req, res) => {
       pool.query(`UPDATE users SET detected_country = $1 WHERE id = $2`,
                  [country, req.user.userId]).catch(() => {});
     }
-    const resolved = await fx.resolveForUser({
+    let resolved = await fx.resolveForUser({
       preferredCurrency: rows[0]?.preferred_currency, country,
     });
+
+    // Somebody abroad who has never chosen gets their own currency, rather than
+    // a picker they have to find first. Nothing about it is hidden: the picker
+    // says what was chosen for them and that it can be changed, and the choice
+    // is written down so it survives the next visit.
+    //
+    // Only where none exists. A stored preference is an answer, and an answer
+    // is never overridden by a guess from an IP address -- including a
+    // deliberate choice of INR while abroad.
+    let autoSelected = null;
+    if (!rows[0]?.preferred_currency && fx.isForeignCountry(country)) {
+      const local = fx.localCurrencyFor(country);
+      if (local && await fx.getRate(local)) {
+        await pool.query(`UPDATE users SET preferred_currency = $1 WHERE id = $2`,
+                         [local, req.user.userId]);
+        autoSelected = local;
+        resolved = await fx.resolveForUser({ preferredCurrency: local, country });
+      }
+    }
 
     // Nothing is offered while the feature is off — showing a currency picker
     // that cannot be honoured is worse than not showing one.
@@ -98,6 +117,9 @@ router.get('/currencies', authMid, async (req, res) => {
       // Asked once, when we first see them from abroad and they have not
       // answered. A guess from an IP address should never override a choice.
       shouldAsk: resolved.shouldAsk,
+      // Set for them just now, so the interface can say so once rather than
+      // changing every price without explanation.
+      autoSelected,
       detectedCountry: abroad ? country : null,
       // Their own currency, USD, and INR. Three choices rather than a list.
       options: abroad ? await fx.optionsForCountry(country) : [],
