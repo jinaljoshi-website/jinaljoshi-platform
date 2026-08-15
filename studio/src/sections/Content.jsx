@@ -4,6 +4,7 @@ import { api } from '../api';
 import { createCompressPool } from '../workers/compressPool';
 import { Selfies } from './Selfies';
 import { SectionTabs } from '../components/SectionTabs';
+import ShareLink from '../components/ShareLink';
 import { T, S, Card, Eyebrow, Field, TokenField, colors } from '../ui';
 
 const TOKEN_RATE   = 66;
@@ -159,6 +160,66 @@ export function Content({ openWith }) {
     return () => poolRef.current?.dispose();
   }, []);
 
+  // How much of the original survives into the shared link preview, as a
+  // percentage of the cover's width. The card is built by shrinking to this and
+  // then stretching back up, so the detail that is gone is genuinely gone — it
+  // is not a filter sitting over a full-resolution image that a reader mode or a
+  // dev tools panel could strip away.
+  //
+  // 3% of a 2400px cover is 72px. Lower reads as pure colour; higher starts to
+  // resolve into a recognisable photograph, and a link preview is public — it
+  // appears in group chats and timelines belonging to people who have not paid
+  // and have not chosen to look.
+  const OG_PERCENT = 3;
+
+  // The preview image for a shared gallery link. Written to storage as a real
+  // file with a real URL, because a data URI cannot be used here: no platform
+  // will fetch one as a preview image, which is why cover_blur cannot serve.
+  //
+  // 1200x630 is the size every platform expects, and images much smaller than
+  // that are refused outright. So the tiny version is drawn back up to full card
+  // size — a large file carrying very little information.
+  const makeShareCard = async (file) => {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const W = 1200, H = 630;
+
+      const smallW = Math.max(8, Math.round((bitmap.width * OG_PERCENT) / 100));
+      const smallH = Math.max(8, Math.round((bitmap.height / bitmap.width) * smallW));
+
+      const mk = (w, h) => (typeof OffscreenCanvas !== 'undefined'
+        ? new OffscreenCanvas(w, h)
+        : Object.assign(document.createElement('canvas'), { width: w, height: h }));
+
+      // Down first, then up. Drawing straight to 1200x630 from the original
+      // would simply be the photograph at card size.
+      const small = mk(smallW, smallH);
+      small.getContext('2d').drawImage(bitmap, 0, 0, smallW, smallH);
+
+      const card = mk(W, H);
+      const ctx  = card.getContext('2d');
+      ctx.fillStyle = '#1A1714';
+      ctx.fillRect(0, 0, W, H);
+
+      // Cover the card rather than stretch to it, so the proportions of the
+      // original are kept and a portrait cover is not squashed into landscape.
+      const scale = Math.max(W / smallW, H / smallH);
+      const dw = smallW * scale, dh = smallH * scale;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(small, (W - dw) / 2, (H - dh) / 2, dw, dh);
+      bitmap.close?.();
+
+      const blob = card.convertToBlob
+        ? await card.convertToBlob({ type: 'image/jpeg', quality: 0.8 })
+        : await new Promise((res) => card.toBlob(res, 'image/jpeg', 0.8));
+      if (!blob) return null;
+      // The name is only read for its extension — presign assigns the actual
+      // object key as a fresh uuid, so nothing here has to be unique.
+      return await uploadFile(new File([blob], 'share-card.jpg', { type: 'image/jpeg' }), 'content');
+    } catch { return null; }
+  };
+
   // A 24-pixel version of the cover, as a data URI. Sent with the set and
   // served in place of the real image when a fan cannot see inside — the detail
   // is genuinely absent rather than hidden by a filter that a reader mode or a
@@ -193,7 +254,7 @@ export function Content({ openWith }) {
     setBackfilling(true); setError(''); setSuccess('');
     let done = 0, failed = 0;
     try {
-      const targets = sets.filter((s) => !s.cover_blur && (s.cover_url || s.cover_key));
+      const targets = sets.filter((s) => (!s.cover_blur || !s.cover_og_key) && (s.cover_url || s.cover_key));
       for (const set of targets) {
         try {
           // Fetched through the backend rather than straight from storage, so
@@ -206,13 +267,21 @@ export function Content({ openWith }) {
           );
           if (!res.ok) { failed += 1; continue; }
           const blob = await res.blob();
-          const dataUri = await makeCoverBlur(new File([blob], 'cover.jpg', { type: blob.type }));
-          if (!dataUri) { failed += 1; continue; }
-          await api.patch(`/api/studio/content/${set.id}`, { cover_blur: dataUri });
+          const file = new File([blob], 'cover.jpg', { type: blob.type });
+
+          // Only what is actually missing is regenerated, so re-running this
+          // after adding share cards does not redo work already done — and does
+          // not upload a second copy of an image already sitting in storage.
+          const patch = {};
+          if (!set.cover_blur)   patch.cover_blur   = await makeCoverBlur(file);
+          if (!set.cover_og_key) patch.cover_og_key = await makeShareCard(file);
+
+          if (!patch.cover_blur && !patch.cover_og_key) { failed += 1; continue; }
+          await api.patch(`/api/studio/content/${set.id}`, patch);
           done += 1;
         } catch { failed += 1; }
       }
-      setSuccess(`Made blurred covers for ${done} set${done === 1 ? '' : 's'}${failed ? `, ${failed} could not be read` : ''}.`);
+      setSuccess(`Updated ${done} set${done === 1 ? '' : 's'}${failed ? `, ${failed} could not be read` : ''}.`);
       loadSets();
     } catch (err) { setError(err.message); } finally { setBackfilling(false); }
   };
@@ -548,6 +617,7 @@ export function Content({ openWith }) {
         await api.patch(`/api/studio/content/${setId}`, {
           cover_key: coverUrl,
           cover_blur: await makeCoverBlur(coverFile),
+          cover_og_key: await makeShareCard(coverFile),
         });
       }
 
@@ -557,6 +627,7 @@ export function Content({ openWith }) {
         await api.patch(`/api/studio/content/${setId}`, {
           cover_key: firstImageUrl,
           cover_blur: firstImageFile ? await makeCoverBlur(firstImageFile) : null,
+          cover_og_key: firstImageFile ? await makeShareCard(firstImageFile) : null,
         });
       }
       const position = uploaded;
@@ -960,6 +1031,10 @@ export function Content({ openWith }) {
                   <button onClick={() => openUnlocks(set)} style={actionBtn}>
                     {unlocksFor === set.id ? 'Hide unlocks' : 'Unlocks'}
                   </button>
+                  {/* Only for a published set. A link to something still hidden
+                      would land the person on a page that will not show it, and
+                      the preview would fall back to the site's own card. */}
+                  {set.visible && <ShareLink kind="gallery" id={set.id} title={set.title} />}
                   {/* Pushed to the far end, away from the things used constantly. */}
                   <button onClick={() => setConfirmDelete(set.id)}
                           style={{ ...actionBtn, marginLeft: 'auto', color: '#D99A9A', borderColor: 'rgba(156,90,90,0.35)' }}>

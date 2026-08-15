@@ -27,6 +27,10 @@ app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 // Public routes (no auth)
 app.use('/api/public',       require('./routes/public'));
 
+// Link previews. Not under /api — these are real pages a crawler fetches, and
+// they are reached at ps.jinaljoshi.in/s/... through a rewrite in ps/vercel.json.
+app.use('/s',                require('./routes/share'));
+
 // Authenticated routes
 app.use('/api/auth',         require('./routes/auth'));
 app.use('/api/coins',        require('./routes/coins'));

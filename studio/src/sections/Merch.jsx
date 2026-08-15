@@ -1,6 +1,7 @@
 // studio/src/sections/Merch.jsx
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
+import ShareLink from '../components/ShareLink';
 import { T, S, Card, Eyebrow, Field, TokenField, colors } from '../ui';
 
 const sans = "'DM Sans', system-ui, sans-serif";
@@ -408,6 +409,16 @@ export function Merch() {
                       {item.auction_status || 'queued'}
                     </span>
                     <button onClick={() => startEdit(item)} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Edit</button>
+                    {/* Hidden items have no page to land on, so no link to give
+                        out. The prefix follows the item's own kind, so a
+                        wardrobe link still reads as one wherever it is pasted. */}
+                    {item.visible && (
+                      <ShareLink
+                        kind={item.is_auction_item ? 'outfit' : 'merch'}
+                        id={item.id}
+                        title={item.title}
+                      />
+                    )}
                   </div>
                 </div>
                 )}
@@ -865,6 +876,15 @@ function MerchRow({ item, soldOut, editing, editForm, setEditForm, onStartEdit, 
               {soldOut ? 'Sold out' : (item.visible ? 'Live' : 'Hidden')}
             </span>
             <button onClick={onStartEdit} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Edit</button>
+            {/* Sold-out items keep their link — the page still exists and still
+                says what it was, which is worth more than a dead end. */}
+            {item.visible && (
+              <ShareLink
+                kind={item.is_auction_item ? 'outfit' : 'merch'}
+                id={item.id}
+                title={item.title}
+              />
+            )}
           </div>
         </div>
       )}

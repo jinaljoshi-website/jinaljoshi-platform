@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { bestMemberPrice, bestDiscountPct, guestMultiplier } from '../data';
@@ -24,6 +24,16 @@ export default function Shop() {
   const { itemId } = useParams();
   const onOutfitPath = window.location.pathname.includes('/outfits/');
 
+  // A shared merchandise link lands here with the item's id. Outfits already
+  // scrolled to the piece somebody was sent; merchandise did not, so the link
+  // opened the right tab and then left the person to find it themselves in a
+  // grid — which reads as a broken link rather than a working one.
+  //
+  // Waits for data, because the row does not exist until the shop has loaded and
+  // scrolling to a ref that is still null does nothing at all.
+  const merchFocusId = onOutfitPath ? null : itemId;
+  const merchFocusRef = useRef(null);
+
   const [tab, setTab] = useState(() => {
     if (itemId) return onOutfitPath ? 'outfits' : 'merch';
     const t = new URLSearchParams(window.location.search).get('tab');
@@ -36,6 +46,16 @@ export default function Shop() {
     .finally(() => setLoading(false));
 
   useEffect(() => { load(); }, []);
+
+  // Runs once the shop data arrives, not on mount — the row is not rendered
+  // until then, so scrolling any earlier would find nothing and do nothing.
+  useEffect(() => {
+    if (!merchFocusId || !data) return;
+    const t = setTimeout(() => {
+      merchFocusRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+    return () => clearTimeout(t);
+  }, [merchFocusId, data]);
 
   const itemPrice = (item) => {
     if (!data) return null;
@@ -124,7 +144,11 @@ export default function Shop() {
           const canAfford  = (data?.coinBalance || 0) >= price;
 
           return (
-            <div key={item.id} style={card}>
+            <div key={item.id}
+                 ref={item.id === merchFocusId ? merchFocusRef : null}
+                 style={item.id === merchFocusId
+                   ? { ...card, border: `1px solid ${C.accent}`, boxShadow: '0 0 0 3px rgba(193,125,74,0.12)' }
+                   : card}>
               <PhotoStrip images={item.images?.length ? item.images : (item.img_key ? [item.img_key] : [])} alt={item.title} />
               <div style={{ ...stockBadge, color: item.remaining <= 5 ? '#D99A9A' : C.muted, borderColor: item.remaining <= 5 ? 'rgba(156,90,90,0.3)' : C.border }}>
                 {outOfStock ? 'Out of stock' : `${item.remaining} remaining`}

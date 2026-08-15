@@ -1473,7 +1473,7 @@ router.post('/content/item', async (req, res) => {
 
 router.patch('/content/:id', async (req, res) => {
   const { title, description, price_coins, visible, type, category, cover_key, cover_blur,
-          photographerName, photographerNames } = req.body;
+          cover_og_key, photographerName, photographerNames } = req.body;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1494,9 +1494,11 @@ router.patch('/content/:id', async (req, res) => {
          category    = COALESCE($6, category),
          cover_key   = COALESCE($7, cover_key),
          cover_blur  = COALESCE($8, cover_blur),
+         cover_og_key = COALESCE($9, cover_og_key),
          published_at = CASE WHEN $4 = TRUE AND published_at IS NULL THEN NOW() ELSE published_at END
-       WHERE id = $9 RETURNING *`,
-      [title, description, price_coins, visible, type, category, cover_key, cover_blur || null, req.params.id]
+       WHERE id = $10 RETURNING *`,
+      [title, description, price_coins, visible, type, category, cover_key, cover_blur || null,
+       cover_og_key || null, req.params.id]
     );
     if (!rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Set not found' }); }
 

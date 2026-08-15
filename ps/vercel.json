@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/s/:path*",
+      "destination": "https://jinaljoshi-platform-production.up.railway.app/s/:path*"
+    },
+    {
       "source": "/terms",
       "destination": "/terms/index.html"
     },
