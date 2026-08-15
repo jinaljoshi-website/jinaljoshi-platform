@@ -1353,11 +1353,25 @@ function SequenceView({ items, mediaUrl, busy, onSave, groupOf = {} }) {
     setList(out);
   };
 
-  const hasRuns = list.some((it) => groupOf[it.id] !== undefined);
+  // Whether any run is currently split apart in this order. A run whose frames
+  // already sit together needs no gathering, and a button that cannot change
+  // anything should not be offered — the previous version was shown whenever a
+  // run existed at all, and because runs were then found among consecutive
+  // frames only, they were always already adjacent. It could never do anything.
+  const scattered = (() => {
+    const seen = new Map();
+    for (let i = 0; i < list.length; i++) {
+      const g = groupOf[list[i].id];
+      if (g === undefined) continue;
+      if (seen.has(g) && seen.get(g) !== i - 1) return true;   // a gap opened
+      seen.set(g, i);
+    }
+    return false;
+  })();
 
   return (
     <div>
-      {hasRuns && (
+      {scattered && (
         <button onClick={gatherAlike} disabled={busy}
                 style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', marginBottom: 12 }}>
           Bring similar shots together
@@ -1486,10 +1500,39 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
   };
   const [onlyNear,    setOnlyNear]    = useState(false);
 
-  // How many bits two hashes may differ by and still be the same moment. Ten of
-  // sixty-four: tight enough that two separate shots never group, loose enough
-  // that a burst does even when the exposure shifted between frames.
+  // How many bits two hashes may differ by and still be the same moment.
+  //
+  // Twelve of sixty-four for frames that sit next to each other: loose enough
+  // that a burst holds together when the exposure shifted between frames, and
+  // that a slow pan does not break into pieces halfway through.
   const NEAR = 12;
+
+  // Six for frames that do not. A burst can arrive split — half of it uploaded,
+  // something else in between, the rest after — and those halves belong
+  // together. But comparing every frame with every other is exactly what the
+  // consecutive-only rule was avoiding: 250 photos of one outfit against one
+  // background are all somewhat alike, and at twelve bits the whole set becomes
+  // a single run.
+  //
+  // So the far comparison is held to half the distance. Six of sixty-four means
+  // the same framing and the same pose, which two genuinely different shots do
+  // not share — a change of pose alone moves far more than six bits.
+  const NEAR_FAR = 6;
+
+  // A guard against the far pass over-reaching. If it merges most of a set into
+  // one group, the distance was too loose for this material and only the
+  // neighbour pass should stand — better to gather nothing than to declare a
+  // whole shoot one moment.
+  //
+  // Only applied to sets large enough for that to be a meaningful signal. On a
+  // handful of photos a group covering most of them is perfectly ordinary, and
+  // an earlier version of this guard rejected exactly the split burst it was
+  // meant to allow. And only when the far pass actually made things bigger —
+  // twelve frames of one genuine burst are one group either way, and that is
+  // not over-merging, it is the right answer.
+  const GUARD_MIN_ITEMS  = 12;
+  const MAX_GROUP_SHARE  = 0.6;
+
   const hamming = (a, b) => {
     if (!a || !b || a.length !== b.length) return 99;
     let d = 0;
@@ -1500,29 +1543,66 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
     return d;
   };
 
-  // Runs of near-identical frames, found among *consecutive* photos only.
+  // Runs of near-identical frames, in two passes.
   //
-  // Comparing every frame with every other collapses on a set like these: 250
-  // photos of one outfit against one background are all somewhat alike, so a
-  // threshold loose enough to catch a burst would merge the whole set into a
-  // single run. A burst is consecutive by definition — the frames either side
-  // of it are the ones worth comparing, and nothing else is.
+  // The first walks the photos in order and joins each to the one before it
+  // where they are close. That is what a burst is, and comparing neighbours is
+  // what keeps a long sequence of similar work from collapsing into one lump.
   //
-  // Each frame is compared with the one before it, so a run continues as long
-  // as the drift stays small rather than requiring every frame to resemble the
-  // first. A slow pan over eight frames still groups; a change of pose does not.
+  // The second compares every remaining pair regardless of position, at the
+  // tighter distance, so a burst that arrived in two pieces is recognised as
+  // one. Both passes feed the same union-find, so a frame joined by either
+  // route ends up in the same group as everything else that moment contains.
   const nearGroups = (() => {
     const seq = items.filter((i) => i.quality?.hash);
-    const groups = [];
-    let run = [];
-    for (let i = 0; i < seq.length; i++) {
-      if (!run.length) { run = [seq[i]]; continue; }
-      const d = hamming(run[run.length - 1].quality.hash, seq[i].quality.hash);
-      if (d <= NEAR) run.push(seq[i]);
-      else { if (run.length > 1) groups.push(run); run = [seq[i]]; }
+    if (seq.length < 2) return [];
+
+    const parent = seq.map((_, i) => i);
+    const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[rb] = ra; };
+
+    // Pass one — neighbours.
+    for (let i = 1; i < seq.length; i++) {
+      if (hamming(seq[i - 1].quality.hash, seq[i].quality.hash) <= NEAR) union(i - 1, i);
     }
-    if (run.length > 1) groups.push(run);
-    return groups;
+
+    // Snapshot of what the neighbour pass alone decided, so it can be restored
+    // if the far pass turns out to have over-merged.
+    const consecutiveOnly = parent.slice();
+    const rootIn = (arr, i) => { while (arr[i] !== i) i = arr[i]; return i; };
+    const consecutiveBiggest = (() => {
+      const s = {};
+      seq.forEach((_, i) => { const r = rootIn(consecutiveOnly, i); s[r] = (s[r] || 0) + 1; });
+      return Math.max(0, ...Object.values(s));
+    })();
+
+    // Pass two — everything else. Skips neighbours, which pass one already
+    // judged at the distance appropriate to them.
+    for (let i = 0; i < seq.length; i++) {
+      for (let j = i + 2; j < seq.length; j++) {
+        if (find(i) === find(j)) continue;
+        if (hamming(seq[i].quality.hash, seq[j].quality.hash) <= NEAR_FAR) union(i, j);
+      }
+    }
+
+    const sizes = {};
+    seq.forEach((_, i) => { const r = find(i); sizes[r] = (sizes[r] || 0) + 1; });
+    const biggest = Math.max(0, ...Object.values(sizes));
+    if (seq.length >= GUARD_MIN_ITEMS
+        && biggest > Math.floor(seq.length * MAX_GROUP_SHARE)
+        && biggest > consecutiveBiggest) {
+      for (let i = 0; i < parent.length; i++) parent[i] = consecutiveOnly[i];
+    }
+
+    // Kept in the order the photos appear, so a run's position in the set is
+    // the position of its first frame.
+    const byRoot = new Map();
+    seq.forEach((it, i) => {
+      const r = find(i);
+      if (!byRoot.has(r)) byRoot.set(r, []);
+      byRoot.get(r).push(it);
+    });
+    return [...byRoot.values()].filter((g) => g.length > 1);
   })();
 
   const groupOf = {};
