@@ -1358,6 +1358,8 @@ function SequenceView({ items, mediaUrl, busy, onSave, groupOf = {} }) {
   // anything should not be offered — the previous version was shown whenever a
   // run existed at all, and because runs were then found among consecutive
   // frames only, they were always already adjacent. It could never do anything.
+  const runCount = new Set(Object.values(groupOf)).size;
+
   const scattered = (() => {
     const seen = new Map();
     for (let i = 0; i < list.length; i++) {
@@ -1371,6 +1373,15 @@ function SequenceView({ items, mediaUrl, busy, onSave, groupOf = {} }) {
 
   return (
     <div>
+      {/* Says what was found either way. A button that simply is not there gives
+          no clue whether nothing matched, or everything matched and is already
+          in order — and those need different responses from whoever is looking. */}
+      {runCount > 0 && (
+        <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginBottom: 8 }}>
+          {runCount} similar run{runCount === 1 ? '' : 's'} found
+          {scattered ? ' · some are split up' : ' · already together'}
+        </div>
+      )}
       {scattered && (
         <button onClick={gatherAlike} disabled={busy}
                 style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', marginBottom: 12 }}>
@@ -1519,19 +1530,13 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
   // not share — a change of pose alone moves far more than six bits.
   const NEAR_FAR = 6;
 
-  // A guard against the far pass over-reaching. If it merges most of a set into
-  // one group, the distance was too loose for this material and only the
-  // neighbour pass should stand — better to gather nothing than to declare a
-  // whole shoot one moment.
+  // The most frames one moment can hold. A burst is a moment, not a shoot — a
+  // group past this is the distance drifting rather than a run, and refusing
+  // the join is better than declaring half a set one moment.
   //
-  // Only applied to sets large enough for that to be a meaningful signal. On a
-  // handful of photos a group covering most of them is perfectly ordinary, and
-  // an earlier version of this guard rejected exactly the split burst it was
-  // meant to allow. And only when the far pass actually made things bigger —
-  // twelve frames of one genuine burst are one group either way, and that is
-  // not over-merging, it is the right answer.
-  const GUARD_MIN_ITEMS  = 12;
-  const MAX_GROUP_SHARE  = 0.6;
+  // Applies only to the far pass. A long consecutive run found by the neighbour
+  // pass is trustworthy on its own and is left alone however long it is.
+  const MAX_RUN = 40;
 
   const hamming = (a, b) => {
     if (!a || !b || a.length !== b.length) return 99;
@@ -1566,32 +1571,38 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
       if (hamming(seq[i - 1].quality.hash, seq[i].quality.hash) <= NEAR) union(i - 1, i);
     }
 
-    // Snapshot of what the neighbour pass alone decided, so it can be restored
-    // if the far pass turns out to have over-merged.
-    const consecutiveOnly = parent.slice();
-    const rootIn = (arr, i) => { while (arr[i] !== i) i = arr[i]; return i; };
-    const consecutiveBiggest = (() => {
-      const s = {};
-      seq.forEach((_, i) => { const r = rootIn(consecutiveOnly, i); s[r] = (s[r] || 0) + 1; });
-      return Math.max(0, ...Object.values(s));
-    })();
-
-    // Pass two — everything else. Skips neighbours, which pass one already
-    // judged at the distance appropriate to them.
+    // Pass two — everything else, best matches first.
+    //
+    // Not a straight sweep of every pair, because union-find is transitive: if
+    // A matches B and B matches C, all three merge even where A and C are
+    // nothing alike. Across a few hundred photos of one outfit in one room that
+    // chains, and the whole set becomes a single group.
+    //
+    // So candidates are collected, sorted by how close they are, and applied
+    // tightest first — and any join that would push a group past MAX_RUN is
+    // refused. A burst is a moment, not a shoot; beyond a few dozen frames the
+    // match is drift rather than sameness.
+    const candidates = [];
     for (let i = 0; i < seq.length; i++) {
       for (let j = i + 2; j < seq.length; j++) {
-        if (find(i) === find(j)) continue;
-        if (hamming(seq[i].quality.hash, seq[j].quality.hash) <= NEAR_FAR) union(i, j);
+        const d = hamming(seq[i].quality.hash, seq[j].quality.hash);
+        if (d <= NEAR_FAR) candidates.push([d, i, j]);
       }
     }
+    candidates.sort((a, b) => a[0] - b[0]);
 
-    const sizes = {};
-    seq.forEach((_, i) => { const r = find(i); sizes[r] = (sizes[r] || 0) + 1; });
-    const biggest = Math.max(0, ...Object.values(sizes));
-    if (seq.length >= GUARD_MIN_ITEMS
-        && biggest > Math.floor(seq.length * MAX_GROUP_SHARE)
-        && biggest > consecutiveBiggest) {
-      for (let i = 0; i < parent.length; i++) parent[i] = consecutiveOnly[i];
+    const sizeOf = {};
+    seq.forEach((_, i) => { sizeOf[find(i)] = (sizeOf[find(i)] || 0) + 1; });
+    let farJoins = 0;
+    for (const [, i, j] of candidates) {
+      const ra = find(i), rb = find(j);
+      if (ra === rb) continue;
+      if ((sizeOf[ra] || 1) + (sizeOf[rb] || 1) > MAX_RUN) continue;
+      const merged = (sizeOf[ra] || 1) + (sizeOf[rb] || 1);
+      union(i, j);
+      const nr = find(i);
+      sizeOf[nr] = merged;
+      farJoins += 1;
     }
 
     // Kept in the order the photos appear, so a run's position in the set is
@@ -1602,7 +1613,9 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
       if (!byRoot.has(r)) byRoot.set(r, []);
       byRoot.get(r).push(it);
     });
-    return [...byRoot.values()].filter((g) => g.length > 1);
+    const groups = [...byRoot.values()].filter((g) => g.length > 1);
+    groups.farJoins = farJoins;
+    return groups;
   })();
 
   const groupOf = {};
