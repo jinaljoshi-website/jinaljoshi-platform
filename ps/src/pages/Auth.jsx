@@ -12,6 +12,17 @@ function getBrowserTimezone() {
   }
 }
 
+// Where to land once signed in. Cleared as it is read, so it applies once and
+// does not surface again the next time somebody signs in normally.
+function destinationAfterAuth() {
+  try {
+    const to = sessionStorage.getItem('afterAuth');
+    sessionStorage.removeItem('afterAuth');
+    if (to && to.startsWith('/platform')) return to;
+  } catch {}
+  return '/platform/landing';
+}
+
 export default function Auth() {
   const navigate  = useNavigate();
   const [params]  = useSearchParams();
@@ -59,7 +70,7 @@ export default function Auth() {
           saveAuth(data.jwt, data.user);
           if (data.streamToken) saveStreamToken(data.streamToken);
           setVerifyState('success');
-          setTimeout(() => navigate('/platform/landing'), 1200);
+          setTimeout(() => navigate(destinationAfterAuth()), 1200);
         })
         .catch((err) => {
           setVerifyState('error');
@@ -100,7 +111,7 @@ export default function Auth() {
         const data = await api.post('/api/auth/login', { email, password, timezone: getBrowserTimezone() });
         saveAuth(data.jwt, data.user);
         if (data.streamToken) saveStreamToken(data.streamToken);
-        navigate('/platform/landing');
+        navigate(destinationAfterAuth());
       }
     } catch (err) {
       if (err.message === 'EMAIL_NOT_VERIFIED' || err.message.includes('verify your email')) {

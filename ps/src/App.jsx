@@ -1,5 +1,5 @@
 // ps/src/App.jsx
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Homepage from './pages/Homepage';
 import Auth     from './pages/Auth';
 import Landing  from './pages/Landing';
@@ -18,7 +18,13 @@ function isLoggedIn() {
 }
 
 function Private({ children }) {
-  return isLoggedIn() ? children : <Navigate to="/auth?mode=login" replace />;
+  const location = useLocation();
+  if (isLoggedIn()) return children;
+
+  // Kept in sessionStorage rather than the URL: it survives the round trip
+  // through email verification, which leaves and returns on a different link.
+  try { sessionStorage.setItem('afterAuth', location.pathname + location.search); } catch {}
+  return <Navigate to="/auth?mode=login" replace />;
 }
 
 export default function App() {

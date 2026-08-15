@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
@@ -33,6 +33,17 @@ export default function Gallery() {
   const [error,     setError]     = useState('');
   const [topUp,     setTopUp]     = useState(null);
   const [openSet,   setOpenSet]   = useState(null);
+
+  // Arriving on a link to a particular set opens it, rather than dropping
+  // somebody on the grid to go and find what they were sent.
+  const { setId } = useParams();
+
+  useEffect(() => {
+    if (!setId || !allSets.length) return;
+    if (openSet?.id === setId) return;
+    const found = allSets.find((s) => s.id === setId);
+    if (found) openViewer(found, { silent: true });
+  }, [setId, allSets.length]);
   const [setItems,  setSetItems]  = useState([]);
   const [itemsLoad, setItemsLoad] = useState(false);
   const [lightbox,  setLightbox]  = useState(null);
@@ -57,7 +68,8 @@ export default function Gallery() {
     : [];
   const unlockedSets = allSets.filter((s) => s.isGenuinelyUnlocked);
 
-  const openViewer = async (set) => {
+  const openViewer = async (set, { silent } = {}) => {
+    if (!silent) navigate(`/platform/gallery/${set.id}`, { replace: false });
     setOpenSet(set);
     setSetItems([]);
     setViewerError('');
@@ -73,6 +85,7 @@ export default function Gallery() {
   };
 
   const closeViewer = () => {
+    if (setId) navigate('/platform/gallery', { replace: true });
     setOpenSet(null);
     setSetItems([]);
     setViewerError('');

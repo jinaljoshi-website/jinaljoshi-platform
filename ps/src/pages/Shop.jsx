@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { bestMemberPrice, bestDiscountPct, guestMultiplier } from '../data';
 import GuestNudge from '../components/GuestNudge';
@@ -20,7 +21,11 @@ export default function Shop() {
   const [purchased, setPurchased] = useState([]);
   // Notification links still point at /platform/extras, and Platform redirects those
   // here with ?tab=requests — so the tab has to be readable from the URL.
+  const { itemId } = useParams();
+  const onOutfitPath = window.location.pathname.includes('/outfits/');
+
   const [tab, setTab] = useState(() => {
+    if (itemId) return onOutfitPath ? 'outfits' : 'merch';
     const t = new URLSearchParams(window.location.search).get('tab');
     return ['merch', 'outfits', 'requests'].includes(t) ? t : 'outfits';
   });
@@ -81,7 +86,7 @@ export default function Shop() {
         ))}
       </div>
 
-      {tab === 'outfits'  && <Outfits />}
+      {tab === 'outfits'  && <Outfits focusId={onOutfitPath ? itemId : null} />}
       {tab === 'requests' && <Extras />}
 
       {tab === 'merch' && <MerchDrop>

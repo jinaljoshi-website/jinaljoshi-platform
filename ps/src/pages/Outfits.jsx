@@ -25,7 +25,14 @@ function useCountdown(seconds) {
   return `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
 }
 
-export default function Outfits() {
+export default function Outfits({ focusId = null }) {
+  const focusRef = useRef(null);
+
+  useEffect(() => {
+    if (!focusId || !focusRef.current) return;
+    focusRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [focusId, focusRef.current]);
+
   const [data,     setData]     = useState(null);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');
@@ -259,7 +266,11 @@ export default function Outfits() {
             {queued.map((item) => {
               const affordable = data.purchasedBalance >= item.buyNowPrice + data.handlingFee;
               return (
-                <div key={item.id} style={card}>
+                <div key={item.id}
+                     ref={item.id === focusId ? focusRef : null}
+                     style={item.id === focusId
+                       ? { ...card, border: `1px solid ${C.accent}`, boxShadow: '0 0 0 3px rgba(193,125,74,0.12)' }
+                       : card}>
                   <PhotoStrip images={item.images?.length ? item.images : (item.img_key ? [item.img_key] : [])} alt={item.title} height={180} showThumbs={false} />
                   <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 4 }}>{item.title}</div>
                   <Clamped text={item.description} lines={3}

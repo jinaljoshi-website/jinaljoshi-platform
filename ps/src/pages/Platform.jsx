@@ -383,11 +383,14 @@ export default function Platform() {
             <Route index element={<Navigate to="chat" replace />} />
             <Route path="chat"       element={<Chat />}       />
             <Route path="gallery"    element={<Gallery />}    />
+            <Route path="gallery/:setId" element={<Gallery />} />
             <Route path="selfies"    element={<Navigate to="/platform/gallery?tab=selfies" replace />} />
             <Route path="membership" element={<Membership />} />
             <Route path="community"  element={<Community />}  />
             <Route path="calls"      element={<Calls />}      />
             <Route path="shop"       element={<Shop />}       />
+            <Route path="shop/:itemId"    element={<Shop />} />
+            <Route path="outfits/:itemId" element={<Shop />} />
             {/* Custom requests moved into Shop. Request notifications still link
                 here, so this redirects rather than 404s. */}
             <Route path="extras"     element={<Navigate to="/platform/shop?tab=requests" replace />} />
@@ -424,11 +427,14 @@ export default function Platform() {
                 <Route index element={<Navigate to="chat" replace />} />
                 <Route path="chat"       element={<Chat />}       />
                 <Route path="gallery"    element={<Gallery />}    />
+            <Route path="gallery/:setId" element={<Gallery />} />
             <Route path="selfies"    element={<Navigate to="/platform/gallery?tab=selfies" replace />} />
                 <Route path="membership" element={<Membership />} />
                 <Route path="community"  element={<Community />}  />
                 <Route path="calls"      element={<Calls />}      />
                 <Route path="shop"       element={<Shop />}       />
+            <Route path="shop/:itemId"    element={<Shop />} />
+            <Route path="outfits/:itemId" element={<Shop />} />
                 {/* Custom requests moved into Shop. Request notifications still link
                 here, so this redirects rather than 404s. */}
             <Route path="extras"     element={<Navigate to="/platform/shop?tab=requests" replace />} />
