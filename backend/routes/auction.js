@@ -410,8 +410,9 @@ router.post('/buy-now', authMid, async (req, res) => {
       `INSERT INTO orders (user_id, merch_id, coins_charged, shipping_address) VALUES ($1, $2, $3, $4) RETURNING id`,
       [req.user.userId, itemId, finalPrice, JSON.stringify(shipping)]
     );
+    let spend;
     try {
-      await spendTokens(client, {
+      spend = await spendTokens(client, {
         userId:      req.user.userId,
         amount:      finalPrice,
         type:        'merch_purchase',
@@ -447,7 +448,11 @@ router.post('/buy-now', authMid, async (req, res) => {
     res.json({
       ok: true, orderId: orderRows[0].id,
       itemPrice, handlingFee: cfg.fee, totalCharged: finalPrice,
-      newBalance: user.coin_balance - finalPrice,
+      // Read back from the spend rather than subtracted from what was loaded
+      // earlier. A spend can draw on bonus tokens, which do not sit in
+      // coin_balance, so subtracting the whole cost from it reported a balance
+      // lower than the fan actually holds until something forced a refresh.
+      newBalance: spend.newPurchased,
       message: `You bought "${item.title}". Jinal will be in touch for delivery.`,
     });
   } catch (err) {
@@ -536,8 +541,9 @@ router.post('/claim', authMid, async (req, res) => {
       `INSERT INTO orders (user_id, merch_id, coins_charged, shipping_address) VALUES ($1, $2, $3, $4) RETURNING id`,
       [req.user.userId, itemId, finalPrice, JSON.stringify(shipping)]
     );
+    let spend;
     try {
-      await spendTokens(client, {
+      spend = await spendTokens(client, {
         userId:      req.user.userId,
         amount:      finalPrice,
         type:        'merch_purchase',
@@ -566,7 +572,11 @@ router.post('/claim', authMid, async (req, res) => {
     res.json({
       ok: true, orderId: orderRows[0].id,
       itemPrice, handlingFee: cfg.fee, totalCharged: finalPrice,
-      newBalance: user.coin_balance - finalPrice,
+      // Read back from the spend rather than subtracted from what was loaded
+      // earlier. A spend can draw on bonus tokens, which do not sit in
+      // coin_balance, so subtracting the whole cost from it reported a balance
+      // lower than the fan actually holds until something forced a refresh.
+      newBalance: spend.newPurchased,
       message: `Claimed! Jinal will confirm your donation to ${CHARITIES[charity]} soon.`,
     });
   } catch (err) {

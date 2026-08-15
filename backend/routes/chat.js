@@ -121,9 +121,12 @@ router.post('/messages/:id/unlock', authMid, async (req, res) => {
 
     const price = message.unlock_price_coins;
 
+    // Declared out here because a free unlock spends nothing, and the response
+    // still has to report a balance.
+    let spend = null;
     if (price > 0) {
       try {
-        await spendTokens(client, {
+        spend = await spendTokens(client, {
           userId:    req.user.userId,
           amount:    price,
           type:      'chat_media_unlock',
@@ -148,7 +151,11 @@ router.post('/messages/:id/unlock', authMid, async (req, res) => {
     res.json({
       ok: true,
       lockedMediaUrls: updated[0].locked_media_urls,
-      newBalance: user.coin_balance - price,
+      // Read back from the spend rather than subtracted from what was loaded
+      // earlier. A spend can draw on bonus tokens, which do not sit in
+      // coin_balance, so subtracting the whole cost from it reported a balance
+      // lower than the fan actually holds until something forced a refresh.
+      newBalance: spend ? spend.newPurchased : user.coin_balance,
     });
   } catch (err) {
     await client.query('ROLLBACK');

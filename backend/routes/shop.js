@@ -216,8 +216,9 @@ router.post('/buy', authMid, async (req, res) => {
     );
 
     // Physical goods carry a real cost, so gifted credit cannot be used here.
+    let spend;
     try {
-      await spendTokens(client, {
+      spend = await spendTokens(client, {
         userId:      req.user.userId,
         amount:      price,
         type:        'merch_purchase',
@@ -253,7 +254,11 @@ router.post('/buy', authMid, async (req, res) => {
       ok:         true,
       orderId:    orderRows[0].id,
       coinsSpent: price,
-      newBalance: user.coin_balance - price,
+      // Read back from the spend rather than subtracted from what was loaded
+      // earlier. A spend can draw on bonus tokens, which do not sit in
+      // coin_balance, so subtracting the whole cost from it reported a balance
+      // lower than the fan actually holds until something forced a refresh.
+      newBalance: spend.newPurchased,
       message:    `Order placed for "${item.title}". Jinal will be in touch for delivery.`,
     });
   } catch (err) {

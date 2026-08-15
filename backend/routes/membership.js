@@ -141,8 +141,9 @@ router.post('/purchase', authMid, async (req, res) => {
 
     // Membership is bought with purchased tokens. Gifting a membership is its own
     // deliberate act in Studio, not something a token grant should quietly enable.
+    let spend;
     try {
-      await spendTokens(client, {
+      spend = await spendTokens(client, {
         userId:      req.user.userId,
         amount:      totalCost,
         type:        'membership_purchase',
@@ -174,7 +175,11 @@ router.post('/purchase', authMid, async (req, res) => {
       term,
       totalCost,
       expiresAt,
-      newBalance: user.coin_balance - totalCost,
+      // Read back from the spend rather than subtracted from what was loaded
+      // earlier. A spend can draw on bonus tokens, which do not sit in
+      // coin_balance, so subtracting the whole cost from it reported a balance
+      // lower than the fan actually holds until something forced a refresh.
+      newBalance: spend.newPurchased,
       message:   `${tier.charAt(0).toUpperCase() + tier.slice(1)} membership activated!`,
     });
   } catch (err) {
@@ -241,8 +246,9 @@ router.post('/upgrade', authMid, async (req, res) => {
 
     // Membership is bought with purchased tokens. Gifting a membership is its own
     // deliberate act in Studio, not something a token grant should quietly enable.
+    let spend;
     try {
-      await spendTokens(client, {
+      spend = await spendTokens(client, {
         userId:      req.user.userId,
         amount:      upgradeCost,
         type:        'membership_upgrade',
@@ -267,7 +273,11 @@ router.post('/upgrade', authMid, async (req, res) => {
       newTier,
       upgradeCost,
       expiresAt:  newExpiry,
-      newBalance: user.coin_balance - upgradeCost,
+      // Read back from the spend rather than subtracted from what was loaded
+      // earlier. A spend can draw on bonus tokens, which do not sit in
+      // coin_balance, so subtracting the whole cost from it reported a balance
+      // lower than the fan actually holds until something forced a refresh.
+      newBalance: spend.newPurchased,
       message:    `Upgraded to ${newTier}!`,
     });
   } catch (err) {
@@ -322,8 +332,9 @@ router.post('/extend', authMid, async (req, res) => {
 
     // Membership is bought with purchased tokens. Gifting a membership is its own
     // deliberate act in Studio, not something a token grant should quietly enable.
+    let spend;
     try {
-      await spendTokens(client, {
+      spend = await spendTokens(client, {
         userId:      req.user.userId,
         amount:      totalCost,
         type:        'membership_extend',
@@ -347,7 +358,11 @@ router.post('/extend', authMid, async (req, res) => {
       term,
       totalCost,
       expiresAt,
-      newBalance: user.coin_balance - totalCost,
+      // Read back from the spend rather than subtracted from what was loaded
+      // earlier. A spend can draw on bonus tokens, which do not sit in
+      // coin_balance, so subtracting the whole cost from it reported a balance
+      // lower than the fan actually holds until something forced a refresh.
+      newBalance: spend.newPurchased,
       message:   `Membership extended to ${expiresAt.toLocaleDateString()}`,
     });
   } catch (err) {

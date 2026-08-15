@@ -14,7 +14,8 @@ function getClient() {
 }
 
 async function createOrder({ amountInr, tokens, discountPct, userId, clientIp, userCountry,
-                             currency = 'INR', amountInCurrency }) {
+                             currency = 'INR', amountInCurrency,
+                             bonusOfferId = null, bonusTokens = 0 }) {
   const razorpay = getClient();
   // Charged in the fan's own currency where they have chosen one. The INR value
   // is carried in the notes so the invoice records what the sale was worth here
@@ -26,6 +27,12 @@ async function createOrder({ amountInr, tokens, discountPct, userId, clientIp, u
     // Razorpay echoes notes back in the webhook payload, which is the only way
     // the fan's IP and country survive to a server-to-server credit. Country
     // decides whether a supply is zero-rated, so losing it is not cosmetic.
+    //
+    // The bonus is carried the same way and for the same reason. A coupon code
+    // is typed into the browser and reaches the server only when the order is
+    // created — the webhook is a call from Razorpay and has never seen it. So
+    // the offer resolved here travels with the order, and the fan receives the
+    // bonus the button quoted no matter which path credits the payment.
     notes: {
       user_id:      userId,
       tokens:       String(tokens),
@@ -33,6 +40,8 @@ async function createOrder({ amountInr, tokens, discountPct, userId, clientIp, u
       client_ip:    clientIp || '',
       user_country: userCountry || '',
       amount_inr:   String(amountInr),
+      bonus_offer_id: bonusOfferId || '',
+      bonus_tokens:   String(bonusTokens || 0),
     },
   });
 

@@ -33,6 +33,24 @@ async function calcDiscount(tokens) {
   return 0;
 }
 
+// The offer an order was created under, looked up by the id stored in its notes.
+//
+// Deliberately not re-resolved through activeBonusOffer: an offer can end, or
+// reach its usage limit, between somebody seeing a price and paying it. Honour
+// what was quoted — the alternative is taking money on one promise and
+// delivering another, over a difference of minutes.
+async function offerFromOrder(db, notes) {
+  const id = notes?.bonus_offer_id;
+  if (!id) return null;
+  try {
+    const { rows } = await db.query(`SELECT * FROM bonus_offers WHERE id = $1`, [id]);
+    return rows[0] || null;
+  } catch (err) {
+    console.error('coins/offerFromOrder error:', err.message);
+    return null;
+  }
+}
+
 async function calcPrice(tokens) {
   const pct  = await calcDiscount(tokens);
   const rate = await getConfigNumber('token_rate_inr');
@@ -209,6 +227,14 @@ router.post('/recharge/initiate', authMid, async (req, res) => {
   }
 
   try {
+    // Resolved before the order is created, not after, so the offer that is
+    // quoted on the button is the offer recorded against the payment. It used
+    // to be worked out afterwards and then thrown away, which left the coupon
+    // knowable only to the browser — and the webhook, which normally credits
+    // first, had no way to learn it.
+    const offer = await activeBonusOffer(pool, req.body.bonusCode);
+    const bonus = bonusFor(amount, offer);
+
     const order = await payments.createOrder({
       amountInr:   priceINR,
       tokens:      amount,
@@ -218,12 +244,9 @@ router.post('/recharge/initiate', authMid, async (req, res) => {
       userCountry: ipCountry,
       currency:         fxQuote ? fxQuote.currency : 'INR',
       amountInCurrency: fxQuote ? fxQuote.amount   : priceINR,
+      bonusOfferId: offer?.id || null,
+      bonusTokens:  bonus,
     });
-
-    // What they will actually receive, quoted with the order so the number on
-    // the button and the number credited cannot disagree.
-    const offer = await activeBonusOffer(pool, req.body.bonusCode);
-    const bonus = bonusFor(amount, offer);
 
     res.json({
       orderId:     order.orderId,
@@ -342,8 +365,12 @@ router.post('/recharge/verify', authMid, async (req, res) => {
       // Granted as its own credit rather than added to the purchase, so the
       // ledger says plainly what was bought and what was given. Every revenue
       // figure reads from_purchased, so a bonus can never be counted as money.
-      const offer = await activeBonusOffer(client, req.body.bonusCode);
-      const bonus = bonusFor(amount, offer);
+      // Taken from the order, exactly as the token count is. Re-resolving from
+      // the browser's coupon code here would let the two crediting paths
+      // disagree, and would trust a value the fan can change after the price
+      // was fixed.
+      const offer = await offerFromOrder(client, result.orderNotes);
+      const bonus = parseInt(result.orderNotes?.bonus_tokens, 10) || 0;
       if (bonus > 0) {
         await grantBonusTokens(client, { userId: req.user.userId, amount: bonus, offer });
       }
@@ -460,8 +487,13 @@ router.post('/recharge/webhook', async (req, res) => {
     // reached us. Somebody in that position must still get their bonus, or a
     // dropped connection quietly costs them the offer.
     try {
-      const offer = await activeBonusOffer(pool);
-      const bonus = bonusFor(tokens, offer);
+      // From the order's own notes. This once called activeBonusOffer with no
+      // code at all, so a fan who entered a coupon and was quoted a bonus got
+      // whatever sitewide offer happened to be running instead — or nothing.
+      // Since the webhook usually wins the race against the browser's own
+      // confirmation, a coupon could go its whole life never being honoured.
+      const offer = await offerFromOrder(pool, payment.notes);
+      const bonus = parseInt(payment.notes?.bonus_tokens, 10) || 0;
       if (bonus > 0) await grantBonusTokens(pool, { userId, amount: bonus, offer });
     } catch (e) { console.error('bonus grant via webhook failed:', e.message); }
 

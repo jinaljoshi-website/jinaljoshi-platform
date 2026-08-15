@@ -463,9 +463,12 @@ router.post('/unlock', authMid, async (req, res) => {
       );
     }
 
+    // Declared out here because the unlock may be free, in which case nothing
+    // is spent and the balance is unchanged.
+    let spend = null;
     if (price > 0) {
       try {
-        await spendTokens(client, {
+        spend = await spendTokens(client, {
           userId:    req.user.userId,
           amount:    price,
           type:      'content_unlock',
@@ -519,7 +522,12 @@ router.post('/unlock', authMid, async (req, res) => {
       tag:   `unlock-${setId}`,
     });
 
-    res.json({ ok: true, coinsSpent: price, usedCredit: useCredit, newBalance: user.coin_balance - price, scope });
+    // Read back from the spend rather than subtracted from what was loaded
+    // earlier: an unlock can draw on gifted or bonus tokens, neither of which
+    // sits in coin_balance, so subtracting the price from it understated what
+    // the fan actually holds.
+    res.json({ ok: true, coinsSpent: price, usedCredit: useCredit,
+               newBalance: spend ? spend.newPurchased : user.coin_balance, scope });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('gallery/unlock error:', err);

@@ -293,7 +293,11 @@ router.post('/book', authMid, async (req, res) => {
       ok:         true,
       call:       callRow,
       totalCost,
-      newBalance: user.coin_balance - totalCost,
+      // Read back from the spend rather than subtracted from what was loaded
+      // earlier. A spend can draw on bonus tokens, which do not sit in
+      // coin_balance, so subtracting the whole cost from it reported a balance
+      // lower than the fan actually holds until something forced a refresh.
+      newBalance: spend.newPurchased,
       isPriority,
       message: isPriority
         ? 'Calling Jinal now — hang tight.'
