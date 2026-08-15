@@ -59,11 +59,30 @@ async function verifyPayment({ orderId, paymentId, signature }) {
   const razorpay   = getClient();
   const paymentRaw = await razorpay.payments.fetch(paymentId);
 
+  // The signature proves this order and payment are genuine. It says nothing
+  // about how many tokens were bought — that lives in the notes we ourselves
+  // attached when the order was created, and it is the only trustworthy source.
+  // Taking the quantity from the browser instead let a fan pay for one token and
+  // claim ten thousand, with the invoice then recording money that never arrived.
+  const orderRaw = await razorpay.orders.fetch(orderId);
+
+  // A payment against a different order than the one signed would be a mismatch
+  // we must not paper over.
+  if (paymentRaw.order_id && paymentRaw.order_id !== orderId) {
+    return { verified: false };
+  }
+
   return {
     verified: true,
     amountInCurrency: Math.round(paymentRaw.amount / 100),
     currency: paymentRaw.currency || 'INR',
+    // What the order says was bought, and what it was worth in rupees at the
+    // moment it was created.
+    orderTokens:   parseInt(orderRaw?.notes?.tokens, 10) || null,
+    orderAmountInr: parseFloat(orderRaw?.notes?.amount_inr) || null,
+    orderNotes:    orderRaw?.notes || {},
     paymentRaw,
+    orderRaw,
   };
 }
 

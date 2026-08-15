@@ -260,8 +260,8 @@ router.post('/recharge/verify', authMid, async (req, res) => {
     return res.status(400).json({ error: 'Payment verification data is incomplete' });
   }
 
-  const amount = parseInt(tokens);
-  if (!amount || amount < 1) return res.status(400).json({ error: 'Invalid token amount' });
+  const claimedAmount = parseInt(tokens);
+  if (!claimedAmount || claimedAmount < 1) return res.status(400).json({ error: 'Invalid token amount' });
 
   try {
     const result = await payments.verifyPayment({
@@ -272,6 +272,24 @@ router.post('/recharge/verify', authMid, async (req, res) => {
 
     if (!result.verified) {
       return res.status(400).json({ error: 'Payment verification failed — signature mismatch' });
+    }
+
+    // The signature proves the payment is real; it does not prove what was
+    // bought. The quantity comes from the order's own notes, written by this
+    // server when the order was created — never from the browser, which is free
+    // to claim any number it likes. The webhook has always done it this way;
+    // this path was the one that did not, and it was creditable to anybody
+    // willing to send a larger number alongside a genuine signature.
+    const amount = result.orderTokens;
+    if (!amount || amount < 1) {
+      console.error(`recharge/verify: order ${razorpay_order_id} carries no token count in notes`);
+      return res.status(400).json({ error: 'Could not confirm what this payment was for. Nothing has been charged twice — please contact support.' });
+    }
+    if (amount !== claimedAmount) {
+      // Not fatal — the order is the truth and we proceed on it — but a
+      // disagreement is either a stale tab or somebody probing, and both are
+      // worth seeing in the logs.
+      console.warn(`recharge/verify: browser claimed ${claimedAmount} tokens, order ${razorpay_order_id} says ${amount}. Using the order.`);
     }
 
     // The webhook reliably arrives before this client-side call in practice (it's a direct
@@ -410,7 +428,25 @@ router.post('/recharge/webhook', async (req, res) => {
     const { rows: existing } = await pool.query(`SELECT id FROM coin_ledger WHERE payment_id = $1`, [paymentId]);
     if (existing.length) return res.json({ ok: true });
 
-    const priceINR = Math.round(payment.amount / 100);
+    // What was actually charged, in whatever currency it was charged in.
+    const paidCurrency  = payment.currency || 'INR';
+    const amountCharged = Math.round(payment.amount / 100);
+
+    // The rupee value of the sale. For a foreign payment the charged amount is
+    // dollars or euros, so treating it as rupees recorded 25 USD as ₹25 — wrong
+    // revenue, and a wrong invoice. The true INR value was written into the
+    // order notes when the order was created; that is what belongs here.
+    const priceINR = paidCurrency === 'INR'
+      ? amountCharged
+      : (parseFloat(payment.notes?.amount_inr) || null);
+
+    if (!priceINR) {
+      // Without the rupee value we cannot raise a correct tax invoice, and a
+      // wrong one is worse than a late one. Credit nothing and let the retry
+      // (or the fan's own verify call) handle it, rather than book a bad figure.
+      console.error(`webhook: payment ${paymentId} in ${paidCurrency} has no amount_inr in order notes — not credited`);
+      return res.status(400).json({ error: 'Missing INR value for a foreign payment' });
+    }
 
     await pool.query(`UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`, [tokens, userId]);
     const { rows: ledgerRows } = await pool.query(
@@ -444,9 +480,13 @@ router.post('/recharge/webhook', async (req, res) => {
         coinLedgerId: ledgerRows[0].id,
         tokensPurchased: tokens,
         amountInrEquivalent: priceINR,
-        currency: 'INR',
-        amountInCurrency: priceINR,
-        exchangeRateUsed: null,
+        // The currency actually received, not an assumption of rupees. Zero
+        // rating requires payment in convertible foreign exchange, so hardcoding
+        // INR here made determineIsExport false for every webhook-credited
+        // payment — and charged 18% GST on sales that were zero-rated exports.
+        currency:         paidCurrency,
+        amountInCurrency: amountCharged,
+        exchangeRateUsed: paidCurrency === 'INR' ? null : priceINR / amountCharged,
         paymentMethodDisplay,
       });
     } catch (err) {

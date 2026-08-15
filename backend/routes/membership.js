@@ -2,6 +2,11 @@
 const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
+// Gifting a membership hands over real value and takes no payment, so it is
+// Jinal's alone. It sat behind authMid only, which any signed-in fan satisfies
+// for their own account — so the three gift routes below were a free membership
+// for anybody who found them.
+const artistOnly = require('../middleware/artistOnly');
 const { postSystemMessage } = require('./community');
 const { getTierPrice, getAllTierPrices, getConfigNumber } = require('../lib/config');
 const { roundTokensUp } = require('../lib/pricing');
@@ -358,7 +363,7 @@ router.post('/extend', authMid, async (req, res) => {
 // POST /api/membership/gift
 // ─────────────────────────────────────────────
 
-router.post('/gift', authMid, async (req, res) => {
+router.post('/gift', authMid, artistOnly, async (req, res) => {
   const { email, tier, term = 'monthly', note } = req.body;
 
   const TIER_PRICES = await getAllTierPrices();
@@ -421,7 +426,7 @@ router.post('/gift', authMid, async (req, res) => {
 // POST /api/membership/gift/extend
 // ─────────────────────────────────────────────
 
-router.post('/gift/extend', authMid, async (req, res) => {
+router.post('/gift/extend', authMid, artistOnly, async (req, res) => {
   const { email, term = 'monthly' } = req.body;
 
   if (!email) return res.status(400).json({ error: 'Email is required' });
@@ -480,7 +485,7 @@ router.post('/gift/extend', authMid, async (req, res) => {
 // POST /api/membership/gift/change
 // ─────────────────────────────────────────────
 
-router.post('/gift/change', authMid, async (req, res) => {
+router.post('/gift/change', authMid, artistOnly, async (req, res) => {
   const { email, tier, term = 'monthly', note } = req.body;
 
   const TIER_PRICES = await getAllTierPrices();
