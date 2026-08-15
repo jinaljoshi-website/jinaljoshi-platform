@@ -690,7 +690,6 @@ function MessageBubble({ msg, parent, onReply, onUnlock, unlocking }) {
                       </span>
                     ) : 'View'}
                   </button>
-                  <div style={{ fontFamily: F.sans, fontSize: 9, color: C.muted, textAlign: 'center' }}>Chat messages, including unlocked media, are removed after 30 days</div>
                 </>
               )}
             </div>

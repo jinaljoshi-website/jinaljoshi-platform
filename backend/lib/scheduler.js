@@ -460,11 +460,17 @@ function startScheduler() {
     checkMissedCalls();
   }, 15000);
 
-  // Chat message expiry is not built yet — the retention decision was deferred.
-  // The schedule below called a function that was never written, so every night
-  // at 4am it threw a ReferenceError. Removed until the policy is actually decided;
-  // note that fan-facing copy already promises 30-day deletion, so this is a
-  // commitment currently going unmet rather than a feature merely missing.
+  // Chat messages are not deleted on a schedule, and deliberately so. The
+  // retention question is settled: conversations stay. Terms already say
+  // messages are retained for safety, moderation and dispute resolution, and
+  // fans pay tokens to unlock media inside them — expiring that would be taking
+  // away something bought.
+  //
+  // A nightly job here once called a deletion function that was never written,
+  // and threw a ReferenceError every night at 4am until it was removed. The
+  // fan-facing copy promising 30-day deletion has now been removed too, so the
+  // product and the behaviour agree. Anyone wanting their data erased asks, and
+  // Privacy sets out that route.
 
   // Every minute: auction lifecycle (ending auctions, reminder emails, expiring unclaimed wins, queue promotion)
   cron.schedule('* * * * *', () => {
