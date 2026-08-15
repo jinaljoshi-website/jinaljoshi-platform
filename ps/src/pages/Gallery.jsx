@@ -34,16 +34,7 @@ export default function Gallery() {
   const [topUp,     setTopUp]     = useState(null);
   const [openSet,   setOpenSet]   = useState(null);
 
-  // Arriving on a link to a particular set opens it, rather than dropping
-  // somebody on the grid to go and find what they were sent.
   const { setId } = useParams();
-
-  useEffect(() => {
-    if (!setId || !allSets.length) return;
-    if (openSet?.id === setId) return;
-    const found = allSets.find((s) => s.id === setId);
-    if (found) openViewer(found, { silent: true });
-  }, [setId, allSets.length]);
   const [setItems,  setSetItems]  = useState([]);
   const [itemsLoad, setItemsLoad] = useState(false);
   const [lightbox,  setLightbox]  = useState(null);
@@ -83,6 +74,17 @@ export default function Gallery() {
       setItemsLoad(false);
     }
   };
+
+  // Arriving on a link to a particular set opens it, rather than dropping
+  // somebody on the grid to go and find what they were sent. Declared here
+  // rather than with the other state because it reads allSets and openViewer,
+  // and neither exists yet further up.
+  useEffect(() => {
+    if (!setId || !allSets.length) return;
+    if (openSet?.id === setId) return;
+    const found = allSets.find((s) => s.id === setId);
+    if (found) openViewer(found, { silent: true });
+  }, [setId, allSets.length]);
 
   const closeViewer = () => {
     if (setId) navigate('/platform/gallery', { replace: true });
