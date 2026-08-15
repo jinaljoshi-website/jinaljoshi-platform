@@ -28,7 +28,6 @@ const REQUIRED_PRICING = new Set([
   'domestic_gst_rate_pct',
   'community_monthly_cost', 'insider_monthly_cost', 'premium_monthly_cost', 'supreme_monthly_cost',
   'community_discount_pct', 'insider_discount_pct', 'premium_discount_pct', 'supreme_discount_pct',
-  'gallery_unlocks_community', 'gallery_unlocks_insider', 'gallery_unlocks_premium', 'gallery_unlocks_supreme',
   'call_audio_per_min', 'call_video_per_min', 'call_priority_per_min',
   'dm_free_per_month_community', 'dm_free_per_month_insider', 'dm_free_per_month_premium', 'dm_free_per_month_supreme',
   'dm_daily_cap_community', 'dm_daily_cap_insider', 'dm_daily_cap_premium', 'dm_daily_cap_supreme',
@@ -144,17 +143,10 @@ async function getAllTierPrices() {
   };
 }
 
-const GALLERY_UNLOCK_KEYS = {
-  community: 'gallery_unlocks_community',
-  insider:   'gallery_unlocks_insider',
-  premium:   'gallery_unlocks_premium',
-  supreme:   'gallery_unlocks_supreme',
-};
-
-async function getGalleryUnlocksForTier(tier) {
-  if (!GALLERY_UNLOCK_KEYS[tier]) return 0;
-  return getConfigNumber(GALLERY_UNLOCK_KEYS[tier]);
-}
+// The per-tier monthly allowance this once read — gallery_unlocks_{tier} — was
+// retired when the ladder replaced it with tier_open_cap_{tier}, and Studio has
+// had no field for it since. Nothing calls it now, and the earnings maths that
+// once divided by it no longer values membership unlocks at all.
 
 async function getGuestMultiplier() {
   return getConfigNumber('guest_price_multiplier');
@@ -231,7 +223,6 @@ module.exports = {
   getDiscountForTier,
   getTierPrice,
   getAllTierPrices,
-  getGalleryUnlocksForTier,
   getGuestMultiplier,
   getDmConfigForTier,
   getCallRingWindowSeconds,

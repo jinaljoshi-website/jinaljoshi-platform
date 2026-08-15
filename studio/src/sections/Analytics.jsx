@@ -341,12 +341,13 @@ export function Analytics() {
         <>
           <div style={S.statsRow}>
             <Stat head="Earned by the gallery" value={rupees(d.totalRevenueInr)} tone={colors.success}
-                  sub={`${rupees(d.totalDirectInr)} tokens spent · ${rupees(d.totalCreditInr)} from memberships`} />
+                  sub="tokens spent opening sets, net of GST" />
           </div>
           <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 14, lineHeight: 1.6, maxWidth: 640 }}>
-            A set opened on a membership credit is not free — the member paid for it as part of
-            their fee, and {d.setSharePct}% of that fee after {d.gstPct}% GST is counted as set
-            access. Gifted tokens are excluded; they were given, not earned.
+            What sets have earned directly — tokens somebody spent to open them, net of {d.gstPct}%
+            GST. Sets opened on a membership are counted but carry no figure: that fee buys access
+            to the platform rather than the set. Gifted tokens are excluded; they were given, not
+            earned.
           </p>
           <div style={{ display: 'grid', gap: 6 }}>
             {d.sets.length === 0 ? <T.muted>No sets yet.</T.muted> : d.sets.map((s) => (
@@ -355,15 +356,15 @@ export function Analytics() {
                   <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{s.title}</div>
                   <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
                     {s.photographer ? `${s.photographer} · ` : ''}{s.unlocks} unlock{s.unlocks === 1 ? '' : 's'}
-                    {s.creditUnlocks > 0 && ` · ${s.creditUnlocks} on credit`}
+                    {s.creditUnlocks > 0 && ` · ${s.creditUnlocks} on a membership`}
                     {s.giftedTokens > 0 && ` · ${s.giftedTokens} gifted`}
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{rupees(s.revenueInr)}</div>
-                  {(s.directInr > 0 || s.creditInr > 0) && (
+                  {s.purchasedTokens > 0 && (
                     <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
-                      {rupees(s.directInr)} direct · {rupees(s.creditInr)} credit
+                      {s.purchasedTokens} token{s.purchasedTokens === 1 ? '' : 's'} spent
                     </div>
                   )}
                 </div>

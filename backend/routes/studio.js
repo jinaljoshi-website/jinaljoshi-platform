@@ -1091,53 +1091,48 @@ router.get('/photographers/earnings', async (req, res) => {
   try {
     const { rows: cfgRows } = await pool.query(
       `SELECT key, value FROM platform_config
-       WHERE key IN ('token_rate_inr', 'membership_set_share_pct', 'domestic_gst_rate_pct')
-          OR key LIKE '%_monthly_cost' OR key LIKE 'gallery_unlocks_%'`
+       WHERE key IN ('token_rate_inr', 'domestic_gst_rate_pct')`
     );
     const cfg = {};
     cfgRows.forEach((r) => { cfg[r.key] = parseFloat(r.value); });
 
     const tokenRate = cfg.token_rate_inr;
-    const setShare  = cfg.membership_set_share_pct;
     if (Number.isNaN(tokenRate) || tokenRate === undefined) {
       return res.status(503).json({ error: 'Token rate is not configured' });
     }
 
-    // What one allowance-funded unlock is worth, per tier.
+    // Only what a set earned directly — tokens somebody actually spent to open
+    // it. A membership unlock is not set revenue: the fan paid for access to the
+    // platform, and that fee is the platform's. Attributing a slice of it here
+    // meant inventing a per-unlock value, which needed an allowance to divide
+    // by, which is why this once read a config key the ladder had retired and
+    // quietly showed zero for everybody.
     //
-    // GST comes out first. Token prices are GST-inclusive — 10 tokens is Rs 660
-    // of which Rs 100.68 is tax — and that tax is collected on the government's
-    // behalf, not earned. Sharing it out would mean giving away money that was
-    // never ours. Leaving it in overstated every unlock by about 18%.
-    //
-    // What remains is split 50% to messages, 15% to running the platform, and
-    // 35% to set access. That 35% divided by the tier's monthly allowance gives
-    // a fixed value per unlock — fixed, so it does not move because somebody
-    // else happened to browse more.
+    // Nothing here calculates what a photographer should receive. There is no
+    // revenue-share agreement; they have been paid in full for the shoot. This
+    // is a voluntary royalty Jinal decides at the time, and the only thing the
+    // platform owes her is an honest figure for what each person's work brought
+    // in directly.
     const gstPct = cfg.domestic_gst_rate_pct || 0;
-    const unlockValue = {};
-    for (const tier of ['community', 'insider', 'premium', 'supreme']) {
-      const cost      = cfg[`${tier}_monthly_cost`];
-      const allowance = cfg[`gallery_unlocks_${tier}`];
-      if (!cost || !allowance) { unlockValue[tier] = 0; continue; }
-      const netTokens = cost / (1 + gstPct / 100);
-      unlockValue[tier] = (netTokens * (setShare / 100)) / allowance;
-    }
 
     const { rows } = await pool.query(
       // Summed from the ledger by set rather than joined per grant. Joining
       // grants to ledger rows double-counts anyone holding both a tier and an
       // upsell grant for the same set, and attributes gifted spend as purchased.
       `WITH spend AS (
-         SELECT related_id AS set_id,
-                COALESCE(SUM(from_purchased), 0)::int AS purchased_tokens,
-                COALESCE(SUM(from_gifted), 0)::int    AS gifted_tokens
-         FROM coin_ledger
-         WHERE type = 'content_unlock' AND direction = 'debit' AND related_id IS NOT NULL
-         GROUP BY related_id
+         SELECT cl.related_id AS set_id,
+                COALESCE(SUM(cl.from_purchased), 0)::int AS purchased_tokens,
+                COALESCE(SUM(cl.from_gifted), 0)::int    AS gifted_tokens
+         FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
+         WHERE cl.type = 'content_unlock' AND cl.direction = 'debit'
+           AND cl.related_id IS NOT NULL AND u.is_test = FALSE
+         GROUP BY cl.related_id
        ),
        unlocks AS (
-         SELECT set_id, COUNT(*)::int AS n FROM access_grants GROUP BY set_id
+         SELECT ag.set_id, COUNT(*)::int AS n
+         FROM access_grants ag JOIN users u ON u.id = ag.user_id
+         WHERE u.is_test = FALSE
+         GROUP BY ag.set_id
        )
        SELECT p.id, p.name, p.contact,
               s.id AS set_id, s.title,
@@ -1156,21 +1151,26 @@ router.get('/photographers/earnings', async (req, res) => {
        ORDER BY p.name, s.title`
     );
 
-    // Allowance unlocks, counted per tier so each can be valued at its own rate.
-    const { rows: allowanceRows } = await pool.query(
-      `SELECT s.id AS set_id, u.tier, count(*)::int AS n
+    // Membership unlocks, counted but never valued. How often a set is opened
+    // on an allowance says something real about what resonates, so it is worth
+    // showing — but the fee behind it is the platform's, not the set's, so no
+    // rupee figure is attached to it.
+    //
+    // Joined through set_photographers, the same table the query above uses.
+    // This once filtered on sets.photographer_id, a column left over from when
+    // a set had one photographer and which nothing has written since — so it
+    // matched nothing and excluded every row regardless.
+    const { rows: creditRows } = await pool.query(
+      `SELECT g.set_id, count(*)::int AS n
        FROM access_grants g
-       JOIN sets s  ON s.id = g.set_id
        JOIN users u ON u.id = g.user_id
-       WHERE s.photographer_id IS NOT NULL AND COALESCE(g.coins_paid, 0) = 0
-       GROUP BY s.id, u.tier`
+       WHERE COALESCE(g.coins_paid, 0) = 0
+         AND u.is_test = FALSE
+         AND EXISTS (SELECT 1 FROM set_photographers sp WHERE sp.set_id = g.set_id)
+       GROUP BY g.set_id`
     );
-    const allowanceBySet = {};
-    allowanceRows.forEach((r) => {
-      allowanceBySet[r.set_id] ||= { count: 0, tokens: 0 };
-      allowanceBySet[r.set_id].count  += r.n;
-      allowanceBySet[r.set_id].tokens += r.n * (unlockValue[r.tier] || 0);
-    });
+    const creditBySet = {};
+    creditRows.forEach((r) => { creditBySet[r.set_id] = r.n; });
 
     const { rows: paid } = await pool.query(
       `SELECT photographer_id, COALESCE(SUM(amount_inr), 0) AS total FROM photographer_payments GROUP BY photographer_id`
@@ -1182,25 +1182,21 @@ router.get('/photographers/earnings', async (req, res) => {
     for (const r of rows) {
       byId[r.id] ||= { id: r.id, name: r.name, contact: r.contact, sets: [], generatedInr: 0 };
       if (!r.set_id) continue;
-      const allowance = allowanceBySet[r.set_id] || { count: 0, tokens: 0 };
+      const creditUnlocks = creditBySet[r.set_id] || 0;
 
-      // Purchased tokens are GST-inclusive too, so the same deduction applies —
-      // otherwise a set unlocked directly would appear to earn 18% more than
-      // the identical set unlocked on a membership credit.
+      // Purchased tokens are GST-inclusive, so the tax comes out first — it is
+      // collected on the government's behalf, never earned, and sharing it out
+      // would mean giving away money that was never ours.
       const share = Math.max(1, r.credited || 1);
-      const directInr    = ((r.purchased_tokens * tokenRate) / (1 + gstPct / 100)) / share;
-      const allowanceInr = (allowance.tokens * tokenRate) / share;
-      const totalInr     = directInr + allowanceInr;
+      const totalInr = ((r.purchased_tokens * tokenRate) / (1 + gstPct / 100)) / share;
 
       byId[r.id].sets.push({
         setId: r.set_id, title: r.title,
         sharedWith: share > 1 ? share : null,
         unlocks: r.unlocks,
         purchasedTokens: r.purchased_tokens, giftedTokens: r.gifted_tokens,
-        allowanceUnlocks: allowance.count,
-        directInr:    Math.round(directInr * 100) / 100,
-        allowanceInr: Math.round(allowanceInr * 100) / 100,
-        revenueInr:   Math.round(totalInr * 100) / 100,
+        creditUnlocks,
+        revenueInr: Math.round(totalInr * 100) / 100,
       });
       byId[r.id].generatedInr += totalInr;
     }
@@ -1214,9 +1210,7 @@ router.get('/photographers/earnings', async (req, res) => {
     res.json({
       photographers: list,
       tokenRate,
-      setSharePct: setShare,
       gstPct,
-      unlockValueByTier: unlockValue,
       totalGenerated: Math.round(list.reduce((s2, p) => s2 + p.generatedInr, 0) * 100) / 100,
       totalPaid: Math.round(list.reduce((s2, p) => s2 + p.paidInr, 0) * 100) / 100,
     });

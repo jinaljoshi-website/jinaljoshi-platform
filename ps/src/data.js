@@ -79,7 +79,8 @@ export function tierEconomics(tierId) {
   return {
     monthlyCost: cfgNum(`${tierId}_monthly_cost`),
     discountPct: cfgNum(`${tierId}_discount_pct`),
-    unlocks:     cfgNum(`gallery_unlocks_${tierId}`),
+    // openCap: 0 means uncapped, which is how Supreme is exempted.
+    openCap:     cfgNum(`tier_open_cap_${tierId}`),
     freeDMs:     cfgNum(`dm_free_per_month_${tierId}`),
     dailyDMCap:  cfgNum(`dm_daily_cap_${tierId}`),
     overageDM:   cfgNum(`dm_overage_cost_${tierId}`),

@@ -59,10 +59,12 @@ export function Photographers() {
       {success && <div style={S.success}>{success}</div>}
 
       <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, lineHeight: 1.7, marginBottom: 20, maxWidth: 720 }}>
-        What each person's work has brought in, and what you have sent them. Figures are net
-        of GST, which is collected for the government rather than earned. There is no suggested
-        figure and nothing is owed — decide what feels right, send it, and log it here so the
-        record is in one place.
+        What each person's work has brought in directly — tokens somebody spent to open their
+        sets — and what you have sent them. Figures are net of GST, which is collected for the
+        government rather than earned. Sets opened on a membership are counted but carry no
+        figure: that fee buys access to the platform, so it is not the set's earnings. Test
+        accounts are excluded. There is no suggested figure and nothing is owed — decide what
+        feels right, send it, and log it here so the record is in one place.
       </p>
 
       <div style={S.statsRow}>
@@ -77,12 +79,12 @@ export function Photographers() {
           <div style={pSub}>logged payments, all time</div>
         </div>
         <div style={S.statCard}>
-          <div style={pLabel}>A credit unlock is worth</div>
+          <div style={pLabel}>Opened on memberships</div>
           <div style={{ ...pValue, fontSize: 20 }}>
-            {rupees((data.unlockValueByTier?.supreme || 0) * data.tokenRate)}
+            {data.photographers.reduce((n, p) => n + p.sets.reduce((m, s) => m + (s.creditUnlocks || 0), 0), 0)}
           </div>
           <div style={pSub}>
-            at Supreme · {data.setSharePct}% of a membership after {data.gstPct}% GST
+            counted, not valued — a membership fee is for the platform, not the set
           </div>
         </div>
       </div>
@@ -129,14 +131,14 @@ export function Photographers() {
                         <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
                           {s.sharedWith && `shared with ${s.sharedWith - 1} other${s.sharedWith === 2 ? '' : 's'} · `}
                           {s.unlocks} unlock{s.unlocks === 1 ? '' : 's'}
-                          {s.allowanceUnlocks > 0 && ` · ${s.allowanceUnlocks} on membership credit`}
+                          {s.creditUnlocks > 0 && ` · ${s.creditUnlocks} on a membership`}
                           {s.giftedTokens > 0 && ` · ${s.giftedTokens} gifted tokens, not counted`}
                         </div>
                       </div>
                       <div style={{ textAlign: 'right', fontFamily: sans, fontSize: 12 }}>
                         <div style={{ color: colors.text }}>{rupees(s.revenueInr)}</div>
                         <div style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>
-                          {rupees(s.directInr)} paid · {rupees(s.allowanceInr)} credit
+                          {s.purchasedTokens} token{s.purchasedTokens === 1 ? '' : 's'} spent
                         </div>
                       </div>
                     </div>

@@ -15,8 +15,13 @@ const PUBLIC_KEYS = [
   'community_discount_pct', 'insider_discount_pct',
   'premium_discount_pct',   'supreme_discount_pct',
 
-  'gallery_unlocks_community', 'gallery_unlocks_insider',
-  'gallery_unlocks_premium',   'gallery_unlocks_supreme',
+  // The ladder's per-tier cap. Public because the fan app decides from it
+  // whether a tier is uncapped, and says so in the perk list. Without it
+  // cfgNum() returned null, null === 0 was never true, and Supreme — the one
+  // uncapped tier — advertised itself as merely included and lost its "no fair
+  // usage limit" line entirely.
+  'tier_open_cap_community', 'tier_open_cap_insider',
+  'tier_open_cap_premium',   'tier_open_cap_supreme',
 
   'dm_free_per_month_community', 'dm_free_per_month_insider',
   'dm_free_per_month_premium',   'dm_free_per_month_supreme',
