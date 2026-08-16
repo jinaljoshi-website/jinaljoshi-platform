@@ -32,6 +32,8 @@ export default function Gallery() {
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState('');
   const [topUp,     setTopUp]     = useState(null);
+  // Which unlock was interrupted by an empty balance, so it can be resumed.
+  const [pendingScope, setPendingScope] = useState(null);
   const [openSet,   setOpenSet]   = useState(null);
 
   const { setId } = useParams();
@@ -110,14 +112,43 @@ export default function Gallery() {
     try {
       await api.post('/api/gallery/unlock', { setId: openSet.id, scope });
       await refreshOpenSet(openSet.id);
+      setPendingScope(null);
     } catch (err) {
       if (err.message === 'INSUFFICIENT_TOKENS') {
+        // Remembered so the unlock can finish itself once the tokens land.
+        // Without this the fan paid, the modal closed, and the set was still
+        // shut — leaving them to work out that they had to ask a second time
+        // for the thing they had just bought.
+        setPendingScope(scope);
         setTopUp(scope === 'tier' ? openSet.tierPrice : openSet.upsellPrice);
       } else {
         setViewerError(err.message);
       }
     } finally {
       setUnlockingScope(null);
+    }
+  };
+
+  // Picks the unlock back up after a top-up. The refresh has to come first so
+  // the balance the unlock is judged against is the new one.
+  const finishAfterTopUp = async () => {
+    const scope = pendingScope;
+    setTopUp(null);
+    if (!scope || !openSet) { if (openSet) await refreshOpenSet(openSet.id); return; }
+    setUnlockingScope(scope);
+    try {
+      await api.post('/api/gallery/unlock', { setId: openSet.id, scope });
+      await refreshOpenSet(openSet.id);
+    } catch (err) {
+      // Still short, or something else went wrong. Say so rather than closing
+      // silently and leaving the set shut with no explanation.
+      setViewerError(err.message === 'INSUFFICIENT_TOKENS'
+        ? 'That was not quite enough — top up a little more and it will open.'
+        : err.message);
+      await refreshOpenSet(openSet.id);
+    } finally {
+      setUnlockingScope(null);
+      setPendingScope(null);
     }
   };
 
@@ -236,7 +267,9 @@ export default function Gallery() {
         )}
 
         {topUp !== null && (
-          <TopUpModal requiredTokens={topUp} onClose={() => setTopUp(null)} onSuccess={() => { setTopUp(null); refreshOpenSet(openSet.id); }} />
+          <TopUpModal requiredTokens={topUp}
+                      onClose={() => { setTopUp(null); setPendingScope(null); }}
+                      onSuccess={finishAfterTopUp} />
         )}
       </div>
     );

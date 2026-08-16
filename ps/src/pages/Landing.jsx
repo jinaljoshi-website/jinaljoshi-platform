@@ -167,6 +167,104 @@ export default function Landing() {
           </div>
         )}
 
+        {/* ── Swipe cards ── */}
+        {/* Sits in the scroll flow rather than pinned beneath it. Pinned, the row
+            was always present and always in the way; here it is the first thing
+            after Jinal's note, which is where somebody deciding where to go
+            actually looks. The negative margin cancels the scroll container's
+            own padding so the row still runs to the edge of the screen — a
+            swipeable row that stops short of the edge does not read as one. */}
+        <div style={{ flexShrink: 0, margin: '0 -24px 4px' }}>
+          <div
+            ref={scrollRef}
+            style={{
+              display: 'flex',
+              gap: 12,
+              overflowX: 'auto',
+              scrollSnapType: 'x mandatory',
+              WebkitOverflowScrolling: 'touch',
+              padding: '4px 24px 12px',
+              scrollbarWidth: 'none',
+              msOverflowStyle: 'none',
+            }}
+          >
+            {SECTIONS.map((section, idx) => (
+              <div
+                key={section.path}
+                ref={(el) => { cardRefs.current[idx] = el; }}
+                onClick={() => navigate(section.path)}
+                style={{
+                  flexShrink: 0,
+                  width: '75vw',
+                  maxWidth: 280,
+                  scrollSnapAlign: 'start',
+                  background: activeCard === idx ? 'rgba(193,125,74,0.12)' : C.surface,
+                  border: `1px solid ${activeCard === idx ? 'rgba(193,125,74,0.4)' : C.border}`,
+                  borderRadius: 14,
+                  padding: '20px 20px 18px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}
+              >
+                <div style={{ fontSize: 28, display: 'flex', alignItems: 'center' }}>
+                  {section.icon === 'coin' ? <WonderCoin size={28} /> : section.icon}
+                </div>
+                <div style={{ fontFamily: F.display, fontSize: 20, color: C.text }}>{section.label}</div>
+                {section.live === 'gallery' && data?.unseenSets > 0 ? (
+                  <div style={unreadLine}>
+                    {data.unseenSets} set{data.unseenSets === 1 ? '' : 's'} you haven't seen
+                  </div>
+                ) : section.live === 'chat' && data?.unreadMessages > 0 ? (
+                  <div style={unreadLine}>
+                    {data.unreadMessages} unread message{data.unreadMessages === 1 ? '' : 's'}
+                  </div>
+                ) : section.live === 'chat' && data?.chatLive ? (
+                  <div style={liveNow}><span style={liveDot} />Live now</div>
+                ) : null}
+                {section.live === 'calls' && data?.callsAvailable && (
+                  <div style={liveNow}><span style={liveDot} />Available now</div>
+                )}
+                <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{section.desc}</div>
+                <div style={{ fontFamily: F.mono, fontSize: 11, color: C.accent, marginTop: 4 }}>Enter →</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Dot indicators */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 4 }}>
+            {SECTIONS.map((s, idx) => (
+              <button
+                key={idx}
+                onClick={() => {
+                  const el = scrollRef.current;
+                  if (el) el.scrollTo({ left: idx * (el.scrollWidth / SECTIONS.length), behavior: 'smooth' });
+                }}
+                aria-label={s.label}
+                title={s.label}
+                style={{
+                  width: activeCard === idx ? 18 : 6,
+                  height: 6,
+                  borderRadius: 3,
+                  border: 'none',
+                  padding: 0,
+                  cursor: 'pointer',
+                  background: activeCard === idx ? C.accent : C.border,
+                  transition: 'all 0.3s',
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Stated as well as shown. Dots alone read as decoration until you have
+              already worked out the row moves. */}
+          <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, textAlign: 'center', marginTop: 6 }}>
+            {activeCard + 1} of {SECTIONS.length} · swipe for more
+          </div>
+        </div>
+
         {/* Horoscope */}
         {sunSign && (
           <div style={sectionCard}>
@@ -212,106 +310,8 @@ export default function Landing() {
           </div>
         )}
 
-        {/* Divider */}
-        <div style={{ borderTop: `1px solid ${C.border}`, margin: '24px 0 20px' }} />
-
-        {/* Section label */}
-        <div style={{ fontFamily: F.mono, fontSize: 10, color: C.muted, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 16 }}>
-          Where would you like to go?
-        </div>
       </div>
 
-      {/* ── Swipe cards ── */}
-      <div style={{ flexShrink: 0, paddingBottom: 32 }}>
-        <div
-          ref={scrollRef}
-          style={{
-            display: 'flex',
-            gap: 12,
-            overflowX: 'auto',
-            scrollSnapType: 'x mandatory',
-            WebkitOverflowScrolling: 'touch',
-            padding: '4px 24px 12px',
-            scrollbarWidth: 'none',
-            msOverflowStyle: 'none',
-          }}
-        >
-          {SECTIONS.map((section, idx) => (
-            <div
-              key={section.path}
-              ref={(el) => { cardRefs.current[idx] = el; }}
-              onClick={() => navigate(section.path)}
-              style={{
-                flexShrink: 0,
-                width: '75vw',
-                maxWidth: 280,
-                scrollSnapAlign: 'start',
-                background: activeCard === idx ? 'rgba(193,125,74,0.12)' : C.surface,
-                border: `1px solid ${activeCard === idx ? 'rgba(193,125,74,0.4)' : C.border}`,
-                borderRadius: 14,
-                padding: '20px 20px 18px',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8,
-              }}
-            >
-              <div style={{ fontSize: 28, display: 'flex', alignItems: 'center' }}>
-                {section.icon === 'coin' ? <WonderCoin size={28} /> : section.icon}
-              </div>
-              <div style={{ fontFamily: F.display, fontSize: 20, color: C.text }}>{section.label}</div>
-              {section.live === 'gallery' && data?.unseenSets > 0 ? (
-                <div style={unreadLine}>
-                  {data.unseenSets} set{data.unseenSets === 1 ? '' : 's'} you haven't seen
-                </div>
-              ) : section.live === 'chat' && data?.unreadMessages > 0 ? (
-                <div style={unreadLine}>
-                  {data.unreadMessages} unread message{data.unreadMessages === 1 ? '' : 's'}
-                </div>
-              ) : section.live === 'chat' && data?.chatLive ? (
-                <div style={liveNow}><span style={liveDot} />Live now</div>
-              ) : null}
-              {section.live === 'calls' && data?.callsAvailable && (
-                <div style={liveNow}><span style={liveDot} />Available now</div>
-              )}
-              <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, lineHeight: 1.5 }}>{section.desc}</div>
-              <div style={{ fontFamily: F.mono, fontSize: 11, color: C.accent, marginTop: 4 }}>Enter →</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Dot indicators */}
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 4 }}>
-          {SECTIONS.map((s, idx) => (
-            <button
-              key={idx}
-              onClick={() => {
-                const el = scrollRef.current;
-                if (el) el.scrollTo({ left: idx * (el.scrollWidth / SECTIONS.length), behavior: 'smooth' });
-              }}
-              aria-label={s.label}
-              title={s.label}
-              style={{
-                width: activeCard === idx ? 18 : 6,
-                height: 6,
-                borderRadius: 3,
-                border: 'none',
-                padding: 0,
-                cursor: 'pointer',
-                background: activeCard === idx ? C.accent : C.border,
-                transition: 'all 0.3s',
-              }}
-            />
-          ))}
-        </div>
-
-        {/* Stated as well as shown. Dots alone read as decoration until you have
-            already worked out the row moves. */}
-        <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, textAlign: 'center', marginTop: 6 }}>
-          {activeCard + 1} of {SECTIONS.length} · swipe for more
-        </div>
-      </div>
     </div>
   );
 }
