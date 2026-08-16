@@ -10,6 +10,9 @@ const artistOnly = require('../middleware/artistOnly');
 const { postSystemMessage } = require('./community');
 const { getTierPrice, getAllTierPrices, getConfigNumber } = require('../lib/config');
 const { roundTokensUp } = require('../lib/pricing');
+// One reading of what tier somebody is on, covering the trial window as well as
+// the base term. Ten copies of that rule was nine chances for them to disagree.
+const { effectiveMembership, unusedValue, daysRemaining: termDaysLeft } = require('../lib/membership');
 const { addMonthsClamped } = require('../lib/time');
 
 // The date a fan is shown, decided here rather than recomputed in the browser.
@@ -32,7 +35,10 @@ function displayExpiry(expiresAt) {
 const { spendTokens } = require('../lib/tokens');
 const { sendMembershipWelcome } = require('../lib/welcome');
 
-const TIER_ORDER = ['community', 'insider', 'premium', 'supreme'];
+// Includes guest, unlike the old local copy which started at community — an
+// unknown tier indexed to -1 there, and every 'is this a step up' test against
+// it passed by accident.
+const { TIER_ORDER } = require('../lib/membership');
 
 // Billing months are Studio-configurable — Settings → Pricing & Discounts.
 async function termMultiplier(term) {
@@ -130,13 +136,19 @@ router.post('/purchase', authMid, async (req, res) => {
     const expiresAt = addMonthsClamped(now, months);
 
     await client.query(
+      // What was paid and over how many days, so a later upgrade can credit the
+      // rate actually paid rather than the tier's list price. An annual term is
+      // nine months' money for twelve; crediting at list would hand back more
+      // than ever came in.
       `UPDATE users SET
          tier                   = $1,
          membership_expires_at  = $2,
          membership_started_at  = $4,
-         membership_term        = $5
+         membership_term        = $5,
+         membership_paid_tokens = $6,
+         membership_term_days   = $7
        WHERE id = $3`,
-      [tier, expiresAt, req.user.userId, now, term]
+      [tier, expiresAt, req.user.userId, now, term, totalCost, Math.round(months * 30.44)]
     );
 
     // Membership is bought with purchased tokens. Gifting a membership is its own
@@ -195,7 +207,148 @@ router.post('/purchase', authMid, async (req, res) => {
 // POST /api/membership/upgrade
 // ─────────────────────────────────────────────
 
+// Two ways up, and which one is offered depends on how much term is left.
+//
+// Somebody a few days from renewal is better served by moving tier outright:
+// they pay for a fresh term, what is left of the old one comes off the price,
+// and the allowance starts again. Somebody nine months into an annual term is
+// not — overwriting it would charge them for a year they have already bought.
+// They get a month at the higher tier instead, sitting on top of the membership
+// they already hold, which carries on underneath and resumes when the month is
+// out.
+//
+// The old pro-rating charged the difference between two monthly list prices
+// across every remaining day. An annual member had paid nine months' money for
+// twelve, so that overcharged them for a discount they had already earned:
+// Insider to Premium across a year came to about 170 tokens where 126 was fair.
+// Neither route can do that now — one prices a real term and credits the real
+// rate paid, the other only ever prices a month.
+
+const TRIAL_DAYS = 30;
+
 router.post('/upgrade', authMid, async (req, res) => {
+  const { newTier, term = 'monthly' } = req.body;
+
+  const TIER_PRICES = await getAllTierPrices();
+  if (!TIER_PRICES[newTier]) return res.status(400).json({ error: 'Invalid tier' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: userRows } = await client.query(
+      `SELECT tier, membership_expires_at, membership_paid_tokens, membership_term_days,
+              coin_balance, display_name, email
+         FROM users WHERE id = $1 FOR UPDATE`,
+      [req.user.userId]
+    );
+    const user     = userRows[0];
+    const now      = new Date();
+    const fanLabel = user.display_name || 'A member';
+    const state    = effectiveMembership(user, now);
+
+    if (!state.isActive) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No active membership to upgrade' });
+    }
+    if (TIER_ORDER.indexOf(newTier) <= TIER_ORDER.indexOf(state.baseTier)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'New tier must be higher than current tier' });
+    }
+    // Past this point the term is short enough that replacing it is the better
+    // deal. Anything longer belongs on /trial, which leaves it alone.
+    if (termDaysLeft(user, now) > TRIAL_DAYS) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Too much term remaining to replace — take a trial instead', useTrial: true });
+    }
+
+    const months = termMonths(term);
+    if (!months) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Invalid term' });
+    }
+
+    // Full price for a real term, less what is left of the one being replaced —
+    // valued at the rate actually paid, not at list, so a discounted term is not
+    // credited back at more than it cost.
+    const fullPrice   = roundTokensUp(TIER_PRICES[newTier] * months);
+    const credit      = unusedValue(user, now);
+    const upgradeCost = Math.max(0, fullPrice - credit);
+
+    const newExpiry = addMonthsClamped(now, months);
+
+    let spend = { newPurchased: user.coin_balance };
+    if (upgradeCost > 0) {
+      try {
+        spend = await spendTokens(client, {
+          userId:      req.user.userId,
+          amount:      upgradeCost,
+          type:        'membership_upgrade',
+          label:       `Upgrade from ${state.baseTier} to ${newTier}`,
+          allowGifted: false,
+        });
+      } catch (err) {
+        if (err.code === 'INSUFFICIENT_TOKENS') {
+          await client.query('ROLLBACK');
+          return res.status(402).json(err.httpBody);
+        }
+        throw err;
+      }
+    }
+
+    // membership_started_at moves to now, which is what resets the allowance.
+    // Without it somebody arrives at the new tier with the old tier's opens
+    // already counted against them — exhausted the moment they have paid.
+    // Any trial is cleared: they now hold outright what it was lending them.
+    await client.query(
+      `UPDATE users
+          SET tier = $1,
+              membership_expires_at  = $2,
+              membership_started_at  = NOW(),
+              membership_paid_tokens = $3,
+              membership_term_days   = $4,
+              trial_tier = NULL, trial_started_at = NULL, trial_ends_at = NULL
+        WHERE id = $5`,
+      [newTier, newExpiry, upgradeCost, Math.round(months * 30.44), req.user.userId]
+    );
+
+    await client.query('COMMIT');
+
+    postSystemMessage(`⬆️ ${fanLabel} just upgraded to ${newTier.charAt(0).toUpperCase() + newTier.slice(1)}!`, { kind: 'arrival' });
+
+    res.json({
+      ok:         true,
+      newTier,
+      upgradeCost,
+      creditApplied: credit,
+      expiresAt:  newExpiry,
+      newBalance: spend.newPurchased,
+      message:    `Upgraded to ${newTier}!`,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('membership/upgrade error:', err);
+    res.status(500).json({ error: 'Failed to upgrade membership' });
+  } finally {
+    client.release();
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/membership/trial
+// ─────────────────────────────────────────────
+//
+// A month at a higher tier, laid over a membership that keeps running beneath
+// it. Priced as the higher tier's month less whatever the existing term has
+// already covered for those days at the rate actually paid — so the month costs
+// the same in total as that tier's month always does, whichever term the person
+// happens to be on, and no arbitrage opens up against simply buying it.
+//
+// Only sold where the base term outlasts the trial. That is not a limitation so
+// much as the whole idea: there has to be something left underneath for the
+// trial to sit on and return to.
+
+router.post('/trial', authMid, async (req, res) => {
   const { newTier } = req.body;
 
   const TIER_PRICES = await getAllTierPrices();
@@ -206,84 +359,88 @@ router.post('/upgrade', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: userRows } = await client.query(
-      `SELECT tier, membership_expires_at, coin_balance, display_name, email FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT tier, membership_expires_at, membership_started_at,
+              membership_paid_tokens, membership_term_days,
+              trial_tier, trial_started_at, trial_ends_at,
+              coin_balance, display_name
+         FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
-    const user     = userRows[0];
-    const now      = new Date();
-    const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
-    const fanLabel = user.display_name || 'A member';
+    const user  = userRows[0];
+    const now   = new Date();
+    const state = effectiveMembership(user, now);
 
-    if (!isActive) {
+    if (!state.isActive) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'No active membership to upgrade' });
+      return res.status(400).json({ error: 'No active membership' });
+    }
+    if (TIER_ORDER.indexOf(newTier) <= TIER_ORDER.indexOf(state.baseTier)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'That is not a step up' });
+    }
+    if (state.trialing) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'A trial is already running' });
+    }
+    // The base term has to outlive the trial, or there is nothing to come back
+    // to and somebody would be paying to be dropped to guest at the end of it.
+    if (termDaysLeft(user, now) <= TRIAL_DAYS) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Not enough term remaining — upgrade instead', useUpgrade: true });
     }
 
-    const currentIdx = TIER_ORDER.indexOf(user.tier);
-    const newIdx     = TIER_ORDER.indexOf(newTier);
+    const paid = parseInt(user.membership_paid_tokens, 10) || 0;
+    const days = parseInt(user.membership_term_days, 10) || 0;
+    // What the existing term has already put towards these thirty days. A
+    // gifted membership has paid nothing, so it covers nothing and the trial
+    // costs the tier's full month — which is right, since nothing was paid.
+    const alreadyCovered = days > 0 ? (paid / days) * TRIAL_DAYS : 0;
+    const cost = roundTokensUp(Math.max(0, TIER_PRICES[newTier] - alreadyCovered));
 
-    if (newIdx <= currentIdx) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'New tier must be higher than current tier' });
-    }
-
-    const daysRemaining   = Math.ceil((new Date(user.membership_expires_at) - now) / (1000 * 60 * 60 * 24));
-    const daysInMonth     = 30;
-    const currentPerDay   = TIER_PRICES[user.tier]  / daysInMonth;
-    const newPerDay       = TIER_PRICES[newTier]     / daysInMonth;
-    const upgradeCost     = Math.max(1, Math.ceil((newPerDay - currentPerDay) * daysRemaining));
-
-
-    // The upgrade cost above is pro-rated across daysRemaining. Overwriting the
-    // expiry would charge for those days and then delete them, so the expiry and
-    // the allowance cycle both stay exactly as they were — only the tier moves.
-    const newExpiry = new Date(user.membership_expires_at);
-
-    await client.query(
-      `UPDATE users SET tier = $1 WHERE id = $2`,
-      [newTier, req.user.userId]
-    );
-
-    // Membership is bought with purchased tokens. Gifting a membership is its own
-    // deliberate act in Studio, not something a token grant should quietly enable.
-    let spend;
-    try {
-      spend = await spendTokens(client, {
-        userId:      req.user.userId,
-        amount:      upgradeCost,
-        type:        'membership_upgrade',
-        label:       `Upgrade from ${user.tier} to ${newTier}`,
-        allowGifted: false,
-      });
-    } catch (err) {
-      if (err.code === 'INSUFFICIENT_TOKENS') {
-        await client.query('ROLLBACK');
-        return res.status(402).json(err.httpBody);
+    let spend = { newPurchased: user.coin_balance };
+    if (cost > 0) {
+      try {
+        spend = await spendTokens(client, {
+          userId:      req.user.userId,
+          amount:      cost,
+          type:        'membership_upgrade',
+          label:       `${newTier.charAt(0).toUpperCase() + newTier.slice(1)} for ${TRIAL_DAYS} days`,
+          allowGifted: false,
+        });
+      } catch (err) {
+        if (err.code === 'INSUFFICIENT_TOKENS') {
+          await client.query('ROLLBACK');
+          return res.status(402).json(err.httpBody);
+        }
+        throw err;
       }
-      throw err;
     }
 
+    const endsAt = new Date(now.getTime() + TRIAL_DAYS * 86400000);
+
+    // tier, expiry and started_at are untouched — the membership underneath is
+    // exactly as it was, and reappears on its own when trial_ends_at passes.
+    // Nothing has to run to bring it back: the tier is worked out on reading.
+    await client.query(
+      `UPDATE users SET trial_tier = $1, trial_started_at = NOW(), trial_ends_at = $2 WHERE id = $3`,
+      [newTier, endsAt, req.user.userId]
+    );
 
     await client.query('COMMIT');
 
-    postSystemMessage(`⬆️ ${fanLabel} just upgraded to ${newTier.charAt(0).toUpperCase() + newTier.slice(1)}!`, { kind: 'arrival' });
-
     res.json({
-      ok:         true,
-      newTier,
-      upgradeCost,
-      expiresAt:  newExpiry,
-      // Read back from the spend rather than subtracted from what was loaded
-      // earlier. A spend can draw on bonus tokens, which do not sit in
-      // coin_balance, so subtracting the whole cost from it reported a balance
-      // lower than the fan actually holds until something forced a refresh.
+      ok: true,
+      tier: newTier,
+      cost,
+      days: TRIAL_DAYS,
+      endsAt,
+      revertsTo: state.baseTier,
       newBalance: spend.newPurchased,
-      message:    `Upgraded to ${newTier}!`,
     });
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('membership/upgrade error:', err);
-    res.status(500).json({ error: 'Failed to upgrade membership' });
+    console.error('membership/trial error:', err);
+    res.status(500).json({ error: 'Failed to start' });
   } finally {
     client.release();
   }
