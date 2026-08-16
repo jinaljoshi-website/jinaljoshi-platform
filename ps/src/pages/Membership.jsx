@@ -101,14 +101,11 @@ export default function Membership() {
     return Math.ceil(base * mult);
   };
 
-  const calcUpgradeCost = (fromTier, toTier, daysRemaining) => {
-    const fromBase = tierPrices[fromTier];
-    const toBase   = tierPrices[toTier];
-    if (fromBase === null || toBase === null) return null;
-    const fromPerDay = fromBase / 30;
-    const toPerDay   = toBase   / 30;
-    return Math.max(1, Math.ceil((toPerDay - fromPerDay) * daysRemaining));
-  };
+  // What moving to a tier costs, and how. Answered by the server, not worked
+  // out here — this page used to re-implement the pro-rating rule, so when the
+  // rule changed the page went on quoting the old one while the server charged
+  // the new. Two copies of a price is one too many.
+  const optionFor = (tierId) => status?.options?.[tierId] || null;
 
   const handlePurchase = async (tierId) => {
     setError(''); setSuccess(''); setActionLoading(tierId);
@@ -127,15 +124,22 @@ export default function Membership() {
     } finally { setActionLoading(null); }
   };
 
+  // One handler for both ways up. Which it is was decided by the server and
+  // arrives on the option, so the page never has to work out whether this
+  // person's term should be replaced or kept.
   const handleUpgrade = async (tierId) => {
     setError(''); setSuccess(''); setActionLoading(tierId);
+    const opt = optionFor(tierId);
+    const path = opt?.route === 'trial' ? '/api/membership/trial' : '/api/membership/upgrade';
     try {
-      const data = await api.post('/api/membership/upgrade', { newTier: tierId });
-      setSuccess(`Upgraded to ${TIER_META[tierId].name}!`);
+      await api.post(path, { newTier: tierId, term: selectedTerm });
+      setSuccess(opt?.route === 'trial'
+        ? `${TIER_META[tierId].name} for ${opt.days} days.`
+        : `Upgraded to ${TIER_META[tierId].name}!`);
       loadStatus();
     } catch (err) {
       if (err.message === 'INSUFFICIENT_TOKENS') {
-        setTopUp(calcUpgradeCost(status?.tier, tierId, status?.daysRemaining || 0));
+        setTopUp(opt?.cost ?? null);
       } else {
         setError(err.message);
       }
@@ -219,7 +223,8 @@ export default function Membership() {
           const canBuy      = !isActive;
           const tokenCost   = calcCost(tierId, selectedTerm);
           const inrCost     = (tokenCost === null || tokenRate === null) ? null : tokenCost * tokenRate;
-          const upgCost     = canUpgrade ? calcUpgradeCost(currentTierId, tierId, status?.daysRemaining || 0) : null;
+          const upgOption   = canUpgrade ? optionFor(tierId) : null;
+          const upgCost     = upgOption?.cost ?? null;
           const months      = termMonths(selectedTerm);
 
           return (
@@ -282,7 +287,9 @@ export default function Membership() {
               {canUpgrade && (
                 <button onClick={() => handleUpgrade(tierId)} disabled={!!actionLoading} style={{ ...joinBtn, background: meta.color, opacity: actionLoading === tierId ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                   {actionLoading === tierId ? 'Processing…' : (
-                    <>Upgrade · <WonderCoinAmount amount={upgCost} size={14} textColor="#1A1714" fontSize={14} /></>
+                    // A trial is a month and then back again, so it must not be
+                    // labelled as though the tier had been bought outright.
+                    <>{upgOption?.route === 'trial' ? `${upgOption.days} days · ` : 'Upgrade · '}<WonderCoinAmount amount={upgCost} size={14} textColor="#1A1714" fontSize={14} /></>
                   )}
                 </button>
               )}

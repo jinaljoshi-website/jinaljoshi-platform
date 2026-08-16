@@ -47,6 +47,9 @@ async function termMultiplier(term) {
   return 1;
 }
 
+// A trial is always a month.
+const TRIAL_DAYS = 30;
+
 function termMonths(term) {
   if (term === 'quarterly') return 3;
   if (term === 'annual')    return 12;
@@ -57,27 +60,85 @@ function termMonths(term) {
 // GET /api/membership/status
 // ─────────────────────────────────────────────
 
+// What this person can move to, at what price, and by which route.
+//
+// Replacing a term is right when the one being bought is at least as long as
+// what is left — nothing is lost, and the allowance starts again. Where more
+// time remains than the new term would give, replacing would charge for days
+// already paid for and delete them, so the answer is a trial instead: a month
+// at the higher tier laid over the term, which carries on underneath.
+async function upgradeOptions(user, state, now) {
+  const PRICES = await getAllTierPrices();
+  const left   = termDaysLeft(user, now);
+  const out    = {};
+
+  for (const tier of TIER_ORDER) {
+    if (tier === 'guest') continue;
+    if (!PRICES[tier]) continue;
+    if (TIER_ORDER.indexOf(tier) <= TIER_ORDER.indexOf(state.baseTier)) continue;
+
+    if (!state.isActive) {
+      out[tier] = { route: 'purchase', cost: roundTokensUp(PRICES[tier]), days: 30 };
+      continue;
+    }
+
+    // Same boundary the upgrade route enforces, so nothing is offered that
+    // would then be refused. The +1 absorbs the part-day: a month bought today
+    // reads as thirty-one days remaining.
+    const monthDays = 31;
+    if (left <= monthDays) {
+      const credit = unusedValue(user, now);
+      out[tier] = {
+        route: 'upgrade',
+        cost:  Math.max(0, roundTokensUp(PRICES[tier]) - credit),
+        credit,
+        days:  monthDays,
+      };
+    } else {
+      const paid = parseInt(user.membership_paid_tokens, 10) || 0;
+      const days = parseInt(user.membership_term_days, 10) || 0;
+      const covered = days > 0 ? (paid / days) * TRIAL_DAYS : 0;
+      out[tier] = {
+        route: 'trial',
+        cost:  roundTokensUp(Math.max(0, PRICES[tier] - covered)),
+        days:  TRIAL_DAYS,
+        revertsTo: state.baseTier,
+      };
+    }
+  }
+  return out;
+}
+
 router.get('/status', authMid, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT tier, membership_expires_at, coin_balance FROM users WHERE id = $1`,
+      `SELECT tier, membership_expires_at, membership_started_at,
+              membership_paid_tokens, membership_term_days,
+              trial_tier, trial_started_at, trial_ends_at, coin_balance
+         FROM users WHERE id = $1`,
       [req.user.userId]
     );
-    const user     = rows[0];
-    const now      = new Date();
-    const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
-
-    const daysRemaining = isActive
-      ? Math.ceil((new Date(user.membership_expires_at) - now) / (1000 * 60 * 60 * 24))
-      : 0;
+    const user  = rows[0];
+    const now   = new Date();
+    const state = effectiveMembership(user, now);
+    const left  = termDaysLeft(user, now);
 
     res.json({
-      isActive,
-      tier:           isActive ? user.tier : 'guest',
+      isActive: state.isActive,
+      tier:     state.tier,
+      baseTier: state.baseTier,
+      trialing: state.trialing,
+      trialEndsAt: state.trialEndsAt,
       expiresAt:      user.membership_expires_at,
       expiresAtLabel: displayExpiry(user.membership_expires_at),
-      daysRemaining,
+      daysRemaining:  left,
       coinBalance:    user.coin_balance,
+      // Priced here rather than in the browser. The page used to re-implement
+      // the pro-rating rule, which meant two versions of it — and when the rule
+      // changed, the page carried on quoting the old one while the server
+      // charged the new. Whatever is offered now comes from the same code that
+      // takes the money.
+      options: await upgradeOptions(user, state, now),
     });
   } catch (err) {
     console.error('membership/status error:', err);
@@ -224,8 +285,6 @@ router.post('/purchase', authMid, async (req, res) => {
 // Neither route can do that now — one prices a real term and credits the real
 // rate paid, the other only ever prices a month.
 
-const TRIAL_DAYS = 30;
-
 router.post('/upgrade', authMid, async (req, res) => {
   const { newTier, term = 'monthly' } = req.body;
 
@@ -255,17 +314,24 @@ router.post('/upgrade', authMid, async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'New tier must be higher than current tier' });
     }
-    // Past this point the term is short enough that replacing it is the better
-    // deal. Anything longer belongs on /trial, which leaves it alone.
-    if (termDaysLeft(user, now) > TRIAL_DAYS) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Too much term remaining to replace — take a trial instead', useTrial: true });
-    }
-
     const months = termMonths(term);
     if (!months) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Invalid term' });
+    }
+
+    // Replacing is right whenever the term being bought is at least as long as
+    // what is left: nothing is lost and the allowance starts again. Only when
+    // more time remains than the new term would give does replacing take days
+    // already paid for and delete them — and that is what /trial is for.
+    //
+    // The test was a flat thirty days, which quietly locked every monthly member
+    // out: a month bought today leaves thirty-one days, so the very first thing
+    // a new member saw on trying to move up was a refusal telling them to take a
+    // trial the page does not offer.
+    if (termDaysLeft(user, now) > months * 30 + 1) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'More time remains than this would give — a trial keeps it', useTrial: true });
     }
 
     // Full price for a real term, less what is left of the one being replaced —
