@@ -34,6 +34,9 @@ export default function Gallery() {
   const [topUp,     setTopUp]     = useState(null);
   // Which unlock was interrupted by an empty balance, so it can be resumed.
   const [pendingScope, setPendingScope] = useState(null);
+  // A membership purchase interrupted by an empty balance, to be resumed.
+  const [pendingJoin,  setPendingJoin]  = useState(false);
+  const [joining,      setJoining]      = useState(false);
   const [openSet,   setOpenSet]   = useState(null);
 
   const { setId } = useParams();
@@ -129,9 +132,51 @@ export default function Gallery() {
     }
   };
 
+  // The other way in. Tokens open this set; a membership opens it and every
+  // other at that level, and keeps doing so. Which call that is — a first
+  // purchase, a step up, or a month laid over a longer term — was decided by
+  // the server and arrives on the offer, so nothing is worked out here.
+  const handleMembership = async () => {
+    const offer = openSet?.membershipOffer;
+    if (!offer) return;
+    setViewerError('');
+    setJoining(true);
+    const path = offer.route === 'trial'    ? '/api/membership/trial'
+               : offer.route === 'purchase' ? '/api/membership/purchase'
+               :                              '/api/membership/upgrade';
+    const body = offer.route === 'purchase'
+      ? { tier: offer.tier, term: 'monthly' }
+      : { newTier: offer.tier, term: 'monthly' };
+    try {
+      await api.post(path, body);
+      // The set is not opened here. At the new tier its own portion falls into
+      // the allowance and costs nothing, so the refresh alone reveals it —
+      // spending an unlock as well would charge for what is now included.
+      await refreshOpenSet(openSet.id);
+    } catch (err) {
+      if (err.message === 'INSUFFICIENT_TOKENS') {
+        setPendingJoin(true);
+        setTopUp(offer.cost);
+      } else {
+        setViewerError(err.message);
+      }
+    } finally {
+      setJoining(false);
+    }
+  };
+
   // Picks the unlock back up after a top-up. The refresh has to come first so
   // the balance the unlock is judged against is the new one.
   const finishAfterTopUp = async () => {
+    // A top-up can have been prompted by either an unlock or a membership, and
+    // whichever it was has to carry on by itself. Sending the fan back to press
+    // the same button again is what the top-up was meant to spare them.
+    if (pendingJoin) {
+      setPendingJoin(false);
+      setTopUp(null);
+      await handleMembership();
+      return;
+    }
     const scope = pendingScope;
     setTopUp(null);
     if (!scope || !openSet) { if (openSet) await refreshOpenSet(openSet.id); return; }
@@ -248,6 +293,22 @@ export default function Gallery() {
           )}
         </div>
 
+        {/* The alternative. Two ways in, side by side, no explanation — the
+            tokens open this set, the membership opens this and the rest at that
+            level. Shown only where a membership would genuinely help: never on
+            a purchase-only set, and never to somebody already at the top. */}
+        {(showTierFrame || showUpsellFrame) && openSet.membershipOffer && (
+          <button onClick={handleMembership} disabled={joining || !!unlockingScope} style={joinOption}>
+            {joining ? 'One moment…' : (
+              <>
+                {openSet.membershipOffer.tier.charAt(0).toUpperCase() + openSet.membershipOffer.tier.slice(1)}
+                {openSet.membershipOffer.route === 'trial' ? ` · ${openSet.membershipOffer.days} days` : ''}
+                {' — '}{openSet.membershipOffer.cost} tokens
+              </>
+            )}
+          </button>
+        )}
+
         {lightbox !== null && (
           <div style={lightboxOverlay} onClick={() => setLightbox(null)}>
             <button onClick={(e) => { e.stopPropagation(); setLightbox(null); }} style={closeBtn}>✕</button>
@@ -268,7 +329,7 @@ export default function Gallery() {
 
         {topUp !== null && (
           <TopUpModal requiredTokens={topUp}
-                      onClose={() => { setTopUp(null); setPendingScope(null); }}
+                      onClose={() => { setTopUp(null); setPendingScope(null); setPendingJoin(false); }}
                       onSuccess={finishAfterTopUp} />
         )}
       </div>
@@ -480,6 +541,10 @@ const viewerGrid  = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, m
 const thumbWrap   = { position: 'relative', cursor: 'pointer', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: C.surface };
 const thumb       = { width: '100%', height: '100%', objectFit: 'cover', display: 'block' };
 const playBadge   = { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', fontSize: 28, color: 'white', textShadow: '0 2px 8px rgba(0,0,0,0.8)', pointerEvents: 'none' };
+// The membership alternative. Deliberately not styled as another locked frame —
+// it is the way past the locks, not one of them.
+const joinOption = { display: 'block', width: '100%', marginTop: 12, padding: '14px 18px', fontFamily: F.sans, fontSize: 14, color: C.text, cursor: 'pointer', background: 'rgba(193,125,74,0.10)', border: `1px solid ${C.accent}`, borderRadius: 12, textAlign: 'center' };
+
 const unlockFrame = { position: 'relative', cursor: 'pointer', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: 'rgba(193,125,74,0.1)', border: `1px dashed ${C.accent}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 10, gap: 6 };
 // Blurred hard and scaled up, so no edge of the original is readable and the
 // blur cannot be undone by scaling the image back down.

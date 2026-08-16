@@ -1,6 +1,8 @@
 // backend/routes/gallery.js
 const router  = require('express').Router();
 const pool    = require('../db/pool');
+const { effectiveMembership } = require('../lib/membership');
+const { upgradeOptions } = require('./membership');
 const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
 const { notifyArtist } = require('../lib/notify');
@@ -28,6 +30,39 @@ function meetsCategory(userTier, category) {
 function applyDiscount(price, discountPct) {
   if (!discountPct) return roundTokensUp(price);
   return roundTokensUp(price * (1 - discountPct / 100));
+}
+
+
+// Which membership would open this set, if any.
+//
+// A set is split per item by tier_category, so a step up does not merely unlock
+// this one thing — it moves those items out of the paid portion and into the
+// allowance, here and in every other set at that level. The tier worth offering
+// is therefore the highest one the set actually contains.
+//
+// purchase_only items never fall into any allowance, at any tier. A set made of
+// them has no membership answer and is not given one: offering a step up that
+// would leave the set still shut is worse than offering nothing.
+//
+// Where somebody already holds the tier and is only paying because the month's
+// allowance is spent, the sole thing that changes that is a tier with no cap.
+function membershipTierFor(items, userTier, tierPriceNow) {
+  const graded = items.filter((i) => i.tier_category !== 'free' && i.tier_category !== 'purchase_only');
+  if (!graded.length) return null;
+
+  const highest = graded
+    .map((i) => i.tier_category)
+    .reduce((a, b) => (TIER_ORDER.indexOf(b) > TIER_ORDER.indexOf(a) ? b : a));
+
+  if (TIER_ORDER.indexOf(highest) > TIER_ORDER.indexOf(userTier)) return highest;
+
+  // Already high enough, so this is the allowance running out rather than the
+  // tier being short. Only an uncapped tier answers that.
+  if (tierPriceNow > 0) {
+    const uncapped = 'supreme';
+    if (TIER_ORDER.indexOf(uncapped) > TIER_ORDER.indexOf(userTier)) return uncapped;
+  }
+  return null;
 }
 
 function isEffectivelyUnlocked(grantType, membershipCurrentlyActive) {
@@ -207,6 +242,19 @@ router.get('/sets', authMid, async (req, res) => {
       grantsBySet[g.set_id][g.scope] = g.grant_type;
     });
 
+    // Priced once for the whole request by the same code the membership page
+    // uses, so a set and that page can never quote different numbers for the
+    // same step up.
+    const { rows: meRows } = await pool.query(
+      `SELECT tier, membership_expires_at, membership_started_at,
+              membership_paid_tokens, membership_term_days,
+              trial_tier, trial_started_at, trial_ends_at
+         FROM users WHERE id = $1`,
+      [req.user.userId]
+    );
+    const meState  = effectiveMembership(meRows[0], new Date());
+    const tierOpts = await upgradeOptions(meRows[0], meState, new Date());
+
     let setsWithData = sets.map((s) => {
       const items = itemsBySet[s.id] || [];
       const counts = { photos: 0, videos: 0 };
@@ -258,6 +306,15 @@ router.get('/sets', authMid, async (req, res) => {
         tierLapsed: !!tierLapsed,
         upsellUnlocked: !!upsellUnlocked,
         isGenuinelyUnlocked,
+
+        // The second way in. Null where a membership would not help — a
+        // purchase-only set, or somebody already on the top tier — and the
+        // gallery shows nothing rather than something untrue.
+        membershipOffer: (() => {
+          const t = membershipTierFor(items, userTier, segments.tierPrice);
+          if (!t || !tierOpts[t]) return null;
+          return { tier: t, ...tierOpts[t] };
+        })(),
 
         tierPrice: segments.tierPrice,
         upsellPrice: segments.upsellPrice,

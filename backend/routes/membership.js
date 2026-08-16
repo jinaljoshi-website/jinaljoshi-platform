@@ -780,4 +780,8 @@ router.post('/gift/change', authMid, artistOnly, async (req, res) => {
   }
 });
 
+// Exported so the gallery can offer the same thing at the same price. Working
+// it out separately there is how the membership page and the server came to
+// disagree in the first place.
 module.exports = router;
+module.exports.upgradeOptions = upgradeOptions;
