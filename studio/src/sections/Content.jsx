@@ -34,8 +34,8 @@ const CATEGORIES = [
 // moves them down. Anything not yet looked at is therefore never more visible
 // than it should be, and a set cannot go live while any photo is still there.
 const UPLOAD_BUCKETS = [
-  { key: 'supreme',       label: 'Photos & videos', color: '#EBC49A',
-    note: 'Tiers are set while reviewing — one key per photo.' },
+  { key: 'unsorted',      label: 'Photos & videos', color: '#D9A45C',
+    note: 'No tier yet — one is given to each while reviewing.' },
   { key: 'purchase_only', label: 'Purchase-only',   color: '#D99A9A',
     note: 'Bought outright. Never mixes with the above.' },
 ];
@@ -135,7 +135,9 @@ async function runPool(tasks, limit, onEach) {
 
 function emptyCategoryFiles() {
   const obj = {};
-  CATEGORIES.forEach((c) => { obj[c.key] = []; });
+  // Both what the upload form offers and every tier, because a set opened for
+  // editing may still hold files picked under an older shape.
+  [...UPLOAD_BUCKETS, ...CATEGORIES].forEach((c) => { obj[c.key] ||= []; });
   return obj;
 }
 
@@ -567,7 +569,8 @@ export function Content({ openWith }) {
 
   const uploadAllPending = async (setId, startPosition) => {
     const queue = [];
-    CATEGORIES.forEach((cat) => {
+    // Both, so anything picked under the older six-bucket form still uploads.
+    [...UPLOAD_BUCKETS, ...CATEGORIES].forEach((cat) => {
       (filesByCategory[cat.key] || []).forEach((item, i) => {
         if (item.status === 'done') return;
         queue.push({ cat: cat.key, catLabel: cat.label, i, item });
@@ -613,7 +616,11 @@ export function Content({ openWith }) {
         });
         await withRetry(() => api.post('/api/studio/content/item', {
           setId, type: item.isVideo ? 'video' : 'image', r2Key: publicUrl,
-          position: startPosition + n, tierCategory: cat,
+          // 'unsorted' is the form's word for having made no choice, so it goes
+          // as null. The column stays empty until the review gives it a tier,
+          // which is what puts the photo in the Unsorted section rather than
+          // hiding it inside whichever tier it was defaulted to.
+          position: startPosition + n, tierCategory: cat === 'unsorted' ? null : cat,
           quality: metrics,
         }));
         if (!firstImageUrl && !item.isVideo) {
@@ -847,7 +854,8 @@ export function Content({ openWith }) {
             {UPLOAD_BUCKETS.map((cat) => {
               const files = filesByCategory[cat.key];
               const isPurchaseOnly = cat.key === 'purchase_only';
-              const tierCategoriesHaveFiles = CATEGORIES.filter((c) => c.key !== 'purchase_only').some((c) => filesByCategory[c.key].length > 0);
+              const tierCategoriesHaveFiles = filesByCategory.unsorted.length > 0
+                || CATEGORIES.filter((c) => c.key !== 'purchase_only').some((c) => filesByCategory[c.key].length > 0);
               const purchaseOnlyHasFiles = filesByCategory.purchase_only.length > 0;
               const isLocked = isPurchaseOnly ? tierCategoriesHaveFiles : purchaseOnlyHasFiles;
 
@@ -1586,11 +1594,19 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   const REVIEW_SECTIONS = [
     { key: '__unsorted', label: 'Unsorted', color: '#D9A45C' },
     ...categories,
+    { key: '__remove',   label: 'To be removed', color: '#D99A9A' },
   ];
 
+  // Where a photo sits is decided by what it has, not by a separate record of
+  // whether somebody looked. A photo arrives with no tier at all and sits in
+  // Unsorted until one is given; marked ones gather at the bottom whatever tier
+  // they had. Grouping on the same fields the keys write means the sections
+  // cannot disagree with the data.
   const byTier = {};
   items.forEach((i) => {
-    const key = i.reviewed_at ? i.tier_category : '__unsorted';
+    const key = i.review_flag === 'remove' ? '__remove'
+              : !i.tier_category            ? '__unsorted'
+              :                               i.tier_category;
     (byTier[key] ||= []).push(i);
   });
   // Unsorted first, so opening the first photo starts where the work is.
@@ -1605,7 +1621,6 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
 
   // The only filter left. A photo marked for removal is the one thing that
   // still needs finding again after the pass.
-  const [onlyMarked,  setOnlyMarked]  = useState(false);
 
   // How many bits two hashes may differ by and still be the same moment.
   //
@@ -1717,10 +1732,31 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   const groupOf = {};
   nearGroups.forEach((g, gi) => g.forEach((it) => { groupOf[it.id] = gi; }));
   const markedCount   = items.filter((i) => i.review_flag === 'remove').length;
-  const unsortedCount = items.filter((i) => !i.reviewed_at).length;
+  const unsortedCount = items.filter((i) => !i.tier_category && i.review_flag !== 'remove').length;
+
+  // The sequence stepped through, fixed for as long as the large view is open.
+  //
+  // ordered is rebuilt from the sections on every render, and giving a photo a
+  // tier moves it out of Unsorted into its own section further down. Everything
+  // after it shifts up by one, so the next photo slides into the index just
+  // used — and advancing by one stepped straight over it. Every second photo
+  // went unseen, which is why Unsorted never emptied however many passes were
+  // made.
+  //
+  // Frozen, the sequence is whatever was on screen when the view opened, and a
+  // keystroke always lands on the photo being looked at.
+  const frozenOrder = useRef(null);
+  useEffect(() => {
+    if (typeof lightbox === 'number') { if (!frozenOrder.current) frozenOrder.current = ordered; }
+    else frozenOrder.current = null;
+  });
+  const walk = frozenOrder.current || ordered;
 
   const at = typeof lightbox === 'number' ? lightbox : -1;
-  const current = at >= 0 ? ordered[at] : null;
+  // Position comes from the frozen sequence; the tier and mark shown are read
+  // back from the live items, so the footer reflects what was just pressed.
+  const walkItem = at >= 0 ? walk[at] : null;
+  const current = walkItem ? (items.find((i) => i.id === walkItem.id) || walkItem) : null;
 
   const selecting = selected.length > 0;
   const isSelected = (id) => selected.includes(id);
@@ -1756,7 +1792,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   const go = (delta) => {
     if (at < 0) return;
     const next = at + delta;
-    if (next >= 0 && next < ordered.length) setLightbox(next);
+    if (next >= 0 && next < walk.length) setLightbox(next);
   };
 
   // Sorting the photo in front of you, by number.
@@ -1803,7 +1839,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [at, ordered.length, current]);
+  }, [at, walk.length, current]);
 
   // Warm the next image so stepping forward feels instant. Deliberately modest:
   // holding down the arrow key through a few hundred photos would otherwise
@@ -1813,7 +1849,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   useEffect(() => {
     if (at < 0) return;
     const t = setTimeout(() => {
-      [ordered[at + 1], ordered[at - 1]].forEach((it) => {
+      [walk[at + 1], walk[at - 1]].forEach((it) => {
         if (it && it.media_type !== 'video') { const img = new Image(); img.src = mediaUrl(it.r2_key); }
       });
     }, 250);
@@ -1824,9 +1860,9 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   // throwing you back to the grid — the point is to work through a set in a pass.
   const deleteHere = async () => {
     if (!current) return;
-    const wasLast = at >= ordered.length - 1;
+    const wasLast = at >= walk.length - 1;
     await onDelete(current, { keepLightbox: true });
-    if (ordered.length <= 1) setLightbox(null);
+    if (walk.length <= 1) setLightbox(null);
     else if (wasLast) setLightbox(at - 1);
   };
 
@@ -1860,34 +1896,18 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
           </div>
         )}
 
-        {/* What is left to do, and the one destructive act in the screen.
-            Marking is a keystroke made at speed; removing is not, so the marked
-            photos gather here and go together, once somebody has seen the pile.
-            The measured filters are gone with the faults they described — a
-            pass that assigns a tier to every photo has already looked at every
-            photo, which is what those were for. */}
-        {!ordering && (markedCount > 0 || unsortedCount > 0) && (
+        {/* The one destructive act in the screen. Marking is a keystroke made at
+            speed; removing is not, so the marked photos gather in their own
+            section and go together, once the pile has been seen. */}
+        {!ordering && markedCount > 0 && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
-            {markedCount > 0 && (
-              <>
-                <button onClick={() => setOnlyMarked(!onlyMarked)}
-                        style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
-                                 ...(onlyMarked ? { color: '#D99A9A', borderColor: 'rgba(217,154,154,0.5)' } : {}) }}>
-                  {onlyMarked ? 'Show everything' : `To be removed · ${markedCount}`}
-                </button>
-                {onlyMarked && (
-                  <button onClick={onDeleteMarked} disabled={removingMarked}
-                          style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A', borderColor: 'rgba(217,154,154,0.5)' }}>
-                    {removingMarked ? 'Removing…' : `Remove all ${markedCount}`}
-                  </button>
-                )}
-              </>
-            )}
-            {unsortedCount > 0 && (
-              <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
-                {unsortedCount} still to sort — open the first photo and use 1–5 for the tier, 0 to mark for removal.
-              </span>
-            )}
+            <button onClick={onDeleteMarked} disabled={removingMarked}
+                    style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A', borderColor: 'rgba(217,154,154,0.5)' }}>
+              {removingMarked ? 'Removing…' : `Remove all ${markedCount} marked`}
+            </button>
+            <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
+              Or leave them — publishing will offer to clear them.
+            </span>
           </div>
         )}
 
@@ -1913,8 +1933,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
               </button>
             </div>
             <div style={reviewGrid}>
-              {(onlyMarked ? byTier[cat.key].filter((i) => i.review_flag === 'remove')
-                : byTier[cat.key]).map((item) => (
+              {byTier[cat.key].map((item) => (
                 <div key={item.id} style={{ position: 'relative' }}>
                   {/* Once anything is selected, clicking selects rather than opens —
                       otherwise a stray click mid-selection loses the lot. */}
@@ -1984,7 +2003,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
           <div style={lightboxOverlay} onClick={(e) => e.target === e.currentTarget && setLightbox(null)}>
             <div style={lbBar}>
               <span style={{ fontFamily: mono, fontSize: 12, color: '#B8AFA4' }}>
-                {at + 1} of {ordered.length} · {tierLabel(current.tier_category)}
+                {at + 1} of {walk.length} · {current.tier_category ? tierLabel(current.tier_category) : 'unsorted'}
                 {current.review_flag === 'remove' && ' · marked for removal'}
               </span>
               <button onClick={() => setLightbox(null)} style={lbClose}>✕</button>
@@ -2000,8 +2019,8 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                        onLoad={(e) => { e.target.style.opacity = 1; }}
                        style={{ ...lightboxMedia, opacity: 0, transition: 'opacity 0.15s' }} />}
 
-              <button onClick={() => go(1)} disabled={at >= ordered.length - 1}
-                      style={{ ...lbArrow, right: 8, opacity: at >= ordered.length - 1 ? 0.25 : 1 }} aria-label="Next">›</button>
+              <button onClick={() => go(1)} disabled={at >= walk.length - 1}
+                      style={{ ...lbArrow, right: 8, opacity: at >= walk.length - 1 ? 0.25 : 1 }} aria-label="Next">›</button>
             </div>
 
             <div style={lbActions}>

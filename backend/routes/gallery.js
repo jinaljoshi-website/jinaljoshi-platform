@@ -24,6 +24,12 @@ function toUrl(key) {
 function meetsCategory(userTier, category) {
   if (category === 'free') return true;
   if (category === 'purchase_only') return false;
+  // A photo with no tier has not been reviewed, and nobody sees it. Without
+  // this, indexOf(null) is -1 and the comparison passes for everybody — the
+  // most permissive possible answer to "who may see this", given to the one
+  // photo nobody has looked at. Publishing is already blocked while any exist,
+  // but a rule this cheap should not depend on another one holding.
+  if (!category) return false;
   return TIER_ORDER.indexOf(userTier) >= TIER_ORDER.indexOf(category);
 }
 

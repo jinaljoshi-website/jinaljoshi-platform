@@ -1565,11 +1565,15 @@ router.delete('/content/item/:itemId', async (req, res) => {
 });
 
 router.post('/content/item', async (req, res) => {
-  const { setId, type, r2Key, position, tierCategory = 'community' } = req.body;
+  // No default tier. A photo arrives with none and gets one in the review, which
+  // is what puts it in Unsorted rather than hiding it inside whichever tier the
+  // upload happened to pick — a set could then look sorted while nothing had
+  // been looked at.
+  const { setId, type, r2Key, position, tierCategory = null } = req.body;
   if (!setId || !type || !r2Key) {
     return res.status(400).json({ error: 'setId, type and r2Key are required' });
   }
-  if (!VALID_TIER_CATEGORIES.includes(tierCategory)) {
+  if (tierCategory !== null && !VALID_TIER_CATEGORIES.includes(tierCategory)) {
     return res.status(400).json({ error: 'Invalid tier category' });
   }
   try {
@@ -1612,7 +1616,8 @@ router.patch('/content/:id', async (req, res) => {
     if (becomingVisible && wasHidden) {
       const { rows: pending } = await client.query(
         `SELECT count(*) FILTER (WHERE review_flag = 'remove')::int AS marked,
-                count(*) FILTER (WHERE reviewed_at IS NULL)::int    AS unsorted
+                count(*) FILTER (WHERE tier_category IS NULL
+                                   AND review_flag IS DISTINCT FROM 'remove')::int AS unsorted
            FROM set_items WHERE set_id = $1`,
         [req.params.id]
       );
