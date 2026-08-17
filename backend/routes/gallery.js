@@ -588,7 +588,13 @@ router.post('/unlock', authMid, async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('gallery/unlock error:', err);
-    res.status(500).json({ error: 'Unlock failed' });
+    // Tell the fan the one thing that actually matters when a purchase fails:
+    // that it did not go through and they have not paid. The transaction rolled
+    // back above, so that is true.
+    res.status(500).json({
+      error: 'UNLOCK_FAILED',
+      message: 'That did not go through and nothing has been charged. Please try again.',
+    });
   } finally {
     client.release();
   }

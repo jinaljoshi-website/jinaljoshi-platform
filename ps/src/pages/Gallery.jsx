@@ -223,7 +223,7 @@ export default function Gallery() {
         <Clamped text={openSet.description} lines={3}
                  style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.7, maxWidth: 600 }} />
 
-        {viewerError && <div style={{ ...errorBox, marginBottom: 16 }}>{viewerError}</div>}
+
 
         {itemsLoad && <div style={{ color: C.muted, fontFamily: F.sans }}>Loading…</div>}
 
@@ -274,6 +274,17 @@ export default function Gallery() {
                   {openSet.tierLapsed ? 'This set is locked again' : 'This set is locked'}
                 </div>
                 <div style={lockedSub}>{count} {count === 1 ? 'photo' : 'photos'}</div>
+
+                {/* Shown here rather than at the top of the set. On a couple of
+                    hundred photos the locked panel is a long way down, so a
+                    failure reported up there appeared somewhere the person was
+                    not looking — and an unlock that silently did nothing is
+                    indistinguishable from a dead button. */}
+                {viewerError && (
+                  <div style={{ ...errorBox, margin: '14px auto 0', maxWidth: 460, textAlign: 'center' }}>
+                    {viewerError}
+                  </div>
+                )}
 
                 <div style={lockedActions}>
                   <button onClick={() => !busy && handleViewerUnlock(scope)} disabled={busy} style={lockedPrimary}>
