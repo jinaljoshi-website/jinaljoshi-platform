@@ -13,6 +13,8 @@ const JPEG_Q       = 0.85;
 const MAX_VIDEO_MB = 500;
 const R2_PUBLIC_URL = import.meta.env.VITE_R2_PUBLIC_URL || '';
 
+// Every tier a photo can sit in. Used by the review screen and the per-item
+// menus — not by the upload form, which no longer asks.
 const CATEGORIES = [
   { key: 'free',          label: 'Free',           color: '#8FC88F' },
   { key: 'community',     label: 'Community',      color: '#9B8F83' },
@@ -20,6 +22,22 @@ const CATEGORIES = [
   { key: 'premium',       label: 'Premium',        color: '#D9A45C' },
   { key: 'supreme',       label: 'Supreme',        color: '#EBC49A' },
   { key: 'purchase_only', label: 'Purchase-only',  color: '#D99A9A' },
+];
+
+// What the upload form asks, which is only the one thing it has to: whether
+// this is an ordinary set or a purchase-only one. Those two cannot mix, so it
+// is a real decision. Which tier each photo belongs to is not — that is decided
+// while looking at the photo, in the review pass, and sorting several hundred
+// files into five folders beforehand was work done blind.
+//
+// Ordinary uploads land at Supreme, the most restrictive tier, and the review
+// moves them down. Anything not yet looked at is therefore never more visible
+// than it should be, and a set cannot go live while any photo is still there.
+const UPLOAD_BUCKETS = [
+  { key: 'supreme',       label: 'Photos & videos', color: '#EBC49A',
+    note: 'Tiers are set while reviewing — one key per photo.' },
+  { key: 'purchase_only', label: 'Purchase-only',   color: '#D99A9A',
+    note: 'Bought outright. Never mixes with the above.' },
 ];
 
 // Content categories — what KIND of set this is, shown to fans for browsing.
@@ -323,6 +341,23 @@ export function Content({ openWith }) {
   // Applied in place rather than by refetching. A pass through a few hundred
   // photos flags one every second or two, and reloading the whole set each time
   // would put the grid behind the person using it.
+  const [removingMarked, setRemovingMarked] = useState(false);
+
+  // The marked pile, removed together. Kept here rather than in the panel
+  // because it changes the set the parent holds, and the panel should not be
+  // reaching around it to say so.
+  const deleteMarked = async () => {
+    if (!reviewSet) return;
+    setRemovingMarked(true);
+    setError('');
+    try {
+      const d = await api.post(`/api/studio/content/${reviewSet.id}/delete-marked`, {});
+      setReviewItems((prev) => prev.filter((i) => i.review_flag !== 'remove'));
+      setSuccess(`Removed ${d.deleted} photo${d.deleted === 1 ? '' : 's'}.`);
+    } catch (err) { setError(err.message); }
+    finally { setRemovingMarked(false); }
+  };
+
   const applyItemPatch = (ids, patch) => {
     setReviewItems((prev) => prev.map((i) => (ids.includes(i.id) ? { ...i, ...patch } : i)));
   };
@@ -481,7 +516,8 @@ export function Content({ openWith }) {
     try {
       const d = await api.patch(`/api/studio/content/item/${item.id}`, { tierCategory });
       setReviewItems((prev) => prev.map((i) => i.id === item.id ? d.item : i));
-      setSuccess('Moved.');
+      // No toast. This now fires once per keystroke through a whole set, and a
+      // message that appears several hundred times says nothing.
     } catch (err) { setError(err.message); }
   };
 
@@ -783,13 +819,13 @@ export function Content({ openWith }) {
         {/* Category-tagged upload zones */}
         <div style={{ marginBottom: 16 }}>
           <div style={fieldLabel}>
-            Media by tier ({totalFileCount} {totalFileCount === 1 ? 'item' : 'items'})
+            Media ({totalFileCount} {totalFileCount === 1 ? 'item' : 'items'})
           </div>
           <p style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 10, lineHeight: 1.5 }}>
-            A set is either tier-segmented (Free through Supreme) or Purchase-only, never both — adding a file to one side locks the other, so the base price never gets split unexpectedly.
+            A set is either an ordinary one or purchase-only, never both — adding a file to one side locks the other, so the base price never gets split unexpectedly.
           </p>
           <div style={{ display: 'grid', gap: 14 }}>
-            {CATEGORIES.map((cat) => {
+            {UPLOAD_BUCKETS.map((cat) => {
               const files = filesByCategory[cat.key];
               const isPurchaseOnly = cat.key === 'purchase_only';
               const tierCategoriesHaveFiles = CATEGORIES.filter((c) => c.key !== 'purchase_only').some((c) => filesByCategory[c.key].length > 0);
@@ -803,6 +839,7 @@ export function Content({ openWith }) {
                       <span style={{ width: 8, height: 8, borderRadius: '50%', background: cat.color, display: 'inline-block' }} />
                       <span style={{ fontFamily: sans, fontSize: 13, color: colors.text, fontWeight: 600 }}>{cat.label}</span>
                       <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>({files.length})</span>
+                      <span style={{ fontFamily: sans, fontSize: 10, color: colors.muted }}>· {cat.note}</span>
                       {isLocked && <span style={{ fontFamily: sans, fontSize: 10, color: '#D99A9A' }}>— unavailable for this set</span>}
                     </div>
                     <input
@@ -1281,6 +1318,8 @@ export function Content({ openWith }) {
           lightbox={lightbox}
           setLightbox={setLightbox}
           onItemsChanged={applyItemPatch}
+          onDeleteMarked={deleteMarked}
+          removingMarked={removingMarked}
           mediaUrl={toUrl}
           categories={CATEGORIES}
         />
@@ -1487,7 +1526,7 @@ function PhotographerPicker({ names, onChange, options }) {
   );
 }
 
-function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItemsChanged, deletingItem, lightbox, setLightbox, mediaUrl, categories,
+function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItemsChanged, onDeleteMarked, removingMarked, deletingItem, lightbox, setLightbox, mediaUrl, categories,
                        selected, setSelected, onBulkMove, onBulkDelete, bulkBusy,
                        ordering, setOrdering, onSaveOrder, orderBusy }) {
   // Grouped for the grid, but navigation runs across the whole set in the order
@@ -1496,8 +1535,6 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   const byTier = {};
   items.forEach((i) => { (byTier[i.tier_category] ||= []).push(i); });
   const ordered = categories.flatMap((cat) => byTier[cat.key] || []);
-
-  const [onlyFlagged, setOnlyFlagged] = useState(false);
   const [blurThreshold, setBlurThreshold] = useState(null);
 
   useEffect(() => {
@@ -1506,46 +1543,9 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
       .catch(() => setBlurThreshold(60));
   }, []);
 
-  // Two kinds of flag, shown the same way.
-  //
-  // The measured one comes from the numbers taken at upload — sharpness and how
-  // much of the frame is blown out or crushed. It is objective and it is cheap,
-  // and it catches the faults a formula can see.
-  //
-  // The other is put there by whoever reviewed the photo, for the faults a
-  // formula cannot: a pose caught halfway, eyes between open and closed, a strap
-  // gone wrong. A reviewer's flag wins where both apply, because somebody
-  // actually looked.
-  // Labels are what shows on the tile when clearing the queue, so they name the
-  // fault rather than the category — "shape" alone would not say what to look
-  // for on a photo you are seeing again a day later.
-  const REVIEW_LABELS = {
-    exposure: 'exposure',
-    eyes:     'eyes mid-blink',
-    motion:   'mid-pose',
-    wardrobe: 'wardrobe',
-    posture:  'line / shape',
-    other:    'needs a look',
-  };
-
-  const flagFor = (item) => {
-    if (item.review_flag) return REVIEW_LABELS[item.review_flag] || item.review_flag;
-    const q = item.quality;
-    if (!q || blurThreshold === null) return null;
-    if (typeof q.sharp === 'number') {
-      if (q.sharp < blurThreshold / 3) return 'very soft';
-      if (q.sharp < blurThreshold)     return 'soft focus';
-    }
-    if (q.brightPct > 0.35) return 'very bright';
-    if (q.darkPct   > 0.55) return 'very dark';
-    return null;
-  };
-
-  // Only a reviewer's flag blocks publishing. A measured one is a suggestion
-  // from a threshold and always will be; refusing to publish over it would mean
-  // arguing with an arbitrary number on every set.
-  const isReviewFlag = (item) => Boolean(item.review_flag);
-  const [onlyNear,    setOnlyNear]    = useState(false);
+  // The only filter left. A photo marked for removal is the one thing that
+  // still needs finding again after the pass.
+  const [onlyMarked,  setOnlyMarked]  = useState(false);
 
   // How many bits two hashes may differ by and still be the same moment.
   //
@@ -1656,7 +1656,8 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
 
   const groupOf = {};
   nearGroups.forEach((g, gi) => g.forEach((it) => { groupOf[it.id] = gi; }));
-  const flaggedCount = items.filter((i) => flagFor(i)).length;
+  const markedCount   = items.filter((i) => i.review_flag === 'remove').length;
+  const unsortedCount = items.filter((i) => !i.reviewed_at).length;
 
   const at = typeof lightbox === 'number' ? lightbox : -1;
   const current = at >= 0 ? ordered[at] : null;
@@ -1696,25 +1697,35 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
     if (next >= 0 && next < ordered.length) setLightbox(next);
   };
 
-  // Flagging the photo in front of you, by number.
+  // Sorting the photo in front of you, by number.
   //
-  // Keys rather than buttons because a set runs to several hundred, and at that
-  // length the difference between one keystroke and finding a control is the
-  // difference between a pass that gets finished and one that does not. It also
-  // moves on by itself: the flag is the verdict, and stopping to press an arrow
-  // afterwards would double the work for no decision.
+  // A number sets the tier and moves on. Doing it here rather than afterwards
+  // means the set is sorted by the time the pass ends, instead of leaving a few
+  // hundred photos to be dragged into place later — which is the part of this
+  // job nobody does willingly.
   //
-  // Still no key for deleting. Moving fast through near-identical photos is
-  // exactly when a mistyped key would take the wrong one, and a flag can be
-  // undone where a delete cannot.
-  const FLAG_KEYS = { 1: 'exposure', 2: 'eyes', 3: 'motion', 4: 'wardrobe', 5: 'posture', 6: 'other' };
+  // 0 marks for removal rather than deleting. Every other key is reversible: a
+  // mis-hit tier is fixed by pressing the right one. Deletion is not, and a pass
+  // through near-identical frames at one keystroke a second is exactly when a
+  // finger lands one key across. The marked photos gather in their own tab and
+  // go in a single deliberate act, once somebody has looked at the pile.
+  const TIER_KEYS = { 1: 'free', 2: 'community', 3: 'insider', 4: 'premium', 5: 'supreme' };
 
-  const flagHere = async (flag) => {
+  const sortHere = async (tier) => {
     if (!current) return;
     try {
-      await api.post('/api/studio/content/items/flag', { itemIds: [current.id], flag });
-      onItemsChanged?.([current.id], { review_flag: flag, reviewed_at: new Date().toISOString() });
-    } catch { /* leaving the photo unflagged is safe; the pass can go on */ }
+      await onRetier(current, tier, { keepLightbox: true });
+      onItemsChanged?.([current.id], { tier_category: tier, review_flag: null, reviewed_at: new Date().toISOString() });
+    } catch { /* the tier is unchanged and the pass can go on */ }
+    go(1);
+  };
+
+  const markRemove = async () => {
+    if (!current) return;
+    try {
+      await api.post('/api/studio/content/items/flag', { itemIds: [current.id], flag: 'remove' });
+      onItemsChanged?.([current.id], { review_flag: 'remove', reviewed_at: new Date().toISOString() });
+    } catch { /* leaving it unmarked is safe */ }
     go(1);
   };
 
@@ -1722,11 +1733,8 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
     if (at < 0) return;
     const onKey = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (FLAG_KEYS[e.key]) { e.preventDefault(); flagHere(FLAG_KEYS[e.key]); return; }
-      // 0 says looked at and nothing wrong — which is a real answer, and the
-      // only way a later pass can tell a photo that was cleared from one nobody
-      // has reached yet.
-      if (e.key === '0')          { e.preventDefault(); flagHere(null); return; }
+      if (TIER_KEYS[e.key]) { e.preventDefault(); sortHere(TIER_KEYS[e.key]); return; }
+      if (e.key === '0')    { e.preventDefault(); markRemove(); return; }
       if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
       if (e.key === 'ArrowLeft')  { e.preventDefault(); go(-1); }
       if (e.key === 'Escape')     { e.preventDefault(); setLightbox(null); }
@@ -1790,27 +1798,34 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
           </div>
         )}
 
-        {(flaggedCount > 0 || nearGroups.length > 0) && !ordering && (
+        {/* What is left to do, and the one destructive act in the screen.
+            Marking is a keystroke made at speed; removing is not, so the marked
+            photos gather here and go together, once somebody has seen the pile.
+            The measured filters are gone with the faults they described — a
+            pass that assigns a tier to every photo has already looked at every
+            photo, which is what those were for. */}
+        {!ordering && (markedCount > 0 || unsortedCount > 0) && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
-            {flaggedCount > 0 && (
-              <button onClick={() => { setOnlyFlagged(!onlyFlagged); setOnlyNear(false); }}
-                      style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
-                               ...(onlyFlagged ? { color: '#D9A45C', borderColor: 'rgba(217,164,92,0.4)' } : {}) }}>
-                {onlyFlagged ? 'Show everything' : `Needs a look · ${flaggedCount}`}
-              </button>
+            {markedCount > 0 && (
+              <>
+                <button onClick={() => setOnlyMarked(!onlyMarked)}
+                        style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
+                                 ...(onlyMarked ? { color: '#D99A9A', borderColor: 'rgba(217,154,154,0.5)' } : {}) }}>
+                  {onlyMarked ? 'Show everything' : `To be removed · ${markedCount}`}
+                </button>
+                {onlyMarked && (
+                  <button onClick={onDeleteMarked} disabled={removingMarked}
+                          style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A', borderColor: 'rgba(217,154,154,0.5)' }}>
+                    {removingMarked ? 'Removing…' : `Remove all ${markedCount}`}
+                  </button>
+                )}
+              </>
             )}
-            {nearGroups.length > 0 && (
-              <button onClick={() => { setOnlyNear(!onlyNear); setOnlyFlagged(false); }}
-                      style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
-                               ...(onlyNear ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
-                {onlyNear ? 'Show everything' : `${nearGroups.length} near-identical run${nearGroups.length === 1 ? '' : 's'}`}
-              </button>
+            {unsortedCount > 0 && (
+              <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
+                {unsortedCount} still to sort — open the first photo and use 1–5 for the tier, 0 to mark for removal.
+              </span>
             )}
-            <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
-              {onlyNear
-                ? 'Frames of the same moment, side by side. Keep the one you want.'
-                : 'Measured, not judged — keep whatever you meant to keep.'}
-            </span>
           </div>
         )}
 
@@ -1830,9 +1845,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
               </button>
             </div>
             <div style={reviewGrid}>
-              {(onlyFlagged ? byTier[cat.key].filter((i) => flagFor(i))
-                : onlyNear  ? byTier[cat.key].filter((i) => groupOf[i.id] !== undefined)
-                              .sort((a, b) => groupOf[a.id] - groupOf[b.id])
+              {(onlyMarked ? byTier[cat.key].filter((i) => i.review_flag === 'remove')
                 : byTier[cat.key]).map((item) => (
                 <div key={item.id} style={{ position: 'relative' }}>
                   {/* Once anything is selected, clicking selects rather than opens —
@@ -1848,8 +1861,8 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                                         outline: isSelected(item.id) ? `2px solid ${colors.accent}` : 'none', outlineOffset: -2,
                                         opacity: selecting && !isSelected(item.id) ? 0.55 : 1 }} />
                   )}
-                  {flagFor(item) && (
-                    <div style={flagChip}>{flagFor(item)}</div>
+                  {item.review_flag === 'remove' && (
+                    <div style={{ ...flagChip, color: '#D99A9A', borderColor: 'rgba(217,154,154,0.5)' }}>to be removed</div>
                   )}
                   {groupOf[item.id] !== undefined && (
                     <div style={{ ...groupChip, background: GROUP_COLOURS[groupOf[item.id] % GROUP_COLOURS.length] }}>
@@ -1904,8 +1917,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
             <div style={lbBar}>
               <span style={{ fontFamily: mono, fontSize: 12, color: '#B8AFA4' }}>
                 {at + 1} of {ordered.length} · {tierLabel(current.tier_category)}
-                {current.review_flag && ` · flagged: ${REVIEW_LABELS[current.review_flag] || current.review_flag}`}
-                {!current.review_flag && current.reviewed_at && ' · seen'}
+                {current.review_flag === 'remove' && ' · marked for removal'}
               </span>
               <button onClick={() => setLightbox(null)} style={lbClose}>✕</button>
             </div>
@@ -1940,7 +1952,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
             </div>
 
             <div style={{ fontFamily: sans, fontSize: 11, color: '#7C736A' }}>
-              Arrows to move · 0 seen, nothing wrong · 1 exposure · 2 eyes · 3 mid-pose · 4 wardrobe · 5 line/shape · 6 other · Esc to close
+              1 Free · 2 Community · 3 Insider · 4 Premium · 5 Supreme · 0 mark for removal · Arrows to move · Esc to close
             </div>
           </div>
         )}

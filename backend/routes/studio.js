@@ -829,7 +829,10 @@ router.get('/content/:id/items', async (req, res) => {
 // first one stopped — which matters, because a set of several hundred will not
 // be got through in one sitting.
 
-const REVIEW_FLAGS = ['exposure', 'eyes', 'motion', 'wardrobe', 'posture', 'other'];
+// The only mark left. Faults are no longer reported — the pass assigns a tier
+// to every photo, and anything not worth a tier is marked for removal and goes
+// in one deliberate act afterwards rather than by a keystroke at speed.
+const REVIEW_FLAGS = ['remove'];
 
 router.post('/content/items/flag', async (req, res) => {
   const { itemIds, flag, note } = req.body;
@@ -884,6 +887,41 @@ router.get('/content/:id/review-progress', async (req, res) => {
   }
 });
 
+
+// Everything marked for removal, in one go.
+//
+// Marking is a keystroke made at speed; deleting is not, and putting the two a
+// step apart is the whole reason 0 marks rather than deletes. This is that step:
+// the pile has been seen, and now it goes.
+router.post('/content/:id/delete-marked', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT id, r2_key FROM set_items WHERE set_id = $1 AND review_flag = 'remove'`,
+      [req.params.id]
+    );
+    if (!rows.length) {
+      await client.query('ROLLBACK');
+      return res.json({ ok: true, deleted: 0 });
+    }
+    await client.query(`DELETE FROM set_items WHERE id = ANY($1::uuid[])`, [rows.map((r) => r.id)]);
+    await client.query('COMMIT');
+
+    // Files go after the rows are safely gone. The other way round leaves a set
+    // pointing at objects that are no longer there if the delete fails.
+    const keys = rows.map((r) => r.r2_key).filter(Boolean);
+    if (keys.length) deleteObjects(keys).catch((e) => console.error('r2 cleanup:', e.message));
+    res.json({ ok: true, deleted: rows.length });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('studio/content/delete-marked error:', err);
+    res.status(500).json({ error: 'Failed to remove the marked photos' });
+  } finally {
+    client.release();
+  }
+});
+
 // Move a single item to a different tier. The whole-set category lock exists so a
 // set is either tier-segmented or purchase-only; this respects that by refusing a
 // change that would put the set on both sides at once.
@@ -913,8 +951,13 @@ router.patch('/content/item/:itemId', async (req, res) => {
       });
     }
 
+    // Setting a tier is how a photo gets looked at now, so it counts as
+    // reviewed and clears any earlier mark. Without this the unsorted count
+    // never falls and the set can never be published.
     const { rows } = await pool.query(
-      `UPDATE set_items SET tier_category = $1 WHERE id = $2 RETURNING *`,
+      `UPDATE set_items
+          SET tier_category = $1, reviewed_at = NOW(), review_flag = NULL
+        WHERE id = $2 RETURNING *`,
       [tierCategory, req.params.itemId]
     );
     res.json({ ok: true, item: rows[0] });
@@ -1564,16 +1607,22 @@ router.patch('/content/:id', async (req, res) => {
     // Clearing a flag is a decision rather than a chore: keep the photo, or
     // remove it. Either empties the queue. This only refuses; it never decides.
     if (becomingVisible && wasHidden) {
-      const { rows: flagged } = await client.query(
-        `SELECT count(*)::int AS n FROM set_items WHERE set_id = $1 AND review_flag IS NOT NULL`,
+      const { rows: pending } = await client.query(
+        `SELECT count(*) FILTER (WHERE review_flag = 'remove')::int AS marked,
+                count(*) FILTER (WHERE reviewed_at IS NULL)::int    AS unsorted
+           FROM set_items WHERE set_id = $1`,
         [req.params.id]
       );
-      if (flagged[0].n > 0) {
+      const { marked, unsorted } = pending[0];
+      if (marked > 0 || unsorted > 0) {
         await client.query('ROLLBACK');
+        const parts = [];
+        if (unsorted > 0) parts.push(`${unsorted} photo${unsorted === 1 ? ' has' : 's have'} no tier yet`);
+        if (marked > 0)   parts.push(`${marked} ${marked === 1 ? 'is' : 'are'} marked for removal`);
         return res.status(409).json({
-          error: 'FLAGS_OPEN',
-          message: `${flagged[0].n} photo${flagged[0].n === 1 ? ' is' : 's are'} flagged for review. Clear them before publishing.`,
-          flagged: flagged[0].n,
+          error: 'REVIEW_INCOMPLETE',
+          message: `${parts.join(' and ')}. Finish the review before publishing.`,
+          unsorted, marked,
         });
       }
     }
