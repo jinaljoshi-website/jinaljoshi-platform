@@ -33,6 +33,12 @@ app.use('/s',                require('./routes/share'));
 
 // Authenticated routes
 app.use('/api/auth',         require('./routes/auth'));
+// Applies authMid and its own access check inside, and answers 404 rather than
+// 403 to anybody without access. Listed here regardless: what a route requires
+// should be visible from where it is mounted, not only from reading it. Sitting
+// under "public" it would have looked open, and the next person to edit it
+// would have had every reason to think the mount point was doing the work.
+app.use('/api/collections',  require('./routes/collections'));
 app.use('/api/coins',        require('./routes/coins'));
 app.use('/api/membership',   require('./routes/membership'));
 app.use('/api/community',    require('./routes/community'));

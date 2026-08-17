@@ -10,6 +10,7 @@ const artistOnly = require('../middleware/artistOnly');
 const { postSystemMessage } = require('./community');
 const { getTierPrice, getAllTierPrices, getConfigNumber } = require('../lib/config');
 const { roundTokensUp } = require('../lib/pricing');
+const { hasCollectionsAccess } = require('../lib/collections');
 // One reading of what tier somebody is on, covering the trial window as well as
 // the base term. Ten copies of that rule was nine chances for them to disagree.
 const { effectiveMembership, unusedValue, daysRemaining: termDaysLeft } = require('../lib/membership');
@@ -138,7 +139,8 @@ router.get('/status', authMid, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT tier, membership_expires_at, membership_started_at,
               membership_paid_tokens, membership_term_days,
-              trial_tier, trial_started_at, trial_ends_at, coin_balance, timezone
+              trial_tier, trial_started_at, trial_ends_at, coin_balance, timezone,
+              collections_until
          FROM users WHERE id = $1`,
       [req.user.userId]
     );
@@ -147,9 +149,17 @@ router.get('/status', authMid, async (req, res) => {
     const state = effectiveMembership(user, now);
     const left  = termDaysLeft(user, now);
 
+    // Present only for somebody who has access. Absent for everybody else —
+    // not false, absent — so the response carries no sign the feature exists
+    // and there is nothing to notice by comparing two accounts.
+    const collections = hasCollectionsAccess(user, now)
+      ? { until: user.collections_until || null }
+      : undefined;
+
     res.json({
       isActive: state.isActive,
       tier:     state.tier,
+      ...(collections ? { collections } : {}),
       baseTier: state.baseTier,
       trialing: state.trialing,
       trialEndsAt: state.trialEndsAt,
