@@ -1626,12 +1626,22 @@ router.patch('/content/:id', async (req, res) => {
     // Clearing a flag is a decision rather than a chore: keep the photo, or
     // remove it. Either empties the queue. This only refuses; it never decides.
     if (becomingVisible && wasHidden) {
+      // A collection set is bought whole, so its photos never get a tier and
+      // there is nothing to be unsorted from. Counting them as unsorted would
+      // mean such a set could never be published at all.
+      const { rows: kindRows } = await client.query(
+        `SELECT is_collection FROM sets WHERE id = $1`, [req.params.id]
+      );
+      const isCollectionSet = Boolean(kindRows[0]?.is_collection);
+
       const { rows: pending } = await client.query(
         `SELECT count(*) FILTER (WHERE review_flag = 'remove')::int AS marked,
-                count(*) FILTER (WHERE tier_category IS NULL
-                                   AND review_flag IS DISTINCT FROM 'remove')::int AS unsorted
+                CASE WHEN $2 THEN 0 ELSE
+                  count(*) FILTER (WHERE tier_category IS NULL
+                                     AND review_flag IS DISTINCT FROM 'remove')::int
+                END AS unsorted
            FROM set_items WHERE set_id = $1`,
-        [req.params.id]
+        [req.params.id, isCollectionSet]
       );
       const { marked, unsorted } = pending[0];
 

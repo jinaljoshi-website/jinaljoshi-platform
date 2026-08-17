@@ -42,6 +42,13 @@ const UPLOAD_BUCKETS = [
 
 // Content categories — what KIND of set this is, shown to fans for browsing.
 // Fully separate from the tier categories above, which govern pricing/access.
+// A collection set is bought whole, so there are no tiers to sort into and no
+// purchase-only distinction to draw — everything here is purchased. One place
+// to put files is the entire question.
+const COLLECTION_BUCKETS = [
+  { key: 'unsorted', label: 'Files', color: '#D9A45C', note: 'Reviewed before it goes out.' },
+];
+
 const CONTENT_CATEGORIES = [
   { key: 'behind_the_scenes', label: 'Behind-the-Scenes' },
   { key: 'vlog_style',        label: 'Vlog-Style' },
@@ -828,15 +835,20 @@ export function Content({ openWith, collection = false }) {
           </Field>
         </div>
 
-        <div style={{ marginTop: 16 }}>
-          <Field label="Content category — how this set is browsed by fans">
-            <select style={S.input} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-              {CONTENT_CATEGORIES.map((c) => (
-                <option key={c.key} value={c.key}>{c.label}</option>
-              ))}
-            </select>
-          </Field>
-        </div>
+        {/* The gallery sorts sets into browsing categories. A collection has
+            two sections and works out which from what the set holds, so there
+            is nothing to choose. */}
+        {!collection && (
+          <div style={{ marginTop: 16 }}>
+            <Field label="Content category — how this set is browsed by fans">
+              <select style={S.input} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+                {CONTENT_CATEGORIES.map((c) => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+        )}
 
         <div style={{ marginTop: 16, marginBottom: 20 }}>
           <div style={fieldLabel}>Description (shown to fans in gallery)</div>
@@ -872,7 +884,7 @@ export function Content({ openWith, collection = false }) {
             A set is either an ordinary one or purchase-only, never both — adding a file to one side locks the other, so the base price never gets split unexpectedly.
           </p>
           <div style={{ display: 'grid', gap: 14 }}>
-            {UPLOAD_BUCKETS.map((cat) => {
+            {(collection ? COLLECTION_BUCKETS : UPLOAD_BUCKETS).map((cat) => {
               const files = filesByCategory[cat.key];
               const isPurchaseOnly = cat.key === 'purchase_only';
               const tierCategoriesHaveFiles = filesByCategory.unsorted.length > 0
@@ -1394,6 +1406,7 @@ export function Content({ openWith, collection = false }) {
           removingMarked={removingMarked}
           mediaUrl={toUrl}
           categories={reviewCategories}
+          collection={collection}
         />
       )}
     </>}
@@ -1598,7 +1611,7 @@ function PhotographerPicker({ names, onChange, options }) {
   );
 }
 
-function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItemsChanged, onDeleteMarked, removingMarked, deletingItem, lightbox, setLightbox, mediaUrl, categories,
+function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItemsChanged, onDeleteMarked, removingMarked, deletingItem, collection = false, lightbox, setLightbox, mediaUrl, categories,
                        selected, setSelected, onBulkMove, onBulkDelete, bulkBusy,
                        ordering, setOrdering, onSaveOrder, orderBusy }) {
   // Grouped for the grid, but navigation runs across the whole set in the order
@@ -1612,11 +1625,19 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   // the tier it was uploaded at, so nothing in pricing has to learn a new
   // category. Assigning a tier sets reviewed_at, and the photo leaves this
   // section for its own.
-  const REVIEW_SECTIONS = [
-    { key: '__unsorted', label: 'Unsorted', color: '#D9A45C' },
-    ...categories,
-    { key: '__remove',   label: 'To be removed', color: '#D99A9A' },
-  ];
+  // A collection set is bought whole, so its photos have no tier to be sorted
+  // into and nothing to be unsorted from. The only distinction left is whether
+  // a photo is staying.
+  const REVIEW_SECTIONS = collection
+    ? [
+        { key: '__all',    label: 'Photos',        color: '#D9A45C' },
+        { key: '__remove', label: 'To be removed', color: '#D99A9A' },
+      ]
+    : [
+        { key: '__unsorted', label: 'Unsorted', color: '#D9A45C' },
+        ...categories,
+        { key: '__remove',   label: 'To be removed', color: '#D99A9A' },
+      ];
 
   // Where a photo sits is decided by what it has, not by a separate record of
   // whether somebody looked. A photo arrives with no tier at all and sits in
@@ -1626,6 +1647,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   const byTier = {};
   items.forEach((i) => {
     const key = i.review_flag === 'remove' ? '__remove'
+              : collection                  ? '__all'
               : !i.tier_category            ? '__unsorted'
               :                               i.tier_category;
     (byTier[key] ||= []).push(i);
@@ -1753,7 +1775,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   const groupOf = {};
   nearGroups.forEach((g, gi) => g.forEach((it) => { groupOf[it.id] = gi; }));
   const markedCount   = items.filter((i) => i.review_flag === 'remove').length;
-  const unsortedCount = items.filter((i) => !i.tier_category && i.review_flag !== 'remove').length;
+  const unsortedCount = collection ? 0 : items.filter((i) => !i.tier_category && i.review_flag !== 'remove').length;
 
   // The sequence stepped through, fixed for as long as the large view is open.
   //
@@ -1766,12 +1788,12 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   //
   // Frozen, the sequence is whatever was on screen when the view opened, and a
   // keystroke always lands on the photo being looked at.
-  const frozenOrder = useRef(null);
+  const [frozenOrder, setFrozenOrder] = useState(null);
   useEffect(() => {
-    if (typeof lightbox === 'number') { if (!frozenOrder.current) frozenOrder.current = ordered; }
-    else frozenOrder.current = null;
-  });
-  const walk = frozenOrder.current || ordered;
+    if (typeof lightbox === 'number') setFrozenOrder((prev) => prev || ordered);
+    else setFrozenOrder(null);
+  }, [lightbox]);
+  const walk = frozenOrder || ordered;
 
   const at = typeof lightbox === 'number' ? lightbox : -1;
   // Position comes from the frozen sequence; the tier and mark shown are read
@@ -1852,7 +1874,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
     if (at < 0) return;
     const onKey = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (TIER_KEYS[e.key]) { e.preventDefault(); sortHere(TIER_KEYS[e.key]); return; }
+      if (!collection && TIER_KEYS[e.key]) { e.preventDefault(); sortHere(TIER_KEYS[e.key]); return; }
       if (e.key === '0')    { e.preventDefault(); markRemove(); return; }
       if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
       if (e.key === 'ArrowLeft')  { e.preventDefault(); go(-1); }
@@ -1932,6 +1954,12 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
           </div>
         )}
 
+        {!ordering && unsortedCount > 0 && (
+          <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 14 }}>
+            {unsortedCount} still to sort — open the first and press 1–5 for its tier, or 0 to mark it for removal.
+          </div>
+        )}
+
         {ordering ? (
           <SequenceView items={ordered} mediaUrl={mediaUrl} busy={orderBusy} onSave={onSaveOrder} groupOf={groupOf} />
         ) : loading ? <div style={{ fontFamily: sans, fontSize: 13, color: colors.muted }}>Loading…</div>
@@ -1993,10 +2021,12 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                       while the data said it had no tier at all. The placeholder
                       gives null something of its own to display, and being
                       disabled it cannot be chosen back. */}
+                  {!collection && (
                   <select value={item.tier_category || ''} onChange={(e) => onRetier(item, e.target.value)} style={tierSelect}>
                     {!item.tier_category && <option value="" disabled>— no tier —</option>}
                     {categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>)}
                   </select>
+                  )}
                 </div>
               ))}
             </div>
@@ -2051,6 +2081,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
             </div>
 
             <div style={lbActions}>
+              {!collection && (
               <label style={{ fontFamily: sans, fontSize: 12, color: '#B8AFA4', display: 'flex', alignItems: 'center', gap: 8 }}>
                 Access level
                 <select value={current.tier_category || ''}
@@ -2060,6 +2091,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                   {categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>)}
                 </select>
               </label>
+              )}
               <button onClick={deleteHere} disabled={deletingItem === current.id}
                       style={{ ...lightboxDelete, opacity: deletingItem === current.id ? 0.5 : 1 }}>
                 {deletingItem === current.id ? 'Removing…' : 'Remove this photo'}
@@ -2067,7 +2099,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
             </div>
 
             <div style={{ fontFamily: sans, fontSize: 11, color: '#7C736A' }}>
-              1 Free · 2 Community · 3 Insider · 4 Premium · 5 Supreme · 0 mark for removal · Arrows to move · Esc to close
+              {collection ? '0 mark for removal · Arrows to move · Esc to close' : '1 Free · 2 Community · 3 Insider · 4 Premium · 5 Supreme · 0 mark for removal · Arrows to move · Esc to close'}
             </div>
           </div>
         )}
