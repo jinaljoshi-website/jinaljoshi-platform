@@ -243,71 +243,57 @@ export default function Gallery() {
             </div>
           ))}
 
-          {showTierFrame && (
-            <div onClick={() => !unlockingScope && handleViewerUnlock('tier')} style={unlockFrame}>
-              {openSet.tierPreviewUrl && (
-                <>
-                  <img src={openSet.tierPreviewUrl} alt="" aria-hidden style={lockedBackdrop} />
-                  <div style={lockedScrim} />
-                </>
-              )}
-              <div style={{ ...unlockFrameIcon, position: 'relative' }}>{openSet.tierLapsed ? '⏳' : '🔒'}</div>
-              <div style={unlockFrameText}>
-                {unlockingScope === 'tier'
-                  ? 'Unlocking…'
-                  : openSet.tierPrice === 0
-                    ? `Unlock ${openSet.tierPortionCount} more using your credit`
-                    : `Unlock ${openSet.tierPortionCount} more for ${openSet.tierPrice} tokens`}
-              </div>
-              {openSet.tierLapsed ? (
-                <div style={unlockFrameSub}>
-                  Your membership unlocked this — renew to view again, or tap to unlock permanently
-                </div>
-              ) : openSet.tierPrice === 0 ? (
-                // Said before the credit is spent, not after it lapses. A member
-                // who unlocks a dozen sets on their monthly allowance and then
-                // lets membership end loses all of them, and until now nothing
-                // told them that at the moment it mattered.
-                <div style={unlockFrameSub}>
-                  Included with your membership · stays available while your membership is active
-                </div>
-              ) : null}
-            </div>
-          )}
-
-          {showUpsellFrame && (
-            <div onClick={() => !unlockingScope && handleViewerUnlock('upsell')} style={unlockFrame}>
-              {openSet.upsellPreviewUrl && (
-                <>
-                  <img src={openSet.upsellPreviewUrl} alt="" aria-hidden style={lockedBackdrop} />
-                  <div style={lockedScrim} />
-                </>
-              )}
-              <div style={unlockFrameIcon}>🔒</div>
-              <div style={unlockFrameText}>
-                {unlockingScope === 'upsell'
-                  ? 'Unlocking…'
-                  : `Unlock ${openSet.upsellPortionCount} more for ${openSet.upsellPrice} tokens`}
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* The alternative. Two ways in, side by side, no explanation — the
-            tokens open this set, the membership opens this and the rest at that
-            level. Shown only where a membership would genuinely help: never on
-            a purchase-only set, and never to somebody already at the top. */}
-        {(showTierFrame || showUpsellFrame) && openSet.membershipOffer && (
-          <button onClick={handleMembership} disabled={joining || !!unlockingScope} style={joinOption}>
-            {joining ? 'One moment…' : (
-              <>
-                {openSet.membershipOffer.tier.charAt(0).toUpperCase() + openSet.membershipOffer.tier.slice(1)}
-                {openSet.membershipOffer.route === 'trial' ? ` · ${openSet.membershipOffer.days} days` : ''}
-                {' — '}{openSet.membershipOffer.cost} tokens
-              </>
-            )}
-          </button>
-        )}
+        {/* Locked, and what to do about it — one panel rather than a tile in the
+            grid and a button beneath it. The cover stays blurred: it is a 24px
+            version, so there is no detail to recover, and it says what the set
+            is without giving it away.
+
+            Two ways in, stated plainly and priced. Nothing explains the
+            difference because the two lines already do. */}
+        {(showTierFrame || showUpsellFrame) && (() => {
+          const scope     = showTierFrame ? 'tier' : 'upsell';
+          const count     = showTierFrame ? openSet.tierPortionCount : openSet.upsellPortionCount;
+          const price     = showTierFrame ? openSet.tierPrice : openSet.upsellPrice;
+          const preview   = showTierFrame ? openSet.tierPreviewUrl : openSet.upsellPreviewUrl;
+          const onCredit  = showTierFrame && price === 0;
+          const offer     = openSet.membershipOffer;
+          const busy      = !!unlockingScope || joining;
+
+          return (
+            <div style={lockedPanel}>
+              {preview && (
+                <>
+                  <img src={preview} alt="" aria-hidden style={lockedBackdrop} />
+                  <div style={lockedScrim} />
+                </>
+              )}
+              <div style={{ position: 'relative' }}>
+                <div style={lockedHeading}>
+                  {openSet.tierLapsed ? 'This set is locked again' : 'This set is locked'}
+                </div>
+                <div style={lockedSub}>{count} {count === 1 ? 'photo' : 'photos'}</div>
+
+                <div style={lockedActions}>
+                  <button onClick={() => !busy && handleViewerUnlock(scope)} disabled={busy} style={lockedPrimary}>
+                    {unlockingScope === scope ? 'Unlocking…'
+                      : onCredit ? 'Unlock this set with membership credit'
+                      : `Unlock this set for ${price} tokens`}
+                  </button>
+
+                  {offer && (
+                    <button onClick={() => !busy && handleMembership()} disabled={busy} style={lockedSecondary}>
+                      {joining ? 'One moment…'
+                        : `Upgrade membership — ${offer.tier.charAt(0).toUpperCase() + offer.tier.slice(1)}`
+                          + `${offer.route === 'trial' ? ` (${offer.days} days)` : ''} (access more) — ${offer.cost} tokens`}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {lightbox !== null && (
           <div style={lightboxOverlay} onClick={() => setLightbox(null)}>
@@ -541,11 +527,18 @@ const viewerGrid  = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, m
 const thumbWrap   = { position: 'relative', cursor: 'pointer', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: C.surface };
 const thumb       = { width: '100%', height: '100%', objectFit: 'cover', display: 'block' };
 const playBadge   = { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', fontSize: 28, color: 'white', textShadow: '0 2px 8px rgba(0,0,0,0.8)', pointerEvents: 'none' };
-// The membership alternative. Deliberately not styled as another locked frame —
-// it is the way past the locks, not one of them.
-const joinOption = { display: 'block', width: '100%', marginTop: 12, padding: '14px 18px', fontFamily: F.sans, fontSize: 14, color: C.text, cursor: 'pointer', background: 'rgba(193,125,74,0.10)', border: `1px solid ${C.accent}`, borderRadius: 12, textAlign: 'center' };
+// The locked state: one panel, the blurred cover behind it, and the two ways in.
+// It used to be a tile inside the grid with a button underneath, which read as
+// two unrelated things rather than a choice between two.
+const lockedPanel = { position: 'relative', overflow: 'hidden', borderRadius: 14, marginTop: 16, padding: '28px 22px', border: `1px solid ${C.border}`, background: 'rgba(193,125,74,0.06)' };
+const lockedHeading = { fontFamily: F.display, fontSize: 'clamp(18px,3vw,24px)', color: C.text, textAlign: 'center' };
+const lockedSub = { fontFamily: F.sans, fontSize: 12, color: C.muted, textAlign: 'center', marginTop: 4 };
+// Stacked rather than side by side: on a phone two buttons in a row leave no
+// room for either to say what it costs.
+const lockedActions = { display: 'flex', flexDirection: 'column', gap: 10, marginTop: 18, maxWidth: 460, marginLeft: 'auto', marginRight: 'auto' };
+const lockedPrimary = { width: '100%', padding: '13px 18px', fontFamily: F.sans, fontSize: 14, color: '#1A1714', background: C.accent, border: 'none', borderRadius: 10, cursor: 'pointer' };
+const lockedSecondary = { width: '100%', padding: '13px 18px', fontFamily: F.sans, fontSize: 13, color: C.text, background: 'transparent', border: `1px solid ${C.accent}`, borderRadius: 10, cursor: 'pointer' };
 
-const unlockFrame = { position: 'relative', cursor: 'pointer', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: 'rgba(193,125,74,0.1)', border: `1px dashed ${C.accent}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 10, gap: 6 };
 // Blurred hard and scaled up, so no edge of the original is readable and the
 // blur cannot be undone by scaling the image back down.
 // The image behind an unlock prompt is a 24-pixel version, not the real photo
@@ -554,9 +547,6 @@ const unlockFrame = { position: 'relative', cursor: 'pointer', borderRadius: 8, 
 const lockedBackdrop = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(8px)', transform: 'scale(1.1)', pointerEvents: 'none' };
 const lockedScrim    = { position: 'absolute', inset: 0, background: 'linear-gradient(rgba(20,18,15,0.55), rgba(20,18,15,0.78))', pointerEvents: 'none' };
 
-const unlockFrameIcon = { fontSize: 22, position: 'relative' };
-const unlockFrameText = { fontFamily: F.sans, fontSize: 12, color: '#F3EDE4', fontWeight: 600, lineHeight: 1.4, position: 'relative', textShadow: '0 1px 3px rgba(0,0,0,0.6)' };
-const unlockFrameSub  = { fontFamily: F.sans, fontSize: 10, color: C.muted, lineHeight: 1.4 , position: 'relative', textShadow: '0 1px 3px rgba(0,0,0,0.6)' };
 const lightboxOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' };
 const lightboxInner   = { display: 'flex', flexDirection: 'column', alignItems: 'center' };
 const closeBtn    = { position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', fontSize: 20, width: 40, height: 40, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
