@@ -1588,7 +1588,10 @@ router.post('/content/item', async (req, res) => {
 
 router.patch('/content/:id', async (req, res) => {
   const { title, description, price_coins, visible, type, category, cover_key, cover_blur,
-          cover_og_key, photographerName, photographerNames } = req.body;
+          cover_og_key, photographerName, photographerNames, removeMarked } = req.body;
+  // Filled in only if publishing also removed the marked photos; cleared from
+  // storage after the transaction commits.
+  let pendingKeyCleanup = [];
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -1614,16 +1617,40 @@ router.patch('/content/:id', async (req, res) => {
         [req.params.id]
       );
       const { marked, unsorted } = pending[0];
-      if (marked > 0 || unsorted > 0) {
+
+      // Unsorted photos are a hard stop. A photo nobody has looked at has no
+      // tier, and publishing would put it in front of whoever the default
+      // happens to suit — which is the one thing this review exists to prevent.
+      if (unsorted > 0) {
         await client.query('ROLLBACK');
-        const parts = [];
-        if (unsorted > 0) parts.push(`${unsorted} photo${unsorted === 1 ? ' has' : 's have'} no tier yet`);
-        if (marked > 0)   parts.push(`${marked} ${marked === 1 ? 'is' : 'are'} marked for removal`);
         return res.status(409).json({
-          error: 'REVIEW_INCOMPLETE',
-          message: `${parts.join(' and ')}. Finish the review before publishing.`,
+          error: 'UNSORTED_ITEMS',
+          message: `${unsorted} photo${unsorted === 1 ? ' has' : 's have'} no tier yet. Sort them before publishing.`,
           unsorted, marked,
         });
+      }
+
+      // Marked photos are not. The decision has been made — they are going —
+      // and the only question is whether to do it now or look again first. So
+      // ask, rather than refuse: removeMarked says the answer was to go ahead.
+      if (marked > 0 && !removeMarked) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'MARKED_ITEMS',
+          message: `${marked} photo${marked === 1 ? ' is' : 's are'} marked for removal.`,
+          marked, unsorted: 0,
+        });
+      }
+
+      if (marked > 0 && removeMarked) {
+        const { rows: doomed } = await client.query(
+          `SELECT id, r2_key FROM set_items WHERE set_id = $1 AND review_flag = 'remove'`,
+          [req.params.id]
+        );
+        await client.query(`DELETE FROM set_items WHERE id = ANY($1::uuid[])`, [doomed.map((d) => d.id)]);
+        // Files after the commit, below, so a slow bucket cannot leave rows
+        // deleted and the publish rolled back.
+        pendingKeyCleanup = doomed.map((d) => d.r2_key).filter(Boolean);
       }
     }
 
@@ -1648,6 +1675,13 @@ router.patch('/content/:id', async (req, res) => {
     await setPhotographers(client, req.params.id, photographerNames ?? photographerName);
 
     await client.query('COMMIT');
+
+    // Storage only after the rows are safely gone. The other way round would
+    // leave a published set pointing at files that no longer exist if the
+    // publish itself failed.
+    if (pendingKeyCleanup.length) {
+      deleteObjects(pendingKeyCleanup).catch((e) => console.error('r2 cleanup:', e.message));
+    }
 
     if (wasHidden && becomingVisible) {
       postSystemMessage(`📸 Jinal just dropped "${rows[0].title}"! Check the Gallery!`, { kind: 'news' });

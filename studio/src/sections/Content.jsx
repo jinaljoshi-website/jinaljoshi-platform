@@ -342,6 +342,7 @@ export function Content({ openWith }) {
   // photos flags one every second or two, and reloading the whole set each time
   // would put the grid behind the person using it.
   const [removingMarked, setRemovingMarked] = useState(false);
+  const [publishPrompt,  setPublishPrompt]  = useState(null);
 
   // The marked pile, removed together. Kept here rather than in the panel
   // because it changes the set the parent holds, and the panel should not be
@@ -699,11 +700,29 @@ export function Content({ openWith }) {
   const handleUpdate = async (id) => {
     setError('');
     try {
-      const data = await api.patch(`/api/studio/content/${id}`, { ...editForm, price_coins: parseInt(editForm.price_coins) });
-      setSets((prev) => prev.map((s) => s.id === id ? { ...data.set, cover_url: s.cover_url, categoryCounts: s.categoryCounts } : s));
-      setEditing(null);
-      setSuccess('Updated.');
+      await pushSetEdit(id, {});
     } catch (err) { setError(err.message); }
+  };
+
+  // Publishing can come back asking a question rather than refusing.
+  //
+  // Unsorted photos are a refusal — there is nothing to decide, the work simply
+  // is not done. Marked ones are a question: they are going either way, and the
+  // only thing in doubt is whether to look at them once more first. So the
+  // second case asks, and carries the answer back as removeMarked.
+  const pushSetEdit = async (id, extra) => {
+    try {
+      const data = await api.patch(`/api/studio/content/${id}`, {
+        ...editForm, price_coins: parseInt(editForm.price_coins), ...extra,
+      });
+      setSets((prev) => prev.map((s2) => s2.id === id
+        ? { ...data.set, cover_url: s2.cover_url, categoryCounts: s2.categoryCounts } : s2));
+      setEditing(null);
+      setSuccess(extra.removeMarked ? 'Marked photos removed, and the set is live.' : 'Updated.');
+    } catch (err) {
+      if (err.code === 'MARKED_ITEMS') { setPublishPrompt({ id, marked: err.body?.marked || 0 }); return; }
+      throw err;
+    }
   };
 
   const handleDelete = async (setId) => {
@@ -964,7 +983,31 @@ export function Content({ openWith }) {
                 </div>
               )}
 
-              {confirmDelete === set.id ? (
+              {publishPrompt?.id === set.id ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>
+                    {publishPrompt.marked} photo{publishPrompt.marked === 1 ? ' is' : 's are'} marked for removal in <strong>"{set.title}"</strong>.
+                  </div>
+                  <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted }}>
+                    Publishing will remove them first. They cannot be recovered.
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <button onClick={async () => {
+                              const id = publishPrompt.id;
+                              setPublishPrompt(null);
+                              try { await pushSetEdit(id, { removeMarked: true }); }
+                              catch (err) { setError(err.message); }
+                            }}
+                            style={{ ...S.btn }}>
+                      Remove them and publish
+                    </button>
+                    <button onClick={() => { setPublishPrompt(null); setEditing(null); openReview(set); }} style={S.ghostBtn}>
+                      Look at them first
+                    </button>
+                    <button onClick={() => setPublishPrompt(null)} style={S.ghostBtn}>Cancel</button>
+                  </div>
+                </div>
+              ) : confirmDelete === set.id ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ fontFamily: sans, fontSize: 14, color: '#D99A9A' }}>
                     Delete <strong>"{set.title}"</strong>? This will permanently remove the set and all items. Cannot be undone.
@@ -1532,9 +1575,26 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   // Grouped for the grid, but navigation runs across the whole set in the order
   // shown. A shoot produces near-identical frames, so being able to step through
   // them without leaving the large view is the only way to tell them apart.
+  // Unsorted is its own section, not a count. A photo that has not been looked
+  // at needs to be findable and openable, and a number at the top of the screen
+  // is neither — it says work remains without saying which work.
+  //
+  // It is a view rather than a stored value: an unreviewed photo still carries
+  // the tier it was uploaded at, so nothing in pricing has to learn a new
+  // category. Assigning a tier sets reviewed_at, and the photo leaves this
+  // section for its own.
+  const REVIEW_SECTIONS = [
+    { key: '__unsorted', label: 'Unsorted', color: '#D9A45C' },
+    ...categories,
+  ];
+
   const byTier = {};
-  items.forEach((i) => { (byTier[i.tier_category] ||= []).push(i); });
-  const ordered = categories.flatMap((cat) => byTier[cat.key] || []);
+  items.forEach((i) => {
+    const key = i.reviewed_at ? i.tier_category : '__unsorted';
+    (byTier[key] ||= []).push(i);
+  });
+  // Unsorted first, so opening the first photo starts where the work is.
+  const ordered = REVIEW_SECTIONS.flatMap((cat) => byTier[cat.key] || []);
   const [blurThreshold, setBlurThreshold] = useState(null);
 
   useEffect(() => {
@@ -1684,8 +1744,10 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
       : [...selected, item.id]);
   };
 
-  const selectTier = (key) => {
-    const ids = (byTier[key] || []).map((i) => i.id);
+  // Takes the rows rather than a tier key, because Unsorted is a section on the
+  // screen and not a tier anything is stored in.
+  const selectSection = (rows) => {
+    const ids = rows.map((i) => i.id);
     const allIn = ids.every((id) => selected.includes(id));
     setSelected(allIn ? selected.filter((id) => !ids.includes(id))
                       : [...new Set([...selected, ...ids])]);
@@ -1833,13 +1895,19 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
           <SequenceView items={ordered} mediaUrl={mediaUrl} busy={orderBusy} onSave={onSaveOrder} groupOf={groupOf} />
         ) : loading ? <div style={{ fontFamily: sans, fontSize: 13, color: colors.muted }}>Loading…</div>
          : items.length === 0 ? <div style={{ fontFamily: sans, fontSize: 13, color: colors.muted }}>This set has no items yet.</div>
-         : categories.filter((cat) => byTier[cat.key]?.length).map((cat) => (
+         : REVIEW_SECTIONS.filter((cat) => byTier[cat.key]?.length).map((cat) => (
           <div key={cat.key} style={{ marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-              <span style={{ fontFamily: mono, fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+              <span style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase',
+                             color: cat.key === '__unsorted' ? '#D9A45C' : colors.muted }}>
                 {cat.label} · {byTier[cat.key].length}
               </span>
-              <button onClick={() => selectTier(cat.key)}
+              {cat.key === '__unsorted' && (
+                <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
+                  Open one and press 1–5 for its tier, or 0 to mark it for removal. The set will not publish while any remain.
+                </span>
+              )}
+              <button onClick={() => selectSection(byTier[cat.key] || [])}
                       style={{ ...S.ghostBtn, fontSize: 10, padding: '2px 8px' }}>
                 {(byTier[cat.key] || []).every((i) => isSelected(i.id)) ? 'Deselect all' : 'Select all'}
               </button>
