@@ -8,6 +8,10 @@ import { Dashboard }     from '../sections/Dashboard';
 import { Analytics }     from '../sections/Analytics';
 import { Messages }      from '../sections/Messages';
 import { Content }       from '../sections/Content';
+// The same screen, asking for the other list. Not a copy: uploading and
+// reviewing are the same job whichever it is, and two versions of a two
+// thousand line screen would drift within a month.
+function Collections(props) { return <Content {...props} collection />; }
 import { Merch }         from '../sections/Merch';
 import { Extras }        from '../sections/Extras';
 import { Members }       from '../sections/Members';
@@ -38,6 +42,7 @@ const NAV = [
   { id: 'messages',      label: 'Chat'             },
   { id: 'community',     label: 'Public Corner'    },
   { id: 'content',       label: 'Gallery'          },
+  { id: 'collections',   label: 'Collections'      },
   { id: 'calls',         label: 'Calls'            },
   { id: 'requests',      label: 'Custom Requests'  },
   { id: 'merch',         label: 'Merchandise'      },
@@ -124,6 +129,7 @@ const SECTIONS = {
   analytics:     Analytics,
   messages:      Messages,
   content:       Content,
+  collections:   Collections,
   selfies:       Selfies,
   photographers: Photographers,
   activity:      Activity,

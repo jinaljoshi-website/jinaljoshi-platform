@@ -626,13 +626,18 @@ const COVER_FALLBACK = `COALESCE(s.cover_key,
 
 router.get('/content', async (req, res) => {
   try {
+    // Each page asks for its own and sees nothing of the other, so there is no
+    // way to upload to one while looking at the other.
+    const wantCollection = req.query.collection === '1';
     const { rows: sets } = await pool.query(
       `SELECT s.*, ${COVER_FALLBACK} AS cover_key,
               (SELECT string_agg(p.name, ', ' ORDER BY p.name)
                FROM set_photographers sp JOIN photographers p ON p.id = sp.photographer_id
                WHERE sp.set_id = s.id) AS photographer
        FROM sets s
-       ORDER BY s.created_at DESC`
+       WHERE s.is_collection = $1
+       ORDER BY s.created_at DESC`,
+      [wantCollection]
     );
     const { rows: itemCounts } = await pool.query(
       `SELECT set_id, tier_category, COUNT(*) AS count FROM set_items GROUP BY set_id, tier_category`
@@ -651,7 +656,7 @@ router.get('/content', async (req, res) => {
 
 router.post('/content', async (req, res) => {
   const { title, description, type = 'photo_set', price_coins = 0, visible = false, category,
-          photographerName, photographerNames } = req.body;
+          photographerName, photographerNames, isCollection = false } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
 
   const client = await pool.connect();
@@ -659,16 +664,23 @@ router.post('/content', async (req, res) => {
     await client.query('BEGIN');
 
     const { rows } = await client.query(
-      `INSERT INTO sets (title, description, type, price_coins, visible, category, published_at)
-       VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $5 = TRUE THEN NOW() ELSE NULL END)
+      // is_collection is set once, here, from which page the set was made on.
+      // There is no control to change it afterwards and no checkbox to get
+      // wrong — a set belongs to the gallery or to the collection from the
+      // moment it exists, and the two lists never show each other.
+      `INSERT INTO sets (title, description, type, price_coins, visible, category, is_collection, published_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $5 = TRUE THEN NOW() ELSE NULL END)
        RETURNING *`,
-      [title.trim(), description || null, type, price_coins, visible, category || null]
+      [title.trim(), description || null, type, price_coins, visible, category || null, Boolean(isCollection)]
     );
 
     await setPhotographers(client, rows[0].id, photographerNames ?? photographerName);
     await client.query('COMMIT');
 
-    if (visible) {
+    // Never announced. The whole point is that it is a surprise found rather
+    // than a thing advertised, and a system message would tell everybody it
+    // exists — including everybody who cannot open it.
+    if (visible && !isCollection) {
       postSystemMessage(`📸 Jinal just dropped "${title.trim()}"! Check the Gallery!`, { kind: 'news' });
     }
     res.json({ ok: true, set: rows[0] });

@@ -141,7 +141,14 @@ function emptyCategoryFiles() {
   return obj;
 }
 
-export function Content({ openWith }) {
+// One screen, two lists. `collection` decides which the page asks for and which
+// a new set is created in — from the page itself rather than from a control on
+// it, so there is nothing to tick wrongly and no way to upload to one list while
+// looking at the other.
+export function Content({ openWith, collection = false }) {
+  // Nothing in a collection is free, so free is not a tier that can be picked
+  // there by accident.
+  const reviewCategories = collection ? CATEGORIES.filter((c) => c.key !== 'free') : CATEGORIES;
   // Mirrors what fans see: sets and Selfie of the Day are one Gallery to them,
   // so they should be one screen here too.
   const [tab, setTab] = useState(openWith?.filter === 'selfies' ? 'selfies' : 'sets');
@@ -324,7 +331,7 @@ export function Content({ openWith }) {
   const coverRef = useRef(null);
   const categoryRefs = useRef({});
 
-  const loadSets = () => api.get('/api/studio/content').then((d) => setSets(d.sets || []));
+  const loadSets = () => api.get(`/api/studio/content${collection ? '?collection=1' : ''}`).then((d) => setSets(d.sets || []));
   const loadPhotographers = () => api.get('/api/studio/photographers')
     .then((d) => setPhotographers(d.photographers || [])).catch(() => {});
 
@@ -657,6 +664,7 @@ export function Content({ openWith }) {
         visible:     form.visible,
         category:    form.category,
         photographerNames: form.photographerNames,
+        isCollection: collection,
       });
       const setId = setData.set.id;
 
@@ -753,16 +761,29 @@ export function Content({ openWith }) {
 
   return (
     <div>
-      <Eyebrow>Gallery</Eyebrow>
-      <T.title>Gallery</T.title>
+      <Eyebrow>{collection ? 'Collections' : 'Gallery'}</Eyebrow>
+      <T.title>{collection ? 'Collections' : 'Gallery'}</T.title>
 
-      <SectionTabs
-        tabs={[
-          { key: 'sets',    label: 'Media' },
-          { key: 'selfies', label: 'Selfie of the Day' },
-        ]}
-        active={tab} onChange={setTab}
-      />
+      {collection && (
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, lineHeight: 1.7, marginBottom: 18, maxWidth: 660 }}>
+          Seen only by members who have earned it, and never announced — no drop
+          message, nothing in the gallery, nothing in a share link. Everything here
+          is bought; there is no free tier and no allowance.
+        </p>
+      )}
+
+      {/* Selfie of the Day belongs to the gallery. Offering it here would be a
+          second way to put something in the wrong place, which is the thing
+          having two pages is meant to prevent. */}
+      {!collection && (
+        <SectionTabs
+          tabs={[
+            { key: 'sets',    label: 'Media' },
+            { key: 'selfies', label: 'Selfie of the Day' },
+          ]}
+          active={tab} onChange={setTab}
+        />
+      )}
 
       {tab === 'selfies' && <Selfies />}
 
@@ -1372,7 +1393,7 @@ export function Content({ openWith }) {
           onDeleteMarked={deleteMarked}
           removingMarked={removingMarked}
           mediaUrl={toUrl}
-          categories={CATEGORIES}
+          categories={reviewCategories}
         />
       )}
     </>}
