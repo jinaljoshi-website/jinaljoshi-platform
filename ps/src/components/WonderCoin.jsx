@@ -30,13 +30,27 @@ export function WonderCoinAmount({
   showInr = true,
   hideAmount = false,
   textColor = C.text,
-  subColor = C.muted,
+  // Left unset, this follows textColor rather than staying grey.
+  //
+  // The default muted grey is for dark surfaces, and it was applied whatever the
+  // caller did with textColor. Fifteen places set a dark textColor for a light
+  // or accent-coloured button and left subColor alone, so the rupee line came
+  // out grey on orange and could not be read — the token count was legible and
+  // the price beneath it was not, which is the wrong way round for the number
+  // somebody is actually deciding on.
+  subColor,
   gap = 8,
   fontSize,
   subSize = 12,
 }) {
   // In whatever currency this fan chose to pay in, falling back to rupees.
   const priceLabel = tokensToMoney(amount);
+
+  // Derived rather than defaulted. A caller that has thought about it passes
+  // subColor and that wins; one that has only set textColor gets a sub-label
+  // that at least sits on the same background legibly. C.text is the ordinary
+  // dark-surface case, where the established grey is right.
+  const resolvedSub = subColor ?? (textColor === C.text ? C.muted : textColor);
 
   return (
     <div
@@ -64,7 +78,10 @@ export function WonderCoinAmount({
               style={{
                 fontFamily: F.sans,
                 fontSize: subSize,
-                color: subColor,
+                color: resolvedSub,
+                // Held back from the main figure so the two still read as a
+                // pair rather than one flat block of text.
+                opacity: resolvedSub === C.muted ? 1 : 0.75,
                 marginTop: 4,
                 whiteSpace: 'nowrap',
               }}
