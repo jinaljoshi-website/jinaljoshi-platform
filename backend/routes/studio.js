@@ -800,7 +800,8 @@ router.get('/content/:id/pricing', async (req, res) => {
 router.get('/content/:id/items', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, set_id, type, media_type, r2_key, position, tier_category, created_at, quality
+      `SELECT id, set_id, type, media_type, r2_key, position, tier_category, created_at, quality,
+              review_flag, review_note, reviewed_at
        FROM set_items WHERE set_id = $1
        ORDER BY tier_category, position ASC, created_at ASC`,
       [req.params.id]
@@ -809,6 +810,77 @@ router.get('/content/:id/items', async (req, res) => {
   } catch (err) {
     console.error('studio/content/items error:', err);
     res.status(500).json({ error: 'Failed to load set items' });
+  }
+});
+
+
+// ─────────────────────────────────────────────
+// REVIEW FLAGS
+// ─────────────────────────────────────────────
+//
+// A flag is a note on a photo, never an action. Nothing is hidden and nothing is
+// deleted — the item stays exactly where it is and also turns up under its flag,
+// to be looked at properly before the set goes out. Deciding what happens to it
+// stays a person's job.
+//
+// reviewed_at is separate from the flag, and records only that somebody looked.
+// Without it there is no way to tell a photo that was checked and passed from
+// one nobody has reached yet, and no way for a second pass to know where the
+// first one stopped — which matters, because a set of several hundred will not
+// be got through in one sitting.
+
+const REVIEW_FLAGS = ['exposure', 'eyes', 'motion', 'wardrobe', 'posture', 'other'];
+
+router.post('/content/items/flag', async (req, res) => {
+  const { itemIds, flag, note } = req.body;
+  if (!Array.isArray(itemIds) || !itemIds.length) {
+    return res.status(400).json({ error: 'No items given' });
+  }
+  // null clears the flag while still recording that the photo was seen.
+  if (flag !== null && !REVIEW_FLAGS.includes(flag)) {
+    return res.status(400).json({ error: `Unknown flag. Expected one of: ${REVIEW_FLAGS.join(', ')}` });
+  }
+  try {
+    const { rows } = await pool.query(
+      `UPDATE set_items
+          SET review_flag = $1,
+              review_note = $2,
+              reviewed_at = NOW()
+        WHERE id = ANY($3::uuid[])
+        RETURNING id, review_flag, review_note, reviewed_at`,
+      [flag, note || null, itemIds]
+    );
+    res.json({ ok: true, updated: rows.length, items: rows });
+  } catch (err) {
+    console.error('studio/content/items/flag error:', err);
+    res.status(500).json({ error: 'Failed to flag' });
+  }
+});
+
+// What is left to look at, and what has been flagged. Read by the review screen
+// for its tab counts, and useful on its own for picking up a half-finished pass.
+router.get('/content/:id/review-progress', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS total,
+              count(*) FILTER (WHERE reviewed_at IS NOT NULL)::int AS reviewed,
+              count(*) FILTER (WHERE review_flag IS NOT NULL)::int AS flagged,
+              min(position) FILTER (WHERE reviewed_at IS NULL)     AS first_unreviewed_position
+         FROM set_items WHERE set_id = $1`,
+      [req.params.id]
+    );
+    const { rows: byFlag } = await pool.query(
+      `SELECT review_flag, count(*)::int AS n
+         FROM set_items WHERE set_id = $1 AND review_flag IS NOT NULL
+        GROUP BY review_flag`,
+      [req.params.id]
+    );
+    const counts = {};
+    byFlag.forEach((r) => { counts[r.review_flag] = r.n; });
+    res.json({ ...rows[0], byFlag: counts, flags: REVIEW_FLAGS });
+  } catch (err) {
+    console.error('studio/content/review-progress error:', err);
+    res.status(500).json({ error: 'Failed to read review progress' });
   }
 });
 
@@ -1483,6 +1555,28 @@ router.patch('/content/:id', async (req, res) => {
     );
     const wasHidden       = currentRows[0] && !currentRows[0].visible;
     const becomingVisible = visible === true;
+
+    // A set does not go out with flags still open. A flag means somebody marked
+    // a photo as wanting a second look, and publishing over it makes the whole
+    // exercise pointless — the queue exists to be emptied before an audience
+    // sees the set, not to sit there afterwards.
+    //
+    // Clearing a flag is a decision rather than a chore: keep the photo, or
+    // remove it. Either empties the queue. This only refuses; it never decides.
+    if (becomingVisible && wasHidden) {
+      const { rows: flagged } = await client.query(
+        `SELECT count(*)::int AS n FROM set_items WHERE set_id = $1 AND review_flag IS NOT NULL`,
+        [req.params.id]
+      );
+      if (flagged[0].n > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'FLAGS_OPEN',
+          message: `${flagged[0].n} photo${flagged[0].n === 1 ? ' is' : 's are'} flagged for review. Clear them before publishing.`,
+          flagged: flagged[0].n,
+        });
+      }
+    }
 
     const { rows } = await client.query(
       `UPDATE sets SET

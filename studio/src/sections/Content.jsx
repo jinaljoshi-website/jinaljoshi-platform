@@ -319,6 +319,13 @@ export function Content({ openWith }) {
   const [deletingItem,  setDeletingItem]  = useState(null);
   const [lightbox,      setLightbox]      = useState(null);
   const [selected,      setSelected]      = useState([]);   // ordered, so shift-click has an anchor
+
+  // Applied in place rather than by refetching. A pass through a few hundred
+  // photos flags one every second or two, and reloading the whole set each time
+  // would put the grid behind the person using it.
+  const applyItemPatch = (ids, patch) => {
+    setReviewItems((prev) => prev.map((i) => (ids.includes(i.id) ? { ...i, ...patch } : i)));
+  };
   const [bulkBusy,      setBulkBusy]      = useState(false);
 
   const clearSelection = () => setSelected([]);
@@ -1273,6 +1280,7 @@ export function Content({ openWith }) {
           deletingItem={deletingItem}
           lightbox={lightbox}
           setLightbox={setLightbox}
+          onItemsChanged={applyItemPatch}
           mediaUrl={toUrl}
           categories={CATEGORIES}
         />
@@ -1479,7 +1487,7 @@ function PhotographerPicker({ names, onChange, options }) {
   );
 }
 
-function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletingItem, lightbox, setLightbox, mediaUrl, categories,
+function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItemsChanged, deletingItem, lightbox, setLightbox, mediaUrl, categories,
                        selected, setSelected, onBulkMove, onBulkDelete, bulkBusy,
                        ordering, setOrdering, onSaveOrder, orderBusy }) {
   // Grouped for the grid, but navigation runs across the whole set in the order
@@ -1498,7 +1506,30 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
       .catch(() => setBlurThreshold(60));
   }, []);
 
+  // Two kinds of flag, shown the same way.
+  //
+  // The measured one comes from the numbers taken at upload — sharpness and how
+  // much of the frame is blown out or crushed. It is objective and it is cheap,
+  // and it catches the faults a formula can see.
+  //
+  // The other is put there by whoever reviewed the photo, for the faults a
+  // formula cannot: a pose caught halfway, eyes between open and closed, a strap
+  // gone wrong. A reviewer's flag wins where both apply, because somebody
+  // actually looked.
+  // Labels are what shows on the tile when clearing the queue, so they name the
+  // fault rather than the category — "shape" alone would not say what to look
+  // for on a photo you are seeing again a day later.
+  const REVIEW_LABELS = {
+    exposure: 'exposure',
+    eyes:     'eyes mid-blink',
+    motion:   'mid-pose',
+    wardrobe: 'wardrobe',
+    posture:  'line / shape',
+    other:    'needs a look',
+  };
+
   const flagFor = (item) => {
+    if (item.review_flag) return REVIEW_LABELS[item.review_flag] || item.review_flag;
     const q = item.quality;
     if (!q || blurThreshold === null) return null;
     if (typeof q.sharp === 'number') {
@@ -1509,6 +1540,11 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
     if (q.darkPct   > 0.55) return 'very dark';
     return null;
   };
+
+  // Only a reviewer's flag blocks publishing. A measured one is a suggestion
+  // from a threshold and always will be; refusing to publish over it would mean
+  // arguing with an arbitrary number on every set.
+  const isReviewFlag = (item) => Boolean(item.review_flag);
   const [onlyNear,    setOnlyNear]    = useState(false);
 
   // How many bits two hashes may differ by and still be the same moment.
@@ -1660,19 +1696,44 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
     if (next >= 0 && next < ordered.length) setLightbox(next);
   };
 
-  // Arrow keys to move, Escape to leave. Deliberately no keyboard shortcut for
-  // deleting — moving fast through similar photos is exactly when an accidental
-  // keypress would remove the wrong one.
+  // Flagging the photo in front of you, by number.
+  //
+  // Keys rather than buttons because a set runs to several hundred, and at that
+  // length the difference between one keystroke and finding a control is the
+  // difference between a pass that gets finished and one that does not. It also
+  // moves on by itself: the flag is the verdict, and stopping to press an arrow
+  // afterwards would double the work for no decision.
+  //
+  // Still no key for deleting. Moving fast through near-identical photos is
+  // exactly when a mistyped key would take the wrong one, and a flag can be
+  // undone where a delete cannot.
+  const FLAG_KEYS = { 1: 'exposure', 2: 'eyes', 3: 'motion', 4: 'wardrobe', 5: 'posture', 6: 'other' };
+
+  const flagHere = async (flag) => {
+    if (!current) return;
+    try {
+      await api.post('/api/studio/content/items/flag', { itemIds: [current.id], flag });
+      onItemsChanged?.([current.id], { review_flag: flag, reviewed_at: new Date().toISOString() });
+    } catch { /* leaving the photo unflagged is safe; the pass can go on */ }
+    go(1);
+  };
+
   useEffect(() => {
     if (at < 0) return;
     const onKey = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (FLAG_KEYS[e.key]) { e.preventDefault(); flagHere(FLAG_KEYS[e.key]); return; }
+      // 0 says looked at and nothing wrong — which is a real answer, and the
+      // only way a later pass can tell a photo that was cleared from one nobody
+      // has reached yet.
+      if (e.key === '0')          { e.preventDefault(); flagHere(null); return; }
       if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
       if (e.key === 'ArrowLeft')  { e.preventDefault(); go(-1); }
       if (e.key === 'Escape')     { e.preventDefault(); setLightbox(null); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [at, ordered.length]);
+  }, [at, ordered.length, current]);
 
   // Warm the next image so stepping forward feels instant. Deliberately modest:
   // holding down the arrow key through a few hundred photos would otherwise
@@ -1843,6 +1904,8 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
             <div style={lbBar}>
               <span style={{ fontFamily: mono, fontSize: 12, color: '#B8AFA4' }}>
                 {at + 1} of {ordered.length} · {tierLabel(current.tier_category)}
+                {current.review_flag && ` · flagged: ${REVIEW_LABELS[current.review_flag] || current.review_flag}`}
+                {!current.review_flag && current.reviewed_at && ' · seen'}
               </span>
               <button onClick={() => setLightbox(null)} style={lbClose}>✕</button>
             </div>
@@ -1877,7 +1940,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, deletin
             </div>
 
             <div style={{ fontFamily: sans, fontSize: 11, color: '#7C736A' }}>
-              Arrow keys to move · Esc to close
+              Arrows to move · 0 seen, nothing wrong · 1 exposure · 2 eyes · 3 mid-pose · 4 wardrobe · 5 line/shape · 6 other · Esc to close
             </div>
           </div>
         )}
