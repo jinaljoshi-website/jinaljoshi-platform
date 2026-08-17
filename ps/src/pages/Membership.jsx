@@ -24,11 +24,21 @@ function addMonthsClamped(date, months) {
 // rather than a second computation in the browser's timezone. Kept as a fallback
 // for anything the server has not labelled — and it stays deliberately one day
 // early, so the real cutoff is always later than promised, never earlier.
+// The last day this membership works.
+//
+// The server now works this out in the fan's own timezone — it is stored on the
+// account from the browser at sign-in — so its label is exact rather than the
+// cautious minus-a-day it used to be, and every other place a date appears,
+// emails included, says the same thing.
+//
+// The local computation stays as a fallback for an account with no timezone
+// recorded, where the browser is the only one who knows.
 function expiryLabel(expiresAt, serverLabel) {
   if (serverLabel) return serverLabel;
-  const d = new Date(expiresAt);
-  d.setDate(d.getDate() - 1);
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  if (!expiresAt) return null;
+  return new Date(expiresAt).toLocaleDateString('en-IN', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  });
 }
 
 function accessUntilLabel(months) {
@@ -172,7 +182,11 @@ export default function Membership() {
       <div style={{ marginBottom: 28 }}>
         <div style={eyebrow}>Membership</div>
         <h1 style={title}>Your membership</h1>
-        <p style={text}>Benefits activate immediately. DM and unlock credits reset on the 1st of each month and do not roll over.</p>
+        {/* Allowances run from each member's own renewal date, not a shared
+            calendar month — which is what the gallery has always said. This
+            line claimed the 1st, so the two screens told a fan different
+            things about the same thing. */}
+        <p style={text}>Benefits activate immediately. DM and unlock credits reset on your renewal date each month and do not roll over.</p>
       </div>
 
       {/* Status banner */}
@@ -257,8 +271,19 @@ export default function Membership() {
               {canBuy && (
                 <div style={accessNote}>Access until {accessUntilLabel(termMonths(selectedTerm))}</div>
               )}
+              {/* Written for the old pro-rating, where the tier moved and the
+                  expiry stayed put. It no longer works that way: an upgrade
+                  buys a fresh term with the unused remainder taken off the
+                  price, and a trial leaves the term alone and lapses on its
+                  own. The server says which, so the note follows it rather
+                  than asserting one. */}
               {canUpgrade && status?.expiresAt && (
-                <div style={accessNote}>Your access until {expiryLabel(status.expiresAt, status.expiresAtLabel)} is unchanged — you only pay the difference for the days remaining</div>
+                <div style={accessNote}>
+                  {upgOption?.route === 'trial'
+                    ? upgOption.days + ' days at this level. Your membership carries on underneath and picks up after.'
+                    : 'A fresh month from today. What is left of your current one comes off the price'
+                      + (upgOption?.credit ? ' — ' + upgOption.credit + ' tokens.' : '.')}
+                </div>
               )}
               {isCurrent && status?.expiresAt && (
                 <div style={accessNote}>Access until {expiryLabel(status.expiresAt, status.expiresAtLabel)}</div>

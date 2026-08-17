@@ -24,14 +24,38 @@ const { addMonthsClamped } = require('../lib/time');
 // runs to 2pm a month later, but promising "the 5th" invites "it said the 5th
 // and it stopped at lunchtime". Showing the 4th means the real cutoff is always
 // later than promised, never earlier.
-function displayExpiry(expiresAt) {
+// The last day this membership works, in the timezone the fan is actually in.
+//
+// An expiry is an instant, and which date that falls on depends on where you
+// are: 5 Sept 02:00 UTC is the 5th in Mumbai and still the 4th in New York.
+// This used to take a day off every expiry to be safe — never overstating, but
+// understating for most fans, who are in India and do get that last day. One
+// bought at 23:18 IST was reported as ending the day before.
+//
+// The fan's own timezone is already known. The app reads it from the browser at
+// sign-up and sign-in and it is stored on users.timezone, which is how member
+// activity already works out what "today" means for somebody. Reading it here
+// makes the date exact rather than cautious, and does so everywhere — emails
+// and reminders included, which a browser-side fix cannot reach.
+//
+// Where it is missing — an older account, or a browser that would not say — the
+// old guard still applies. Understating is the safe way to be wrong.
+function displayExpiry(expiresAt, timezone) {
   if (!expiresAt) return null;
+  const opts = { day: 'numeric', month: 'short', year: 'numeric' };
+  if (timezone) {
+    try {
+      return new Date(expiresAt).toLocaleDateString('en-IN', { ...opts, timeZone: timezone });
+    } catch {
+      // A stored timezone the runtime does not recognise must not take the
+      // whole response down over a date label.
+    }
+  }
   const d = new Date(expiresAt);
   d.setUTCDate(d.getUTCDate() - 1);
-  return d.toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
-  });
+  return d.toLocaleDateString('en-IN', { ...opts, timeZone: 'Asia/Kolkata' });
 }
+
 const { spendTokens } = require('../lib/tokens');
 const { sendMembershipWelcome } = require('../lib/welcome');
 
@@ -114,7 +138,7 @@ router.get('/status', authMid, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT tier, membership_expires_at, membership_started_at,
               membership_paid_tokens, membership_term_days,
-              trial_tier, trial_started_at, trial_ends_at, coin_balance
+              trial_tier, trial_started_at, trial_ends_at, coin_balance, timezone
          FROM users WHERE id = $1`,
       [req.user.userId]
     );
@@ -130,7 +154,7 @@ router.get('/status', authMid, async (req, res) => {
       trialing: state.trialing,
       trialEndsAt: state.trialEndsAt,
       expiresAt:      user.membership_expires_at,
-      expiresAtLabel: displayExpiry(user.membership_expires_at),
+      expiresAtLabel: displayExpiry(user.membership_expires_at, user.timezone),
       daysRemaining:  left,
       coinBalance:    user.coin_balance,
       // Priced here rather than in the browser. The page used to re-implement
