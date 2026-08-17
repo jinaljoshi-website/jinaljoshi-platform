@@ -1967,7 +1967,13 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                           style={{ ...itemDeleteBtn, opacity: deletingItem === item.id ? 0.5 : 1 }}>
                     {deletingItem === item.id ? '…' : '×'}
                   </button>
-                  <select value={item.tier_category} onChange={(e) => onRetier(item, e.target.value)} style={tierSelect}>
+                  {/* A select given a null value shows its first option instead,
+                      which here is Free — so every untiered photo read as free
+                      while the data said it had no tier at all. The placeholder
+                      gives null something of its own to display, and being
+                      disabled it cannot be chosen back. */}
+                  <select value={item.tier_category || ''} onChange={(e) => onRetier(item, e.target.value)} style={tierSelect}>
+                    {!item.tier_category && <option value="" disabled>— no tier —</option>}
                     {categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>)}
                   </select>
                 </div>
@@ -2026,9 +2032,10 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
             <div style={lbActions}>
               <label style={{ fontFamily: sans, fontSize: 12, color: '#B8AFA4', display: 'flex', alignItems: 'center', gap: 8 }}>
                 Access level
-                <select value={current.tier_category}
+                <select value={current.tier_category || ''}
                         onChange={(e) => onRetier(current, e.target.value)}
                         style={lbSelect}>
+                  {!current.tier_category && <option value="" disabled>— no tier —</option>}
                   {categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>)}
                 </select>
               </label>

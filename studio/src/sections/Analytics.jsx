@@ -312,7 +312,7 @@ export function Analytics() {
                     <td style={{ ...actTd, color: colors.muted, fontSize: 11 }}>{r.tier}</td>
                     <td style={actTd}>
                       {r.setTitle}
-                      {r.isVault && <span style={{ color: colors.accent, fontSize: 10 }}> · vault</span>}
+                      {r.isCollection && <span style={{ color: colors.accent, fontSize: 10 }}> · collection</span>}
                       {r.scope === 'upsell' && <span style={{ color: colors.muted, fontSize: 10 }}> · exclusive</span>}
                     </td>
                     <td style={{ ...actTd, fontSize: 11,

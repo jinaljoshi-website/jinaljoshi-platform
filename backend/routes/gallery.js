@@ -223,7 +223,7 @@ router.get('/sets', authMid, async (req, res) => {
                  AND media_type <> 'video' ORDER BY position ASC, created_at ASC LIMIT 1)
               ) AS cover_key
        FROM sets s
-       WHERE s.visible = TRUE AND s.is_vault = FALSE
+       WHERE s.visible = TRUE AND s.is_collection = FALSE
        -- Ordered by when it became available, falling back to upload date for
        -- anything published before that was recorded.
        ORDER BY COALESCE(s.published_at, s.created_at) DESC`
@@ -354,13 +354,13 @@ router.get('/sets', authMid, async (req, res) => {
     const { rows: libRows } = await pool.query(
       `SELECT
          (SELECT count(*)::int FROM set_items i JOIN sets s2 ON s2.id = i.set_id
-           WHERE s2.visible = TRUE AND s2.is_vault = FALSE AND i.media_type <> 'video')  AS photos,
+           WHERE s2.visible = TRUE AND s2.is_collection = FALSE AND i.media_type <> 'video')  AS photos,
          (SELECT count(*)::int FROM set_items i JOIN sets s2 ON s2.id = i.set_id
-           WHERE s2.visible = TRUE AND s2.is_vault = FALSE AND i.media_type = 'video')   AS videos,
+           WHERE s2.visible = TRUE AND s2.is_collection = FALSE AND i.media_type = 'video')   AS videos,
          (SELECT count(*)::int FROM sets s2
-           WHERE s2.visible = TRUE AND s2.is_vault = FALSE)                              AS total_sets,
+           WHERE s2.visible = TRUE AND s2.is_collection = FALSE)                              AS total_sets,
          (SELECT count(*)::int FROM set_views v JOIN sets s2 ON s2.id = v.set_id
-           WHERE v.user_id = $1 AND s2.visible = TRUE AND s2.is_vault = FALSE)           AS seen_sets`,
+           WHERE v.user_id = $1 AND s2.visible = TRUE AND s2.is_collection = FALSE)           AS seen_sets`,
       [req.user.userId]
     );
     const lib = libRows[0];
@@ -440,7 +440,7 @@ router.post('/unlock', authMid, async (req, res) => {
                 FROM set_photographers spx JOIN photographers p ON p.id = spx.photographer_id
                 WHERE spx.set_id = s.id) AS photographer
        FROM sets s
-       WHERE s.id = $1 AND s.visible = TRUE AND s.is_vault = FALSE`, [setId]);
+       WHERE s.id = $1 AND s.visible = TRUE AND s.is_collection = FALSE`, [setId]);
     if (!setRows.length) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Content not found' });

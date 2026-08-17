@@ -298,7 +298,7 @@ router.get('/activity', async (req, res) => {
          SELECT g.granted_at   AS at,
                 u.display_name, u.email, u.tier,
                 s.title        AS set_title,
-                s.is_vault,
+                s.is_collection,
                 g.scope,
                 COALESCE(g.coins_paid, 0)   AS tokens,
                 COALESCE(l.from_purchased, 0) AS purchased_tokens,
@@ -322,7 +322,7 @@ router.get('/activity', async (req, res) => {
          -- that was opened and then unlocked appears once, as the unlock.
          SELECT v.first_seen AS at,
                 u.display_name, u.email, u.tier,
-                s.title, s.is_vault,
+                s.title, s.is_collection,
                 NULL AS scope, 0 AS tokens, 0 AS purchased_tokens, 0 AS gifted_tokens, 'free' AS how
          FROM set_views v
          JOIN users u ON u.id = v.user_id
@@ -354,7 +354,7 @@ router.get('/activity', async (req, res) => {
         who: r.display_name || r.email,
         tier: r.tier,
         setTitle: r.set_title,
-        isVault: r.is_vault,
+        isCollection: r.is_collection,
         scope: r.scope,
         tokens: Number(r.tokens),
         purchasedTokens: Number(r.purchased_tokens),

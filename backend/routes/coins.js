@@ -8,6 +8,7 @@ const { issueInvoiceForPurchase } = require('../lib/invoice');
 const payments = require('../lib/payments');
 const { getConfigNumber, getConfigValue } = require('../lib/config');
 const { getBalances, activeBonusOffer, bonusFor, grantBonusTokens } = require('../lib/tokens');
+const { accrueCollectionsAccess } = require('../lib/collections');
 const fx = require('../lib/fx');
 
 
@@ -375,6 +376,14 @@ router.post('/recharge/verify', authMid, async (req, res) => {
         await grantBonusTokens(client, { userId: req.user.userId, amount: bonus, offer });
       }
 
+      // Money in can earn a span in the private collection. Inside the same
+      // transaction as the credit, so a payment and what it earned cannot come
+      // apart — and idempotent by counter, so the webhook arriving after this
+      // does not grant the same span twice.
+      await accrueCollectionsAccess(client, req.user.userId).catch((e) => {
+        console.error('collections accrual (verify):', e.message);
+      });
+
       const { rows: userRows } = await client.query(`SELECT coin_balance FROM users WHERE id = $1`, [req.user.userId]);
       newBalance = userRows[0].coin_balance;
 
@@ -496,6 +505,13 @@ router.post('/recharge/webhook', async (req, res) => {
       const bonus = parseInt(payment.notes?.bonus_tokens, 10) || 0;
       if (bonus > 0) await grantBonusTokens(pool, { userId, amount: bonus, offer });
     } catch (e) { console.error('bonus grant via webhook failed:', e.message); }
+
+    // Separately caught. Neither the bonus nor this may take down a credit that
+    // has already happened — the money is in and the tokens are given, and an
+    // access span is not worth failing that over.
+    try {
+      await accrueCollectionsAccess(pool, userId);
+    } catch (e) { console.error('collections accrual (webhook):', e.message); }
 
     postSystemMessage('🪙 Someone just recharged their J Tokens!');
 

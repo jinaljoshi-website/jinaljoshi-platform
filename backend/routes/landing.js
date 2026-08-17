@@ -138,7 +138,7 @@ router.get('/', authMid, async (req, res) => {
     const { rows: newSets } = await pool.query(
       `SELECT count(*)::int AS n
        FROM sets s
-       WHERE s.visible = TRUE AND s.is_vault = FALSE
+       WHERE s.visible = TRUE AND s.is_collection = FALSE
          AND NOT EXISTS (SELECT 1 FROM set_views v WHERE v.set_id = s.id AND v.user_id = $1)`,
       [req.user.userId]
     );

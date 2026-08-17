@@ -125,7 +125,7 @@ router.get('/g/:id', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, title, description, cover_og_key
        FROM sets
-       WHERE id = $1 AND visible = TRUE AND is_vault = FALSE`,
+       WHERE id = $1 AND visible = TRUE AND is_collection = FALSE`,
       [req.params.id]
     );
     if (!rows.length) return fallback(res);
