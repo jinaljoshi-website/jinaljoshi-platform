@@ -47,14 +47,14 @@ router.use(authMid, async (req, res, next) => {
     );
     const user = rows[0];
     if (!user || !hasCollectionsAccess(user)) {
-      return res.status(404).json({ error: 'Not found' });
+      return res.status(404).json({ error: 'NOT_FOUND' });
     }
     req.fan = user;
     next();
   } catch (err) {
     console.error('collections/guard error:', err.message);
     // A failure to establish access is not access.
-    res.status(404).json({ error: 'Not found' });
+    res.status(404).json({ error: 'NOT_FOUND' });
   }
 });
 
@@ -134,7 +134,7 @@ router.get('/sets/:id', async (req, res) => {
         WHERE s.id = $2 AND s.visible = TRUE AND s.is_collection = TRUE`,
       [req.user.userId, req.params.id]
     );
-    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    if (!rows.length) return res.status(404).json({ error: 'NOT_FOUND' });
     const s = rows[0];
 
     let items = [];
@@ -183,7 +183,7 @@ router.post('/unlock', async (req, res) => {
     );
     if (!setRows.length) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Not found' });
+      return res.status(404).json({ error: 'NOT_FOUND' });
     }
     const set = setRows[0];
 

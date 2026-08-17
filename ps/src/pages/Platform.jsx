@@ -16,6 +16,7 @@ import Membership from './Membership';
 import Community  from './Community';
 import Calls      from './Calls';
 import Shop       from './Shop';
+import Collections from './Collections';
 import Coins      from './Coins';
 import Profile    from './Profile';
 
@@ -29,6 +30,11 @@ const navItems = [
   { to: '/platform/coins',      label: 'Coins'         },
   { to: '/platform/profile',    label: 'Profile'       },
 ];
+
+// Added to the list only for somebody who can open it. The membership status
+// carries no key at all for anybody else — not a false one — so there is
+// nothing here to notice, and nothing that appears greyed out or locked.
+const collectionsNav = { to: '/platform/collections', label: 'The Private Collection' };
 
 const FULLSCREEN_PAGES = ['/platform/chat', '/platform/community'];
 
@@ -255,7 +261,20 @@ export default function Platform() {
 
   const handleLogout = () => { logout(); navigate('/auth?mode=login'); };
 
-  const currentNav = navItems.find((n) => n.to === location.pathname);
+  // Asked once, from the status the app already fetches. The key is absent for
+  // anybody without access, so this is simply false for them and no separate
+  // request is ever made that would say the section exists.
+  const [canSeeCollections, setCanSeeCollections] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api.get('/api/membership/status')
+      .then((d) => { if (live) setCanSeeCollections(Boolean(d.collections)); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+
+  const nav = canSeeCollections ? [...navItems, collectionsNav] : navItems;
+  const currentNav = nav.find((n) => n.to === location.pathname);
 
   return (
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0,
@@ -306,7 +325,7 @@ export default function Platform() {
               {user?.email}
             </div>
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-            {navItems.map((item) => {
+            {nav.map((item) => {
               const active = location.pathname === item.to;
               return (
                 <Link
@@ -386,6 +405,8 @@ export default function Platform() {
             <Route path="gallery/:setId" element={<Gallery />} />
             <Route path="selfies"    element={<Navigate to="/platform/gallery?tab=selfies" replace />} />
             <Route path="membership" element={<Membership />} />
+            <Route path="collections" element={<Collections />} />
+            <Route path="collections/:setId" element={<Collections />} />
             <Route path="community"  element={<Community />}  />
             <Route path="calls"      element={<Calls />}      />
             <Route path="shop"       element={<Shop />}       />
@@ -404,7 +425,7 @@ export default function Platform() {
           <div style={{ ...desktopLayout, flex: 1, minHeight: 0, gridTemplateRows: isFullscreen ? '1fr' : 'auto' }}>
             <aside style={sidebar}>
               <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 12 }}>{user?.email}</div>
-              {navItems.map((item) => {
+              {nav.map((item) => {
                 const active = location.pathname === item.to;
                 return (
                   <Link
@@ -430,6 +451,8 @@ export default function Platform() {
             <Route path="gallery/:setId" element={<Gallery />} />
             <Route path="selfies"    element={<Navigate to="/platform/gallery?tab=selfies" replace />} />
                 <Route path="membership" element={<Membership />} />
+                <Route path="collections" element={<Collections />} />
+                <Route path="collections/:setId" element={<Collections />} />
                 <Route path="community"  element={<Community />}  />
                 <Route path="calls"      element={<Calls />}      />
                 <Route path="shop"       element={<Shop />}       />
