@@ -117,7 +117,7 @@ export default function Gallery() {
       await refreshOpenSet(openSet.id);
       setPendingScope(null);
     } catch (err) {
-      if (err.message === 'INSUFFICIENT_TOKENS') {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
         // Remembered so the unlock can finish itself once the tokens land.
         // Without this the fan paid, the modal closed, and the set was still
         // shut — leaving them to work out that they had to ask a second time
@@ -154,7 +154,7 @@ export default function Gallery() {
       // spending an unlock as well would charge for what is now included.
       await refreshOpenSet(openSet.id);
     } catch (err) {
-      if (err.message === 'INSUFFICIENT_TOKENS') {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
         setPendingJoin(true);
         setTopUp(offer.cost);
       } else {
@@ -187,7 +187,7 @@ export default function Gallery() {
     } catch (err) {
       // Still short, or something else went wrong. Say so rather than closing
       // silently and leaving the set shut with no explanation.
-      setViewerError(err.message === 'INSUFFICIENT_TOKENS'
+      setViewerError(err.code === 'INSUFFICIENT_TOKENS'
         ? 'That was not quite enough — top up a little more and it will open.'
         : err.message);
       await refreshOpenSet(openSet.id);

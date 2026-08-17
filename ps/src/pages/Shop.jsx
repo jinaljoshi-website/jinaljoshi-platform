@@ -247,7 +247,7 @@ function ShippingModal({ item, price, savedAddress, onClose, onSuccess, onTopUp 
       });
       onSuccess(data.message);
     } catch (err) {
-      if (err.message === 'INSUFFICIENT_TOKENS') {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
         onTopUp(price);
       } else {
         setError(err.message);

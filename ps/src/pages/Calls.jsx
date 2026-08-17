@@ -126,7 +126,7 @@ export default function Calls() {
       if (isPriority) setJustBookedPriority(true);
       load();
     } catch (err) {
-      if (err.message === 'INSUFFICIENT_TOKENS') {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
         setTopUp(selected.coinsPerMin * duration);
       } else if (err.message === 'UNAVAILABLE') {
         setError('Jinal is unavailable for calls on this date.');

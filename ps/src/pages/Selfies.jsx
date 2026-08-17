@@ -23,7 +23,7 @@ export default function Selfies() {
       await api.post(`/api/selfies/${item.id}/unlock`, {});
       load();
     } catch (err) {
-      if (err.message === 'INSUFFICIENT_TOKENS') setTopUp(data.unlockCost);
+      if (err.code === 'INSUFFICIENT_TOKENS') setTopUp(data.unlockCost);
       else setError(err.message);
     } finally { setBusy(null); }
   };
@@ -35,7 +35,7 @@ export default function Selfies() {
       setError('');
       load();
     } catch (err) {
-      if (err.message === 'INSUFFICIENT_TOKENS') setTopUp(data.passCost);
+      if (err.code === 'INSUFFICIENT_TOKENS') setTopUp(data.passCost);
       else setError(err.message);
     } finally { setBusy(null); }
   };

@@ -68,7 +68,18 @@ async function parseResponse(response) {
     data = { message: text || 'Request failed' };
   }
   if (!response.ok) {
-    throw new Error(data.message || data.error || 'Request failed');
+    // The sentence is what the fan reads, so it stays as the message. But the
+    // code is what the caller branches on — and until now it was thrown away
+    // whenever a friendly message existed, which is always for a token spend.
+    // Fifteen places tested err.message === 'INSUFFICIENT_TOKENS' and none of
+    // them could ever match, so the top-up never opened and a fan short of
+    // tokens was simply told so and left there.
+    const err = new Error(data.message || data.error || 'Request failed');
+    err.code = data.error || null;
+    // The whole body, so a caller can say how far short somebody is, or that
+    // their gifted tokens do not count towards this particular thing.
+    err.body = data;
+    throw err;
   }
   return data;
 }

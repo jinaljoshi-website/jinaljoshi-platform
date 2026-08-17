@@ -324,7 +324,7 @@ export default function Chat() {
         statusRef.current = { ...statusRef.current, coinBalance: data.newBalance };
       }
     } catch (err) {
-      if (err.message === 'INSUFFICIENT_TOKENS') {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
         const msg = messages.find((m) => m.id === dbMessageId);
         setTopUp(msg?.locked_price || 0);
       } else {
@@ -406,7 +406,7 @@ export default function Chat() {
     } catch (err) {
       setStatus(snap);
       statusRef.current = snap;
-      if (err.message === 'INSUFFICIENT_TOKENS') {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
         setTopUp(cost);
       } else {
         setError(err.message);

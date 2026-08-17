@@ -105,7 +105,7 @@ export default function Extras() {
       resetForm();
       load();
     } catch (err) {
-      if (err.message === 'INSUFFICIENT_TOKENS') {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
         setTopUp(offeredNum);
       } else {
         setError(err.message);
@@ -121,7 +121,7 @@ export default function Extras() {
       setSuccess(res.message);
       load();
     } catch (err) {
-      if (err.message === 'INSUFFICIENT_TOKENS') {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
         setTopUp(null); // amount varies per-request; a generic top-up still helps
       } else {
         setError(err.message);

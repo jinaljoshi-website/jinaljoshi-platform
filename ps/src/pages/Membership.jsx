@@ -114,7 +114,7 @@ export default function Membership() {
       setSuccess(`${TIER_META[tierId].name} membership activated! Expires ${new Date(data.expiresAt).toLocaleDateString()}.`);
       loadStatus();
     } catch (err) {
-      if (err.message === 'INSUFFICIENT_TOKENS') {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
         setTopUp(calcCost(tierId, selectedTerm));
       } else if (err.message === 'ALREADY_MEMBER') {
         setError('You already have an active membership. Use the upgrade option below.');
@@ -138,7 +138,7 @@ export default function Membership() {
         : `Upgraded to ${TIER_META[tierId].name}!`);
       loadStatus();
     } catch (err) {
-      if (err.message === 'INSUFFICIENT_TOKENS') {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
         setTopUp(opt?.cost ?? null);
       } else {
         setError(err.message);
@@ -153,7 +153,7 @@ export default function Membership() {
       setSuccess(`Membership extended to ${new Date(data.expiresAt).toLocaleDateString()}.`);
       loadStatus();
     } catch (err) {
-      if (err.message === 'INSUFFICIENT_TOKENS') {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
         setTopUp(calcCost(status?.tier, selectedTerm));
       } else {
         setError(err.message);

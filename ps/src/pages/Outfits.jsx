@@ -362,7 +362,7 @@ function OutfitCheckout({ entry, data, onClose, onSuccess, onTopUp }) {
       });
       onSuccess(d.message);
     } catch (err) {
-      if (err.message === 'INSUFFICIENT_TOKENS') onTopUp(total);
+      if (err.code === 'INSUFFICIENT_TOKENS') onTopUp(total);
       else setError(err.message);
     } finally { setBusy(false); }
   };
