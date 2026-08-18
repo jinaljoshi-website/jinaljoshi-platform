@@ -12,14 +12,25 @@ const { spendTokens, refundByRelated } = require('../lib/tokens');
 
 const MAX_NEGOTIATION_ROUND = 4;
 
+// Four rates: a call is instant or scheduled, and audio or video.
+//
+// call_priority_per_min keeps its name rather than gaining a -video suffix.
+// Renaming a live config key means a window where the old name is gone and the
+// new one is not yet set, and every call in that window is unpriced. The name
+// is only slightly wrong; a missing price is not.
+const CALL_RATE_KEYS = {
+  audio:            'call_audio_per_min',
+  video:            'call_video_per_min',
+  'priority-audio': 'call_priority_audio_per_min',
+  'priority-video': 'call_priority_per_min',
+};
+
 async function getCallRate(type) {
-  const keyMap = {
-    audio:            'call_audio_per_min',
-    video:            'call_video_per_min',
-    'priority-video': 'call_priority_per_min',
-  };
-  const key = keyMap[type];
-  if (!key) return 8;
+  const key = CALL_RATE_KEYS[type];
+  // No fallback. This used to return 8 for anything unrecognised, which is a
+  // hardcoded price — the one thing config.js exists to prevent. A call type
+  // nobody has priced should fail loudly, not quietly cost eight tokens.
+  if (!key) throw new Error(`No rate configured for call type: ${type}`);
   return getConfigNumber(key);
 }
 
@@ -37,9 +48,10 @@ function getStreamClient() {
 
 router.get('/options', authMid, async (req, res) => {
   try {
-    const [audioRate, videoRate, priorityRate] = await Promise.all([
+    const [audioRate, videoRate, instantAudioRate, instantVideoRate] = await Promise.all([
       getCallRate('audio'),
       getCallRate('video'),
+      getCallRate('priority-audio'),
       getCallRate('priority-video'),
     ]);
 
@@ -83,10 +95,37 @@ router.get('/options', authMid, async (req, res) => {
       isGuest,
       minLeadHours,
       dndActive,
+      // Grouped by what the fan is deciding, in the order they decide it:
+      // now or later first, then audio or video. The page used to list three
+      // flat options with the instant one last, which put the thing most people
+      // want at the bottom and split audio and video across two groups.
+      groups: [
+        {
+          id: 'instant',
+          title: 'Connect now',
+          description: 'Rings Jinal and connects if she is free to answer.',
+          options: [
+            { id: 'priority-audio', media: 'audio', label: 'Audio', coinsPerMin: roundTokensUp(applyPricing(instantAudioRate) * multiplier) },
+            { id: 'priority-video', media: 'video', label: 'Video', coinsPerMin: roundTokensUp(applyPricing(instantVideoRate) * multiplier) },
+          ],
+        },
+        {
+          id: 'scheduled',
+          title: 'Schedule a call',
+          description: 'Pick a time at least a few hours ahead. Jinal can accept it or suggest another.',
+          options: [
+            { id: 'audio', media: 'audio', label: 'Audio', coinsPerMin: roundTokensUp(applyPricing(audioRate) * multiplier) },
+            { id: 'video', media: 'video', label: 'Video', coinsPerMin: roundTokensUp(applyPricing(videoRate) * multiplier) },
+          ],
+        },
+      ],
+
+      // Kept alongside so an older bundle still served from a cache does not
+      // lose its call page the moment this deploys.
       options: [
-        { id: 'audio',          title: 'Scheduled audio',   description: 'A voice call, arranged in advance. Pick a time at least a few hours ahead.', coinsPerMin: roundTokensUp(applyPricing(audioRate)    * multiplier) },
-        { id: 'video',          title: 'Scheduled video',   description: 'A video call, arranged in advance. Pick a time at least a few hours ahead.', coinsPerMin: roundTokensUp(applyPricing(videoRate)    * multiplier) },
-        { id: 'priority-video', title: 'Connect instantly', description: 'No scheduling. Rings Jinal now and connects if she is free to answer.', coinsPerMin: roundTokensUp(applyPricing(priorityRate) * multiplier) },
+        { id: 'audio',          title: 'Scheduled audio',   description: 'A voice call, arranged in advance.', coinsPerMin: roundTokensUp(applyPricing(audioRate)         * multiplier) },
+        { id: 'video',          title: 'Scheduled video',   description: 'A video call, arranged in advance.', coinsPerMin: roundTokensUp(applyPricing(videoRate)         * multiplier) },
+        { id: 'priority-video', title: 'Connect instantly', description: 'Rings Jinal now.',                    coinsPerMin: roundTokensUp(applyPricing(instantVideoRate) * multiplier) },
       ],
     });
   } catch (err) {
@@ -107,7 +146,7 @@ router.post('/book', authMid, async (req, res) => {
   if (!callType || !durationMinutes || durationMinutes < 1) {
     return res.status(400).json({ error: 'callType and durationMinutes are required' });
   }
-  if (!['audio', 'video', 'priority-video'].includes(callType)) {
+  if (!Object.keys(CALL_RATE_KEYS).includes(callType)) {
     return res.status(400).json({ error: 'Invalid call type' });
   }
 
@@ -117,7 +156,10 @@ router.post('/book', authMid, async (req, res) => {
   } catch (err) {
     return res.status(403).json({ error: err.code || 'RESTRICTED', message: err.message });
   }
-  const isPriority = callType === 'priority-video';
+  // Instant is the prefix, not one specific type. Testing against a single
+  // string meant instant audio would have been treated as a scheduled call —
+  // booked for a time rather than ringing anybody.
+  const isPriority = callType.startsWith('priority-');
 
   if (isPriority) {
     const dndActive = await getDndEnabled();

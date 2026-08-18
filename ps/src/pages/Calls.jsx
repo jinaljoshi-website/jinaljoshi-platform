@@ -15,7 +15,11 @@ import {
 import '@stream-io/video-react-sdk/dist/css/styles.css';
 
 async function requestMediaPermissions(callType) {
-  const needsVideo = callType !== 'audio';
+  // Video for anything that is not an audio call, instant or scheduled. Testing
+  // against the single string 'audio' would have asked an instant audio caller
+  // for their camera — a permission prompt for hardware the call never uses,
+  // which is the sort of thing that makes somebody abandon a purchase.
+  const needsVideo = !String(callType).endsWith('audio');
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: true,
@@ -104,7 +108,10 @@ export default function Calls() {
     setPermStatus(result);
   };
 
-  const isPriority = selected?.id === 'priority-video';
+  // Instant is a prefix now, not one type. Comparing against a single string
+  // would have treated an instant audio call as a scheduled one — asking for a
+  // time instead of ringing anybody.
+  const isPriority = Boolean(selected?.id?.startsWith('priority-'));
 
   const handleBook = async () => {
     if (!selected) return;
@@ -408,37 +415,71 @@ export default function Calls() {
       )}
 
       {!data?.isUnavailable && (
-        <div style={grid}>
-          {data?.options.map((option) => {
-            const isSelectedOption = selected?.id === option.id;
+        // Two cards, in the order the decision is actually made: now or later,
+        // then audio or video. Before this there were three flat options with
+        // the instant one last — so the thing most people want sat at the
+        // bottom, and audio and video were split across separate cards as
+        // though they were different products rather than the same call.
+        //
+        // The chosen card expands in place. Everything needed to book sits
+        // inside the card that says what it costs, instead of a stack of
+        // full-width bars further down the page with the price scrolled away.
+        <div style={groupWrap}>
+          {(data?.groups || []).map((group) => {
+            const isInstant = group.id === 'instant';
+            const blocked   = isInstant && data?.dndActive;
+            const chosen    = group.options.find((o) => o.id === selected?.id);
+            const openHere  = Boolean(chosen);
+
             return (
-              <div
-                  key={option.id}
-                  onClick={() => {
-                    if (option.id === 'priority-video' && data?.dndActive) return;
-                    handleSelect(option);
-                  }}
-                  style={{
-                    ...card,
-                    border: isSelectedOption ? `1px solid ${C.accent}` : (option.id === 'priority-video' ? '1px solid rgba(217,164,92,0.4)' : `1px solid ${C.border}`),
-                    cursor: (option.id === 'priority-video' && data?.dndActive) ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-                    <span style={{ fontFamily: F.display, fontSize: 24, color: C.text }}>{option.title}</span>
-                    {option.id === 'priority-video' && !data?.dndActive && <span style={instantBadge}>No waiting</span>}
-                  </div>
-                  <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, marginBottom: 14, lineHeight: 1.6 }}>{option.description}</div>
-                  {option.id === 'priority-video' && data?.dndActive && (
-                    <div style={offlineBadge}>Jinal is offline right now — schedule instead</div>
-                  )}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <WonderCoinAmount amount={option.coinsPerMin} size={16} />
-                  <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>/ min</span>
+              <div key={group.id}
+                   style={{ ...groupCard,
+                            borderColor: openHere ? C.accent : (isInstant ? 'rgba(217,164,92,0.35)' : C.border),
+                            opacity: blocked ? 0.55 : 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontFamily: F.display, fontSize: 24, color: C.text }}>{group.title}</span>
+                  {isInstant && !blocked && <span style={instantBadge}>No waiting</span>}
                 </div>
-                {data.discountPct > 0 && <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent }}>{data.discountPct}% member discount</div>}
-                {data.isGuest && <div style={{ marginTop: 8 }}><GuestNudge compact message="Members pay less per minute" /></div>}
-                {isSelectedOption && <div style={{ fontFamily: F.sans, fontSize: 12, color: C.accent, marginTop: 10 }}>✓ Selected</div>}
+                <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted, margin: '6px 0 14px', lineHeight: 1.6 }}>
+                  {group.description}
+                </div>
+
+                {blocked ? (
+                  <div style={offlineBadge}>Jinal is offline right now — schedule instead</div>
+                ) : (
+                  <div style={mediaRow}>
+                    {group.options.map((option) => {
+                      const on = selected?.id === option.id;
+                      return (
+                        <button key={option.id} onClick={() => handleSelect(option)}
+                                style={{ ...mediaBtn,
+                                         borderColor: on ? C.accent : C.border,
+                                         background: on ? 'rgba(193,125,74,0.12)' : 'transparent' }}>
+                          <span style={{ fontFamily: F.sans, fontSize: 14, color: C.text }}>{option.label}</span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <WonderCoinAmount amount={option.coinsPerMin} size={13} fontSize={13} />
+                            <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>/ min</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {data.discountPct > 0 && !blocked && (
+                  <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginTop: 10 }}>
+                    {data.discountPct}% member discount applied
+                  </div>
+                )}
+                {data.isGuest && !blocked && (
+                  <div style={{ marginTop: 10 }}><GuestNudge compact message="Members pay less per minute" /></div>
+                )}
+
+                {openHere && (
+                  <div style={chosenNote}>
+                    ✓ Chosen — details just below
+                  </div>
+                )}
               </div>
             );
           })}
@@ -457,18 +498,18 @@ export default function Calls() {
         }}>
           {permStatus.checking && (
             <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>
-              ⏳ Requesting {selected.id !== 'audio' ? 'camera and microphone' : 'microphone'} access…
+              ⏳ Requesting {selected.media === 'video' ? 'camera and microphone' : 'microphone'} access…
             </span>
           )}
           {!permStatus.checking && permStatus.granted && (
             <span style={{ fontFamily: F.sans, fontSize: 13, color: '#8FC88F' }}>
-              ✓ {selected.id !== 'audio' ? 'Camera and microphone' : 'Microphone'} access granted — you're ready to connect
+              ✓ {selected.media === 'video' ? 'Camera and microphone' : 'Microphone'} access granted — you're ready to connect
             </span>
           )}
           {!permStatus.checking && permStatus.denied && (
             <div>
               <div style={{ fontFamily: F.sans, fontSize: 13, color: '#D99A9A', marginBottom: 6 }}>
-                ✗ Access denied. To proceed, allow {selected.id !== 'audio' ? 'camera and microphone' : 'microphone'} access in your browser settings.
+                ✗ Access denied. To proceed, allow {selected.media === 'video' ? 'camera and microphone' : 'microphone'} access in your browser settings.
               </div>
               <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>
                 On Safari: Settings → Personal Space → Camera &amp; Microphone → Allow.
@@ -478,7 +519,7 @@ export default function Calls() {
           )}
           {!permStatus.checking && !permStatus.granted && !permStatus.denied && permStatus.error && (
             <span style={{ fontFamily: F.sans, fontSize: 13, color: '#D99A9A' }}>
-              Could not access {selected.id !== 'audio' ? 'camera/microphone' : 'microphone'}: {permStatus.error}
+              Could not access {selected.media === 'video' ? 'camera/microphone' : 'microphone'}: {permStatus.error}
             </span>
           )}
         </div>
@@ -487,7 +528,7 @@ export default function Calls() {
       {selected && !data?.isUnavailable && (
         <div style={bookingPanel}>
           <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 16 }}>
-            {isPriority ? `Call Jinal now` : `Book ${selected.title}`}
+            {isPriority ? `Call Jinal now — ${selected.label || ''}`.trim() : `Schedule a call — ${selected.label || selected.title}`}
           </div>
           <div style={{ marginBottom: 20 }}>
             <div style={fieldLabel}>Duration</div>
@@ -630,6 +671,13 @@ const errorBox        = { background: 'rgba(156,90,90,0.12)', border: '1px solid
 const grid            = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px,1fr))', gap: 16, marginBottom: 16 };
 const card            = { background: C.surface, borderRadius: 10, padding: 22, display: 'flex', flexDirection: 'column' };
 const historyCard     = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16 };
+// Two cards rather than three, grouped by the decision being made.
+const groupWrap = { display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', marginBottom: 20 };
+const groupCard = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 };
+const mediaRow  = { display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' };
+const mediaBtn  = { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '11px 13px', borderRadius: 9, border: `1px solid ${C.border}`, cursor: 'pointer' };
+const chosenNote = { fontFamily: F.sans, fontSize: 12, color: C.accent, marginTop: 12 };
+
 const instantBadge    = { fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: C.accent, background: 'rgba(193,125,74,0.12)', border: `1px solid rgba(193,125,74,0.3)`, borderRadius: 4, padding: '3px 7px' };
 const offlineBadge    = { fontFamily: F.sans, fontSize: 12, color: '#D9A45C', background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.25)', borderRadius: 6, padding: '7px 10px', marginBottom: 12 };
 const conductBox      = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: '18px 20px', marginBottom: 20 };
