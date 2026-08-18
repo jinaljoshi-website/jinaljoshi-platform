@@ -183,7 +183,21 @@ export default function Calls() {
         token:  tokenData.token,
       });
       const call = client.call('default', callRecord.stream_call_id);
+
+      // An audio call joins with the camera off.
+      //
+      // Stream's default is video on for every call type, so buying a voice
+      // call opened the camera anyway — the fan appeared on video having paid
+      // the audio rate and chosen audio, which is worse than a billing error.
+      // The camera is disabled before joining rather than after, so it is never
+      // briefly live.
+      const isAudioOnly = String(callRecord.call_type || '').endsWith('audio');
+      if (isAudioOnly) { try { await call.camera.disable(); } catch {} }
+
       await call.join({ create: false });
+      // Again after joining: the SDK applies its own defaults as the call
+      // connects, and can turn the camera back on doing so.
+      if (isAudioOnly) { try { await call.camera.disable(); } catch {} }
       setActiveCall({ client, call });
       setActiveCallRecord(callRecord);
       await api.post(`/api/stream-calls/${callRecord.id}/joined`, {});
@@ -620,7 +634,7 @@ export default function Calls() {
                 {blocked ? (
                   <div style={offlineBadge}>Jinal is offline right now — schedule instead</div>
                 ) : (
-                  <div style={mediaRow}>
+                  <div style={{ ...mediaRow, gridTemplateColumns: group.options.length > 1 ? '1fr 1fr' : '1fr' }}>
                     {group.options.map((option) => {
                       const on = selected?.id === option.id;
                       return (
@@ -709,6 +723,8 @@ const historyCard     = { background: C.surface, border: `1px solid ${C.border}`
 // Two cards rather than three, grouped by the decision being made.
 const groupWrap = { display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', marginBottom: 20 };
 const groupCard = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 };
+// One choice fills the card; more sit side by side. Driven by the option count
+// rather than fixed at two, so removing audio did not leave a half-empty row.
 const mediaRow  = { display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' };
 const mediaBtn  = { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '11px 13px', borderRadius: 9, border: `1px solid ${C.border}`, cursor: 'pointer' };
 // The area that opens inside the chosen card. A rule above it so the controls

@@ -74,13 +74,13 @@ export function Calls({ openWith }) {
     } catch (err) { setError(err.message); }
   };
 
-  const createCallRoom = async (callRequestId) => {
+  const createCallRoom = async (callRequestId, callType) => {
     setCreating(callRequestId); setError('');
     try {
       const data = await api.post('/api/stream-calls/create', { callRequestId });
       const updated = await api.get('/api/studio/calls');
       setCalls(updated.calls || []);
-      joinCall(data.callId, callRequestId);
+      joinCall(data.callId, callRequestId, callType);
     } catch (err) {
       setError(err.message);
       setCreating(null);
@@ -98,7 +98,7 @@ export function Calls({ openWith }) {
     }, 3000);
   }, []);
 
-  const joinCall = useCallback(async (streamCallId, callRequestId) => {
+  const joinCall = useCallback(async (streamCallId, callRequestId, callType) => {
     setJoining(streamCallId);
     setAnswering(true);
     setError('');
@@ -110,7 +110,13 @@ export function Calls({ openWith }) {
         token:  tokenData.token,
       });
       const call = client.call('default', streamCallId);
+      // Matches the call that was bought. Stream defaults to video on, so
+      // answering an audio call opened Jinal's camera too.
+      const isAudioOnly = String(callType || '').endsWith('audio');
+      if (isAudioOnly) { try { await call.camera.disable(); } catch {} }
+
       await call.join({ create: false });
+      if (isAudioOnly) { try { await call.camera.disable(); } catch {} }
       setActiveCall({ client, call, callId: streamCallId });
       if (callRequestId) {
         await api.post(`/api/stream-calls/${callRequestId}/joined`, {});
@@ -166,7 +172,7 @@ export function Calls({ openWith }) {
       <IncomingCallOverlay
         call={ringingForMe}
         answering={answering}
-        onAnswer={() => joinCall(ringingForMe.stream_call_id, ringingForMe.id)}
+        onAnswer={() => joinCall(ringingForMe.stream_call_id, ringingForMe.id, ringingForMe.call_type)}
         onDecline={() => declineRinging(ringingForMe.id)}
       />
     );
@@ -347,7 +353,7 @@ export function Calls({ openWith }) {
                     </div>
                   </div>
                   <button
-                    onClick={() => createCallRoom(c.id)}
+                    onClick={() => createCallRoom(c.id, c.call_type)}
                     disabled={creating === c.id}
                     style={{ background: colors.accent, border: 'none', color: '#1A1714', fontFamily: sans, fontSize: 13, fontWeight: 700, padding: '9px 16px', borderRadius: 8, cursor: 'pointer', opacity: creating === c.id ? 0.6 : 1 }}
                   >
@@ -374,7 +380,7 @@ export function Calls({ openWith }) {
                   </div>
                   {c.stream_call_id && (
                     <button
-                      onClick={() => joinCall(c.stream_call_id, c.id)}
+                      onClick={() => joinCall(c.stream_call_id, c.id, c.call_type)}
                       disabled={joining === c.stream_call_id}
                       style={{ background: colors.accent, border: 'none', color: '#1A1714', fontFamily: sans, fontSize: 13, fontWeight: 700, padding: '9px 16px', borderRadius: 8, cursor: 'pointer', opacity: joining === c.stream_call_id ? 0.6 : 1 }}
                     >

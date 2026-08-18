@@ -610,8 +610,7 @@ function GallerySection({ draft, set, config, setConfig }) {
 
 // ── Call Rates ────────────────────────────────────────────────────────────────
 function CallsSection({ draft, set, config, setConfig, tokenRate }) {
-  const keys = ['call_audio_per_min', 'call_video_per_min',
-                'call_priority_audio_per_min', 'call_priority_per_min'];
+  const keys = ['call_video_per_min', 'call_priority_per_min'];
 
   return (
     <div>
@@ -619,27 +618,16 @@ function CallsSection({ draft, set, config, setConfig, tokenRate }) {
         <T.sectionTitle>Call rates (tokens / minute)</T.sectionTitle>
         <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>
           Base per-minute rate before any membership discount or guest multiplier.
-          A call is instant or scheduled, and audio or video — four rates.
+          Calls are video; a fan chooses whether to connect now or schedule one.
         </p>
-
-        {/* Laid out the way a fan chooses: now or later first, then which kind.
-            Listed flat, the instant rates read as two unrelated extras rather
-            than the pair they are. */}
-        <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: colors.muted, margin: '4px 0 8px' }}>
-          Connect now
-        </div>
         <div style={S.formGrid}>
-          <TokenField label="Instant audio" value={draft.call_priority_audio_per_min ?? 14} onChange={(v) => set('call_priority_audio_per_min', v)} tokenRateInr={tokenRate} />
-          <TokenField label="Instant video" value={draft.call_priority_per_min ?? 22} onChange={(v) => set('call_priority_per_min', v)} tokenRateInr={tokenRate} />
+          <TokenField label="Connect now" value={draft.call_priority_per_min ?? 22} onChange={(v) => set('call_priority_per_min', v)} tokenRateInr={tokenRate} />
+          <TokenField label="Scheduled"   value={draft.call_video_per_min ?? 15}    onChange={(v) => set('call_video_per_min', v)}    tokenRateInr={tokenRate} />
         </div>
-
-        <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: colors.muted, margin: '18px 0 8px' }}>
-          Scheduled
-        </div>
-        <div style={S.formGrid}>
-          <TokenField label="Scheduled audio" value={draft.call_audio_per_min ?? 8} onChange={(v) => set('call_audio_per_min', v)} tokenRateInr={tokenRate} />
-          <TokenField label="Scheduled video" value={draft.call_video_per_min ?? 15} onChange={(v) => set('call_video_per_min', v)} tokenRateInr={tokenRate} />
-        </div>
+        <p style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 12 }}>
+          The audio rates are no longer offered and are not shown here. They remain
+          in the configuration so historical calls still price correctly.
+        </p>
       </Card>
 
       <SectionSave keys={keys} draft={draft} config={config} setConfig={setConfig} />

@@ -18,12 +18,24 @@ const MAX_NEGOTIATION_ROUND = 4;
 // Renaming a live config key means a window where the old name is gone and the
 // new one is not yet set, and every call in that window is unpriced. The name
 // is only slightly wrong; a missing price is not.
+// Audio is not offered. Stream defaults every call to video on, so an audio
+// call opened the camera anyway — somebody who chose audio and paid the audio
+// rate appeared on video, which is worse than charging them wrongly. Rather
+// than carry a second media path for a feature nobody had asked for, calls are
+// video only.
+//
+// The audio keys stay here so a rate lookup on a call booked before this does
+// not throw, and so the choice can come back without a migration if it is ever
+// worth making work properly.
 const CALL_RATE_KEYS = {
   audio:            'call_audio_per_min',
   video:            'call_video_per_min',
   'priority-audio': 'call_priority_audio_per_min',
   'priority-video': 'call_priority_per_min',
 };
+
+// What a fan may actually book now.
+const BOOKABLE_TYPES = ['video', 'priority-video'];
 
 async function getCallRate(type) {
   const key = CALL_RATE_KEYS[type];
@@ -105,7 +117,6 @@ router.get('/options', authMid, async (req, res) => {
           title: 'Connect now',
           description: 'Rings Jinal and connects if she is free to answer.',
           options: [
-            { id: 'priority-audio', media: 'audio', label: 'Audio', coinsPerMin: roundTokensUp(applyPricing(instantAudioRate) * multiplier) },
             { id: 'priority-video', media: 'video', label: 'Video', coinsPerMin: roundTokensUp(applyPricing(instantVideoRate) * multiplier) },
           ],
         },
@@ -114,7 +125,6 @@ router.get('/options', authMid, async (req, res) => {
           title: 'Schedule a call',
           description: 'Pick a time at least a few hours ahead. Jinal can accept it or suggest another.',
           options: [
-            { id: 'audio', media: 'audio', label: 'Audio', coinsPerMin: roundTokensUp(applyPricing(audioRate) * multiplier) },
             { id: 'video', media: 'video', label: 'Video', coinsPerMin: roundTokensUp(applyPricing(videoRate) * multiplier) },
           ],
         },
@@ -146,7 +156,7 @@ router.post('/book', authMid, async (req, res) => {
   if (!callType || !durationMinutes || durationMinutes < 1) {
     return res.status(400).json({ error: 'callType and durationMinutes are required' });
   }
-  if (!Object.keys(CALL_RATE_KEYS).includes(callType)) {
+  if (!BOOKABLE_TYPES.includes(callType)) {
     return res.status(400).json({ error: 'Invalid call type' });
   }
 
