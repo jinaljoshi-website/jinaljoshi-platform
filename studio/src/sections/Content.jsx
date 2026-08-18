@@ -1530,12 +1530,22 @@ function SequenceView({ items, mediaUrl, busy, onSave, groupOf = {} }) {
           {scattered ? ' · some are split up' : ' · already together'}
         </div>
       )}
-      {scattered && (
-        <button onClick={gatherAlike} disabled={busy}
-                style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', marginBottom: 12 }}>
-          Bring similar shots together
-        </button>
-      )}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        {scattered && (
+          <button onClick={gatherAlike} disabled={busy} style={seqAction}>
+            Bring similar shots together
+          </button>
+        )}
+        {/* A camera or a card reader hands files over newest first often enough
+            that fixing it by dragging is not worth anybody's afternoon. This is
+            the whole of the fix, and like every other change here it waits to
+            be saved — so a wrong guess costs one press of Undo. */}
+        {list.length > 1 && (
+          <button onClick={() => setList([...list].reverse())} disabled={busy} style={seqAction}>
+            Reverse the order
+          </button>
+        )}
+      </div>
       <div style={seqGrid}>
         {list.map((item, idx) => (
           <div
@@ -2156,6 +2166,8 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
 
 const reviewOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const reviewModal   = { width: '100%', maxWidth: 900, maxHeight: '88vh', overflowY: 'auto', background: '#161410', border: `1px solid ${colors.border}`, borderRadius: 14, padding: 24 };
+const seqAction = { fontFamily: sans, fontSize: 12, padding: '6px 12px', borderRadius: 999, cursor: 'pointer', background: 'transparent', border: `1px solid ${colors.border}`, color: colors.muted };
+
 const seqGrid   = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 10 };
 const seqTile   = { position: 'relative', cursor: 'grab', borderRadius: 6, overflow: 'hidden' };
 const seqBadge  = { position: 'absolute', bottom: 4, left: 4, background: 'rgba(0,0,0,0.7)', color: '#fff', fontFamily: mono, fontSize: 10, padding: '2px 6px', borderRadius: 4 };
