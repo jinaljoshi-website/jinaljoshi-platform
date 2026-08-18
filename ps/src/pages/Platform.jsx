@@ -34,7 +34,45 @@ const navItems = [
 // Added to the list only for somebody who can open it. The membership status
 // carries no key at all for anybody else — not a false one — so there is
 // nothing here to notice, and nothing that appears greyed out or locked.
-const collectionsNav = { to: '/platform/collections', label: 'The Private Collection' };
+const collectionsNav = { to: '/platform/collections', label: 'The Private Collection', gilt: true };
+
+// The one nav item that is not the same as the others, because getting to it
+// was not the same as getting to the others.
+//
+// Gold rather than a badge or a dot: a count would say there is something to
+// clear, which is the opposite of the register here. The shimmer is light
+// crossing gilt — slow enough to be caught out of the corner of an eye rather
+// than watched, and long enough between passes that it never nags. Nothing
+// moves for anybody who has asked the system not to move things.
+const GILT_CSS = `
+@keyframes ps-gilt-sweep {
+  0%, 82%  { background-position: 180% 0; }
+  100%     { background-position: -60% 0; }
+}
+.ps-gilt {
+  background-image: linear-gradient(100deg,
+    #C9A96A 0%, #C9A96A 40%, #FFF3D4 50%, #C9A96A 60%, #C9A96A 100%);
+  background-size: 260% 100%;
+  background-position: 180% 0;
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+  animation: ps-gilt-sweep 9s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ps-gilt { animation: none; background-position: 50% 0; }
+}
+`;
+
+// A shatkona, the figure the screen on the collection page is cut from. Small
+// enough to read as a mark rather than an icon.
+function GiltMark() {
+  return (
+    <svg width="9" height="10" viewBox="0 0 9 10" aria-hidden style={{ flexShrink: 0, opacity: 0.85 }}>
+      <path d="M4.5 0.4 L8.3 2.6 L8.3 7 L4.5 9.2 L0.7 7 L0.7 2.6 Z"
+            fill="none" stroke="#C9A96A" strokeWidth="0.8" />
+    </svg>
+  );
+}
 
 const FULLSCREEN_PAGES = ['/platform/chat', '/platform/community'];
 
@@ -274,6 +312,16 @@ export default function Platform() {
   }, []);
 
   const nav = canSeeCollections ? [...navItems, collectionsNav] : navItems;
+
+  // Injected only when there is something to gild, so the stylesheet carries no
+  // trace of the section for anybody who cannot see it.
+  useEffect(() => {
+    if (!canSeeCollections || document.getElementById('ps-gilt')) return;
+    const el = document.createElement('style');
+    el.id = 'ps-gilt';
+    el.textContent = GILT_CSS;
+    document.head.appendChild(el);
+  }, [canSeeCollections]);
   const currentNav = nav.find((n) => n.to === location.pathname);
 
   return (
@@ -333,7 +381,8 @@ export default function Platform() {
                   to={item.to}
                   style={{ ...drawerLink, background: active ? 'rgba(193,125,74,0.12)' : 'transparent', color: active ? C.text : C.muted, display: 'flex', alignItems: 'center', gap: 8 }}
                 >
-                  {item.label}
+                  {item.gilt && <GiltMark />}
+                  <span className={item.gilt ? 'ps-gilt' : undefined}>{item.label}</span>
                   {item.live === 'chat'    && reachable.unread > 0
                     ? <span style={unreadPill}>{reachable.unread}</span>
                     : item.live === 'gallery' && reachable.unseenSets > 0
@@ -433,7 +482,8 @@ export default function Platform() {
                     to={item.to}
                     style={{ ...navLink, background: active ? 'rgba(193,125,74,0.12)' : 'transparent', color: active ? C.text : C.muted, border: active ? `1px solid ${C.border}` : '1px solid transparent', display: 'flex', alignItems: 'center', gap: 8 }}
                   >
-                    {item.label}
+                    {item.gilt && <GiltMark />}
+                    <span className={item.gilt ? 'ps-gilt' : undefined}>{item.label}</span>
                     {item.live === 'chat'    && reachable.unread > 0
                       ? <span style={unreadPill}>{reachable.unread}</span>
                       : item.live === 'gallery' && reachable.unseenSets > 0
