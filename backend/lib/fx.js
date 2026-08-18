@@ -159,8 +159,31 @@ async function resolveForUser({ preferredCurrency, country }) {
   if (!abroad) {
     return { currency: HOME, isForeign: false, shouldAsk: false };
   }
-  if (!preferredCurrency || preferredCurrency === HOME) {
-    return { currency: HOME, isForeign: false, shouldAsk: !preferredCurrency };
+  // Somebody abroad who has expressed a preference for rupees gets rupees.
+  if (preferredCurrency === HOME) {
+    return { currency: HOME, isForeign: false, shouldAsk: false };
+  }
+
+  // Somebody abroad who has said nothing gets what they would have picked:
+  // their own currency where it can be priced, US dollars otherwise, and rupees
+  // only when neither can be.
+  //
+  // This used to hand them rupees and set shouldAsk, leaving the choice to a
+  // prompt in the browser. A prompt that is missed, dismissed or never shown
+  // then means paying in a foreign country's currency — and it costs more than
+  // the awkwardness. Local and dollars are both convertible foreign exchange,
+  // which makes the sale a zero-rated export; rupees make it a taxable
+  // inter-state supply. So the default was quietly the one option that adds tax
+  // the fan need not have paid.
+  if (!preferredCurrency) {
+    const local = localCurrencyFor(country);
+    if (local && local !== HOME && await getRate(local)) {
+      return { currency: local, isForeign: true, shouldAsk: true, defaulted: true };
+    }
+    if (await getRate('USD')) {
+      return { currency: 'USD', isForeign: true, shouldAsk: true, defaulted: true };
+    }
+    return { currency: HOME, isForeign: false, shouldAsk: true, rateUnavailable: true };
   }
   const rate = await getRate(preferredCurrency);
   // A preference we can no longer price falls back to INR rather than failing

@@ -91,17 +91,23 @@ export default function Coins() {
       {fx?.shouldAsk && (fx.options || []).length > 0 && (
         <div style={currencyAsk}>
           <div style={{ fontFamily: F.sans, fontSize: 14, color: C.text, marginBottom: 4 }}>
-            You seem to be in {fx.detectedCountry}
+            Paying in {fx.currency}
           </div>
+          {/* Says what has already been chosen rather than asking. The choice is
+              made from where somebody is, because leaving it open meant most
+              people never answered and paid in rupees — which costs them the
+              tax a foreign-currency sale does not carry. It is still a choice,
+              and it is still here; it just is not a question that has to be
+              answered before anything can happen. */}
           <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginBottom: 12, lineHeight: 1.6 }}>
-            Which currency would you like to pay in? You can change this any time.
+            Chosen for {fx.detectedCountry}. Change it here or from the top bar whenever you like.
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {fx.options.map((o) => (
               <button key={o.currency} onClick={() => chooseCurrency(o.currency)} disabled={savingCurrency}
                       style={o.isLocal ? currencyBtnPrimary : currencyBtn}>
                 {o.currency}
-                {o.isLocal && <span style={{ fontSize: 10, opacity: 0.8 }}> · yours</span>}
+                {o.currency === fx.currency && <span style={{ fontSize: 10, opacity: 0.8 }}> · current</span>}
               </button>
             ))}
           </div>
