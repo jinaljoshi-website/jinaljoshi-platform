@@ -242,6 +242,153 @@ export default function Calls() {
     joinCall(ringing);
   }, [myCalls, activeCall, answering, joinCall]);
 
+  // Built here and rendered inside whichever card was chosen, rather than
+  // returned further down the page.
+  //
+  // Choosing a call type used to load the permission notice and the whole
+  // booking panel below the fold — the page looked as though nothing had
+  // happened, while everything needed to actually place the call sat off
+  // screen. Somebody who did not think to scroll simply never booked.
+  const permNode = (selected && permStatus) ? (
+        <div style={{
+          ...permBox,
+          borderColor: permStatus.checking  ? C.border
+                     : permStatus.granted   ? 'rgba(100,160,100,0.4)'
+                     : 'rgba(156,90,90,0.4)',
+          background: permStatus.checking  ? C.surface
+                    : permStatus.granted   ? 'rgba(100,160,100,0.06)'
+                    : 'rgba(156,90,90,0.06)',
+        }}>
+          {permStatus.checking && (
+            <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>
+              ⏳ Requesting {selected.media === 'video' ? 'camera and microphone' : 'microphone'} access…
+            </span>
+          )}
+          {!permStatus.checking && permStatus.granted && (
+            <span style={{ fontFamily: F.sans, fontSize: 13, color: '#8FC88F' }}>
+              ✓ {selected.media === 'video' ? 'Camera and microphone' : 'Microphone'} access granted — you're ready to connect
+            </span>
+          )}
+          {!permStatus.checking && permStatus.denied && (
+            <div>
+              <div style={{ fontFamily: F.sans, fontSize: 13, color: '#D99A9A', marginBottom: 6 }}>
+                ✗ Access denied. To proceed, allow {selected.media === 'video' ? 'camera and microphone' : 'microphone'} access in your browser settings.
+              </div>
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>
+                On Safari: Settings → Personal Space → Camera &amp; Microphone → Allow.
+                On Chrome: click the 🔒 icon in the address bar → allow permissions → reload.
+              </div>
+            </div>
+          )}
+          {!permStatus.checking && !permStatus.granted && !permStatus.denied && permStatus.error && (
+            <span style={{ fontFamily: F.sans, fontSize: 13, color: '#D99A9A' }}>
+              Could not access {selected.media === 'video' ? 'camera/microphone' : 'microphone'}: {permStatus.error}
+            </span>
+          )}
+        </div>
+  ) : null;
+
+  // No heading and no border on this: it now sits inside the card that already
+  // says what was chosen and what it costs, so repeating either would just be
+  // saying the same thing twice in a smaller font.
+  const bookingNode = (selected && !data?.isUnavailable) ? (
+        <div>
+          <div style={{ marginBottom: 20 }}>
+            <div style={fieldLabel}>Duration</div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {[1, 3, 5, 10, 15].map((min) => (
+                <button key={min} onClick={() => setDuration(min)} style={{ ...durationBtn, background: duration === min ? C.accent : 'transparent', color: duration === min ? '#1A1714' : C.muted, border: duration === min ? 'none' : `1px solid ${C.border}` }}>
+                  {min} min
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {!isPriority && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={fieldLabel}>When would you like to talk?</div>
+
+              {/* Offering times rather than an empty picker. Choosing a date and
+                  a time from scratch is real work for something most people
+                  want soon — and the old label never changed once a time was
+                  set, so there was nothing confirming the choice had landed. */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: custom ? 12 : 0 }}>
+                {quickSlots.map((s) => {
+                  const on = !custom && proposedTime === s.value;
+                  return (
+                    <button key={s.label}
+                            onClick={() => { setCustom(false); setProposedTime(s.value); }}
+                            style={on ? slotOn : slotOff}>
+                      <div style={{ fontSize: 13 }}>{s.label}</div>
+                      <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>{s.at}</div>
+                    </button>
+                  );
+                })}
+                <button onClick={() => { setCustom(true); setProposedTime(''); }}
+                        style={custom ? slotOn : slotOff}>
+                  <div style={{ fontSize: 13 }}>Another time</div>
+                  <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>pick your own</div>
+                </button>
+              </div>
+
+              {custom && (
+                <input
+                  type="datetime-local"
+                  value={proposedTime}
+                  min={minDateTimeLocal}
+                  onChange={(e) => setProposedTime(e.target.value)}
+                  style={dateInput}
+                />
+              )}
+
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 8 }}>
+                {proposedTime
+                  ? `You're asking for ${new Date(proposedTime).toLocaleString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}. Jinal can accept or suggest another time.`
+                  : `At least ${data?.minLeadHours || 1} hour${(data?.minLeadHours || 1) === 1 ? '' : 's'} from now.`}
+              </div>
+            </div>
+          )}
+
+          {isPriority && (
+            <div style={{ ...nudge, marginBottom: 20 }}>
+              This connects instantly. Jinal will get an urgent alert and has about a minute to answer. If she can't, you're refunded automatically.
+            </div>
+          )}
+
+          <div style={totalRow}>
+            <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>{duration} min × {selected.coinsPerMin} tokens/min</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>Total</span>
+              <WonderCoinAmount amount={totalCost} size={20} fontSize={22} textColor={canAfford ? C.text : '#D99A9A'} />
+            </div>
+          </div>
+          {!canAfford && (
+            <div style={{ ...errorBox, marginBottom: 12 }}>
+              {totalCost - (data?.coinBalance || 0)} tokens short — topping up takes a moment.
+            </div>
+          )}
+          {/* Short of tokens opens the top-up with the exact difference. Only the
+              things that genuinely prevent a call — no time chosen, no camera
+              permission — keep the button disabled. */}
+          <button
+            onClick={() => canAfford ? handleBook() : setTopUp(totalCost - (data?.coinBalance || 0))}
+            disabled={booking || (!isPriority && !proposedTime) || permStatus?.denied || permStatus?.checking}
+            style={{ ...bookBtn, opacity: (booking || (!isPriority && !proposedTime) || permStatus?.denied || permStatus?.checking) ? 0.5 : 1, cursor: booking ? 'default' : 'pointer' }}
+          >
+            {booking ? (isPriority ? 'Calling…' : 'Booking…')
+              : permStatus?.denied ? 'Allow camera/mic access first'
+              : (!isPriority && !proposedTime) ? 'Propose a time first'
+              : !canAfford ? `Top up to ${isPriority ? 'call' : 'book'}`
+              : isPriority ? `Call now & pay ${totalCost} tokens` : `Book & pay ${totalCost} tokens`}
+          </button>
+          <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 8 }}>
+            {isPriority
+              ? 'Tokens charged immediately. If Jinal cannot answer in time, you are refunded automatically.'
+              : 'Tokens charged immediately. Jinal will confirm your proposed time, suggest another, or decline. If declined, your tokens are refunded automatically.'}
+          </div>
+        </div>
+  ) : null;
+
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading…</div>;
 
   // ── Ringing overlay takes over the whole screen, highest priority ──────────
@@ -476,8 +623,9 @@ export default function Calls() {
                 )}
 
                 {openHere && (
-                  <div style={chosenNote}>
-                    ✓ Chosen — details just below
+                  <div style={expandArea}>
+                    {permNode}
+                    {bookingNode}
                   </div>
                 )}
               </div>
@@ -486,145 +634,6 @@ export default function Calls() {
         </div>
       )}
 
-      {selected && permStatus && (
-        <div style={{
-          ...permBox,
-          borderColor: permStatus.checking  ? C.border
-                     : permStatus.granted   ? 'rgba(100,160,100,0.4)'
-                     : 'rgba(156,90,90,0.4)',
-          background: permStatus.checking  ? C.surface
-                    : permStatus.granted   ? 'rgba(100,160,100,0.06)'
-                    : 'rgba(156,90,90,0.06)',
-        }}>
-          {permStatus.checking && (
-            <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>
-              ⏳ Requesting {selected.media === 'video' ? 'camera and microphone' : 'microphone'} access…
-            </span>
-          )}
-          {!permStatus.checking && permStatus.granted && (
-            <span style={{ fontFamily: F.sans, fontSize: 13, color: '#8FC88F' }}>
-              ✓ {selected.media === 'video' ? 'Camera and microphone' : 'Microphone'} access granted — you're ready to connect
-            </span>
-          )}
-          {!permStatus.checking && permStatus.denied && (
-            <div>
-              <div style={{ fontFamily: F.sans, fontSize: 13, color: '#D99A9A', marginBottom: 6 }}>
-                ✗ Access denied. To proceed, allow {selected.media === 'video' ? 'camera and microphone' : 'microphone'} access in your browser settings.
-              </div>
-              <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>
-                On Safari: Settings → Personal Space → Camera &amp; Microphone → Allow.
-                On Chrome: click the 🔒 icon in the address bar → allow permissions → reload.
-              </div>
-            </div>
-          )}
-          {!permStatus.checking && !permStatus.granted && !permStatus.denied && permStatus.error && (
-            <span style={{ fontFamily: F.sans, fontSize: 13, color: '#D99A9A' }}>
-              Could not access {selected.media === 'video' ? 'camera/microphone' : 'microphone'}: {permStatus.error}
-            </span>
-          )}
-        </div>
-      )}
-
-      {selected && !data?.isUnavailable && (
-        <div style={bookingPanel}>
-          <div style={{ fontFamily: F.display, fontSize: 22, color: C.text, marginBottom: 16 }}>
-            {isPriority ? `Call Jinal now — ${selected.label || ''}`.trim() : `Schedule a call — ${selected.label || selected.title}`}
-          </div>
-          <div style={{ marginBottom: 20 }}>
-            <div style={fieldLabel}>Duration</div>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              {[1, 3, 5, 10, 15].map((min) => (
-                <button key={min} onClick={() => setDuration(min)} style={{ ...durationBtn, background: duration === min ? C.accent : 'transparent', color: duration === min ? '#1A1714' : C.muted, border: duration === min ? 'none' : `1px solid ${C.border}` }}>
-                  {min} min
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {!isPriority && (
-            <div style={{ marginBottom: 20 }}>
-              <div style={fieldLabel}>When would you like to talk?</div>
-
-              {/* Offering times rather than an empty picker. Choosing a date and
-                  a time from scratch is real work for something most people
-                  want soon — and the old label never changed once a time was
-                  set, so there was nothing confirming the choice had landed. */}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: custom ? 12 : 0 }}>
-                {quickSlots.map((s) => {
-                  const on = !custom && proposedTime === s.value;
-                  return (
-                    <button key={s.label}
-                            onClick={() => { setCustom(false); setProposedTime(s.value); }}
-                            style={on ? slotOn : slotOff}>
-                      <div style={{ fontSize: 13 }}>{s.label}</div>
-                      <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>{s.at}</div>
-                    </button>
-                  );
-                })}
-                <button onClick={() => { setCustom(true); setProposedTime(''); }}
-                        style={custom ? slotOn : slotOff}>
-                  <div style={{ fontSize: 13 }}>Another time</div>
-                  <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>pick your own</div>
-                </button>
-              </div>
-
-              {custom && (
-                <input
-                  type="datetime-local"
-                  value={proposedTime}
-                  min={minDateTimeLocal}
-                  onChange={(e) => setProposedTime(e.target.value)}
-                  style={dateInput}
-                />
-              )}
-
-              <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 8 }}>
-                {proposedTime
-                  ? `You're asking for ${new Date(proposedTime).toLocaleString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}. Jinal can accept or suggest another time.`
-                  : `At least ${data?.minLeadHours || 1} hour${(data?.minLeadHours || 1) === 1 ? '' : 's'} from now.`}
-              </div>
-            </div>
-          )}
-
-          {isPriority && (
-            <div style={{ ...nudge, marginBottom: 20 }}>
-              This connects instantly. Jinal will get an urgent alert and has about a minute to answer. If she can't, you're refunded automatically.
-            </div>
-          )}
-
-          <div style={totalRow}>
-            <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>{duration} min × {selected.coinsPerMin} tokens/min</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>Total</span>
-              <WonderCoinAmount amount={totalCost} size={20} fontSize={22} textColor={canAfford ? C.text : '#D99A9A'} />
-            </div>
-          </div>
-          {!canAfford && (
-            <div style={{ ...errorBox, marginBottom: 12 }}>
-              {totalCost - (data?.coinBalance || 0)} tokens short — topping up takes a moment.
-            </div>
-          )}
-          {/* Short of tokens opens the top-up with the exact difference. Only the
-              things that genuinely prevent a call — no time chosen, no camera
-              permission — keep the button disabled. */}
-          <button
-            onClick={() => canAfford ? handleBook() : setTopUp(totalCost - (data?.coinBalance || 0))}
-            disabled={booking || (!isPriority && !proposedTime) || permStatus?.denied || permStatus?.checking}
-            style={{ ...bookBtn, opacity: (booking || (!isPriority && !proposedTime) || permStatus?.denied || permStatus?.checking) ? 0.5 : 1, cursor: booking ? 'default' : 'pointer' }}
-          >
-            {booking ? (isPriority ? 'Calling…' : 'Booking…')
-              : permStatus?.denied ? 'Allow camera/mic access first'
-              : (!isPriority && !proposedTime) ? 'Propose a time first'
-              : !canAfford ? `Top up to ${isPriority ? 'call' : 'book'}`
-              : isPriority ? `Call now & pay ${totalCost} tokens` : `Book & pay ${totalCost} tokens`}
-          </button>
-          <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 8 }}>
-            {isPriority
-              ? 'Tokens charged immediately. If Jinal cannot answer in time, you are refunded automatically.'
-              : 'Tokens charged immediately. Jinal will confirm your proposed time, suggest another, or decline. If declined, your tokens are refunded automatically.'}
-          </div>
-        </div>
-      )}
 
       {pastCalls.length > 0 && (
         <div style={{ marginTop: 40 }}>
@@ -676,7 +685,9 @@ const groupWrap = { display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-
 const groupCard = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 };
 const mediaRow  = { display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr' };
 const mediaBtn  = { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '11px 13px', borderRadius: 9, border: `1px solid ${C.border}`, cursor: 'pointer' };
-const chosenNote = { fontFamily: F.sans, fontSize: 12, color: C.accent, marginTop: 12 };
+// The area that opens inside the chosen card. A rule above it so the controls
+// read as belonging to the choice rather than floating under it.
+const expandArea = { marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.border}` };
 
 const instantBadge    = { fontFamily: F.sans, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: C.accent, background: 'rgba(193,125,74,0.12)', border: `1px solid rgba(193,125,74,0.3)`, borderRadius: 4, padding: '3px 7px' };
 const offlineBadge    = { fontFamily: F.sans, fontSize: 12, color: '#D9A45C', background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.25)', borderRadius: 6, padding: '7px 10px', marginBottom: 12 };
