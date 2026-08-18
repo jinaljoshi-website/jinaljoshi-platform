@@ -2,6 +2,7 @@
 const router  = require('express').Router();
 const pool    = require('../db/pool');
 const { effectiveMembership } = require('../lib/membership');
+const { shuffleWithinBands } = require('../lib/shuffle');
 const { upgradeOptions } = require('./membership');
 const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
@@ -650,7 +651,17 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
       return upsellUnlocked;
     });
 
-    const itemsWithUrls = visibleItems.map((item) => ({ ...item, media_url: toUrl(item.r2_key) }));
+    // Shuffled per viewing, within tier bands, cover first.
+    //
+    // Only what somebody can actually see is shuffled; the filter above has
+    // already removed the rest. Unlocking more mid-visit leaves what was on
+    // screen where it was and adds the new band shuffled among itself.
+    const { rows: coverRows } = await pool.query(`SELECT cover_key FROM sets WHERE id = $1`, [setId]);
+    const ordered = shuffleWithinBands(visibleItems, req.query.seed, {
+      coverKey: coverRows[0]?.cover_key || null,
+    });
+
+    const itemsWithUrls = ordered.map((item) => ({ ...item, media_url: toUrl(item.r2_key) }));
     res.json({ items: itemsWithUrls });
   } catch (err) {
     console.error('gallery/items error:', err);

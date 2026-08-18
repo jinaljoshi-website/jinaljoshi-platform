@@ -31,6 +31,7 @@ const authMid = require('../middleware/auth');
 const { hasCollectionsAccess } = require('../lib/collections');
 const { spendTokens } = require('../lib/tokens');
 const { roundTokensUp } = require('../lib/pricing');
+const { shuffleWithinBands } = require('../lib/shuffle');
 
 const R2_PUBLIC = process.env.R2_PUBLIC_URL || '';
 const toUrl = (key) => (!key ? null : String(key).startsWith('http') ? key : `${R2_PUBLIC}/${key}`);
@@ -144,9 +145,11 @@ router.get('/sets/:id', async (req, res) => {
           WHERE set_id = $1 ORDER BY position ASC, created_at ASC`,
         [req.params.id]
       );
-      items = itemRows.map((i) => ({
-        id: i.id, mediaType: i.media_type, mediaUrl: toUrl(i.r2_key),
-      }));
+      // A collection set has no tier bands, so this shuffles the whole of it —
+      // and only ever runs once it has been bought, since an unbought set
+      // returns no items at all.
+      items = shuffleWithinBands(itemRows, req.query.seed, { coverKey: s.cover_key })
+        .map((i) => ({ id: i.id, mediaType: i.media_type, mediaUrl: toUrl(i.r2_key) }));
     }
 
     res.json({

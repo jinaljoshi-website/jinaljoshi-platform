@@ -101,6 +101,10 @@ export default function Collections() {
   const [pending, setPending] = useState(null);   // an unlock waiting on tokens
   const [lightbox, setLightbox] = useState(null);
   const [denied,  setDenied]  = useState(false);
+  // One seed per opening, as in the gallery: the order is fresh each visit but
+  // steady while the set is open, so a refetch does not rearrange things
+  // somebody is part-way through.
+  const seedRef = useRef(null);
 
   const load = async () => {
     try {
@@ -119,8 +123,9 @@ export default function Collections() {
 
   const openSet = async (id) => {
     setError('');
+    if (!seedRef.current) seedRef.current = Math.random().toString(36).slice(2, 12);
     try {
-      const d = await api.get(`/api/collections/sets/${id}`);
+      const d = await api.get(`/api/collections/sets/${id}?seed=${seedRef.current}`);
       setOpen(d);
     } catch (err) { setError(err.message); }
   };
@@ -165,7 +170,7 @@ export default function Collections() {
   if (open) {
     return (
       <div style={page}>
-        <button onClick={() => { setOpen(null); navigate('/platform/collections'); }} style={backBtn}>← Back</button>
+        <button onClick={() => { setOpen(null); seedRef.current = null; navigate('/platform/collections'); }} style={backBtn}>← Back</button>
 
         <h1 style={{ ...h1, marginTop: 18 }}>{open.title}</h1>
         {open.photographer && <div style={credit}>Photographed by {open.photographer}</div>}

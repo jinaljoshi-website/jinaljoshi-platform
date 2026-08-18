@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { api } from '../api';
@@ -41,6 +41,11 @@ export default function Gallery() {
 
   const { setId } = useParams();
   const [setItems,  setSetItems]  = useState([]);
+  // One seed per opening of a set. The server shuffles from it, so every fetch
+  // while the set is open returns the same order — refreshing after an unlock
+  // does not rearrange the photographs somebody is part-way through. Opening
+  // the set again makes a new one, and the set reads differently.
+  const seedRef = useRef(null);
   const [itemsLoad, setItemsLoad] = useState(false);
   const [lightbox,  setLightbox]  = useState(null);
   const [unlockingScope, setUnlockingScope] = useState(null);
@@ -70,8 +75,9 @@ export default function Gallery() {
     setSetItems([]);
     setViewerError('');
     setItemsLoad(true);
+    seedRef.current = Math.random().toString(36).slice(2, 12);
     try {
-      const itemsData = await api.get(`/api/gallery/sets/${set.id}/items`);
+      const itemsData = await api.get(`/api/gallery/sets/${set.id}/items?seed=${seedRef.current}`);
       setSetItems(itemsData.items || []);
     } catch (err) {
       setViewerError('Failed to load set contents');
@@ -105,7 +111,11 @@ export default function Gallery() {
     const updated = (freshData.sets
       || [...(freshData.unlockable || []), ...(freshData.freeForAll || [])]).find((s) => s.id === setId);
     if (updated) setOpenSet(updated);
-    const itemsData = await api.get(`/api/gallery/sets/${setId}/items`);
+    // The same seed the set was opened with, so what was already on screen does
+    // not move when more is unlocked. The new photographs arrive in their own
+    // band, shuffled among themselves — bands keep their places, which is what
+    // shuffling within a tier means.
+    const itemsData = await api.get(`/api/gallery/sets/${setId}/items?seed=${seedRef.current || ''}`);
     setSetItems(itemsData.items || []);
   };
 
