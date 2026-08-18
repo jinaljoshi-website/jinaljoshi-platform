@@ -353,6 +353,82 @@ router.post('/:id/joined', authMid, async (req, res) => {
 // IMPORTANT: this literal route MUST be registered before the generic GET /:id
 // ─────────────────────────────────────────────
 
+
+// ─────────────────────────────────────────────
+// POST /api/stream-calls/:id/leave
+// ─────────────────────────────────────────────
+//
+// Hanging up ends the call. For either party — whoever puts the phone down
+// first ends it for both, which is how a telephone has always worked.
+//
+// Nothing did this before. Leaving tore down the local connection and told the
+// server nothing, so the row sat at in_progress until the scheduler's duration
+// cutoff came round. Studio went on showing the call as live for the whole
+// paid duration however many times the red button was pressed, and the room
+// stayed open behind it.
+//
+// Time already spent is not refunded. The minutes were bought and the call
+// happened; leaving early is the caller's choice, and it is the same on any
+// other platform.
+router.post('/:id/leave', authMid, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT * FROM call_requests WHERE id = $1 FOR UPDATE`, [req.params.id]
+    );
+    if (!rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Call not found' });
+    }
+    const call = rows[0];
+
+    // Only the two people on it may end it.
+    if (!req.user.isArtist && call.user_id !== req.user.userId) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Not your call' });
+    }
+
+    // Already over. Answering ok rather than an error means a hangup from both
+    // ends — which is the normal case — does not surface an error to whoever
+    // was second.
+    if (!['in_progress', 'ringing'].includes(call.status)) {
+      await client.query('ROLLBACK');
+      return res.json({ ok: true, status: call.status, alreadyEnded: true });
+    }
+
+    // Status only. call_ended_at is not a column anybody else writes, and
+    // inventing one here would make every hangup fail on a database that does
+    // not have it.
+    await client.query(
+      `UPDATE call_requests SET status = 'completed' WHERE id = $1`,
+      [call.id]
+    );
+    await client.query('COMMIT');
+
+    // The room after the record, so a slow Stream call cannot leave the row
+    // saying in_progress when it is not.
+    if (call.stream_call_id) {
+      try {
+        await getStreamClient().video.call('default', call.stream_call_id).end();
+      } catch (e) {
+        // Already ended by the other side or by the cutoff job. Not a failure.
+        if (!/already|not found/i.test(e.message || '')) {
+          console.error('stream-calls/leave: could not end room:', e.message);
+        }
+      }
+    }
+
+    res.json({ ok: true, status: 'completed' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('stream-calls/leave error:', err);
+    res.status(500).json({ error: 'Could not end the call' });
+  } finally {
+    client.release();
+  }
+});
+
 router.get('/my-calls', authMid, async (req, res) => {
   try {
     const { rows } = await pool.query(

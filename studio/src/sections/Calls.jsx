@@ -139,6 +139,7 @@ export function Calls({ openWith }) {
 
   const leaveCall = useCallback(async () => {
     if (!activeCall) return;
+    const id = activeCallRecord?.id;
     try {
       await activeCall.call.leave();
       await activeCall.client.disconnectUser();
@@ -146,8 +147,13 @@ export function Calls({ openWith }) {
     if (pollRef.current) clearInterval(pollRef.current);
     setActiveCall(null);
     setActiveCallRecord(null);
+    // The red button now ends the call rather than only leaving the room.
+    // Without this the row stayed in_progress until the duration cutoff, so
+    // this screen went on showing the call as live however many times it was
+    // pressed — and the room stayed open behind it for the fan.
+    if (id) { try { await api.post(`/api/stream-calls/${id}/leave`, {}); } catch (e) { console.error(e); } }
     api.get('/api/studio/calls').then((d) => setCalls(d.calls || [])).catch(() => {});
-  }, [activeCall]);
+  }, [activeCall, activeCallRecord]);
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 

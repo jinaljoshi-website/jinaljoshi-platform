@@ -207,12 +207,19 @@ export default function Calls() {
 
   const leaveCall = useCallback(async () => {
     if (!activeCall) return;
+    const id = activeCallRecord?.id;
     try { await activeCall.call.leave(); await activeCall.client.disconnectUser(); } catch {}
     if (pollRef.current) clearInterval(pollRef.current);
     setActiveCall(null);
     setActiveCallRecord(null);
-    load();
-  }, [activeCall]);
+    // Tell the server the call is over. Leaving used to tear down the local
+    // connection and say nothing, so the row stayed in_progress until the
+    // duration cutoff came round — Studio went on showing the call as live for
+    // the whole paid duration, and the room stayed open behind it.
+    if (id) { try { await api.post(`/api/stream-calls/${id}/leave`, {}); } catch {} }
+    // Awaited, so the frozen list is replaced before anything reads it again.
+    await load();
+  }, [activeCall, activeCallRecord]);
 
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
@@ -399,7 +406,19 @@ export default function Calls() {
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading…</div>;
 
   // ── Ringing overlay takes over the whole screen, highest priority ──────────
-  const ringingCall = myCalls.find((c) => c.status === 'ringing');
+  // A ring that has not expired.
+  //
+  // myCalls stops refreshing while a call is active — the poll runs only when
+  // there is no active call — so it stays frozen at the moment the call began,
+  // when the row still said ringing. The instant the call ended and activeCall
+  // cleared, that stale row brought the incoming-call overlay back and the
+  // phone rang again, for a call that had just finished.
+  //
+  // Checking the ring window closes that: a call that actually rang and was
+  // answered has a window long past, so a stale row cannot ring anybody.
+  const ringingCall = myCalls.find((c) =>
+    c.status === 'ringing'
+    && (!c.ring_expires_at || new Date(c.ring_expires_at) > new Date()));
   if (ringingCall && !activeCall) {
     return (
       <IncomingCallOverlay
