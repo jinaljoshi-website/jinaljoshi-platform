@@ -4,6 +4,11 @@ import { api } from '../api';
 import BackgroundPicker from '../components/BackgroundPicker';
 import { T, S, Card, Eyebrow, colors } from '../ui';
 
+// The composer sits under the conversation and does not scroll with it.
+const composerBar = { flexShrink: 0, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` };
+const utilityRow  = { flexShrink: 0, display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 };
+const utilityBtn  = { fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 11, padding: '5px 11px', borderRadius: 999, cursor: 'pointer', background: 'transparent', border: `1px solid ${colors.border}`, color: colors.muted };
+
 const sans = "'DM Sans', system-ui, sans-serif";
 const mono    = "'DM Mono', 'Courier New', monospace";
 const display = "'Cormorant Garamond', Georgia, serif";
@@ -36,6 +41,16 @@ export function Community() {
   // noise to do it made a simple job slower than it needed to be.
   const [updates, setUpdates] = useState([]);
   const [updatesOpen, setUpdatesOpen] = useState(false);
+  const [bgOpen,      setBgOpen]      = useState(false);
+  const scrollRef = useRef(null);
+
+  // The newest message is at the bottom, so that is where the view starts and
+  // where it returns after posting. A chat that opens at the top of its history
+  // makes somebody scroll to find out what they missed.
+  const stickToBottom = () => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  };
   const [hovered, setHovered] = useState(null);
 
   const [mode,      setMode]      = useState('say');
@@ -74,6 +89,8 @@ export function Community() {
   const refresh = async () => {
     const d = await api.get('/api/studio/community');
     setPosts(d.posts || []); setUpdates(d.updates || []);
+    // After paint, once the rows have height.
+    requestAnimationFrame(stickToBottom);
     setPolls(d.polls || []); setQuestionWindows(d.questionWindows || []);
   };
 
@@ -129,6 +146,7 @@ export function Community() {
     try {
       const data = await api.post('/api/community/post', { content: content.trim() });
       setPosts((prev) => [{ ...data.post, display_name: 'Jinal Joshi', is_artist: true }, ...prev]);
+      requestAnimationFrame(stickToBottom);
       setContent('');
     } catch (err) {
       setError(err.message);
@@ -159,17 +177,46 @@ export function Community() {
   if (loading) return <T.muted>Loading community…</T.muted>;
 
   return (
-    <div>
-      <Eyebrow>Everyone, in one place</Eyebrow>
-      <T.title>Public Corner</T.title>
+    // A room, not a document.
+    //
+    // This was laid out top to bottom — background picker, composer, then the
+    // conversation last and running off the bottom of the screen. The page
+    // itself did not scroll, so the end of the conversation could not be
+    // reached at all, and the box to reply in sat above everything you were
+    // replying to.
+    //
+    // Now it is what it is: the conversation takes the room, the composer is
+    // anchored under it where a composer belongs, and the wallpaper is a small
+    // control rather than the first thing on the page.
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ flexShrink: 0 }}>
+        <Eyebrow>Everyone, in one place</Eyebrow>
+        <T.title>Public Corner</T.title>
+      </div>
 
-      {/* The wallpaper for this room, set from inside it. */}
-      <BackgroundPicker
-        type="community"
-        current={communityBg}
-        onChange={setCommunityBg}
-        label="Public Corner background"
-      />
+      {/* Wallpaper and system updates, both demoted to one quiet row. Neither
+          is what somebody opens this screen to do. */}
+      <div style={utilityRow}>
+        <button onClick={() => setBgOpen(!bgOpen)} style={utilityBtn}>
+          {bgOpen ? 'Hide background' : 'Background'}
+        </button>
+        {communityBg && (
+          <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
+            Members see this behind the conversation.
+          </span>
+        )}
+      </div>
+
+      {bgOpen && (
+        <div style={{ flexShrink: 0, marginBottom: 12 }}>
+          <BackgroundPicker
+            type="community"
+            current={communityBg}
+            onChange={setCommunityBg}
+            label="Public Corner background"
+          />
+        </div>
+      )}
 
       {updates.length > 0 && (
         <div style={updatesPanel}>
@@ -230,9 +277,134 @@ export function Community() {
         </Card>
       )}
 
-      {/* Post composer */}
-      <Card style={{ marginBottom: 24 }}>
-        <T.sectionTitle>Post to community</T.sectionTitle>
+
+      <div style={{ position: 'relative', borderRadius: communityBg ? 10 : 0, overflow: 'hidden',
+                    flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        {communityBg && (
+          <>
+            <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', zIndex: 0 }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
+          </>
+        )}
+        <div style={{ position: 'relative', zIndex: 2, padding: communityBg ? 14 : 0,
+                      flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {posts.length === 0 && <T.muted>Nothing said yet.</T.muted>}
+          {/* The one thing that scrolls. Height comes from what is left after
+              the header and composer, rather than a guess at a fraction of the
+              viewport — 58vh left the bottom of the list below the fold on a
+              laptop, and the page had no scroll of its own to make up for it. */}
+          <div ref={scrollRef} style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
+            {[...posts].reverse().map((p) => {
+              const poll = pollByPost[p.id];
+              if (poll) return (
+                <div key={p.id} style={{ alignSelf: 'stretch' }}>
+                  <div style={studioPoll}>
+                    <div style={{ fontFamily: display, fontSize: 16, color: colors.text, marginBottom: 10 }}>
+                      {poll.question}
+                    </div>
+                    <div style={{ display: 'grid', gap: 7,
+                                  gridTemplateColumns: poll.optionKind === 'image' ? 'repeat(auto-fit, minmax(110px, 1fr))' : '1fr' }}>
+                      {poll.options.map((o) => (
+                        <div key={o.index} style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: '8px 10px' }}>
+                          {o.imageUrl
+                            ? <img src={o.imageUrl} alt="" style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 5, display: 'block' }} />
+                            : <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{o.label}</div>}
+                          <div style={{ height: 3, background: 'rgba(255,255,255,0.07)', borderRadius: 2, marginTop: 7, overflow: 'hidden' }}>
+                            <div style={{ height: 3, width: `${o.pct}%`, background: colors.accent, borderRadius: 2 }} />
+                          </div>
+                          <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 3 }}>
+                            {o.pct}% · {o.votes} vote{o.votes === 1 ? '' : 's'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 10 }}>
+                      {poll.closed ? 'Closed' : 'Running'} · {poll.totalVotes} vote{poll.totalVotes === 1 ? '' : 's'}
+                      {' · '}
+                      <button onClick={() => updatePost(p.id, { pinned: !p.pinned })} style={modBtn}>
+                        {p.pinned ? 'Unpin' : 'Pin'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+
+              const win = windowByPost[p.id];
+              if (win) return (
+                <div key={p.id} style={{ alignSelf: 'stretch' }}>
+                  <div style={{ ...studioPoll, borderColor: win.closed ? colors.border : colors.accent }}>
+                    <div style={{ fontFamily: display, fontSize: 16, color: colors.text, marginBottom: 5 }}>{win.prompt}</div>
+                    <div style={{ fontFamily: sans, fontSize: 11, color: win.closed ? colors.muted : colors.accent }}>
+                      {win.closed ? 'Closed' : `Open until ${new Date(win.closesAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                      {' · '}
+                      <button onClick={() => updatePost(p.id, { pinned: !p.pinned })} style={modBtn}>
+                        {p.pinned ? 'Unpin' : 'Pin'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+
+              const mine   = p.is_artist;
+              const parent = p.parent_id ? posts.find((x) => x.id === p.parent_id) : null;
+              return (
+                <div key={p.id}
+                     onMouseEnter={() => setHovered(p.id)}
+                     onMouseLeave={() => setHovered(null)}
+                     style={{ display: 'flex', flexDirection: 'column',
+                              alignItems: mine ? 'flex-end' : 'flex-start',
+                              opacity: p.removed ? 0.35 : 1 }}>
+                  <div style={{ fontFamily: sans, fontSize: 11, color: mine ? colors.accent : colors.muted, marginBottom: 3 }}>
+                    {mine ? '★ Jinal' : (p.display_name || 'Member')}
+                    {p.pinned  && <span style={{ color: colors.accent, marginLeft: 6 }}>· pinned</span>}
+                    {p.removed && <span style={{ color: '#D99A9A', marginLeft: 6 }}>· removed</span>}
+                  </div>
+
+                  <div style={{ ...msgBubble,
+                                background: mine ? 'rgba(193,125,74,0.12)' : 'rgba(22,20,16,0.92)',
+                                border: `1px solid ${mine ? 'rgba(193,125,74,0.25)' : colors.border}` }}>
+                    {parent && (
+                      <div style={quoteBox}>
+                        <div style={{ fontFamily: sans, fontSize: 10, color: colors.accent, marginBottom: 2 }}>
+                          {parent.is_artist ? 'Jinal' : (parent.display_name || 'Member')}
+                        </div>
+                        <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, lineHeight: 1.4,
+                                      overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
+                                      WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                          {parent.content}
+                        </div>
+                      </div>
+                    )}
+                    {p.content}
+                  </div>
+
+                  {/* Her controls, on the message itself. Shown on hover so the
+                      room reads as a conversation rather than a control panel,
+                      and always shown on a removed one so it can be put back. */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3,
+                                opacity: (hovered === p.id || p.removed || p.pinned) ? 1 : 0,
+                                transition: 'opacity 120ms ease' }}>
+                    <span style={{ fontFamily: mono, fontSize: 10, color: colors.muted }}>
+                      {new Date(p.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <button onClick={() => updatePost(p.id, { pinned: !p.pinned })} style={modBtn}>
+                      {p.pinned ? 'Unpin' : 'Pin'}
+                    </button>
+                    <button onClick={() => updatePost(p.id, { removed: !p.removed })}
+                            style={{ ...modBtn, color: p.removed ? '#8FC88F' : '#D99A9A' }}>
+                      {p.removed ? 'Restore' : 'Remove'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      {/* Under the conversation, where a composer belongs. No heading: it is
+          obvious what a box beneath a chat is for, and a title here only
+          pushed the conversation further up the screen. */}
+      <div style={composerBar}>
         {error && <div style={S.error}>{error}</div>}
 
         {/* Three ways to start something, in one place. A poll and a question
@@ -358,131 +530,8 @@ export function Community() {
         >
           {posting ? 'Posting…' : mode === 'poll' ? 'Start the poll' : mode === 'ask' ? 'Open the window' : 'Post'}
         </button>
-      </Card>
-
-      {communityBg && (
-        <div style={{ fontFamily: sans, fontSize: 11, color: colors.accent, marginBottom: 10 }}>
-          Showing the current live community background, exactly what members see — manage it from Settings → Backgrounds
-        </div>
-      )}
-
-      <div style={{ position: 'relative', borderRadius: communityBg ? 10 : 0, overflow: 'hidden' }}>
-        {communityBg && (
-          <>
-            <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', zIndex: 0 }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
-          </>
-        )}
-        <div style={{ position: 'relative', zIndex: 2, padding: communityBg ? 14 : 0 }}>
-          {posts.length === 0 && <T.muted>Nothing said yet.</T.muted>}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '58vh', overflowY: 'auto' }}>
-            {[...posts].reverse().map((p) => {
-              const poll = pollByPost[p.id];
-              if (poll) return (
-                <div key={p.id} style={{ alignSelf: 'stretch' }}>
-                  <div style={studioPoll}>
-                    <div style={{ fontFamily: display, fontSize: 16, color: colors.text, marginBottom: 10 }}>
-                      {poll.question}
-                    </div>
-                    <div style={{ display: 'grid', gap: 7,
-                                  gridTemplateColumns: poll.optionKind === 'image' ? 'repeat(auto-fit, minmax(110px, 1fr))' : '1fr' }}>
-                      {poll.options.map((o) => (
-                        <div key={o.index} style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: '8px 10px' }}>
-                          {o.imageUrl
-                            ? <img src={o.imageUrl} alt="" style={{ width: '100%', height: 90, objectFit: 'cover', borderRadius: 5, display: 'block' }} />
-                            : <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{o.label}</div>}
-                          <div style={{ height: 3, background: 'rgba(255,255,255,0.07)', borderRadius: 2, marginTop: 7, overflow: 'hidden' }}>
-                            <div style={{ height: 3, width: `${o.pct}%`, background: colors.accent, borderRadius: 2 }} />
-                          </div>
-                          <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 3 }}>
-                            {o.pct}% · {o.votes} vote{o.votes === 1 ? '' : 's'}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 10 }}>
-                      {poll.closed ? 'Closed' : 'Running'} · {poll.totalVotes} vote{poll.totalVotes === 1 ? '' : 's'}
-                      {' · '}
-                      <button onClick={() => updatePost(p.id, { pinned: !p.pinned })} style={modBtn}>
-                        {p.pinned ? 'Unpin' : 'Pin'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-
-              const win = windowByPost[p.id];
-              if (win) return (
-                <div key={p.id} style={{ alignSelf: 'stretch' }}>
-                  <div style={{ ...studioPoll, borderColor: win.closed ? colors.border : colors.accent }}>
-                    <div style={{ fontFamily: display, fontSize: 16, color: colors.text, marginBottom: 5 }}>{win.prompt}</div>
-                    <div style={{ fontFamily: sans, fontSize: 11, color: win.closed ? colors.muted : colors.accent }}>
-                      {win.closed ? 'Closed' : `Open until ${new Date(win.closesAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
-                      {' · '}
-                      <button onClick={() => updatePost(p.id, { pinned: !p.pinned })} style={modBtn}>
-                        {p.pinned ? 'Unpin' : 'Pin'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-
-              const mine   = p.is_artist;
-              const parent = p.parent_id ? posts.find((x) => x.id === p.parent_id) : null;
-              return (
-                <div key={p.id}
-                     onMouseEnter={() => setHovered(p.id)}
-                     onMouseLeave={() => setHovered(null)}
-                     style={{ display: 'flex', flexDirection: 'column',
-                              alignItems: mine ? 'flex-end' : 'flex-start',
-                              opacity: p.removed ? 0.35 : 1 }}>
-                  <div style={{ fontFamily: sans, fontSize: 11, color: mine ? colors.accent : colors.muted, marginBottom: 3 }}>
-                    {mine ? '★ Jinal' : (p.display_name || 'Member')}
-                    {p.pinned  && <span style={{ color: colors.accent, marginLeft: 6 }}>· pinned</span>}
-                    {p.removed && <span style={{ color: '#D99A9A', marginLeft: 6 }}>· removed</span>}
-                  </div>
-
-                  <div style={{ ...msgBubble,
-                                background: mine ? 'rgba(193,125,74,0.12)' : 'rgba(22,20,16,0.92)',
-                                border: `1px solid ${mine ? 'rgba(193,125,74,0.25)' : colors.border}` }}>
-                    {parent && (
-                      <div style={quoteBox}>
-                        <div style={{ fontFamily: sans, fontSize: 10, color: colors.accent, marginBottom: 2 }}>
-                          {parent.is_artist ? 'Jinal' : (parent.display_name || 'Member')}
-                        </div>
-                        <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, lineHeight: 1.4,
-                                      overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
-                                      WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                          {parent.content}
-                        </div>
-                      </div>
-                    )}
-                    {p.content}
-                  </div>
-
-                  {/* Her controls, on the message itself. Shown on hover so the
-                      room reads as a conversation rather than a control panel,
-                      and always shown on a removed one so it can be put back. */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3,
-                                opacity: (hovered === p.id || p.removed || p.pinned) ? 1 : 0,
-                                transition: 'opacity 120ms ease' }}>
-                    <span style={{ fontFamily: mono, fontSize: 10, color: colors.muted }}>
-                      {new Date(p.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    <button onClick={() => updatePost(p.id, { pinned: !p.pinned })} style={modBtn}>
-                      {p.pinned ? 'Unpin' : 'Pin'}
-                    </button>
-                    <button onClick={() => updatePost(p.id, { removed: !p.removed })}
-                            style={{ ...modBtn, color: p.removed ? '#8FC88F' : '#D99A9A' }}>
-                      {p.removed ? 'Restore' : 'Remove'}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
       </div>
+
     </div>
   );
 }
