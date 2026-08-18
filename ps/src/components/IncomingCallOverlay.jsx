@@ -2,11 +2,21 @@ import { useEffect, useState } from 'react';
 import { C, F } from '../tokens';
 import { startRingtone, stopRingtone } from '../lib/ringtone';
 
-export default function IncomingCallOverlay({ call, onAnswer, onDecline, answering }) {
+export default function IncomingCallOverlay({ call, onAnswer, onDecline, answering, selfInitiated = false }) {
   const [secondsLeft, setSecondsLeft] = useState(null);
 
-  const isWaitingForJinal = !call.artist_joined_at; // priority call, Jinal hasn't answered yet
-  const title = isWaitingForJinal ? 'Calling Jinal…' : 'Jinal is calling you';
+  // Two different situations wearing the same status.
+  //
+  // A call the fan placed is theirs: it rings, then it connects. There is
+  // nothing to accept and no point at which one is offered — the button used to
+  // appear the moment Jinal picked up, on a call the fan had made themselves.
+  //
+  // A call Jinal places arrives unannounced and is asked about properly.
+  const waiting  = !call.artist_joined_at;
+  const askable  = !selfInitiated && !waiting;
+  const title = selfInitiated
+    ? (waiting ? 'Calling Jinal…' : 'Connecting…')
+    : (waiting ? 'Calling Jinal…' : 'Jinal is calling you');
 
   useEffect(() => {
     startRingtone();
@@ -27,23 +37,23 @@ export default function IncomingCallOverlay({ call, onAnswer, onDecline, answeri
   return (
     <div style={overlay}>
       <div style={pulseRing} />
-      <div style={{ fontSize: 56, marginBottom: 20 }}>{isWaitingForJinal ? '📞' : '☎️'}</div>
+      <div style={{ fontSize: 56, marginBottom: 20 }}>{selfInitiated || waiting ? '📞' : '☎️'}</div>
       <div style={{ fontFamily: F.display, fontSize: 32, color: C.text, marginBottom: 8, textAlign: 'center' }}>{title}</div>
       <div style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, marginBottom: 6, textTransform: 'capitalize' }}>{call.call_type} call</div>
       {secondsLeft !== null && (
         <div style={{ fontFamily: F.mono, fontSize: 13, color: C.accent, marginBottom: 40 }}>
-          {isWaitingForJinal ? `Ringing… ${secondsLeft}s` : `Answer within ${secondsLeft}s`}
+          {selfInitiated ? (waiting ? `Ringing… ${secondsLeft}s` : 'One moment') : (waiting ? `Ringing… ${secondsLeft}s` : `Answer within ${secondsLeft}s`)}
         </div>
       )}
 
       <div style={{ display: 'flex', gap: 20 }}>
-        {!isWaitingForJinal && (
+        {askable && (
           <button onClick={onAnswer} disabled={answering} style={answerBtn}>
             {answering ? 'Connecting…' : '✓ Answer'}
           </button>
         )}
         <button onClick={onDecline} style={declineBtn}>
-          {isWaitingForJinal ? '✕ Cancel' : '✕ Decline'}
+          {selfInitiated || waiting ? '✕ Cancel' : '✕ Decline'}
         </button>
       </div>
     </div>

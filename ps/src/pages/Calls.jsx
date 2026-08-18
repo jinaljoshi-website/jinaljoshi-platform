@@ -212,15 +212,27 @@ export default function Calls() {
   // A fan who requested a priority call has already consented to it. Asking them
   // to "answer" once Jinal picks up is a second, pointless gate — so once we see
   // Jinal join a call this fan was already waiting on, connect them straight away.
-  const wasWaitingRef = useRef(false);
+  // A call the fan started connects itself the moment Jinal picks up.
+  //
+  // Asking somebody to accept a call they placed thirty seconds ago is the
+  // wrong question — they have already consented, twice: once by choosing the
+  // call and once by paying for it. The accept step belongs to a call that
+  // arrives unbidden, which here means a scheduled one Jinal rings.
+  //
+  // proposed_by is the discriminator and it is already on the row. An earlier
+  // attempt at this watched for the waiting state with a ref and only joined if
+  // it had seen one — but the list polls every five seconds, so a call answered
+  // inside that window never showed a waiting state at all, and the fan was
+  // asked to accept their own call. The faster Jinal answered, the more
+  // reliably it broke. Reading the row rather than remembering a previous
+  // render removes the race entirely.
+  const fanStarted = (c) => c?.proposed_by === 'fan';
+
   useEffect(() => {
     const ringing = myCalls.find((c) => c.status === 'ringing');
-    if (!ringing || activeCall) { wasWaitingRef.current = false; return; }
-    if (!ringing.artist_joined_at) { wasWaitingRef.current = true; return; }
-    if (wasWaitingRef.current && !answering) {
-      wasWaitingRef.current = false;
-      joinCall(ringing);
-    }
+    if (!ringing || activeCall || answering) return;
+    if (!fanStarted(ringing) || !ringing.artist_joined_at) return;
+    joinCall(ringing);
   }, [myCalls, activeCall, answering, joinCall]);
 
   if (loading) return <div style={{ color: C.muted, fontFamily: F.sans, padding: 24 }}>Loading…</div>;
@@ -232,6 +244,12 @@ export default function Calls() {
       <IncomingCallOverlay
         call={ringingCall}
         answering={answering}
+        // A call the fan placed is never presented as something to accept, at
+        // any point — not while it rings and not in the seconds after Jinal
+        // picks up, when the connection is being made. Passing this rather than
+        // deriving it from artist_joined_at is what keeps an Answer button from
+        // flashing up on a call somebody already made.
+        selfInitiated={ringingCall.proposed_by === 'fan'}
         onAnswer={() => joinCall(ringingCall)}
         onDecline={() => declineRinging(ringingCall.id)}
       />
