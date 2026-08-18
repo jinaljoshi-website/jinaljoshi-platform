@@ -406,13 +406,23 @@ export function Content({ openWith, collection = false }) {
     } finally { setOrderBusy(false); }
   };
 
-  const bulkMove = async (tierCategory) => {
+  const bulkMove = async (target) => {
     setBulkBusy(true); setError('');
     try {
-      const d = await api.post('/api/studio/content/items/move', { itemIds: selected, tierCategory });
-      setReviewItems((prev) => prev.map((i) =>
-        selected.includes(i.id) ? { ...i, tier_category: tierCategory } : i));
-      setSuccess(`Moved ${d.moved} item${d.moved === 1 ? '' : 's'}.`);
+      // Two queues in a collection, tiers everywhere else. The same control,
+      // moving whatever that library actually has to move between.
+      if (target === '__keep' || target === '__remove') {
+        const flag = target === '__remove' ? 'remove' : null;
+        const d = await api.post('/api/studio/content/items/flag', { itemIds: selected, flag });
+        const patch = { review_flag: flag, reviewed_at: new Date().toISOString() };
+        setReviewItems((prev) => prev.map((i) => selected.includes(i.id) ? { ...i, ...patch } : i));
+        setSuccess(`Moved ${d.updated} item${d.updated === 1 ? '' : 's'}.`);
+      } else {
+        const d = await api.post('/api/studio/content/items/move', { itemIds: selected, tierCategory: target });
+        setReviewItems((prev) => prev.map((i) =>
+          selected.includes(i.id) ? { ...i, tier_category: target } : i));
+        setSuccess(`Moved ${d.moved} item${d.moved === 1 ? '' : 's'}.`);
+      }
       clearSelection();
       loadSets();
     } catch (err) { setError(err.message); } finally { setBulkBusy(false); }
@@ -976,11 +986,17 @@ export function Content({ openWith, collection = false }) {
                     Add photos to "{set.title}"
                   </div>
                   <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 12, lineHeight: 1.6 }}>
-                    New items are appended to the tier you choose. Existing items are untouched, so
-                    this is also how you finish a set whose upload was interrupted.
+                    {collection
+                      ? 'New photos are added unreviewed, and go through the same pass as the rest. Existing ones are untouched, so this is also how you finish an interrupted upload.'
+                      : 'New items are appended to the tier you choose. Existing items are untouched, so this is also how you finish a set whose upload was interrupted.'}
                   </div>
                   <div style={{ display: 'grid', gap: 10 }}>
-                    {CATEGORIES.filter((cat) => {
+                    {/* A collection set has one place for files. Offering the
+                        tier list here offered to put photos somewhere it does
+                        not have, which is how a set ends up with items nothing
+                        will ever show. */}
+                    {(collection ? COLLECTION_BUCKETS : CATEGORIES).filter((cat) => {
+                      if (collection) return true;
                       // Respect the same lock as creation: a set is tier-segmented
                       // or purchase-only, never both.
                       const hasPurchase = (counts.purchase_only || 0) > 0;
@@ -1628,10 +1644,15 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   // A collection set is bought whole, so its photos have no tier to be sorted
   // into and nothing to be unsorted from. The only distinction left is whether
   // a photo is staying.
+  // A collection photo has no tier, so the only question is whether it stays.
+  // Three states, not two: one nobody has looked at is not the same as one that
+  // has been kept, and without the distinction there is no way to tell how much
+  // of a set is still to go through.
   const REVIEW_SECTIONS = collection
     ? [
-        { key: '__all',    label: 'Photos',        color: '#D9A45C' },
-        { key: '__remove', label: 'To be removed', color: '#D99A9A' },
+        { key: '__unsorted', label: 'Not yet reviewed', color: '#D9A45C' },
+        { key: '__all',      label: 'Keeping',          color: '#8FC88F' },
+        { key: '__remove',   label: 'To be removed',    color: '#D99A9A' },
       ]
     : [
         { key: '__unsorted', label: 'Unsorted', color: '#D9A45C' },
@@ -1647,7 +1668,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   const byTier = {};
   items.forEach((i) => {
     const key = i.review_flag === 'remove' ? '__remove'
-              : collection                  ? '__all'
+              : collection                  ? (i.reviewed_at ? '__all' : '__unsorted')
               : !i.tier_category            ? '__unsorted'
               :                               i.tier_category;
     (byTier[key] ||= []).push(i);
@@ -1775,7 +1796,11 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   const groupOf = {};
   nearGroups.forEach((g, gi) => g.forEach((it) => { groupOf[it.id] = gi; }));
   const markedCount   = items.filter((i) => i.review_flag === 'remove').length;
-  const unsortedCount = collection ? 0 : items.filter((i) => !i.tier_category && i.review_flag !== 'remove').length;
+  // In a collection, unreviewed means nobody has pressed 1 or 0 on it yet.
+  // Elsewhere it means no tier has been given.
+  const unsortedCount = collection
+    ? items.filter((i) => !i.reviewed_at && i.review_flag !== 'remove').length
+    : items.filter((i) => !i.tier_category && i.review_flag !== 'remove').length;
 
   // The sequence stepped through, fixed for as long as the large view is open.
   //
@@ -1861,6 +1886,18 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
     go(1);
   };
 
+  // Kept: reviewed, and not going. Also the way back out of the removal queue,
+  // which had no way back at all — a mis-hit 0 could only be undone by leaving
+  // the photo there.
+  const keepHere = async () => {
+    if (!current) return;
+    try {
+      await api.post('/api/studio/content/items/flag', { itemIds: [current.id], flag: null });
+      onItemsChanged?.([current.id], { review_flag: null, reviewed_at: new Date().toISOString() });
+    } catch { /* leaving it unreviewed is safe */ }
+    go(1);
+  };
+
   const markRemove = async () => {
     if (!current) return;
     try {
@@ -1874,6 +1911,9 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
     if (at < 0) return;
     const onKey = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // In a collection there is no tier to assign, so 1 is the whole of the
+      // other answer: keep it. Anywhere else the numbers are tiers.
+      if (collection && e.key === '1') { e.preventDefault(); keepHere(); return; }
       if (!collection && TIER_KEYS[e.key]) { e.preventDefault(); sortHere(TIER_KEYS[e.key]); return; }
       if (e.key === '0')    { e.preventDefault(); markRemove(); return; }
       if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
@@ -1956,7 +1996,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
 
         {!ordering && unsortedCount > 0 && (
           <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 14 }}>
-            {unsortedCount} still to sort — open the first and press 1–5 for its tier, or 0 to mark it for removal.
+            {unsortedCount} still to review — open the first and press {collection ? '1 to keep, 0 to remove' : '1–5 for its tier, or 0 to mark it for removal'}.
           </div>
         )}
 
@@ -2042,7 +2082,13 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                     onChange={(e) => { if (e.target.value) { onBulkMove(e.target.value); e.target.value = ''; } }}
                     style={{ ...S.input, width: 'auto', padding: '6px 10px', fontSize: 12 }}>
               <option value="">Move to…</option>
-              {categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>)}
+              {/* A collection has no tiers to move between, only the two
+                  queues. Offering the full tier list there was offering to put
+                  photos somewhere a collection set does not have. */}
+              {collection
+                ? [<option key="keep" value="__keep">Keeping</option>,
+                   <option key="rm"   value="__remove">To be removed</option>]
+                : categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>)}
             </select>
             <button onClick={onBulkDelete} disabled={bulkBusy}
                     style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A',
@@ -2099,7 +2145,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
             </div>
 
             <div style={{ fontFamily: sans, fontSize: 11, color: '#7C736A' }}>
-              {collection ? '0 mark for removal · Arrows to move · Esc to close' : '1 Free · 2 Community · 3 Insider · 4 Premium · 5 Supreme · 0 mark for removal · Arrows to move · Esc to close'}
+              {collection ? '1 keep · 0 remove · Arrows to move · Esc to close' : '1 Free · 2 Community · 3 Insider · 4 Premium · 5 Supreme · 0 mark for removal · Arrows to move · Esc to close'}
             </div>
           </div>
         )}

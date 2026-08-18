@@ -1634,11 +1634,17 @@ router.patch('/content/:id', async (req, res) => {
       );
       const isCollectionSet = Boolean(kindRows[0]?.is_collection);
 
+      // Unreviewed means different things in the two libraries. A gallery photo
+      // is unsorted until it has a tier; a collection photo has no tier at all,
+      // and is unreviewed until somebody has said keep or remove. Both are a
+      // reason to wait before publishing.
       const { rows: pending } = await client.query(
         `SELECT count(*) FILTER (WHERE review_flag = 'remove')::int AS marked,
-                CASE WHEN $2 THEN 0 ELSE
-                  count(*) FILTER (WHERE tier_category IS NULL
-                                     AND review_flag IS DISTINCT FROM 'remove')::int
+                CASE WHEN $2
+                  THEN count(*) FILTER (WHERE reviewed_at IS NULL
+                                          AND review_flag IS DISTINCT FROM 'remove')::int
+                  ELSE count(*) FILTER (WHERE tier_category IS NULL
+                                          AND review_flag IS DISTINCT FROM 'remove')::int
                 END AS unsorted
            FROM set_items WHERE set_id = $1`,
         [req.params.id, isCollectionSet]
