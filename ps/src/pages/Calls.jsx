@@ -249,7 +249,14 @@ export default function Calls() {
   // booking panel below the fold — the page looked as though nothing had
   // happened, while everything needed to actually place the call sat off
   // screen. Somebody who did not think to scroll simply never booked.
-  const permNode = (selected && permStatus) ? (
+  // Functions, not values.
+  //
+  // These were consts holding JSX, which evaluates immediately — and the
+  // booking one reads totalCost and canAfford, both declared further down. So
+  // it read them before they existed and the page went blank on the first tap.
+  // A function body is not evaluated until it is called, and it is called from
+  // the returned tree, by which point everything exists.
+  const renderPerm = () => (selected && permStatus) ? (
         <div style={{
           ...permBox,
           borderColor: permStatus.checking  ? C.border
@@ -291,7 +298,7 @@ export default function Calls() {
   // No heading and no border on this: it now sits inside the card that already
   // says what was chosen and what it costs, so repeating either would just be
   // saying the same thing twice in a smaller font.
-  const bookingNode = (selected && !data?.isUnavailable) ? (
+  const renderBooking = () => (selected && !data?.isUnavailable) ? (
         <div>
           <div style={{ marginBottom: 20 }}>
             <div style={fieldLabel}>Duration</div>
@@ -624,8 +631,8 @@ export default function Calls() {
 
                 {openHere && (
                   <div style={expandArea}>
-                    {permNode}
-                    {bookingNode}
+                    {renderPerm()}
+                    {renderBooking()}
                   </div>
                 )}
               </div>
