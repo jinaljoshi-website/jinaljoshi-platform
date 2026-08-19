@@ -57,11 +57,31 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
   const [codeOpen,   setCodeOpen]   = useState(false);
   const [codeState,  setCodeState]  = useState(null);   // null | 'checking' | 'bad'
 
+  // A coded offer is shown but not applied until it is tapped.
+  //
+  // The endpoint now surfaces a running coded offer along with its code, so
+  // somebody who never saw the announcement is not quietly paying full price.
+  // It is held aside rather than applied for them: taking it should be a
+  // choice, and one tap is a light enough ask.
+  const [pendingOffer, setPendingOffer] = useState(null);
+
   useEffect(() => {
     api.get('/api/coins/bonus-offer')
-      .then((d) => setOffer(d.offer || null))
+      .then((d) => {
+        const o = d.offer || null;
+        if (o?.hasCode) { setPendingOffer(o); setOffer(null); }
+        else            { setOffer(o); setPendingOffer(null); }
+      })
       .catch(() => {});
   }, []);
+
+  const applyPending = () => {
+    if (!pendingOffer) return;
+    setOffer(pendingOffer);
+    setCode(pendingOffer.code || '');
+    setCodeState('applied');
+    setPendingOffer(null);
+  };
 
   const applyCode = async () => {
     if (!code.trim()) return;
@@ -180,6 +200,25 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
           </div>
           <button onClick={onClose} style={closeBtn}>✕</button>
         </div>
+
+        {pendingOffer && (
+          <div style={{ ...offerBar, borderStyle: 'dashed' }}>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <strong style={{ color: C.accent }}>
+                {pendingOffer.label || `${pendingOffer.bonusPct}% bonus tokens`}
+              </strong>
+              <div style={{ fontSize: 11, marginTop: 2, lineHeight: 1.5 }}>
+                {pendingOffer.minTokens > 0 && `On ${pendingOffer.minTokens} tokens or more. `}
+                {endsIn(pendingOffer.endsAt)}
+              </div>
+            </div>
+            <button onClick={applyPending}
+                    style={{ fontFamily: F.sans, fontSize: 12, padding: '7px 14px', borderRadius: 999,
+                             background: C.accent, color: '#1A1410', border: 'none', cursor: 'pointer' }}>
+              Apply {pendingOffer.code}
+            </button>
+          </div>
+        )}
 
         {offer && (
           <div style={offerBar}>

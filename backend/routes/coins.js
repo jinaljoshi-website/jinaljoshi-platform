@@ -503,7 +503,29 @@ router.post('/recharge/webhook', async (req, res) => {
       // confirmation, a coupon could go its whole life never being honoured.
       const offer = await offerFromOrder(pool, payment.notes);
       const bonus = parseInt(payment.notes?.bonus_tokens, 10) || 0;
-      if (bonus > 0) await grantBonusTokens(pool, { userId, amount: bonus, offer });
+      if (bonus > 0) {
+        // In a transaction of its own.
+        //
+        // grantBonusTokens raises the balance and then writes the ledger row.
+        // Run on the pool directly, a failure at the second step left the first
+        // one standing — sixty-five tokens really in an account with nothing at
+        // all recording them, and the offer's own counter never moving because
+        // it comes after the insert. The balance and the ledger then disagreed
+        // permanently and nothing would ever have reconciled them.
+        //
+        // All three succeed together or none of them do.
+        const bonusClient = await pool.connect();
+        try {
+          await bonusClient.query('BEGIN');
+          await grantBonusTokens(bonusClient, { userId, amount: bonus, offer });
+          await bonusClient.query('COMMIT');
+        } catch (e) {
+          await bonusClient.query('ROLLBACK').catch(() => {});
+          throw e;
+        } finally {
+          bonusClient.release();
+        }
+      }
     } catch (e) { console.error('bonus grant via webhook failed:', e.message); }
 
     // Separately caught. Neither the bonus nor this may take down a credit that
@@ -552,7 +574,26 @@ router.post('/recharge/webhook', async (req, res) => {
 // reaches the checkout rather than surprising them at it.
 router.get('/bonus-offer', authMid, async (req, res) => {
   try {
-    const offer = await activeBonusOffer(pool, req.query.code);
+    let offer = await activeBonusOffer(pool, req.query.code);
+
+    // Nothing sitewide? Then look for a coded offer and hand the code over.
+    //
+    // A code that has to be known to be used only rewards whoever happened to
+    // read the announcement. The offer is running either way, and somebody
+    // paying full price because they never saw a post is not a saving — it is
+    // a member who will find out later. Offered plainly, applying it is one
+    // tap; not applying it is then their own choice rather than an accident.
+    if (!offer && !req.query.code) {
+      const { rows } = await pool.query(
+        `SELECT * FROM bonus_offers
+          WHERE active = TRUE AND code IS NOT NULL
+            AND starts_at <= NOW() AND ends_at >= NOW()
+            AND (max_uses IS NULL OR uses < max_uses)
+          ORDER BY bonus_pct DESC LIMIT 1`
+      );
+      offer = rows[0] || null;
+    }
+
     if (!offer) return res.json({ offer: null });
     res.json({
       offer: {
@@ -561,6 +602,8 @@ router.get('/bonus-offer', authMid, async (req, res) => {
         endsAt:    offer.ends_at,
         minTokens: offer.min_tokens || 0,
         hasCode:   !!offer.code,
+        // The code itself, so it can be offered rather than guessed at.
+        code:      offer.code || null,
       },
     });
   } catch (err) {
