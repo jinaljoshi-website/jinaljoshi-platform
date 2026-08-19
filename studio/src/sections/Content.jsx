@@ -394,6 +394,51 @@ export function Content({ openWith, collection = false }) {
   // Pinned sets sit above the arranged order, three at most. Refused rather
   // than silently dropping a fourth: three is a deliberate limit, and a pin
   // that quietly did nothing would be worse than one that says why.
+  // Choosing a cover after the fact, from the photographs already in the set.
+  //
+  // A cover could only be set while creating a set, and otherwise fell back to
+  // whichever photograph happened to be first — so a hundred and twenty-seven
+  // existing sets were stuck with whatever the upload order gave them.
+  //
+  // The blurred version and the share card are regenerated from the new choice,
+  // because both are made from the cover: leaving them would mean the locked
+  // preview and every shared link still showed the old one.
+  const [coverFor, setCoverFor] = useState(null);
+  const [coverItems, setCoverItems] = useState([]);
+  const [coverBusy, setCoverBusy] = useState(null);
+
+  const openCoverPicker = async (set) => {
+    if (coverFor === set.id) { setCoverFor(null); return; }
+    setCoverFor(set.id); setCoverItems([]); setError('');
+    try {
+      const d = await api.get(`/api/studio/content/${set.id}/items`);
+      setCoverItems((d.items || []).filter((i) => i.media_type !== 'video'));
+    } catch (err) { setError(err.message); }
+  };
+
+  const chooseCover = async (set, item) => {
+    setCoverBusy(item.id); setError('');
+    try {
+      const url = toUrl(item.r2_key);
+      // Fetched back so the reduced versions are made from the same image the
+      // fans will see, rather than from anything held in memory here.
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const file = new File([blob], 'cover.jpg', { type: blob.type });
+
+      await api.patch(`/api/studio/content/${set.id}`, {
+        cover_key:    item.r2_key,
+        cover_blur:   await makeCoverBlur(file),
+        cover_og_key: await makeShareCard(file),
+      });
+      setSets((prev) => prev.map((s2) => s2.id === set.id
+        ? { ...s2, cover_key: item.r2_key, cover_url: url } : s2));
+      setSuccess('Cover updated.');
+      setCoverFor(null);
+    } catch (err) { setError(err.message); }
+    finally { setCoverBusy(null); }
+  };
+
   const togglePin = async (st) => {
     setPinBusy(st.id); setError('');
     try {
@@ -1076,6 +1121,34 @@ export function Content({ openWith, collection = false }) {
           const contentCatLabel = CONTENT_CATEGORIES.find((c) => c.key === set.category)?.label;
           return (
             <div key={set.id} style={S.card}>
+              {coverFor === set.id && (
+                <div style={{ marginTop: 12, borderTop: `1px solid ${colors.border}`, paddingTop: 12 }}>
+                  <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 10 }}>
+                    Pick the cover. The blurred preview and the share card are remade from it,
+                    so a locked set and any shared link show the new one too.
+                  </div>
+                  {coverItems.length === 0
+                    ? <T.muted>Loading…</T.muted>
+                    : (
+                      <div style={coverGrid}>
+                        {coverItems.map((item) => {
+                          const current = set.cover_key === item.r2_key;
+                          return (
+                            <button key={item.id} onClick={() => chooseCover(set, item)}
+                                    disabled={coverBusy !== null}
+                                    style={{ ...coverPick, borderColor: current ? colors.accent : colors.border,
+                                             opacity: coverBusy && coverBusy !== item.id ? 0.4 : 1 }}>
+                              <LazyThumb src={toUrl(item.r2_key)} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', display: 'block', borderRadius: 3 }} />
+                              {current && <span style={coverNow}>Current</span>}
+                              {coverBusy === item.id && <span style={coverNow}>Saving…</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                </div>
+              )}
+
               {addingTo === set.id && (
                 <div style={addPanel}>
                   <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, marginBottom: 4 }}>
@@ -1260,6 +1333,9 @@ export function Content({ openWith, collection = false }) {
 
                 <div style={rowActions}>
                   <button onClick={() => openReview(set)} style={actionBtn}>Review</button>
+                  <button onClick={() => openCoverPicker(set)} style={actionBtn}>
+                    {coverFor === set.id ? 'Close' : 'Cover'}
+                  </button>
                   <button onClick={() => togglePin(set)} disabled={pinBusy === set.id}
                           style={{ ...actionBtn, ...(set.pinned_at ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
                     {pinBusy === set.id ? '…' : set.pinned_at ? 'Unpin' : 'Pin'}
@@ -2347,6 +2423,10 @@ const pricingBox = { marginTop: 12, background: 'rgba(255,255,255,0.02)', border
 const priceTbl   = { width: '100%', borderCollapse: 'collapse', fontFamily: sans, fontSize: 12 };
 const priceTh    = { textAlign: 'left', padding: '6px 8px', borderBottom: `1px solid ${colors.border}`, color: colors.muted, fontFamily: mono, fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', whiteSpace: 'nowrap' };
 const priceTd    = { padding: '7px 8px', borderBottom: `1px solid ${colors.border}`, color: colors.muted, verticalAlign: 'top' };
+
+const coverGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(84px,1fr))', gap: 8, maxHeight: 320, overflowY: 'auto' };
+const coverPick = { position: 'relative', padding: 0, background: 'none', border: '2px solid transparent', borderRadius: 5, cursor: 'pointer' };
+const coverNow  = { position: 'absolute', bottom: 4, left: 4, fontFamily: mono, fontSize: 8, letterSpacing: '0.1em', textTransform: 'uppercase', color: colors.accent, background: 'rgba(13,12,10,0.8)', borderRadius: 2, padding: '2px 5px' };
 
 const rowActions = { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` };
 const actionBtn  = { ...S.ghostBtn, fontSize: 12, padding: '6px 12px', whiteSpace: 'nowrap' };
