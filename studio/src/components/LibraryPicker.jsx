@@ -17,6 +17,13 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { T, S, colors } from '../ui';
 
+// The set-items endpoint returns raw rows — r2_key, not a URL. Every other
+// screen that uses it builds the URL itself, and this one did not: the images
+// were given undefined and rendered blank, and worse, every item was stored
+// with url: undefined so they all compared equal and selecting one selected
+// the lot.
+const toUrl = (k) => (!k ? null : String(k).startsWith('http') ? k : `${import.meta.env.VITE_R2_PUBLIC_URL || ''}/${k}`);
+
 const sans = "'DM Sans', system-ui, sans-serif";
 const mono = "'DM Mono', 'Courier New', monospace";
 
@@ -52,12 +59,17 @@ export default function LibraryPicker({ onCancel, onPick }) {
     setOpenSet(set); setItems([]); setError('');
     try {
       const d = await api.get(`/api/studio/content/${set.id}/items`);
-      setItems((d.items || []).filter((i) => i.review_flag !== 'remove'));
+      setItems((d.items || [])
+        .filter((i) => i.review_flag !== 'remove')
+        .map((i) => ({ ...i, url: i.media_url || toUrl(i.r2_key) })));
     } catch (err) { setError(err.message); }
   };
 
   const toggle = (item, set) => {
-    const url = item.url || item.media_url;
+    const url = item.url || item.media_url || toUrl(item.r2_key);
+    // Without a url there is nothing to send, and storing undefined made every
+    // item compare equal to every other.
+    if (!url) return;
     setChosen((prev) => prev.some((c) => c.url === url)
       ? prev.filter((c) => c.url !== url)
       : [...prev, {
@@ -69,7 +81,10 @@ export default function LibraryPicker({ onCancel, onPick }) {
         }]);
   };
 
-  const isChosen = (item) => chosen.some((c) => c.url === (item.url || item.media_url));
+  const isChosen = (item) => {
+    const url = item.url || item.media_url || toUrl(item.r2_key);
+    return Boolean(url) && chosen.some((c) => c.url === url);
+  };
 
   // What is being given away, so it is visible while choosing rather than
   // discovered afterwards.
@@ -130,7 +145,7 @@ export default function LibraryPicker({ onCancel, onPick }) {
             {items.map((it) => (
               <button key={it.id} onClick={() => toggle(it, openSet)}
                       style={{ ...thumbBtn, borderColor: isChosen(it) ? colors.accent : 'transparent' }}>
-                <img src={it.media_url} alt="" style={thumb} />
+                <img src={it.url} alt="" style={thumb} />
                 {isChosen(it) && <span style={tick}>✓</span>}
               </button>
             ))}
