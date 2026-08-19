@@ -342,6 +342,21 @@ export function Messages() {
           content: reply.trim() || undefined,
         });
         setThread((prev) => [...prev, data.message]);
+
+        // Mirrored to Stream, which is where the fan app actually reads live
+        // messages from. Without this the message existed in the database and
+        // showed here from the API response, while the fan's client never heard
+        // about it — sent, stored, and invisible.
+        if (channelRef.current) {
+          await channelRef.current.sendMessage({
+            id: data.message.id,
+            text: reply.trim() || undefined,
+            locked_media: true,
+            db_message_id: data.message.id,
+            locked_price: price,
+            locked_item_count: picked.length,
+          }).catch((e) => console.error('Stream mirror failed:', e.message));
+        }
         setReply('');
       } else {
         for (const item of picked) await sendReply(item.url, item.type);
@@ -476,7 +491,10 @@ export function Messages() {
           db_message_id: data.message.id,
           locked_price: parseInt(lockedPrice),
           locked_item_count: mediaItems.length,
-        }).catch(() => {});
+        // Was swallowed silently. A message that reaches the database but not
+        // Stream shows here and never reaches the fan, which looks like
+        // nothing wrong at all from this side.
+        }).catch((e) => console.error('Stream mirror failed:', e.message));
       }
 
       api.get('/api/studio/dms').then((d) => setConvos(d.conversations || [])).catch(() => {});

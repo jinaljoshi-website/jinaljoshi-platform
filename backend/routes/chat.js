@@ -71,7 +71,13 @@ router.get('/messages', authMid, async (req, res) => {
        FROM direct_messages
        WHERE (sender_id = $1 AND recipient_id = $2)
           OR (sender_id = $2 AND recipient_id = $1)
-       ORDER BY created_at ASC LIMIT 50`,
+       -- The most recent fifty, put back into reading order.
+       --
+       -- This was ASC LIMIT 50, which is the *oldest* fifty. A thread longer
+       -- than that showed its first fifty messages and nothing since, so
+       -- everything new was invisible — a locked media message sent today
+       -- simply never appeared, however many times it was sent.
+       ORDER BY created_at DESC LIMIT 50`,
       [req.user.userId, process.env.ARTIST_USER_ID]
     );
     // Marked read when the thread is opened. Studio has always done this for
@@ -83,7 +89,7 @@ router.get('/messages', authMid, async (req, res) => {
       [process.env.ARTIST_USER_ID, req.user.userId]
     ).catch(() => {});
 
-    res.json({ messages: rows.map(toFanSafeMessage) });
+    res.json({ messages: rows.reverse().map(toFanSafeMessage) });
   } catch (err) {
     console.error('chat/messages error:', err);
     res.status(500).json({ error: 'Failed to load messages' });
