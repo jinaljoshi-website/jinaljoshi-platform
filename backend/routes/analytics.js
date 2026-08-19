@@ -237,6 +237,26 @@ router.get('/sets', async (req, res) => {
            AND cl.related_id IS NOT NULL AND u.is_test = FALSE
          GROUP BY cl.related_id
        ),
+       -- The same money, split by which part of the set it opened.
+       --
+       -- The ledger knows what was really paid; access_grants knows the route.
+       -- Splitting on the grant's own coins_paid counted gifted and bonus
+       -- tokens, so the parts exceeded the whole — ₹21,422 against a real
+       -- ₹17,730 — and twenty-one sets disagreed with their own total.
+       spend_by_scope AS (
+         SELECT cl.related_id AS set_id,
+                COALESCE(SUM(cl.from_purchased) FILTER (WHERE ag.scope = 'tier'), 0)::int   AS ladder_purchased,
+                COALESCE(SUM(cl.from_purchased) FILTER (WHERE ag.scope = 'upsell'), 0)::int AS upsell_purchased
+         FROM coin_ledger cl
+         JOIN users u ON u.id = cl.user_id
+         LEFT JOIN access_grants ag
+                ON ag.user_id = cl.user_id
+               AND ag.set_id  = cl.related_id
+               AND ag.coins_paid = cl.amount
+         WHERE cl.type = 'content_unlock' AND cl.direction = 'debit'
+           AND cl.related_id IS NOT NULL AND u.is_test = FALSE
+         GROUP BY cl.related_id
+       ),
        unlocks AS (
          -- Split by how it was opened, not just how many times.
          --
@@ -250,9 +270,7 @@ router.get('/sets', async (req, res) => {
                 COUNT(*) FILTER (WHERE COALESCE(ag.coins_paid, 0) = 0)::int  AS credit_unlocks,
                 COUNT(*) FILTER (WHERE ag.scope = 'tier'
                                    AND COALESCE(ag.coins_paid, 0) > 0)::int  AS ladder_unlocks,
-                COUNT(*) FILTER (WHERE ag.scope = 'upsell')::int             AS upsell_unlocks,
-                COALESCE(SUM(ag.coins_paid) FILTER (WHERE ag.scope = 'tier'), 0)::int   AS ladder_tokens,
-                COALESCE(SUM(ag.coins_paid) FILTER (WHERE ag.scope = 'upsell'), 0)::int AS upsell_tokens
+                COUNT(*) FILTER (WHERE ag.scope = 'upsell')::int             AS upsell_unlocks
          FROM access_grants ag
          JOIN users u ON u.id = ag.user_id
          WHERE u.is_test = FALSE GROUP BY ag.set_id
@@ -265,13 +283,14 @@ router.get('/sets', async (req, res) => {
               COALESCE(u.credit_unlocks, 0)   AS credit_unlocks,
               COALESCE(u.ladder_unlocks, 0)   AS ladder_unlocks,
               COALESCE(u.upsell_unlocks, 0)   AS upsell_unlocks,
-              COALESCE(u.ladder_tokens, 0)    AS ladder_tokens,
-              COALESCE(u.upsell_tokens, 0)    AS upsell_tokens,
+              COALESCE(sc.ladder_purchased, 0) AS ladder_purchased,
+              COALESCE(sc.upsell_purchased, 0) AS upsell_purchased,
               COALESCE(sp.purchased_tokens,0) AS purchased_tokens,
               COALESCE(sp.gifted_tokens, 0)   AS gifted_tokens
        FROM sets s
        LEFT JOIN spend sp   ON sp.set_id = s.id
        LEFT JOIN unlocks u  ON u.set_id  = s.id
+       LEFT JOIN spend_by_scope sc ON sc.set_id = s.id
        ORDER BY 7 DESC, s.created_at DESC`
     );
 
@@ -288,8 +307,8 @@ router.get('/sets', async (req, res) => {
         // one number for both hides which of them is working.
         ladderUnlocks: r.ladder_unlocks,
         upsellUnlocks: r.upsell_unlocks,
-        ladderInr: round((r.ladder_tokens * rate) / (1 + gstPct / 100)),
-        upsellInr: round((r.upsell_tokens * rate) / (1 + gstPct / 100)),
+        ladderInr: round((r.ladder_purchased * rate) / (1 + gstPct / 100)),
+        upsellInr: round((r.upsell_purchased * rate) / (1 + gstPct / 100)),
         purchasedTokens: r.purchased_tokens, giftedTokens: r.gifted_tokens,
         revenueInr: round(directInr),
       };
