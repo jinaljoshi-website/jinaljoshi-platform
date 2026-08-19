@@ -238,9 +238,21 @@ router.get('/sets', async (req, res) => {
          GROUP BY cl.related_id
        ),
        unlocks AS (
+         -- Split by how it was opened, not just how many times.
+         --
+         -- A set opened fifteen times on memberships and once on the ladder is
+         -- a different thing from one opened once at full price, and a single
+         -- count says neither. scope tells them apart: an upsell grant is the
+         -- exclusive portion, a tier grant with tokens against it is a rung on
+         -- the ladder, and a tier grant with none is a membership open.
          SELECT ag.set_id,
                 COUNT(*)::int AS unlocks,
-                COUNT(*) FILTER (WHERE COALESCE(ag.coins_paid, 0) = 0)::int AS credit_unlocks
+                COUNT(*) FILTER (WHERE COALESCE(ag.coins_paid, 0) = 0)::int  AS credit_unlocks,
+                COUNT(*) FILTER (WHERE ag.scope = 'tier'
+                                   AND COALESCE(ag.coins_paid, 0) > 0)::int  AS ladder_unlocks,
+                COUNT(*) FILTER (WHERE ag.scope = 'upsell')::int             AS upsell_unlocks,
+                COALESCE(SUM(ag.coins_paid) FILTER (WHERE ag.scope = 'tier'), 0)::int   AS ladder_tokens,
+                COALESCE(SUM(ag.coins_paid) FILTER (WHERE ag.scope = 'upsell'), 0)::int AS upsell_tokens
          FROM access_grants ag
          JOIN users u ON u.id = ag.user_id
          WHERE u.is_test = FALSE GROUP BY ag.set_id
@@ -251,6 +263,10 @@ router.get('/sets', async (req, res) => {
                 WHERE spx.set_id = s.id) AS photographer,
               COALESCE(u.unlocks, 0)          AS unlocks,
               COALESCE(u.credit_unlocks, 0)   AS credit_unlocks,
+              COALESCE(u.ladder_unlocks, 0)   AS ladder_unlocks,
+              COALESCE(u.upsell_unlocks, 0)   AS upsell_unlocks,
+              COALESCE(u.ladder_tokens, 0)    AS ladder_tokens,
+              COALESCE(u.upsell_tokens, 0)    AS upsell_tokens,
               COALESCE(sp.purchased_tokens,0) AS purchased_tokens,
               COALESCE(sp.gifted_tokens, 0)   AS gifted_tokens
        FROM sets s
@@ -267,6 +283,13 @@ router.get('/sets', async (req, res) => {
         id: r.id, title: r.title, photographer: r.photographer,
         priceTokens: r.price_coins,
         unlocks: r.unlocks, creditUnlocks: r.credit_unlocks,
+        // Where the money came from within the set. The ladder and the
+        // exclusive portion are priced differently and behave differently, and
+        // one number for both hides which of them is working.
+        ladderUnlocks: r.ladder_unlocks,
+        upsellUnlocks: r.upsell_unlocks,
+        ladderInr: round((r.ladder_tokens * rate) / (1 + gstPct / 100)),
+        upsellInr: round((r.upsell_tokens * rate) / (1 + gstPct / 100)),
         purchasedTokens: r.purchased_tokens, giftedTokens: r.gifted_tokens,
         revenueInr: round(directInr),
       };

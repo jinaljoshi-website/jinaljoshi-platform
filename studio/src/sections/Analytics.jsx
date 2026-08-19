@@ -341,7 +341,7 @@ export function Analytics() {
         <>
           <div style={S.statsRow}>
             <Stat head="Earned by the gallery" value={rupees(d.totalRevenueInr)} tone={colors.success}
-                  sub="tokens spent opening sets, net of GST" />
+                  sub="tokens spent opening sets · net of GST" />
           </div>
           <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 14, lineHeight: 1.6, maxWidth: 640 }}>
             What sets have earned directly — tokens somebody spent to open them, net of {d.gstPct}%
@@ -355,13 +355,27 @@ export function Analytics() {
                 <div style={{ flex: 1, minWidth: 180 }}>
                   <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{s.title}</div>
                   <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
-                    {s.photographer ? `${s.photographer} · ` : ''}{s.unlocks} unlock{s.unlocks === 1 ? '' : 's'}
+                    {/* Opened how many times, and by which route. A set opened
+                        fifteen times on memberships and once on the ladder is a
+                        different thing from one opened once at full price, and a
+                        single count says neither. */}
+                    {s.photographer ? `${s.photographer} · ` : ''}
+                    opened {s.unlocks} time{s.unlocks === 1 ? '' : 's'}
                     {s.creditUnlocks > 0 && ` · ${s.creditUnlocks} on a membership`}
+                    {s.ladderUnlocks > 0 && ` · ${s.ladderUnlocks} on the ladder`}
+                    {s.upsellUnlocks > 0 && ` · ${s.upsellUnlocks} exclusive`}
                     {s.giftedTokens > 0 && ` · ${s.giftedTokens} gifted`}
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{rupees(s.revenueInr)}</div>
+                  {(s.ladderInr > 0 || s.upsellInr > 0) && (
+                    <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
+                      {s.ladderInr > 0 && `ladder ${rupees(s.ladderInr)}`}
+                      {s.ladderInr > 0 && s.upsellInr > 0 && ' · '}
+                      {s.upsellInr > 0 && `exclusive ${rupees(s.upsellInr)}`}
+                    </div>
+                  )}
                   {s.purchasedTokens > 0 && (
                     <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
                       {s.purchasedTokens} token{s.purchasedTokens === 1 ? '' : 's'} spent
