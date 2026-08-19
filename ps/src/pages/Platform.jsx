@@ -1,5 +1,5 @@
 // ps/src/pages/Platform.jsx
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { api, getUser, logout } from '../api';
@@ -16,7 +16,19 @@ import Membership from './Membership';
 import Community  from './Community';
 import Calls      from './Calls';
 import Shop       from './Shop';
-import Collections from './Collections';
+// Loaded only when somebody goes there.
+//
+// A static import puts the whole page — its strings, its lattice, its API
+// paths — into the one bundle every visitor downloads, so anybody who opened
+// the developer tools and searched for it would find it in seconds. That does
+// not breach anything, since the server answers 404 to whoever cannot open it,
+// but it does mean the section is not unknown, and being unremarkable is most
+// of what discretion here amounts to.
+//
+// Split out, the main bundle carries only a reference. The chunk itself is
+// fetched the first time somebody navigates to the section, which is somebody
+// who already has access.
+const Collections = lazy(() => import('./Collections'));
 import Coins      from './Coins';
 import Profile    from './Profile';
 
@@ -34,7 +46,9 @@ const navItems = [
 // Added to the list only for somebody who can open it. The membership status
 // carries no key at all for anybody else — not a false one — so there is
 // nothing here to notice, and nothing that appears greyed out or locked.
-const collectionsNav = { to: '/platform/collections', label: 'The Private Collection', gilt: true };
+// No label here. A name in the bundle is a name everybody can read, so it comes
+// from the server with the access check — and only to somebody who has access.
+const collectionsNav = { to: '/platform/collections', gilt: true };
 
 // The one nav item that is not the same as the others, because getting to it
 // was not the same as getting to the others.
@@ -306,12 +320,12 @@ export default function Platform() {
   useEffect(() => {
     let live = true;
     api.get('/api/membership/status')
-      .then((d) => { if (live) setCanSeeCollections(Boolean(d.collections)); })
+      .then((d) => { if (live) setCanSeeCollections(d.collections?.label || false); })
       .catch(() => {});
     return () => { live = false; };
   }, []);
 
-  const nav = canSeeCollections ? [...navItems, collectionsNav] : navItems;
+  const nav = canSeeCollections ? [...navItems, { ...collectionsNav, label: canSeeCollections }] : navItems;
 
   // Injected only when there is something to gild, so the stylesheet carries no
   // trace of the section for anybody who cannot see it.
@@ -454,8 +468,8 @@ export default function Platform() {
             <Route path="gallery/:setId" element={<Gallery />} />
             <Route path="selfies"    element={<Navigate to="/platform/gallery?tab=selfies" replace />} />
             <Route path="membership" element={<Membership />} />
-            <Route path="collections" element={<Collections />} />
-            <Route path="collections/:setId" element={<Collections />} />
+            <Route path="collections" element={<Suspense fallback={null}><Collections /></Suspense>} />
+            <Route path="collections/:setId" element={<Suspense fallback={null}><Collections /></Suspense>} />
             <Route path="community"  element={<Community />}  />
             <Route path="calls"      element={<Calls />}      />
             <Route path="shop"       element={<Shop />}       />
@@ -501,8 +515,8 @@ export default function Platform() {
             <Route path="gallery/:setId" element={<Gallery />} />
             <Route path="selfies"    element={<Navigate to="/platform/gallery?tab=selfies" replace />} />
                 <Route path="membership" element={<Membership />} />
-                <Route path="collections" element={<Collections />} />
-                <Route path="collections/:setId" element={<Collections />} />
+                <Route path="collections" element={<Suspense fallback={null}><Collections /></Suspense>} />
+                <Route path="collections/:setId" element={<Suspense fallback={null}><Collections /></Suspense>} />
                 <Route path="community"  element={<Community />}  />
                 <Route path="calls"      element={<Calls />}      />
                 <Route path="shop"       element={<Shop />}       />

@@ -152,8 +152,12 @@ router.get('/status', authMid, async (req, res) => {
     // Present only for somebody who has access. Absent for everybody else —
     // not false, absent — so the response carries no sign the feature exists
     // and there is nothing to notice by comparing two accounts.
+    // The name comes from here rather than the bundle. A label written into the
+    // fan app ships to everybody, so anybody searching the JavaScript would find
+    // what the section is called even with the page itself split out. Sent only
+    // to somebody who can open it, it is in no bundle at all.
     const collections = hasCollectionsAccess(user, now)
-      ? { until: user.collections_until || null }
+      ? { until: user.collections_until || null, label: 'The Private Collection' }
       : undefined;
 
     res.json({

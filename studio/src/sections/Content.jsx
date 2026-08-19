@@ -140,11 +140,26 @@ async function runPool(tasks, limit, onEach) {
   await Promise.all(workers);
 }
 
+// Both lists, each key once.
+//
+// purchase_only is in UPLOAD_BUCKETS and in CATEGORIES, so a plain
+// [...UPLOAD_BUCKETS, ...CATEGORIES] visits it twice — and the upload loop
+// walked that list, so every purchase-only file was uploaded twice. A set of
+// forty-four came back as eighty-eight.
+function allBuckets() {
+  const seen = new Set();
+  return [...UPLOAD_BUCKETS, ...CATEGORIES].filter((c) => {
+    if (seen.has(c.key)) return false;
+    seen.add(c.key);
+    return true;
+  });
+}
+
 function emptyCategoryFiles() {
   const obj = {};
   // Both what the upload form offers and every tier, because a set opened for
   // editing may still hold files picked under an older shape.
-  [...UPLOAD_BUCKETS, ...CATEGORIES].forEach((c) => { obj[c.key] ||= []; });
+  allBuckets().forEach((c) => { obj[c.key] ||= []; });
   return obj;
 }
 
@@ -593,8 +608,9 @@ export function Content({ openWith, collection = false }) {
 
   const uploadAllPending = async (setId, startPosition) => {
     const queue = [];
-    // Both, so anything picked under the older six-bucket form still uploads.
-    [...UPLOAD_BUCKETS, ...CATEGORIES].forEach((cat) => {
+    // Both, so anything picked under the older six-bucket form still uploads —
+    // and each key only once, or the files in it upload twice over.
+    allBuckets().forEach((cat) => {
       (filesByCategory[cat.key] || []).forEach((item, i) => {
         if (item.status === 'done') return;
         queue.push({ cat: cat.key, catLabel: cat.label, i, item });
@@ -1823,10 +1839,24 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   //
   // Frozen, the sequence is whatever was on screen when the view opened, and a
   // keystroke always lands on the photo being looked at.
+  // The sequence stepped through, fixed while the large view is open — and
+  // limited to the section it was opened from.
+  //
+  // ordered spans every section, so a pass begun in Unsorted carried on into
+  // Keeping and then into To be removed: photos already dealt with came round
+  // again, and ones marked for removal were presented as though they still
+  // needed a decision. A pass through Unsorted should end when the unsorted
+  // ones do.
+  //
+  // Frozen because ordered is rebuilt each render, and a photo given a verdict
+  // leaves its section — so the list would shift under the very keypress that
+  // moved it, and every second photo went unseen.
   const [frozenOrder, setFrozenOrder] = useState(null);
   useEffect(() => {
-    if (typeof lightbox === 'number') setFrozenOrder((prev) => prev || ordered);
-    else setFrozenOrder(null);
+    // Only cleared on closing. Setting it is openInSection's job, which knows
+    // which section the pass belongs to — filling it in here would replace that
+    // with the whole set the moment the next render came round.
+    if (typeof lightbox !== 'number') setFrozenOrder(null);
   }, [lightbox]);
   const walk = frozenOrder || ordered;
 
@@ -1860,6 +1890,13 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
 
   // Takes the rows rather than a tier key, because Unsorted is a section on the
   // screen and not a tier anything is stored in.
+  // Opens a photo with the pass scoped to its own section.
+  const openInSection = (sectionKey, item) => {
+    const rows = byTier[sectionKey] || [];
+    setFrozenOrder(rows);
+    setLightbox(Math.max(0, rows.findIndex((r) => r.id === item.id)));
+  };
+
   const selectSection = (rows) => {
     const ids = rows.map((i) => i.id);
     const allIn = ids.every((id) => selected.includes(id));
@@ -2037,12 +2074,12 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                   {/* Once anything is selected, clicking selects rather than opens —
                       otherwise a stray click mid-selection loses the lot. */}
                   {item.media_type === 'video' || item.type === 'video' ? (
-                    <div onClick={(e) => selecting ? toggle(item, e.shiftKey) : setLightbox(ordered.indexOf(item))}
+                    <div onClick={(e) => selecting ? toggle(item, e.shiftKey) : openInSection(cat.key, item)}
                          style={{ ...reviewThumb, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, cursor: 'pointer',
                                   outline: isSelected(item.id) ? `2px solid ${colors.accent}` : 'none', outlineOffset: -2 }}>🎬</div>
                   ) : (
                     <LazyThumb src={mediaUrl(item.r2_key)} alt=""
-                               onClick={(e) => selecting ? toggle(item, e.shiftKey) : setLightbox(ordered.indexOf(item))}
+                               onClick={(e) => selecting ? toggle(item, e.shiftKey) : openInSection(cat.key, item)}
                                style={{ ...reviewThumb, cursor: 'pointer',
                                         outline: isSelected(item.id) ? `2px solid ${colors.accent}` : 'none', outlineOffset: -2,
                                         opacity: selecting && !isSelected(item.id) ? 0.55 : 1 }} />
