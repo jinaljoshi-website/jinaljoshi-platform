@@ -67,6 +67,12 @@ router.get('/messages', authMid, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, sender_id, recipient_id, content, media_url, media_type,
               locked_media_urls, unlock_price_coins, unlocked_at,
+              -- Per message, not per conversation. The column has always been
+              -- kept up to date and was never sent, so the app had nothing to
+              -- go on: it marked every message read when a read event arrived
+              -- and lost that on reload, since anything from the database came
+              -- back as merely delivered.
+              read,
               tokens_charged, created_at, (sender_id = $1) AS is_mine
        FROM direct_messages
        WHERE (sender_id = $1 AND recipient_id = $2)

@@ -135,7 +135,9 @@ router.post('/:id/decline', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows } = await client.query(
-      `SELECT * FROM call_requests WHERE id = $1 FOR UPDATE`,
+      `SELECT cr.*, u.display_name, u.email
+         FROM call_requests cr JOIN users u ON u.id = cr.user_id
+        WHERE cr.id = $1 FOR UPDATE OF cr`,
       [req.params.id]
     );
     if (!rows.length) {
@@ -143,6 +145,8 @@ router.post('/:id/decline', authMid, async (req, res) => {
       return res.status(404).json({ error: 'Call not found' });
     }
     const call = rows[0];
+    // Named rather than "the fan".
+    const who = call.display_name || call.email || 'A member';
 
     if (!req.user.isArtist && call.user_id !== req.user.userId) {
       await client.query('ROLLBACK');
@@ -184,7 +188,7 @@ router.post('/:id/decline', authMid, async (req, res) => {
         url:   '/platform/calls',
       });
     } else {
-      notifyArtist({ title: 'Call declined', body: 'The fan declined the call. Tokens refunded.', url: '/calls' });
+      notifyArtist({ title: 'Call declined', body: `${who} declined the call. Tokens refunded.`, url: '/calls' });
     }
 
     res.json({ ok: true, message: 'Call ended and tokens refunded.' });

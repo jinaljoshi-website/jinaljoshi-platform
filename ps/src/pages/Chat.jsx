@@ -185,7 +185,10 @@ export default function Chat() {
         tokens_charged:    m.tokens_charged || 0,
         created_at:        m.created_at,
         is_mine:           m.is_mine,
-        status:            'delivered',
+        // Its own read state, not the conversation's. Everything from the
+        // database used to come back as delivered, so a read receipt was lost
+        // the moment the thread was reopened.
+        status:            m.read ? 'read' : 'delivered',
       });
 
       const missingFromStream = dbMessages.filter((m) => !streamIds.has(m.id)).map(dbToLocal);
@@ -773,7 +776,16 @@ function MessageBubble({ msg, parent, onReply, onUnlock, unlocking, onOpenImage 
       </div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3, alignSelf: isMe ? 'flex-end' : 'flex-start' }}>
         <span style={{ fontFamily: F.sans, fontSize: 10, color: C.muted }}>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-        {isMe && <span style={{ fontSize: 11, color: msg.status === 'read' ? C.accent : C.muted }}>{msg.status === 'read' ? '✓✓' : msg.status === 'delivered' ? '✓✓' : '✓'}</span>}
+        {/* One tick sent, two delivered, two in colour once read. Read and
+            delivered both drew two grey ticks before, so the only visible
+            difference was a shade — and since everything from the database
+            loaded as delivered, reopening a thread appeared to undo every
+            read receipt. */}
+        {isMe && (
+          <span style={{ fontSize: 11, color: msg.status === 'read' ? C.accent : C.muted }}>
+            {msg.status === 'sent' ? '✓' : '✓✓'}
+          </span>
+        )}
         {msg.tokens_charged > 0 && isMe && <span style={{ fontFamily: F.sans, fontSize: 10, color: C.muted, display: 'flex', alignItems: 'center', gap: 2 }}>· <WonderCoinAmount amount={msg.tokens_charged} size={10} textColor={C.muted} fontSize={10} /> charged</span>}
       </div>
     </div>

@@ -380,7 +380,9 @@ router.post('/:id/respond', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows } = await client.query(
-      `SELECT * FROM call_requests WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+      `SELECT cr.*, u.display_name, u.email
+         FROM call_requests cr JOIN users u ON u.id = cr.user_id
+        WHERE cr.id = $1 AND cr.user_id = $2 FOR UPDATE OF cr`,
       [req.params.id, req.user.userId]
     );
     if (!rows.length) {
@@ -388,6 +390,9 @@ router.post('/:id/respond', authMid, async (req, res) => {
       return res.status(404).json({ error: 'Call not found' });
     }
     const call = rows[0];
+    // Named, not "the fan". A notification that could be about anybody is one
+    // more thing to go and look up before it can be acted on.
+    const who = call.display_name || call.email || 'A member';
 
     if (call.proposed_by !== 'jinal') {
       await client.query('ROLLBACK');
@@ -400,7 +405,7 @@ router.post('/:id/respond', authMid, async (req, res) => {
         [call.proposed_time, call.id]
       );
       await client.query('COMMIT');
-      notifyArtist({ title: 'Call confirmed ✓', body: `Time confirmed for ${new Date(call.proposed_time).toLocaleString()}`, url: '/calls' });
+      notifyArtist({ title: 'Call confirmed ✓', body: `${who} confirmed ${new Date(call.proposed_time).toLocaleString('en-IN')}`, url: '/calls' });
       return res.json({ ok: true, message: 'Call time confirmed!' });
     }
 
@@ -417,7 +422,7 @@ router.post('/:id/respond', authMid, async (req, res) => {
         ['Fan declined the proposed time.', call.id]
       );
       await client.query('COMMIT');
-      notifyArtist({ title: 'Call declined', body: `The fan declined the proposed time. Tokens refunded.`, url: '/calls' });
+      notifyArtist({ title: 'Call declined', body: `${who} declined the proposed time. Tokens refunded.`, url: '/calls' });
       return res.json({ ok: true, message: 'Call declined and your tokens have been refunded.' });
     }
 
@@ -447,7 +452,7 @@ router.post('/:id/respond', authMid, async (req, res) => {
     );
     await client.query('COMMIT');
 
-    notifyArtist({ title: 'New time proposed', body: `Fan proposed a different time: ${newDate.toLocaleString()}`, url: '/calls' });
+    notifyArtist({ title: 'New time proposed', body: `${who} proposed ${newDate.toLocaleString('en-IN')} instead`, url: '/calls' });
 
     res.json({ ok: true, message: 'Your new proposed time has been sent to Jinal.' });
   } catch (err) {

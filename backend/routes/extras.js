@@ -129,8 +129,9 @@ router.post('/request', authMid, async (req, res) => {
     );
 
     // A personalised request is Jinal's own work, so it takes purchased tokens.
+    let spend;
     try {
-      await spendTokens(client, {
+      spend = await spendTokens(client, {
         userId:      req.user.userId,
         amount:      price,
         type:        'custom_request',
@@ -166,7 +167,11 @@ router.post('/request', authMid, async (req, res) => {
       ok:         true,
       requestId:  requestRows[0].id,
       coinsSpent: price,
-      newBalance: user.coin_balance - price,
+      // Read back from the spend rather than subtracted from what was loaded
+      // earlier. A spend can draw on bonus tokens, which do not sit in
+      // coin_balance, so subtracting the whole cost from it reported a balance
+      // lower than the fan actually holds until something forced a refresh.
+      newBalance: spend.newPurchased,
       message:    `Your request has been sent to Jinal for review.`,
     });
   } catch (err) {
@@ -193,7 +198,9 @@ router.post('/requests/:id/respond-to-counter', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows } = await client.query(
-      `SELECT * FROM custom_requests WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+      `SELECT cr.*, u.display_name, u.email
+         FROM custom_requests cr JOIN users u ON u.id = cr.user_id
+        WHERE cr.id = $1 AND cr.user_id = $2 FOR UPDATE OF cr`,
       [req.params.id, req.user.userId]
     );
     if (!rows.length) {
@@ -201,6 +208,8 @@ router.post('/requests/:id/respond-to-counter', authMid, async (req, res) => {
       return res.status(404).json({ error: 'Request not found' });
     }
     const request = rows[0];
+    // Named, so a notification says who without needing to be looked up.
+    const who = request.display_name || request.email || 'A member';
 
     if (request.status !== 'countered') {
       await client.query('ROLLBACK');
@@ -217,7 +226,7 @@ router.post('/requests/:id/respond-to-counter', authMid, async (req, res) => {
       });
       await client.query(`UPDATE custom_requests SET status = 'cancelled' WHERE id = $1`, [request.id]);
       await client.query('COMMIT');
-      notifyArtist({ title: 'Counter-offer declined', body: `Fan declined the counter for "${request.topic}". Tokens refunded.`, url: '/requests' });
+      notifyArtist({ title: 'Counter-offer declined', body: `${who} declined the counter for "${request.topic}". Tokens refunded.`, url: '/requests' });
       return res.json({ ok: true, message: 'Declined — your tokens have been refunded as credit.' });
     }
 
@@ -251,7 +260,7 @@ router.post('/requests/:id/respond-to-counter', authMid, async (req, res) => {
     );
 
     await client.query('COMMIT');
-    notifyArtist({ title: 'Counter-offer accepted ✓', body: `Fan accepted the counter for "${request.topic}".`, url: '/requests' });
+    notifyArtist({ title: 'Counter-offer accepted ✓', body: `${who} accepted the counter for "${request.topic}".`, url: '/requests' });
     res.json({ ok: true, message: 'Accepted — your request is confirmed.' });
   } catch (err) {
     await client.query('ROLLBACK');

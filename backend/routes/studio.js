@@ -24,7 +24,17 @@ router.use(authMid, artistOnly);
 router.get('/dashboard', async (req, res) => {
   try {
     const [notifs, pendingCalls, pendingRequests, recentMembers, unreadDMs, lowStockMerch, pendingReports] = await Promise.all([
-      pool.query(`SELECT * FROM artist_notifications WHERE read = FALSE ORDER BY created_at DESC LIMIT 20`),
+      // Joined to the member. Every notification already carries fan_id and none
+      // of them ever fetched the name, so they read as "a member unlocked a set"
+      // — true of anybody, and useless for deciding whether to reply.
+      pool.query(`SELECT n.*,
+                         u.display_name AS fan_name,
+                         u.email        AS fan_email,
+                         u.tier         AS fan_tier
+                    FROM artist_notifications n
+                    LEFT JOIN users u ON u.id = n.fan_id
+                   WHERE n.read = FALSE
+                   ORDER BY n.created_at DESC LIMIT 20`),
       pool.query(`SELECT cr.*, u.email, u.display_name, u.tier FROM call_requests cr JOIN users u ON u.id = cr.user_id WHERE cr.status = 'pending' AND cr.proposed_by = 'fan' ORDER BY cr.created_at DESC`),
       pool.query(`SELECT cr.*, u.email, u.display_name, u.tier FROM custom_requests cr JOIN users u ON u.id = cr.user_id WHERE cr.status = 'pending' ORDER BY cr.created_at DESC`),
       pool.query(`SELECT id, email, display_name, tier, membership_expires_at, coin_balance, created_at FROM users WHERE tier != 'guest' AND membership_expires_at > NOW() ORDER BY created_at DESC LIMIT 10`),
