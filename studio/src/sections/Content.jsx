@@ -373,6 +373,34 @@ export function Content({ openWith, collection = false }) {
   // photos flags one every second or two, and reloading the whole set each time
   // would put the grid behind the person using it.
   const [removingMarked, setRemovingMarked] = useState(false);
+  const [arranging,    setArranging]    = useState(false);
+  const [arrangeList,  setArrangeList]  = useState([]);
+  const [dragIdx,      setDragIdx]      = useState(null);
+  const [arrangeBusy,  setArrangeBusy]  = useState(false);
+  const [pinBusy,      setPinBusy]      = useState(null);
+
+  const arrangeDirty = arrangeList.some((st, i) => st.id !== sets[i]?.id);
+
+  const saveArrangement = async () => {
+    setArrangeBusy(true); setError('');
+    try {
+      await api.post('/api/studio/content/sets/reorder', { orderedIds: arrangeList.map((st) => st.id) });
+      await loadSets();
+      setSuccess('Order saved.');
+      setArranging(false);
+    } catch (err) { setError(err.message); } finally { setArrangeBusy(false); }
+  };
+
+  // Pinned sets sit above the arranged order, three at most. Refused rather
+  // than silently dropping a fourth: three is a deliberate limit, and a pin
+  // that quietly did nothing would be worse than one that says why.
+  const togglePin = async (st) => {
+    setPinBusy(st.id); setError('');
+    try {
+      await api.post(`/api/studio/content/${st.id}/pin`, { pinned: !st.pinned_at });
+      await loadSets();
+    } catch (err) { setError(err.message); } finally { setPinBusy(null); }
+  };
   const [publishPrompt,  setPublishPrompt]  = useState(null);
 
   // The marked pile, removed together. Kept here rather than in the panel
@@ -984,7 +1012,59 @@ export function Content({ openWith, collection = false }) {
       </Card>
 
       {/* ── Content list ── */}
-      <T.sectionTitle>All content ({sets.length})</T.sectionTitle>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <T.sectionTitle>All content ({sets.length})</T.sectionTitle>
+        {sets.length > 1 && (
+          <button onClick={() => { setArranging(!arranging); setArrangeList(sets); }}
+                  style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
+            {arranging ? 'Done arranging' : 'Arrange order'}
+          </button>
+        )}
+      </div>
+
+      {/* The order fans see, arranged here.
+          Titles only, and compact: ninety sets are a list to be reordered, not
+          a gallery to be admired, and the cards below are already that. */}
+      {arranging && (
+        <Card style={{ marginBottom: 20 }}>
+          <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 12, lineHeight: 1.6 }}>
+            Drag to reorder. Pinned sets stay at the top whatever this order is —
+            up to three, and the most recently pinned leads.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 420, overflowY: 'auto' }}>
+            {arrangeList.map((st, i) => (
+              <div key={st.id}
+                   draggable
+                   onDragStart={() => setDragIdx(i)}
+                   onDragOver={(e) => {
+                     e.preventDefault();
+                     if (dragIdx === null || dragIdx === i) return;
+                     const next = [...arrangeList];
+                     const [moved] = next.splice(dragIdx, 1);
+                     next.splice(i, 0, moved);
+                     setDragIdx(i);
+                     setArrangeList(next);
+                   }}
+                   onDragEnd={() => setDragIdx(null)}
+                   style={arrangeRow}>
+                <span style={{ fontFamily: mono, fontSize: 10, color: colors.muted, width: 26 }}>{i + 1}</span>
+                <span style={{ flex: 1, fontFamily: sans, fontSize: 13, color: colors.text }}>{st.title}</span>
+                {st.pinned_at && <span style={pinTag}>Pinned</span>}
+                {!st.visible && <span style={{ fontFamily: sans, fontSize: 10, color: colors.muted }}>Hidden</span>}
+              </div>
+            ))}
+          </div>
+          {arrangeDirty && (
+            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+              <button onClick={saveArrangement} disabled={arrangeBusy} style={{ ...S.btn, fontSize: 12, padding: '7px 16px' }}>
+                {arrangeBusy ? 'Saving…' : 'Save this order'}
+              </button>
+              <button onClick={() => setArrangeList(sets)} disabled={arrangeBusy}
+                      style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 14px' }}>Undo</button>
+            </div>
+          )}
+        </Card>
+      )}
       <div style={{ display: 'grid', gap: 10 }}>
         {sets.length === 0 && <T.muted>No content yet.</T.muted>}
         {sets.map((set) => {
@@ -1180,6 +1260,10 @@ export function Content({ openWith, collection = false }) {
 
                 <div style={rowActions}>
                   <button onClick={() => openReview(set)} style={actionBtn}>Review</button>
+                  <button onClick={() => togglePin(set)} disabled={pinBusy === set.id}
+                          style={{ ...actionBtn, ...(set.pinned_at ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
+                    {pinBusy === set.id ? '…' : set.pinned_at ? 'Unpin' : 'Pin'}
+                  </button>
                   <button onClick={() => { setAddingTo(addingTo === set.id ? null : set.id); releasePreviews(filesByCategory); setFilesByCategory(emptyCategoryFiles()); }}
                           style={actionBtn}>
                     {addingTo === set.id ? 'Cancel' : 'Add photos'}
@@ -2203,6 +2287,9 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
 
 const reviewOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const reviewModal   = { width: '100%', maxWidth: 900, maxHeight: '88vh', overflowY: 'auto', background: '#161410', border: `1px solid ${colors.border}`, borderRadius: 14, padding: 24 };
+const arrangeRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 6, border: `1px solid ${colors.border}`, background: colors.surface, cursor: 'grab' };
+const pinTag = { fontFamily: "'DM Mono', monospace", fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: colors.accent, border: `1px solid ${colors.accent}`, borderRadius: 3, padding: '2px 6px' };
+
 const seqAction = { fontFamily: sans, fontSize: 12, padding: '6px 12px', borderRadius: 999, cursor: 'pointer', background: 'transparent', border: `1px solid ${colors.border}`, color: colors.muted };
 
 const seqGrid   = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 10 };

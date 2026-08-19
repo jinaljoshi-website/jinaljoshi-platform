@@ -83,7 +83,9 @@ router.get('/sets', async (req, res) => {
                        WHERE g.user_id = $1 AND g.set_id = s.id AND g.scope = 'collection') AS unlocked
          FROM sets s
         WHERE s.visible = TRUE AND s.is_collection = TRUE
-        ORDER BY COALESCE(s.published_at, s.created_at) DESC`,
+        ORDER BY (s.pinned_at IS NULL), s.pinned_at DESC,
+                 s.display_order ASC NULLS LAST,
+                 COALESCE(s.published_at, s.created_at) DESC`,
       [req.user.userId]
     );
 

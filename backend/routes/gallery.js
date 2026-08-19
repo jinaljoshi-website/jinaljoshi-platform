@@ -227,7 +227,13 @@ router.get('/sets', authMid, async (req, res) => {
        WHERE s.visible = TRUE AND s.is_collection = FALSE
        -- Ordered by when it became available, falling back to upload date for
        -- anything published before that was recorded.
-       ORDER BY COALESCE(s.published_at, s.created_at) DESC`
+       -- Pinned first, then the arranged sequence. display_order is assigned
+       -- on creation so a new set lands at the top rather than needing to be
+       -- dragged there, and the date is only a tiebreak for anything that
+       -- predates the column.
+       ORDER BY (s.pinned_at IS NULL), s.pinned_at DESC,
+                s.display_order ASC NULLS LAST,
+                COALESCE(s.published_at, s.created_at) DESC`
     );
 
     const { rows: allItems } = await pool.query(
@@ -343,6 +349,13 @@ router.get('/sets', authMid, async (req, res) => {
     // itself, or an exclusive portion of it they have not bought.
     if (sortBy === 'locked')       setsWithData = setsWithData.filter((s) => !freeToThem(s) || s.upsellPrice > 0);
 
+    // One sequence, as arranged.
+    //
+    // These two groups used to be rendered separately, which meant a free set
+    // always surfaced above a paid one whatever order they were put in — the
+    // arrangement could not beat the split. They are still returned so an older
+    // bundle held in a cache does not lose its gallery, but `sets` is the real
+    // answer and the app prefers it.
     const freeForAll = setsWithData.filter((s) => s.isFreeForAll);
     const unlockable = setsWithData.filter((s) => !s.isFreeForAll);
 

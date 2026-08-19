@@ -636,7 +636,10 @@ router.get('/content', async (req, res) => {
                WHERE sp.set_id = s.id) AS photographer
        FROM sets s
        WHERE s.is_collection = $1
-       ORDER BY s.created_at DESC`,
+       -- The same order the fans see, so arranging here is arranging there.
+       ORDER BY (s.pinned_at IS NULL), s.pinned_at DESC,
+                s.display_order ASC NULLS LAST,
+                COALESCE(s.published_at, s.created_at) DESC`,
       [wantCollection]
     );
     const { rows: itemCounts } = await pool.query(
@@ -668,8 +671,13 @@ router.post('/content', async (req, res) => {
       // There is no control to change it afterwards and no checkbox to get
       // wrong — a set belongs to the gallery or to the collection from the
       // moment it exists, and the two lists never show each other.
-      `INSERT INTO sets (title, description, type, price_coins, visible, category, is_collection, published_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $5 = TRUE THEN NOW() ELSE NULL END)
+      // Straight to the top of its own library. A new drop is the thing worth
+      // seeing, and putting it last would mean rearranging after every upload.
+      `INSERT INTO sets (title, description, type, price_coins, visible, category, is_collection,
+                         display_order, published_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7,
+               (SELECT COALESCE(MIN(display_order), 0) - 1 FROM sets WHERE is_collection = $7),
+               CASE WHEN $5 = TRUE THEN NOW() ELSE NULL END)
        RETURNING *`,
       [title.trim(), description || null, type, price_coins, visible, category || null, Boolean(isCollection)]
     );
@@ -929,6 +937,95 @@ router.post('/content/:id/delete-marked', async (req, res) => {
     await client.query('ROLLBACK');
     console.error('studio/content/delete-marked error:', err);
     res.status(500).json({ error: 'Failed to remove the marked photos' });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ─────────────────────────────────────────────
+// ARRANGING THE LIBRARY
+// ─────────────────────────────────────────────
+//
+// Which order sets appear in, and which sit at the top whatever that order is.
+//
+// Two separate things deliberately. The sequence is the shape of the library —
+// what follows what, how a visit reads. A pin is a temporary promotion that
+// survives rearranging, so featuring this week's drop does not mean dragging it
+// up and dragging it back afterwards.
+
+const MAX_PINNED = 3;
+
+router.post('/content/sets/reorder', async (req, res) => {
+  const { orderedIds } = req.body;
+  if (!Array.isArray(orderedIds) || !orderedIds.length) {
+    return res.status(400).json({ error: 'An order is required' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Written in one statement rather than a loop: a partial reorder would
+    // leave the library in an order nobody chose.
+    await client.query(
+      `UPDATE sets AS s SET display_order = v.pos
+         FROM (SELECT unnest($1::uuid[]) AS id,
+                      generate_subscripts($1::uuid[], 1) AS pos) AS v
+        WHERE s.id = v.id`,
+      [orderedIds]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true, ordered: orderedIds.length });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('studio/content/sets/reorder error:', err);
+    res.status(500).json({ error: 'Could not save that order' });
+  } finally {
+    client.release();
+  }
+});
+
+router.post('/content/:id/pin', async (req, res) => {
+  const { pinned } = req.body;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: setRows } = await client.query(
+      `SELECT id, is_collection, pinned_at FROM sets WHERE id = $1`, [req.params.id]
+    );
+    if (!setRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Set not found' });
+    }
+
+    if (pinned) {
+      // Counted per library, and only against sets that are not this one, so
+      // pinning something already pinned is not refused for being itself.
+      const { rows: countRows } = await client.query(
+        `SELECT count(*)::int AS n FROM sets
+          WHERE pinned_at IS NOT NULL AND is_collection = $1 AND id <> $2`,
+        [setRows[0].is_collection, req.params.id]
+      );
+      if (countRows[0].n >= MAX_PINNED) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'TOO_MANY_PINNED',
+          message: `Three sets are already pinned. Unpin one first.`,
+        });
+      }
+    }
+
+    // pinned_at doubles as the order among pins: most recently pinned first,
+    // so promoting something puts it at the very top without further fiddling.
+    const { rows } = await client.query(
+      `UPDATE sets SET pinned_at = $1 WHERE id = $2 RETURNING id, pinned_at`,
+      [pinned ? new Date() : null, req.params.id]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true, set: rows[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('studio/content/pin error:', err);
+    res.status(500).json({ error: 'Could not change that' });
   } finally {
     client.release();
   }
