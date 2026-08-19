@@ -79,6 +79,10 @@ const REFERENCE_QUERIES = [
   `SELECT url AS v FROM merchandise_images`,
   `SELECT r2_key AS v FROM set_items`,
   `SELECT cover_key AS v FROM sets WHERE cover_key IS NOT NULL`,
+  // The share card, generated from the cover and stored as its own object.
+  // Added when link previews were built, after this list was written — which is
+  // exactly the drift the guard below exists to catch, and it did.
+  `SELECT cover_og_key AS v FROM sets WHERE cover_og_key IS NOT NULL`,
   `SELECT media_url AS v FROM direct_messages WHERE media_url IS NOT NULL`,
   `SELECT jsonb_array_elements(locked_media_urls::jsonb) ->> 'url' AS v
      FROM direct_messages WHERE locked_media_urls IS NOT NULL`,
@@ -92,6 +96,11 @@ const REFERENCE_QUERIES = [
   // Selfie of the Day. Added after the scan was written, which is precisely the
   // drift the guard below exists to catch.
   `SELECT image_key AS v FROM daily_selfies WHERE image_key IS NOT NULL`,
+  // The merchandise media library. Missing entirely until now, so every file in
+  // it looked unreferenced — the sweep would have offered to delete live
+  // product images. The guard did not catch this one because r2_key holds a
+  // bare key rather than a URL, and the guard only looks for URLs.
+  `SELECT r2_key AS v FROM merch_media WHERE r2_key IS NOT NULL`,
 ];
 
 // A hand-written list of columns will drift the moment a feature adds one, and
@@ -107,6 +116,11 @@ async function findUncoveredUrlColumns() {
     'portfolio_hero_slides.image_key', 'portfolio_works.image_key',
     'custom_requests.reference_image_key',
     'daily_selfies.image_key',
+    'sets.cover_og_key', 'merch_media.r2_key',
+    // The blurred preview is a data URI held in the row, not an object in the
+    // bucket — there is no file for the sweep to delete. It is listed so the
+    // guard stops reporting it, not because it needs collecting.
+    'sets.cover_blur',
   ]);
 
   const { rows: cols } = await pool.query(
