@@ -1,6 +1,7 @@
 // studio/src/sections/Messages.jsx
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
+import LibraryPicker from '../components/LibraryPicker';
 import BackgroundPicker from '../components/BackgroundPicker';
 import { T, S, Card, Eyebrow, Badge, Field, TokenField, colors } from '../ui';
 import { StreamChat } from 'stream-chat';
@@ -321,6 +322,33 @@ export function Messages() {
     setShowNewChat(false);
     setFanSearch('');
     openConvo(fanId);
+  };
+
+  // Sending what is already on the platform.
+  //
+  // Chat stores a URL, so a photograph in the gallery needs no upload — the URL
+  // it already has is the one that goes in the message. Free sends go one per
+  // message so each appears as its own photograph; locked ones go as a single
+  // bundle, which is how the unlock already works.
+  const sendFromLibrary = async (picked, { locked }) => {
+    setPanel(null);
+    try {
+      if (locked) {
+        const price = parseInt(window.prompt('Price to unlock, in tokens?', lockedPrice || '10'), 10);
+        if (!price || price <= 0) return;
+        const data = await api.post(`/api/studio/dms/${selected}/send-locked-media`, {
+          mediaItems: picked.map((p2) => ({ url: p2.url, type: p2.type })),
+          priceCoins: price,
+          content: reply.trim() || undefined,
+        });
+        setThread((prev) => [...prev, data.message]);
+        setReply('');
+      } else {
+        for (const item of picked) await sendReply(item.url, item.type);
+      }
+    // Matches the rest of this screen, which surfaces failures with alert
+    // rather than a banner.
+    } catch (err) { alert(err.message); }
   };
 
   const sendReply = async (mediaUrl = null, mediaType = null) => {
@@ -820,6 +848,10 @@ export function Messages() {
                   </Card>
                 )}
 
+                {panel === 'library' && (
+                  <LibraryPicker onCancel={() => setPanel(null)} onPick={sendFromLibrary} />
+                )}
+
                 {panel === 'locked-media' && (
                   <Card style={{ marginBottom: 10 }}>
                     <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, fontWeight: 600, marginBottom: 10 }}>Send unlockable media</div>
@@ -953,6 +985,9 @@ export function Messages() {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                      <button onClick={() => setPanel(panel === 'library' ? null : 'library')} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', color: panel === 'library' ? colors.accent : colors.muted }} title="Send something already on the platform">
+                        🖼️
+                      </button>
                       <button onClick={() => setPanel(panel === 'locked-media' ? null : 'locked-media')} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', color: panel === 'locked-media' ? colors.accent : colors.muted }} title="Send unlockable media bundle">
                         🔒
                       </button>

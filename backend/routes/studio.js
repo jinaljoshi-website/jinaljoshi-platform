@@ -620,6 +620,10 @@ router.post('/dms/:fanId/send-locked-media', async (req, res) => {
 // card. Cover is normally set from the first upload, but a set created before
 // that behaviour — or one whose cover was deleted — would otherwise be blank
 // forever with no way to notice from the list.
+// A stored key to the URL a browser can fetch. Was defined inside one route
+// and nowhere else, so anything needing it had to redeclare it.
+const toPublicUrl = (k) => (!k ? null : String(k).startsWith('http') ? k : `${process.env.R2_PUBLIC_URL}/${k}`);
+
 const COVER_FALLBACK = `COALESCE(s.cover_key,
   (SELECT r2_key FROM set_items WHERE set_id = s.id
    AND media_type <> 'video' ORDER BY position ASC, created_at ASC LIMIT 1))`;
@@ -817,6 +821,90 @@ router.get('/content/:id/pricing', async (req, res) => {
 // Everything inside a set, so Jinal can look through it the way a fan would
 // rather than trusting a count. Without this, a single bad photo in a large set
 // means deleting and rebuilding the whole thing.
+
+// ─────────────────────────────────────────────
+// GET /api/studio/library
+// ─────────────────────────────────────────────
+//
+// Everything on the platform, for picking from rather than uploading again.
+//
+// Chat stores a media URL, not an upload — so anything already in R2 can be
+// sent by passing the URL it already has. Nothing is copied and nothing is
+// stored twice; the picker only needs to know what exists.
+//
+// Grouped the way the money works rather than the way the tables do: free,
+// paid, and the private collection. What matters when choosing a photograph to
+// send is what somebody would otherwise have paid for it.
+router.get('/library', async (req, res) => {
+  const scope  = req.query.scope || 'sets';       // 'sets' | 'recent'
+  const group  = req.query.group || 'all';        // 'all' | 'free' | 'paid' | 'collection'
+  const limit  = Math.min(parseInt(req.query.limit, 10) || 120, 400);
+
+  try {
+    if (scope === 'recent') {
+      // Newest media across everything, which is what most sends draw on.
+      const { rows } = await pool.query(
+        `SELECT i.id, i.r2_key, i.media_type, i.tier_category, i.created_at,
+                s.id AS set_id, s.title AS set_title, s.price_coins, s.is_collection
+           FROM set_items i JOIN sets s ON s.id = i.set_id
+          WHERE i.review_flag IS DISTINCT FROM 'remove'
+          ORDER BY i.created_at DESC
+          LIMIT $1`,
+        [limit]
+      );
+      return res.json({ items: rows.map(shapeLibraryItem) });
+    }
+
+    // Sets, with a cover to recognise them by and the counts that decide what
+    // sending one actually gives away.
+    const { rows } = await pool.query(
+      `SELECT s.id, s.title, s.price_coins, s.is_collection, s.created_at,
+              ${COVER_FALLBACK} AS cover_key,
+              (SELECT count(*)::int FROM set_items WHERE set_id = s.id
+                AND review_flag IS DISTINCT FROM 'remove')                       AS item_count,
+              (SELECT count(*)::int FROM set_items WHERE set_id = s.id
+                AND tier_category = 'free')                                      AS free_count
+         FROM sets s
+        ORDER BY s.pinned_at IS NULL, s.pinned_at DESC,
+                 s.display_order ASC NULLS LAST,
+                 COALESCE(s.published_at, s.created_at) DESC`
+    );
+
+    const sets = rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      coverUrl: toPublicUrl(r.cover_key),
+      itemCount: r.item_count,
+      priceCoins: r.price_coins,
+      isCollection: r.is_collection,
+      // Free where every item in it is free; paid where any of it costs
+      // something. The collection is its own thing and never mixes.
+      group: r.is_collection ? 'collection'
+           : (r.free_count === r.item_count && r.item_count > 0) ? 'free'
+           : 'paid',
+    })).filter((x) => group === 'all' || x.group === group);
+
+    res.json({ sets });
+  } catch (err) {
+    console.error('studio/library error:', err);
+    res.status(500).json({ error: 'Could not load the library' });
+  }
+});
+
+function shapeLibraryItem(r) {
+  return {
+    id: r.id,
+    url: toPublicUrl(r.r2_key),
+    mediaType: r.media_type,
+    setId: r.set_id,
+    setTitle: r.set_title,
+    priceCoins: r.price_coins,
+    isCollection: r.is_collection,
+    group: r.is_collection ? 'collection'
+         : r.tier_category === 'free' ? 'free' : 'paid',
+  };
+}
+
 router.get('/content/:id/items', async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -2969,7 +3057,7 @@ router.get('/community', async (req, res) => {
       `SELECT id, post_id, prompt, closes_at FROM community_question_windows`
     );
 
-    const toUrl = (k) => (!k ? null : k.startsWith('http') ? k : `${process.env.R2_PUBLIC_URL}/${k}`);
+    const toUrl = toPublicUrl;
 
     const { rows: bgRows } = await pool.query(`SELECT value FROM platform_config WHERE key = 'community_chat_bg'`);
     res.json({
