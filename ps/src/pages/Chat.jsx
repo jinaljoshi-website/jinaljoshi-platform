@@ -319,29 +319,42 @@ export default function Chat() {
     };
   }, []);
 
-  // Jump on the first paint, glide after it.
+  // Always at the bottom, never travelling there.
   //
-  // This animated every time, and the list is populated more than once while a
-  // thread opens — Stream and the database each fill it in turn — so opening a
-  // chat meant watching it slide down from wherever it happened to be. A thread
-  // should simply start at the bottom, the way it does everywhere else.
+  // scrollIntoView used smooth behaviour and ran on every change to the list,
+  // and a thread is filled more than once as it opens — Stream and the database
+  // each in turn — so opening a chat meant watching it glide down from wherever
+  // it happened to be.
   //
-  // Once somebody is reading, a new message arriving should glide, because a
-  // jump there loses their place without explaining why.
-  const hasSettled = useRef(false);
+  // The scrolling element is found by walking up from the marker rather than
+  // assumed to be its parent: in Studio's markup it is not, and that assumption
+  // left the thread sitting at the very top.
+  const bottomPane = () => {
+    let el = bottomRef.current?.parentElement;
+    while (el && el.scrollHeight <= el.clientHeight + 4) el = el.parentElement;
+    return el;
+  };
+
   useEffect(() => {
-    if (!bottomRef.current) return;
-    if (!hasSettled.current) {
-      // No animation, and no smooth behaviour to interrupt: set the position
-      // outright so it is already correct on the frame it first appears.
-      const pane = bottomRef.current.parentElement;
-      if (pane) pane.scrollTop = pane.scrollHeight;
-      bottomRef.current.scrollIntoView({ block: 'end' });
-      if (messages.length) hasSettled.current = true;
-      return;
-    }
-    bottomRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    const pane = bottomPane();
+    if (pane) pane.scrollTop = pane.scrollHeight;
   }, [messages, typing]);
+
+  useEffect(() => {
+    const pane = bottomPane();
+    if (!pane || typeof ResizeObserver === 'undefined') return;
+    // Images inside a message finish loading after the message does, which
+    // grows the thread underneath somebody who was put at the bottom. Only
+    // corrected while they are still near it — anybody who has scrolled up to
+    // read something older should stay where they are.
+    const ob = new ResizeObserver(() => {
+      if (pane.scrollHeight - pane.scrollTop - pane.clientHeight < 260) {
+        pane.scrollTop = pane.scrollHeight;
+      }
+    });
+    ob.observe(pane);
+    return () => ob.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!loading) recomputeFeedRect();

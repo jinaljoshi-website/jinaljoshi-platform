@@ -208,26 +208,43 @@ export function Messages() {
     }
   };
 
-  // Jump on the first paint of a conversation, glide after it.
+  // Always at the bottom, never travelling there.
   //
-  // This animated every time, and a thread is filled more than once as it opens
-  // — so choosing a conversation meant watching it slide down from wherever it
-  // was. It should simply start at the bottom.
+  // Two things were wrong. scrollIntoView used smooth behaviour and ran on
+  // every change to the list, and a thread is filled more than once as it opens
+  // — so choosing a conversation meant watching it glide down. Then the first
+  // attempt at a fix set scrollTop on bottomRef's parent, which is not the
+  // element that scrolls in this markup, so it did nothing at all and the
+  // one-time flag stopped anything correcting it. The thread sat at the top.
   //
-  // Keyed on the conversation, not the mount: switching to another fan is a
-  // first paint again, and should land at the bottom rather than travel there.
-  const settledFor = useRef(null);
+  // So: find the pane that actually scrolls by walking up from the marker, and
+  // snap without animation. An observer catches the late growth — images in a
+  // message finish loading after the messages themselves — and snaps again
+  // while somebody is still at the bottom, which is where they were put.
+  const bottomPane = () => {
+    let el = bottomRef.current?.parentElement;
+    while (el && el.scrollHeight <= el.clientHeight + 4) el = el.parentElement;
+    return el;
+  };
+
   useEffect(() => {
-    if (!bottomRef.current) return;
-    if (settledFor.current !== selected) {
-      const pane = bottomRef.current.parentElement;
-      if (pane) pane.scrollTop = pane.scrollHeight;
-      bottomRef.current.scrollIntoView({ block: 'end' });
-      if (thread.length) settledFor.current = selected;
-      return;
-    }
-    bottomRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    const pane = bottomPane();
+    if (pane) pane.scrollTop = pane.scrollHeight;
   }, [thread, typing, selected]);
+
+  useEffect(() => {
+    const pane = bottomPane();
+    if (!pane || typeof ResizeObserver === 'undefined') return;
+    // Only while they are near the bottom. Somebody who has scrolled up to read
+    // something older should not be yanked back by a picture finishing loading.
+    const ob = new ResizeObserver(() => {
+      if (pane.scrollHeight - pane.scrollTop - pane.clientHeight < 260) {
+        pane.scrollTop = pane.scrollHeight;
+      }
+    });
+    ob.observe(pane);
+    return () => ob.disconnect();
+  }, [selected]);
 
   const resyncThread = async (fanId) => {
     try {
