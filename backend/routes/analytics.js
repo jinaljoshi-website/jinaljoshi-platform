@@ -22,11 +22,154 @@ async function tokenRate() {
   return r;
 }
 
+// Read the same way the sets query does, rather than assumed. A rate that is
+// absent means nothing can be called revenue, so it defaults to zero tax rather
+// than to a guess.
+async function gstRate() {
+  const { rows } = await pool.query(
+    `SELECT value FROM platform_config WHERE key = 'domestic_gst_rate_pct'`
+  );
+  return parseFloat(rows[0]?.value) || 0;
+}
+
 const round = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 // ─────────────────────────────────────────────
 // PURCHASED — money in, and what it was spent on
 // ─────────────────────────────────────────────
+
+
+// ─────────────────────────────────────────────
+// GET /api/studio/analytics/orders
+// ─────────────────────────────────────────────
+//
+// Every successful token purchase, one row each.
+//
+// The purchased tab summarised and then, oddly, listed what fans had spent
+// tokens on — which belongs with spending, not with buying. What was missing
+// was the plain thing: who bought, when, how much, and what it cost them.
+router.get('/orders', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT cl.id, cl.created_at,
+              cl.amount        AS tokens,
+              cl.payment_amount_inr AS paid_inr,
+              cl.label,
+              u.display_name, u.email, u.tier,
+              i.invoice_number, i.currency, i.is_export
+         FROM coin_ledger cl
+         JOIN users u ON u.id = cl.user_id
+         LEFT JOIN invoices i ON i.coin_ledger_id = cl.id
+        WHERE cl.type = 'recharge' AND cl.direction = 'credit'
+          AND u.is_test = FALSE
+        ORDER BY cl.created_at DESC
+        LIMIT 500`
+    );
+    res.json({
+      orders: rows.map((r) => ({
+        id: r.id,
+        at: r.created_at,
+        who: r.display_name || r.email,
+        tier: r.tier,
+        tokens: r.tokens,
+        paidInr: r.paid_inr === null ? null : Number(r.paid_inr),
+        // A bonus offer is why tokens and rupees do not divide evenly.
+        label: r.label,
+        invoice: r.invoice_number || null,
+        currency: r.currency || 'INR',
+        isExport: r.is_export || false,
+      })),
+    });
+  } catch (err) {
+    console.error('analytics/orders error:', err);
+    res.status(500).json({ error: 'Could not load orders' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// GET /api/studio/analytics/spend
+// ─────────────────────────────────────────────
+//
+// Where tokens went, and whose tokens they were.
+//
+// Grouped by what the fan was actually buying rather than by ledger type, and
+// split by the pot it came from: purchased tokens are money, gifted and bonus
+// ones never were. A category that looks busy on gifted tokens is a category
+// nobody has paid for.
+//
+// Sets are broken out by route for the same reason the gallery is — the ladder
+// and the exclusive portion are priced differently and behave differently, and
+// one figure for both hides which is working. Media unlocked inside a chat is
+// counted as media, not as chat: a fan who spends twenty tokens opening
+// photographs in a message did what they would have done in the gallery, and
+// filing it under chat would make per-message charges look larger than they are.
+router.get('/spend', async (req, res) => {
+  try {
+    const rate = await tokenRate();
+    const gstPct = await gstRate();
+
+    const { rows } = await pool.query(
+      `SELECT CASE
+                WHEN cl.type = 'content_unlock' AND ag.scope = 'upsell' THEN 'sets_exclusive'
+                WHEN cl.type = 'content_unlock'                          THEN 'sets_ladder'
+                WHEN cl.type = 'chat_media_unlock'                       THEN 'media'
+                WHEN cl.type IN ('membership_purchase','membership_upgrade','membership_extend')
+                                                                         THEN 'membership'
+                WHEN cl.type = 'dm_charge'                               THEN 'messages'
+                WHEN cl.type = 'call_charge'                             THEN 'calls'
+                WHEN cl.type = 'custom_request'                          THEN 'requests'
+                WHEN cl.type IN ('merch_purchase','product')             THEN 'merchandise'
+                ELSE cl.type
+              END AS bucket,
+              COUNT(*)::int                                  AS times,
+              COALESCE(SUM(cl.amount), 0)::int               AS tokens,
+              COALESCE(SUM(cl.from_purchased), 0)::int       AS purchased,
+              COALESCE(SUM(cl.from_gifted), 0)::int          AS gifted,
+              COALESCE(SUM(cl.from_bonus), 0)::int           AS bonus
+         FROM coin_ledger cl
+         JOIN users u ON u.id = cl.user_id
+         LEFT JOIN access_grants ag
+                ON ag.user_id = cl.user_id AND ag.set_id = cl.related_id
+               AND ag.coins_paid = cl.amount
+        WHERE cl.direction = 'debit' AND u.is_test = FALSE
+        GROUP BY 1
+        ORDER BY 4 DESC`
+    );
+
+    const inr = (tk) => Math.round(((tk * rate) / (1 + gstPct / 100)) * 100) / 100;
+    const buckets = rows.map((r) => ({
+      bucket: r.bucket,
+      times: r.times,
+      tokens: r.tokens,
+      purchasedTokens: r.purchased,
+      giftedTokens: r.gifted + r.bonus,
+      // Only purchased tokens were ever money, so only they become rupees.
+      revenueInr: inr(r.purchased),
+    }));
+
+    const totalPurchased = buckets.reduce((a, b) => a + b.purchasedTokens, 0);
+    const totalGifted    = buckets.reduce((a, b) => a + b.giftedTokens, 0);
+
+    res.json({
+      buckets,
+      tokenRate: rate,
+      gstPct,
+      totals: {
+        purchasedTokens: totalPurchased,
+        giftedTokens: totalGifted,
+        revenueInr: inr(totalPurchased),
+        // What share of everything spent was actually paid for. A number worth
+        // watching: generosity that never converts is a cost, not a discount.
+        purchasedSharePct: (totalPurchased + totalGifted) > 0
+          ? Math.round((totalPurchased / (totalPurchased + totalGifted)) * 1000) / 10
+          : 0,
+      },
+    });
+  } catch (err) {
+    console.error('analytics/spend error:', err);
+    res.status(500).json({ error: 'Could not load spend' });
+  }
+});
 
 router.get('/purchased', async (req, res) => {
   try {

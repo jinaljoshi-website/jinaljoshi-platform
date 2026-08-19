@@ -20,6 +20,16 @@ const SPEND_LABELS = {
   membership_purchase: 'Memberships',
   membership_upgrade:  'Upgrades',
   membership_extend:   'Extensions',
+  // Buckets used by the spend analysis, which groups by what the fan was
+  // buying rather than by ledger type.
+  sets_ladder:    'Sets — on the ladder',
+  sets_exclusive: 'Sets — exclusive portion',
+  media:          'Media unlocked in chat',
+  membership:     'Memberships',
+  messages:       'Messages',
+  calls:          'Calls',
+  requests:       'Custom requests',
+  merchandise:    'Merchandise',
 };
 const label = (t) => SPEND_LABELS[t] || t.replace(/_/g, ' ');
 
@@ -69,6 +79,8 @@ export function Analytics() {
     if (data[tab]) return;
     const path = tab === 'money'     ? 'money'
                : tab === 'purchased' ? 'purchased'
+               : tab === 'orders'    ? 'orders'
+               : tab === 'spend'     ? 'spend'
                : tab === 'gifted'    ? 'gifted'
                : tab === 'activity'  ? 'activity'
                : 'sets';
@@ -90,6 +102,8 @@ export function Analytics() {
         {[
           { key: 'money',     label: 'The position'     },
           { key: 'purchased', label: 'Purchased tokens' },
+          { key: 'orders',    label: 'Token orders'     },
+          { key: 'spend',     label: 'Where it went'    },
           { key: 'gifted',    label: 'Gifted tokens'    },
           { key: 'sets',      label: 'Sets'             },
           { key: 'activity',  label: 'Set unlock history' },
@@ -235,6 +249,69 @@ export function Analytics() {
               </div>
             </>
           )}
+        </>
+      ) : tab === 'orders' ? (
+        <>
+          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 14, lineHeight: 1.6 }}>
+            Every successful token purchase. Where tokens and rupees do not divide
+            evenly, a bonus offer was running.
+          </div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            {(d.orders || []).length === 0 ? <T.muted>No purchases yet.</T.muted> : d.orders.map((o) => (
+              <div key={o.id} style={spendRow}>
+                <div style={{ flex: 1, minWidth: 180 }}>
+                  <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{o.who}</div>
+                  <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
+                    {new Date(o.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    {o.tier && ` · ${o.tier}`}
+                    {o.invoice && ` · ${o.invoice}`}
+                    {o.isExport && ' · export'}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>
+                    {o.paidInr === null ? '—' : rupees(o.paidInr)}
+                    {o.currency !== 'INR' && (
+                      <span style={{ fontFamily: mono, fontSize: 10, color: colors.muted }}> {o.currency}</span>
+                    )}
+                  </div>
+                  <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
+                    {o.tokens} tokens
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : tab === 'spend' ? (
+        <>
+          <div style={S.statsRow}>
+            <Stat head="Paid for" value={rupees(d.totals.revenueInr)}
+                  sub={`${d.totals.purchasedTokens} purchased tokens spent`} />
+            <Stat head="Given away" value={`${d.totals.giftedTokens} tokens`}
+                  sub="gifted and bonus · never revenue" />
+            <Stat head="Paid share" value={`${d.totals.purchasedSharePct}%`}
+                  sub="of everything spent was paid for" />
+          </div>
+          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, margin: '14px 0', lineHeight: 1.6 }}>
+            Where tokens went. Only purchased tokens become rupees — gifted and bonus
+            ones were given, not earned. Media unlocked inside a chat counts as media,
+            not as messages.
+          </div>
+          <div style={{ display: 'grid', gap: 6 }}>
+            {(d.buckets || []).map((b) => (
+              <div key={b.bucket} style={spendRow}>
+                <div style={{ flex: 1, minWidth: 180 }}>
+                  <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>{SPEND_LABELS[b.bucket] || b.bucket}</div>
+                  <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
+                    {b.times} time{b.times === 1 ? '' : 's'} · {b.purchasedTokens} paid
+                    {b.giftedTokens > 0 && ` · ${b.giftedTokens} gifted`}
+                  </div>
+                </div>
+                <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{rupees(b.revenueInr)}</div>
+              </div>
+            ))}
+          </div>
         </>
       ) : tab === 'gifted' ? (
         <>
