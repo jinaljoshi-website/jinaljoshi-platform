@@ -158,7 +158,7 @@ router.post('/request', authMid, async (req, res) => {
     notifyArtist({
       title: 'New personalised request 🌟',
       body:  `${itemTitle} — "${topic.trim()}" · ${price} tokens offered`,
-      url:   '/requests',
+      url:   `/requests?request=${request?.id || ''}`,
     });
 
     postSystemMessage(`🌟 ${fanLabel} just requested a ${itemTitle}!`, { kind: 'activity', name: fanLabel });

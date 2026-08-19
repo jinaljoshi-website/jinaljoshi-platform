@@ -336,7 +336,7 @@ router.post('/book', authMid, async (req, res) => {
       notifyArtist({
         title: `📞 Call request from ${fanLabel}`,
         body:  `${tierLabel} · ${callType} · ${durationMinutes} min · ${totalCost} tokens · proposed ${proposedDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`,
-        url:   '/calls',
+        url:   `/calls?call=${callRow.id}`,
       });
       postSystemMessage(`📞 ${fanLabel} just booked a call with Jinal!`, { kind: 'activity', name: fanLabel });
     }
@@ -405,7 +405,7 @@ router.post('/:id/respond', authMid, async (req, res) => {
         [call.proposed_time, call.id]
       );
       await client.query('COMMIT');
-      notifyArtist({ title: 'Call confirmed ✓', body: `${who} confirmed ${new Date(call.proposed_time).toLocaleString('en-IN')}`, url: '/calls' });
+      notifyArtist({ title: 'Call confirmed ✓', body: `${who} confirmed ${new Date(call.proposed_time).toLocaleString('en-IN')}`, url: `/calls?call=${call.id}` });
       return res.json({ ok: true, message: 'Call time confirmed!' });
     }
 
@@ -422,7 +422,7 @@ router.post('/:id/respond', authMid, async (req, res) => {
         ['Fan declined the proposed time.', call.id]
       );
       await client.query('COMMIT');
-      notifyArtist({ title: 'Call declined', body: `${who} declined the proposed time. Tokens refunded.`, url: '/calls' });
+      notifyArtist({ title: 'Call declined', body: `${who} declined the proposed time. Tokens refunded.`, url: `/calls?call=${call.id}` });
       return res.json({ ok: true, message: 'Call declined and your tokens have been refunded.' });
     }
 
@@ -452,7 +452,7 @@ router.post('/:id/respond', authMid, async (req, res) => {
     );
     await client.query('COMMIT');
 
-    notifyArtist({ title: 'New time proposed', body: `${who} proposed ${newDate.toLocaleString('en-IN')} instead`, url: '/calls' });
+    notifyArtist({ title: 'New time proposed', body: `${who} proposed ${newDate.toLocaleString('en-IN')} instead`, url: `/calls?call=${call.id}` });
 
     res.json({ ok: true, message: 'Your new proposed time has been sent to Jinal.' });
   } catch (err) {

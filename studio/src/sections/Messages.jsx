@@ -64,7 +64,7 @@ function whenLabel(ts) {
   return then.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
-export function Messages() {
+export function Messages({ openWith }) {
   const [convos,   setConvos]   = useState([]);
   const [selected, setSelected] = useState(null);
   const [thread,   setThread]   = useState([]);
@@ -245,6 +245,17 @@ export function Messages() {
     ob.observe(pane);
     return () => ob.disconnect();
   }, [selected]);
+
+  // A notification that named a conversation opens it, rather than leaving the
+  // finding to be done by hand. Fires once the list is there and then stops, so
+  // clicking away from it does not spring back.
+  const jumpedTo = useRef(null);
+  useEffect(() => {
+    const want = openWith?.fan;
+    if (!want || jumpedTo.current === want || !convos.length) return;
+    jumpedTo.current = want;
+    openConvo(want);
+  }, [openWith, convos.length]);
 
   const resyncThread = async (fanId) => {
     try {

@@ -244,6 +244,22 @@ function sectionFromPath() {
   return SECTIONS[seg] ? seg : 'dashboard';
 }
 
+// What a notification asked to be opened.
+//
+// A push carried only a section — /messages, /calls — so tapping "new message
+// from Gaurav" landed on the list of conversations and left the actual finding
+// to be done by hand, at the moment somebody is most likely to be in a hurry.
+// The query string now names the thing, and the section opens showing it.
+function targetFromQuery() {
+  const q = new URLSearchParams(window.location.search);
+  const target = {};
+  for (const key of ['fan', 'call', 'request', 'set', 'order', 'item', 'who']) {
+    const v = q.get(key);
+    if (v) target[key] = v;
+  }
+  return Object.keys(target).length ? target : null;
+}
+
 export default function Studio() {
   const [active, setActive]     = useState(sectionFromPath);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -262,7 +278,7 @@ export default function Studio() {
 
   // What a section should open showing. A dashboard card saying three calls
   // need answering opens those three rather than the whole list.
-  const [sectionState, setSectionState] = useState(null);
+  const [sectionState, setSectionState] = useState(targetFromQuery);
 
   // Cleared on a plain nav click, so a filter set by a dashboard card does not
   // silently persist the next time she opens that section herself.

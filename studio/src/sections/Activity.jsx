@@ -40,10 +40,13 @@ function when(ts) {
   return new Date(ts).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
-export function Activity() {
+export function Activity({ openWith }) {
   const [rows,   setRows]   = useState(null);
   const [filter, setFilter] = useState('all');
   const [error,  setError]  = useState('');
+  // A notification about one member opens showing that member. Rows carry the
+  // name rather than an id, which is also what somebody would scan for.
+  const [who,    setWho]    = useState(openWith?.who || '');
 
   useEffect(() => {
     api.get('/api/studio/analytics/member-activity')
@@ -52,6 +55,7 @@ export function Activity() {
   }, []);
 
   const shown = (rows || []).filter((r) => {
+    if (who && String(r.who || '').toLowerCase() !== who.toLowerCase()) return false;
     if (filter === 'needsReply') return r.kind === 'message' || r.kind === 'call' || r.kind === 'request';
     if (filter === 'money')      return r.kind === 'recharge' || r.kind === 'membership';
     return true;
@@ -63,6 +67,20 @@ export function Activity() {
       <T.title>Member Activity</T.title>
 
       {error && <div style={S.error}>{error}</div>}
+
+      {who && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0 0' }}>
+          <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+            Showing {who}
+          </span>
+          <button onClick={() => setWho('')}
+                  style={{ fontFamily: sans, fontSize: 11, padding: '4px 10px', borderRadius: 999,
+                           background: 'transparent', border: `1px solid ${colors.border}`,
+                           color: colors.muted, cursor: 'pointer' }}>
+            Show everyone
+          </button>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, margin: '18px 0 20px', flexWrap: 'wrap' }}>
         {FILTERS.map((f) => (

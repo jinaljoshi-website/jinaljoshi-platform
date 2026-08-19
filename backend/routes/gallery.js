@@ -595,7 +595,9 @@ router.post('/unlock', authMid, async (req, res) => {
     notifyArtist({
       title: `🔓 ${fanLabel} unlocked a set`,
       body:  `${set.title} · ${scope === 'upsell' ? 'exclusive' : 'their tier'} · ${mode}`,
-      url:   '/content',
+      // Member activity, not the set. Jinal owns the set already — what is
+      // worth seeing is who opened it and what else they have been doing.
+      url:   `/activity?who=${encodeURIComponent(fanLabel)}`,
       tag:   `unlock-${setId}`,
     });
 

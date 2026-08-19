@@ -435,7 +435,9 @@ router.post('/send', authMid, async (req, res) => {
         body:  content?.trim()
           ? (content.trim().length > 90 ? content.trim().slice(0, 90) + '…' : content.trim())
           : 'Sent you media',
-        url:   '/messages',
+        // Names the conversation, so the notification opens it rather than
+        // the list of all of them.
+        url:   `/messages?fan=${req.user.userId}`,
       });
     }
 
