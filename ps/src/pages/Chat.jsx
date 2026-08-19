@@ -319,8 +319,28 @@ export default function Chat() {
     };
   }, []);
 
+  // Jump on the first paint, glide after it.
+  //
+  // This animated every time, and the list is populated more than once while a
+  // thread opens — Stream and the database each fill it in turn — so opening a
+  // chat meant watching it slide down from wherever it happened to be. A thread
+  // should simply start at the bottom, the way it does everywhere else.
+  //
+  // Once somebody is reading, a new message arriving should glide, because a
+  // jump there loses their place without explaining why.
+  const hasSettled = useRef(false);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!bottomRef.current) return;
+    if (!hasSettled.current) {
+      // No animation, and no smooth behaviour to interrupt: set the position
+      // outright so it is already correct on the frame it first appears.
+      const pane = bottomRef.current.parentElement;
+      if (pane) pane.scrollTop = pane.scrollHeight;
+      bottomRef.current.scrollIntoView({ block: 'end' });
+      if (messages.length) hasSettled.current = true;
+      return;
+    }
+    bottomRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, typing]);
 
   useEffect(() => {

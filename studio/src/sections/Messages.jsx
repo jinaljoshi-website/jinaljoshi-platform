@@ -208,9 +208,26 @@ export function Messages() {
     }
   };
 
+  // Jump on the first paint of a conversation, glide after it.
+  //
+  // This animated every time, and a thread is filled more than once as it opens
+  // — so choosing a conversation meant watching it slide down from wherever it
+  // was. It should simply start at the bottom.
+  //
+  // Keyed on the conversation, not the mount: switching to another fan is a
+  // first paint again, and should land at the bottom rather than travel there.
+  const settledFor = useRef(null);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [thread, typing]);
+    if (!bottomRef.current) return;
+    if (settledFor.current !== selected) {
+      const pane = bottomRef.current.parentElement;
+      if (pane) pane.scrollTop = pane.scrollHeight;
+      bottomRef.current.scrollIntoView({ block: 'end' });
+      if (thread.length) settledFor.current = selected;
+      return;
+    }
+    bottomRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [thread, typing, selected]);
 
   const resyncThread = async (fanId) => {
     try {
