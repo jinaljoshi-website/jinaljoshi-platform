@@ -910,7 +910,19 @@ export function Messages() {
                   )}
                   {thread.map((msg) => {
                     const isLockedBundle = msg.unlock_price_coins !== null && msg.unlock_price_coins !== undefined;
-                    const isRead = msg.is_mine && fanLastRead && new Date(msg.created_at) <= fanLastRead;
+                    // The message's own flag first, then Stream's receipt.
+                    //
+                    // This used to rest entirely on fanLastRead, a timestamp
+                    // held in memory from a Stream read event. On reload it is
+                    // null until a fresh receipt arrives, so every message fell
+                    // back to a single tick and the whole thread looked unread
+                    // — including messages read days ago. The database has kept
+                    // a per-message read flag all along and the endpoint
+                    // already returns it.
+                    const isRead = msg.is_mine && (
+                      msg.read === true ||
+                      (fanLastRead && new Date(msg.created_at) <= fanLastRead)
+                    );
                     return (
                       <div key={msg.id || msg.stream_id}
                            onMouseEnter={() => setHoveredMsg(msg.id)}
