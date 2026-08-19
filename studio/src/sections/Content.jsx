@@ -419,10 +419,18 @@ export function Content({ openWith, collection = false }) {
   const chooseCover = async (set, item) => {
     setCoverBusy(item.id); setError('');
     try {
-      const url = toUrl(item.r2_key);
-      // Fetched back so the reduced versions are made from the same image the
-      // fans will see, rather than from anything held in memory here.
-      const res = await fetch(url);
+      // Through the API, not from media.jinaljoshi.in.
+      //
+      // That host sends no CORS header, so the browser will display the image
+      // but refuses to fetch it or read it back off a canvas — and the blurred
+      // preview and share card are both made by drawing it to a canvas. The
+      // fetch rejected, the catch swallowed it, and clicking a photograph did
+      // nothing at all with nothing reported.
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/studio/content/item/${item.id}/image`,
+        { headers: { Authorization: `Bearer ${localStorage.getItem('jwt')}` } }
+      );
+      if (!res.ok) throw new Error(`Could not read that photo (${res.status})`);
       const blob = await res.blob();
       const file = new File([blob], 'cover.jpg', { type: blob.type });
 
@@ -432,7 +440,7 @@ export function Content({ openWith, collection = false }) {
         cover_og_key: await makeShareCard(file),
       });
       setSets((prev) => prev.map((s2) => s2.id === set.id
-        ? { ...s2, cover_key: item.r2_key, cover_url: url } : s2));
+        ? { ...s2, cover_key: item.r2_key, cover_url: toUrl(item.r2_key) } : s2));
       setSuccess('Cover updated.');
       setCoverFor(null);
     } catch (err) { setError(err.message); }

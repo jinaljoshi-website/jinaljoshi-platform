@@ -731,6 +731,46 @@ const VALID_TIER_CATEGORIES = ['free', 'community', 'insider', 'premium', 'supre
 // bucket — which needs a Cloudflare token the backend does not have. Passing
 // the bytes through here makes it a same-origin read, so no bucket
 // configuration is involved at all.
+
+// The bytes of one item, through the API.
+//
+// media.jinaljoshi.in serves no CORS header: an <img> displays fine, but the
+// browser may not fetch it or read it back off a canvas. So choosing an
+// existing photograph as a cover — which means regenerating the blurred
+// preview and the share card from it — could not be done in the page at all.
+// It failed silently, because the fetch rejects and the catch swallowed it.
+//
+// The same trick the cover backfill already uses: the server reads from R2 and
+// streams it back same-origin, where the canvas is allowed to look at it.
+router.get('/content/item/:itemId/image', async (req, res) => {
+  try {
+    const { GetObjectCommand, S3Client } = require('@aws-sdk/client-s3');
+    const { rows } = await pool.query(
+      `SELECT r2_key FROM set_items WHERE id = $1`, [req.params.itemId]
+    );
+    const key = rows[0]?.r2_key;
+    if (!key) return res.status(404).json({ error: 'Not found' });
+
+    const s3 = new S3Client({
+      region: 'auto',
+      endpoint: process.env.R2_ENDPOINT,
+      credentials: {
+        accessKeyId: process.env.R2_ACCESS_KEY_ID,
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+      },
+    });
+    const objectKey = key.startsWith('http') ? new URL(key).pathname.replace(/^\//, '') : key;
+    const obj = await s3.send(new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME, Key: objectKey,
+    }));
+    res.setHeader('Content-Type', obj.ContentType || 'image/jpeg');
+    obj.Body.pipe(res);
+  } catch (err) {
+    console.error('studio/item-image error:', err.message);
+    res.status(500).json({ error: 'Could not read that image' });
+  }
+});
+
 router.get('/content/:id/cover-image', async (req, res) => {
   try {
     const { GetObjectCommand, S3Client } = require('@aws-sdk/client-s3');
