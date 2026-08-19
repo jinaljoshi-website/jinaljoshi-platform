@@ -186,7 +186,15 @@ export function Messages() {
       const tokenData = await api.post('/api/stream-chat/token', {});
       artistIdRef.current = tokenData.userId;
 
-      const scClient = StreamChat.getInstance(tokenData.apiKey);
+      // Six seconds rather than the library's default three.
+      //
+      // The chat app is hosted in US East while everybody using it is in India,
+      // so a round trip is 250-300ms before anything goes wrong — and a send
+      // that hits any hiccup crosses three seconds and is abandoned. The
+      // message then exists in our database and never reaches Stream, so it
+      // shows on the sending side and never arrives on the other. Every send
+      // was one slow round trip away from vanishing.
+      const scClient = StreamChat.getInstance(tokenData.apiKey, { timeout: 6000 });
       scClientRef.current = scClient;
 
       if (!scClient.userID) {
