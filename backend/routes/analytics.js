@@ -105,8 +105,20 @@ router.get('/orders', async (req, res) => {
 // filing it under chat would make per-message charges look larger than they are.
 router.get('/spend', async (req, res) => {
   try {
-    const rate = await tokenRate();
     const gstPct = await gstRate();
+
+    // The list rate, which is the only rate there has ever been.
+    //
+    // I briefly derived an effective rate from revenue divided by tokens sold
+    // and got ₹56.05, and took that for a bulk discount. It was not: tokensSold
+    // counts bonus tokens, which were given rather than sold, so the divisor
+    // was 200 too large. There is no discount to account for — a token costs
+    // ₹66 and always has.
+    //
+    // Bonus and gifted tokens carry no rupee figure at all. They are counted so
+    // it is clear how much activity they drove, and valued at nothing because
+    // nobody paid for them.
+    const rate = await tokenRate();
 
     const { rows } = await pool.query(
       `SELECT CASE
@@ -136,6 +148,22 @@ router.get('/spend', async (req, res) => {
         ORDER BY 4 DESC`
     );
 
+    // Refunds, netted off.
+    //
+    // A refund is a credit, so a token spent, refunded and spent again is two
+    // debits. Summing debits alone therefore reports more spent than was ever
+    // available — 1,349 purchased tokens against 1,093 that existed to spend.
+    // Gross activity is real, but it is not what the money column should say.
+    const { rows: refunds } = await pool.query(
+      `SELECT COALESCE(SUM(cl.from_purchased), 0)::int AS purchased,
+              COALESCE(SUM(cl.from_gifted), 0)::int    AS gifted,
+              COALESCE(SUM(cl.from_bonus), 0)::int     AS bonus
+         FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
+        WHERE cl.type = 'refund' AND cl.direction = 'credit' AND u.is_test = FALSE`
+    );
+    const refundedPurchased = refunds[0].purchased || 0;
+    const refundedGifted    = (refunds[0].gifted || 0) + (refunds[0].bonus || 0);
+
     const inr = (tk) => Math.round(((tk * rate) / (1 + gstPct / 100)) * 100) / 100;
     const buckets = rows.map((r) => ({
       bucket: r.bucket,
@@ -147,8 +175,8 @@ router.get('/spend', async (req, res) => {
       revenueInr: inr(r.purchased),
     }));
 
-    const totalPurchased = buckets.reduce((a, b) => a + b.purchasedTokens, 0);
-    const totalGifted    = buckets.reduce((a, b) => a + b.giftedTokens, 0);
+    const totalPurchased = Math.max(0, buckets.reduce((a, b) => a + b.purchasedTokens, 0) - refundedPurchased);
+    const totalGifted    = Math.max(0, buckets.reduce((a, b) => a + b.giftedTokens, 0) - refundedGifted);
 
     res.json({
       buckets,
@@ -158,6 +186,7 @@ router.get('/spend', async (req, res) => {
         purchasedTokens: totalPurchased,
         giftedTokens: totalGifted,
         revenueInr: inr(totalPurchased),
+        refundedTokens: refundedPurchased + refundedGifted,
         // What share of everything spent was actually paid for. A number worth
         // watching: generosity that never converts is a cost, not a discount.
         purchasedSharePct: (totalPurchased + totalGifted) > 0
@@ -176,12 +205,24 @@ router.get('/purchased', async (req, res) => {
     const rate = await tokenRate();
 
     const [totals, byMonth, byType, outstanding, topFans] = await Promise.all([
-      // Revenue is what fans actually paid, not tokens multiplied by a rate —
-      // bulk recharges carry a discount, so the two differ.
+      // Revenue is what fans actually paid.
+      //
+      // The comment here used to say bulk recharges carry a discount, which is
+      // why revenue and tokens-times-rate differ. They do not — a token has
+      // always been ₹66. What made the two disagree was a single credit of 200
+      // tokens against ₹0, left behind by a Razorpay test payment, which
+      // dragged the apparent rate down to ₹56.05 and had me chasing a discount
+      // that never existed.
+      //
+      // A credit with no payment against it was not sold, so it is not counted
+      // as sold. It is still a real credit and the tokens are really in the
+      // account — it simply is not a purchase.
       pool.query(
         `SELECT COALESCE(SUM(cl.payment_amount_inr), 0) AS revenue_inr,
-                COALESCE(SUM(cl.amount), 0)             AS tokens_sold,
-                COUNT(*)                             AS purchases
+                COALESCE(SUM(cl.amount) FILTER (
+                  WHERE COALESCE(cl.payment_amount_inr, 0) > 0), 0) AS tokens_sold,
+                COUNT(*) FILTER (
+                  WHERE COALESCE(cl.payment_amount_inr, 0) > 0)     AS purchases
          FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
          WHERE cl.type = 'recharge' AND cl.direction = 'credit' AND u.is_test = FALSE`
       ),
