@@ -64,6 +64,19 @@ function Sum({ label, value, sub, tone }) {
   );
 }
 
+// "3 days ago" rather than a date: what matters is whether somebody has gone
+// quiet, and a timestamp makes that arithmetic the reader's job.
+function relativeTime(ts) {
+  const mins = Math.floor((Date.now() - new Date(ts)) / 60000);
+  if (mins < 2)      return 'just now';
+  if (mins < 60)     return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)      return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30)     return `${days}d ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
 export function Members() {
   const [fans,     setFans]     = useState([]);
   const [loading,  setLoading]  = useState(true);
@@ -126,7 +139,29 @@ export function Members() {
 
   const [modLog, setModLog] = useState([]);
   const [showLog, setShowLog] = useState(false);
+  // Everybody, or only those paying. Sixty-three of seventy-two have never held
+  // a membership, and a single list of all of them buries the nine who do.
   const [tab,     setTab]     = useState('people');
+  const [sortBy,  setSortBy]  = useState('joined');
+
+  const isPaying = (f) => f.membership_expires_at && new Date(f.membership_expires_at) > new Date();
+  const payingFans = fans.filter(isPaying);
+
+  const SORTS = {
+    joined:  { label: 'Newest',        fn: (a, b) => new Date(b.created_at) - new Date(a.created_at) },
+    spend:   { label: 'Spent most',    fn: (a, b) => (b.paid_inr || 0) - (a.paid_inr || 0) },
+    expiry:  { label: 'Expiring next', fn: (a, b) => {
+                 const av = a.membership_expires_at ? new Date(a.membership_expires_at) : Infinity;
+                 const bv = b.membership_expires_at ? new Date(b.membership_expires_at) : Infinity;
+                 return av - bv;
+               } },
+    active:  { label: 'Last seen',     fn: (a, b) =>
+                 new Date(b.last_seen_at || 0) - new Date(a.last_seen_at || 0) },
+    name:    { label: 'Name',          fn: (a, b) =>
+                 String(a.display_name || a.email).localeCompare(String(b.display_name || b.email)) },
+  };
+
+  const visibleFans = [...(tab === 'paying' ? payingFans : fans)].sort(SORTS[sortBy].fn);
 
   const loadFans = () => api.get('/api/studio/fans').then((d) => setFans(d.fans || []));
   const loadModLog = () => api.get('/api/studio/moderation-log').then((d) => setModLog(d.log || [])).catch(() => {});
@@ -274,93 +309,32 @@ export function Members() {
       )}
 
       <SectionTabs
+        // Gifting and sending are on every row already; a tab each for them
+        // was a second way to reach what is one tap away.
         tabs={[
-          { key: 'people',     label: `Members (${fans.length})` },
-          { key: 'membership', label: 'Gift a membership' },
-          { key: 'tokens',     label: 'Send tokens' },
+          { key: 'people',  label: `Everyone (${fans.length})` },
+          { key: 'paying',  label: `Paying (${payingFans.length})` },
         ]}
         active={tab} onChange={setTab}
       />
 
-      {tab !== 'people' && (
-        <div style={{ marginBottom: 20 }}>
-      {tab === 'membership' && (<>
-      <Card style={{ marginBottom: 20 }}>
-        <T.sectionTitle>Gift a membership</T.sectionTitle>
-        {conflict ? (
-          <div>
-            <div style={S.error}>{conflict.email} already has an active membership.</div>
-            <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-              <button onClick={() => handleGift('extend')} style={S.btn}>Add {term} to their membership</button>
-              <button onClick={() => handleGift('change')} style={S.ghostBtn}>Change tier to {tier}</button>
-              <button onClick={() => setConflict(null)} style={S.ghostBtn}>Cancel</button>
-            </div>
-          </div>
-        ) : (
-          <div style={S.formGrid}>
-            <Field label="Fan email">
-              <input style={S.input} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="fan@example.com" />
-            </Field>
-            <Field label="Tier">
-              <select style={S.input} value={tier} onChange={(e) => setTier(e.target.value)}>
-                <option value="community">Community</option>
-                <option value="insider">Insider</option>
-                <option value="premium">Premium</option>
-                <option value="supreme">Supreme</option>
-              </select>
-            </Field>
-            <Field label="Duration">
-              <select style={S.input} value={term} onChange={(e) => setTerm(e.target.value)}>
-                <option value="monthly">1 month</option>
-                <option value="quarterly">3 months</option>
-                <option value="annual">12 months</option>
-              </select>
-            </Field>
-            <Field label="Note (optional)">
-              <input style={S.input} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Internal note" />
-            </Field>
-            <div style={{ alignSelf: 'flex-end' }}>
-              <button onClick={() => handleGift('gift')} disabled={gifting || !email.trim()} style={{ ...S.btn, opacity: (gifting || !email.trim()) ? 0.5 : 1 }}>
-                {gifting ? 'Gifting…' : 'Gift membership'}
-              </button>
-            </div>
-          </div>
-        )}
-      </Card>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 14px' }}>
+        {Object.entries(SORTS).map(([k, v]) => (
+          <button key={k} onClick={() => setSortBy(k)}
+                  style={{ fontFamily: sans, fontSize: 11, padding: '5px 11px', borderRadius: 999,
+                           cursor: 'pointer', background: 'transparent',
+                           border: `1px solid ${sortBy === k ? colors.accent : colors.border}`,
+                           color: sortBy === k ? colors.accent : colors.muted }}>
+            {v.label}
+          </button>
+        ))}
+      </div>
 
-      </>)}
-
-      {tab === 'tokens' && (<>
-      <Card style={{ marginBottom: 28 }}>
-        <T.sectionTitle>Send tokens to a fan</T.sectionTitle>
-        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14, lineHeight: 1.6 }}>
-          Use this for refunds, compensation for failed calls or requests, or goodwill gestures. The fan sees a balance change and receives a notification.
-        </p>
-        <div style={S.formGrid}>
-          <Field label="Fan email">
-            <input style={S.input} value={grantEmail} onChange={(e) => setGrantEmail(e.target.value)} placeholder="fan@example.com" />
-          </Field>
-          <TokenField label="Amount to send" value={grantAmt} onChange={setGrantAmt} tokenRateInr={TOKEN_RATE} />
-          <Field label="Reason">
-            <input style={S.input} value={grantReason} onChange={(e) => setGrantReason(e.target.value)} placeholder="e.g. Refund for call that didn't connect" />
-          </Field>
-          <div style={{ alignSelf: 'flex-end' }}>
-            <button onClick={handleGrantTokens} disabled={granting || !grantEmail.trim() || !grantAmt} style={{ ...S.btn, opacity: (granting || !grantEmail.trim() || !grantAmt) ? 0.5 : 1 }}>
-              {granting ? 'Sending…' : 'Send tokens'}
-            </button>
-          </div>
-        </div>
-      </Card>
-
-      </>)}
-        </div>
-      )}
-
-      {tab === 'people' && (<>
-      {/* Fan list */}
-      <T.sectionTitle>All fans ({fans.length})</T.sectionTitle>
-      <div style={{ display: 'grid', gap: 8, marginBottom: 32 }}>
-        {fans.map((fan) => {
+      {/* The list. Its wrapper was lost when the gift and token tabs were
+          removed — both are on every row already, so a tab each was a second
+          way to reach what is one tap away. */}
+      <div style={{ display: 'grid', gap: 12 }}>
+        {visibleFans.map((fan) => {
           const isActive  = fan.membership_expires_at && new Date(fan.membership_expires_at) > new Date();
           const isBlocked = isCurrentlyBlocked(fan.blocked_until);
           return (
@@ -374,7 +348,17 @@ export function Members() {
                     </div>
                   )}
                   <div style={S.rowSub}>
-                    Joined {new Date(fan.created_at).toLocaleDateString()} · {fan.coin_balance} tokens
+                    Joined {new Date(fan.created_at).toLocaleDateString('en-IN')} · {fan.coin_balance} tokens
+                    {/* What they have paid, and when they were last here.
+                        Neither was shown, so a list of seventy-two people said
+                        nothing about which of them matter or which have gone
+                        quiet. */}
+                    {fan.paid_inr > 0 && (
+                      <span style={{ color: colors.accent }}> · ₹{Math.round(fan.paid_inr).toLocaleString('en-IN')} paid</span>
+                    )}
+                    {fan.last_seen_at && (
+                      <span> · seen {relativeTime(fan.last_seen_at)}</span>
+                    )}
                     {fan.gifted_balance > 0 && (
                       <span style={{ color: '#8FC88F' }}>
                         {' + '}{fan.gifted_balance} gifted
@@ -645,7 +629,6 @@ export function Members() {
           </div>
         )}
       </div>
-      </>)}
     </div>
   );
 }

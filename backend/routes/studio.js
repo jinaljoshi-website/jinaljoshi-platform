@@ -431,7 +431,24 @@ router.get('/fans', async (req, res) => {
               (
                 SELECT MIN(g.expires_at) FROM gifted_grants g
                 WHERE g.user_id = u.id AND g.remaining > 0 AND g.expires_at > NOW()
-              ) AS gifted_expires_at
+              ) AS gifted_expires_at,
+
+              -- What they have actually paid, in rupees.
+              --
+              -- Money in rather than tokens out: gifted and bonus tokens were
+              -- never anybody's money, and ranking members by tokens spent puts
+              -- somebody who spent a gift above somebody who paid.
+              COALESCE((
+                SELECT SUM(cl.payment_amount_inr) FROM coin_ledger cl
+                WHERE cl.user_id = u.id AND cl.type = 'recharge' AND cl.direction = 'credit'
+              ), 0)::float8 AS paid_inr,
+
+              -- Last seen. active_sessions.last_seen_at is already written on
+              -- every authenticated request, so this needed no new column and
+              -- no new write — it was simply never read.
+              (
+                SELECT MAX(a.last_seen_at) FROM active_sessions a WHERE a.user_id = u.id
+              ) AS last_seen_at
        FROM users u WHERE u.is_artist = FALSE ORDER BY u.created_at DESC`
     );
     res.json({ fans: rows });
@@ -1708,11 +1725,69 @@ router.get('/photographers/earnings', async (req, res) => {
       byId[r.id].generatedInr += totalInr;
     }
 
+    // Sets nobody is credited on.
+    //
+    // Every set with a photographer appeared here; every set without one
+    // appeared nowhere, so this page and the gallery's own earnings figure
+    // disagreed by whatever those sets had brought in — with nothing on either
+    // screen to say why. A photographer asking "is that all of it?" could not
+    // be answered, which is the whole purpose of the page.
+    //
+    // Shown as an entry rather than folded into a total, because the useful
+    // response is to credit the work, and that only happens if the gap is
+    // visible and named.
+    const { rows: orphanRows } = await pool.query(
+      `WITH spend AS (
+         SELECT cl.related_id AS set_id,
+                COALESCE(SUM(cl.from_purchased), 0)::int AS purchased_tokens,
+                COALESCE(SUM(cl.from_gifted), 0)::int    AS gifted_tokens
+         FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
+         WHERE cl.type = 'content_unlock' AND cl.direction = 'debit'
+           AND cl.related_id IS NOT NULL AND u.is_test = FALSE
+         GROUP BY cl.related_id
+       ),
+       unlocks AS (
+         SELECT ag.set_id, COUNT(*)::int AS n
+         FROM access_grants ag JOIN users u ON u.id = ag.user_id
+         WHERE u.is_test = FALSE GROUP BY ag.set_id
+       )
+       SELECT s.id AS set_id, s.title,
+              COALESCE(sp.purchased_tokens, 0) AS purchased_tokens,
+              COALESCE(sp.gifted_tokens, 0)    AS gifted_tokens,
+              COALESCE(u.n, 0)                 AS unlocks
+         FROM sets s
+         LEFT JOIN spend sp  ON sp.set_id = s.id
+         LEFT JOIN unlocks u ON u.set_id  = s.id
+        WHERE NOT EXISTS (SELECT 1 FROM set_photographers sp2 WHERE sp2.set_id = s.id)
+        ORDER BY s.title`
+    );
+
+    const orphanSets = orphanRows.map((r) => ({
+      setId: r.set_id, title: r.title, sharedWith: null,
+      unlocks: r.unlocks,
+      purchasedTokens: r.purchased_tokens, giftedTokens: r.gifted_tokens,
+      creditUnlocks: 0,
+      revenueInr: Math.round(((r.purchased_tokens * tokenRate) / (1 + gstPct / 100)) * 100) / 100,
+    }));
+    const orphanTotal = orphanSets.reduce((a, x) => a + x.revenueInr, 0);
+
     const list = Object.values(byId).map((p) => ({
       ...p,
       generatedInr: Math.round(p.generatedInr * 100) / 100,
       paidInr: paidBy[p.id] || 0,
     })).sort((a, b) => b.generatedInr - a.generatedInr);
+
+    if (orphanSets.length) {
+      list.push({
+        id: '__unattributed',
+        name: 'Not credited to anyone',
+        contact: null,
+        unattributed: true,
+        sets: orphanSets,
+        generatedInr: Math.round(orphanTotal * 100) / 100,
+        paidInr: 0,
+      });
+    }
 
     res.json({
       photographers: list,
