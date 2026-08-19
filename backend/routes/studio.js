@@ -607,8 +607,14 @@ router.post('/dms/:fanId/send-locked-media', async (req, res) => {
       tag:   'dm',
     }).catch((e) => console.error('Locked media push failed:', e.message));
   } catch (err) {
+    // The message as well as the label. 'Failed to send locked media' told
+    // nobody anything — not the person who saw it and not whoever had to work
+    // out why — and the underlying error was only ever in the server log.
     console.error('studio/dms/send-locked-media error:', err);
-    res.status(500).json({ error: 'Failed to send locked media' });
+    res.status(500).json({
+      error: 'LOCKED_MEDIA_FAILED',
+      message: `Could not send: ${err.message}`,
+    });
   }
 });
 
@@ -914,7 +920,14 @@ router.get('/content/:id/items', async (req, res) => {
        ORDER BY tier_category, position ASC, created_at ASC`,
       [req.params.id]
     );
-    res.json({ items: rows });
+    // The URL as well as the key.
+    //
+    // This returned raw rows, so every screen built its own URL from its own
+    // environment variable — and Studio's points at the r2.dev bucket while the
+    // backend serves fans from the custom domain. The same photograph therefore
+    // had two different addresses depending on who asked, and anything Studio
+    // put into a message carried the wrong one.
+    res.json({ items: rows.map((r) => ({ ...r, media_url: toPublicUrl(r.r2_key) })) });
   } catch (err) {
     console.error('studio/content/items error:', err);
     res.status(500).json({ error: 'Failed to load set items' });

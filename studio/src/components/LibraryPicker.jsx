@@ -17,12 +17,13 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { T, S, colors } from '../ui';
 
-// The set-items endpoint returns raw rows — r2_key, not a URL. Every other
-// screen that uses it builds the URL itself, and this one did not: the images
-// were given undefined and rendered blank, and worse, every item was stored
-// with url: undefined so they all compared equal and selecting one selected
-// the lot.
-const toUrl = (k) => (!k ? null : String(k).startsWith('http') ? k : `${import.meta.env.VITE_R2_PUBLIC_URL || ''}/${k}`);
+// No URL building here.
+//
+// Studio's own R2 variable points at the r2.dev bucket while the backend serves
+// fans from the custom domain, so a URL built in this browser was a different
+// address for the same photograph — and putting it in a message would have sent
+// a fan somewhere the rest of the platform never uses. The endpoint supplies
+// media_url now, built from the same value everything else is served from.
 
 const sans = "'DM Sans', system-ui, sans-serif";
 const mono = "'DM Mono', 'Courier New', monospace";
@@ -61,12 +62,12 @@ export default function LibraryPicker({ onCancel, onPick }) {
       const d = await api.get(`/api/studio/content/${set.id}/items`);
       setItems((d.items || [])
         .filter((i) => i.review_flag !== 'remove')
-        .map((i) => ({ ...i, url: i.media_url || toUrl(i.r2_key) })));
+        .map((i) => ({ ...i, url: i.media_url })));
     } catch (err) { setError(err.message); }
   };
 
   const toggle = (item, set) => {
-    const url = item.url || item.media_url || toUrl(item.r2_key);
+    const url = item.url || item.media_url;
     // Without a url there is nothing to send, and storing undefined made every
     // item compare equal to every other.
     if (!url) return;
@@ -82,7 +83,7 @@ export default function LibraryPicker({ onCancel, onPick }) {
   };
 
   const isChosen = (item) => {
-    const url = item.url || item.media_url || toUrl(item.r2_key);
+    const url = item.url || item.media_url;
     return Boolean(url) && chosen.some((c) => c.url === url);
   };
 
