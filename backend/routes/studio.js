@@ -13,6 +13,7 @@ const { grantGiftedTokens, refundByRelated, refundLedgerEntry } = require('../li
 const { deleteObjects, findOrphans } = require('../lib/r2');
 const { getBalances } = require('../lib/tokens');
 const { getDmConfigForTier, getConfigNumber } = require('../lib/config');
+const { render: renderTemplate, inspect: inspectTemplate, FIELDS: BROADCAST_FIELDS } = require('../lib/broadcast');
 const { getLocalDateStr, getAllotmentPeriodKey } = require('../lib/time');
 
 router.use(authMid, artistOnly);
@@ -851,6 +852,130 @@ router.get('/content/:id/pricing', async (req, res) => {
 // Grouped the way the money works rather than the way the tables do: free,
 // paid, and the private collection. What matters when choosing a photograph to
 // send is what somebody would otherwise have paid for it.
+
+// ─────────────────────────────────────────────
+// BROADCAST
+// ─────────────────────────────────────────────
+//
+// One message to many members, addressed to each of them.
+//
+// Sent as real direct messages rather than only as a push, because a push is
+// gone the moment it is dismissed and a fan who had notifications switched off
+// would never know. A message waits in the thread, and replying to it lands
+// exactly where a reply should.
+//
+// Never charged. This is Jinal writing to her members, not a fan buying her
+// attention, and the DM allowance exists to price the latter.
+
+const AUDIENCES = {
+  // Everybody with a live membership.
+  members:     "membership_expires_at > NOW()",
+  // Everybody at all, including those who never subscribed.
+  everyone:    "TRUE",
+  // Lapsed, and therefore worth writing to.
+  lapsed:      "membership_expires_at IS NOT NULL AND membership_expires_at <= NOW()",
+  // Never held one.
+  guests:      "membership_expires_at IS NULL",
+  // Running out within the fortnight.
+  expiring:    "membership_expires_at > NOW() AND membership_expires_at < NOW() + INTERVAL '14 days'",
+};
+
+async function audienceRows(audience, tier) {
+  const where = AUDIENCES[audience];
+  if (!where) throw new Error(`Unknown audience: ${audience}`);
+  const params = [];
+  let sql = `SELECT id, display_name, email, tier, coin_balance, timezone,
+                    membership_expires_at, membership_started_at,
+                    trial_tier, trial_started_at, trial_ends_at
+               FROM users
+              WHERE is_test = FALSE AND (${where})`;
+  if (tier && tier !== 'all') { params.push(tier); sql += ` AND tier = $${params.length}`; }
+  sql += ' ORDER BY created_at ASC';
+  const { rows } = await pool.query(sql, params);
+  return rows;
+}
+
+// What it would look like, for real people, before anybody receives it.
+// What may be used in a template. Served rather than duplicated in the
+// frontend, so a field cannot be offered that does not exist.
+router.get('/broadcast/fields', (req, res) => {
+  res.json({ fields: BROADCAST_FIELDS, audiences: Object.keys(AUDIENCES) });
+});
+
+router.post('/broadcast/preview', async (req, res) => {
+  const { template, audience = 'members', tier = 'all' } = req.body;
+  try {
+    const rows = await audienceRows(audience, tier);
+    const checked = inspectTemplate(template);
+    res.json({
+      recipients: rows.length,
+      unknownFields: checked.unknown,
+      usedFields: checked.used,
+      // Three real ones rather than invented examples: a template that reads
+      // well for a made-up member and badly for an actual one is exactly the
+      // mistake this exists to catch.
+      samples: rows.slice(0, 3).map((r) => ({
+        to: r.display_name || r.email,
+        text: renderTemplate(template, r),
+      })),
+    });
+  } catch (err) {
+    console.error('studio/broadcast/preview error:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/broadcast/send', async (req, res) => {
+  const { template, audience = 'members', tier = 'all', alsoPush = true, confirm } = req.body;
+  if (!template || !String(template).trim()) {
+    return res.status(400).json({ error: 'Nothing to send' });
+  }
+  // Typed confirmation, because this is the one action here that cannot be
+  // taken back — a message can be deleted from a thread, but not unread.
+  if (confirm !== 'SEND') {
+    return res.status(400).json({ error: 'CONFIRM_REQUIRED', message: 'Confirmation missing' });
+  }
+
+  try {
+    const rows = await audienceRows(audience, tier);
+    if (!rows.length) return res.json({ ok: true, sent: 0, message: 'Nobody matched' });
+
+    let sent = 0, failed = 0;
+    for (const fan of rows) {
+      const text = renderTemplate(template, fan);
+      try {
+        const { rows: msg } = await pool.query(
+          `INSERT INTO direct_messages (sender_id, recipient_id, content, tokens_charged)
+           VALUES ($1, $2, $3, 0) RETURNING id, created_at`,
+          [req.user.userId, fan.id, text]
+        );
+        // No Stream mirror here. Every other message in this file is mirrored
+        // by the browser that sent it, and reaching Stream from the server
+        // would be a second way of doing the same thing — one more path to
+        // drift. A broadcast lands in the thread and the push announces it;
+        // somebody with the app already open sees it on their next poll.
+        if (alsoPush) {
+          pushToUser(fan.id, {
+            title: 'Jinal sent you a message',
+            body:  text.length > 90 ? text.slice(0, 90) + '…' : text,
+            url:   '/platform/chat',
+            tag:   'dm',
+          }).catch(() => {});
+        }
+        sent += 1;
+      } catch (e) {
+        console.error(`broadcast to ${fan.id}:`, e.message);
+        failed += 1;
+      }
+    }
+
+    res.json({ ok: true, sent, failed, recipients: rows.length });
+  } catch (err) {
+    console.error('studio/broadcast/send error:', err);
+    res.status(500).json({ error: 'Could not send', message: err.message });
+  }
+});
+
 router.get('/library', async (req, res) => {
   const scope  = req.query.scope || 'sets';       // 'sets' | 'recent'
   const group  = req.query.group || 'all';        // 'all' | 'free' | 'paid' | 'collection'

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import LibraryPicker from '../components/LibraryPicker';
+import Broadcast from '../components/Broadcast';
 import BackgroundPicker from '../components/BackgroundPicker';
 import { T, S, Card, Eyebrow, Badge, Field, TokenField, colors } from '../ui';
 import { StreamChat } from 'stream-chat';
@@ -80,6 +81,7 @@ export function Messages({ openWith }) {
   const [allFans,       setAllFans]       = useState([]);
   const [fanSearch,     setFanSearch]     = useState('');
   const [showNewChat,   setShowNewChat]   = useState(false);
+  const [showBroadcast, setShowBroadcast] = useState(false);
   const [defaultChatBg, setDefaultChatBg] = useState(null);
 
   const [hoveredMsg, setHoveredMsg] = useState(null);
@@ -699,7 +701,10 @@ export function Messages({ openWith }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
             <Eyebrow>Conversations</Eyebrow>
             <button onClick={() => setShowNewChat((v) => !v)} style={{ ...S.ghostBtn, fontSize: 12, padding: '5px 10px' }}>+ New</button>
+            <button onClick={() => setShowBroadcast((v) => !v)} style={{ ...S.ghostBtn, fontSize: 12, padding: '5px 10px' }}>Everyone</button>
           </div>
+
+          {showBroadcast && <Broadcast onClose={() => setShowBroadcast(false)} />}
 
           {showNewChat && (
             <Card style={{ marginBottom: 8 }}>
