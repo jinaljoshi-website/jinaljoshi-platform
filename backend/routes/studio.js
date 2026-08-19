@@ -920,15 +920,22 @@ const AUDIENCES = {
   expiring:    "membership_expires_at > NOW() AND membership_expires_at < NOW() + INTERVAL '14 days'",
 };
 
-async function audienceRows(audience, tier) {
+async function audienceRows(audience, tier, artistId) {
   const where = AUDIENCES[audience];
   if (!where) throw new Error(`Unknown audience: ${audience}`);
-  const params = [];
+  const params = [artistId];
   let sql = `SELECT id, display_name, email, tier, coin_balance, timezone,
                     membership_expires_at, membership_started_at,
                     trial_tier, trial_started_at, trial_ends_at
                FROM users
-              WHERE is_test = FALSE AND (${where})`;
+              -- Never Jinal. She is a row in users like anybody else, so
+              -- "everyone" included her and a broadcast sent her a message
+              -- from herself: unread, counted on the dashboard, and belonging
+              -- to no conversation, so there was nothing to open and nothing
+              -- to clear it.
+              WHERE is_test = FALSE
+                AND id <> $1
+                AND (${where})`;
   if (tier && tier !== 'all') { params.push(tier); sql += ` AND tier = $${params.length}`; }
   sql += ' ORDER BY created_at ASC';
   const { rows } = await pool.query(sql, params);
@@ -945,7 +952,7 @@ router.get('/broadcast/fields', (req, res) => {
 router.post('/broadcast/preview', async (req, res) => {
   const { template, audience = 'members', tier = 'all' } = req.body;
   try {
-    const rows = await audienceRows(audience, tier);
+    const rows = await audienceRows(audience, tier, req.user.userId);
     const checked = inspectTemplate(template);
     res.json({
       recipients: rows.length,
@@ -977,7 +984,7 @@ router.post('/broadcast/send', async (req, res) => {
   }
 
   try {
-    const rows = await audienceRows(audience, tier);
+    const rows = await audienceRows(audience, tier, req.user.userId);
     if (!rows.length) return res.json({ ok: true, sent: 0, message: 'Nobody matched' });
 
     let sent = 0, failed = 0;
