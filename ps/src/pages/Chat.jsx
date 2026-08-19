@@ -27,6 +27,18 @@ function collapseDeleted(list) {
 
 export default function Chat() {
   const [messages,   setMessages]   = useState([]);
+  // The photograph being looked at full size. Nothing opened before — an
+  // unlocked set stayed at the width of a chat bubble, which is a poor way to
+  // see something somebody has just paid for.
+  const [viewing,    setViewing]    = useState(null);
+
+  // Escape closes it, as it does in the gallery.
+  useEffect(() => {
+    if (!viewing) return;
+    const onKey = (e) => { if (e.key === 'Escape') setViewing(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [viewing]);
   const [status,     setStatus]     = useState(null);
   const [message,    setMessage]    = useState('');
   const [loading,    setLoading]    = useState(true);
@@ -157,7 +169,14 @@ export default function Chat() {
         stream_id:         m.id,
         sender_id:         m.sender_id,
         content:           m.content,
-        is_locked_media:   !!m.is_locked && m.unlock_price_coins != null,
+        // A message with a price is a locked-media message whether or not it
+        // is still locked. The server sets is_locked only while it is shut, so
+        // testing it meant an unlocked message stopped being recognised as
+        // media at all — it fell through to the plain-text branch, which has no
+        // content and no media_url, and rendered as nothing. That is why the
+        // photographs vanished the moment the list was rebuilt from the
+        // database rather than from Stream.
+        is_locked_media:   m.unlock_price_coins != null,
         locked_price:      m.unlock_price_coins,
         locked_item_count: m.locked_item_count,
         unlocked_media:    m.locked_media_urls || null,
@@ -261,7 +280,7 @@ export default function Chat() {
           if (mounted) {
             setMessages((msgData.messages || []).map((m) => ({
               ...m,
-              is_locked_media: !!m.is_locked && m.unlock_price_coins != null,
+              is_locked_media: m.unlock_price_coins != null,
               locked_price: m.unlock_price_coins,
               locked_item_count: m.locked_item_count,
               unlocked_media: m.locked_media_urls || null,
@@ -588,6 +607,7 @@ export default function Chat() {
                 onReply={setReplyTo}
                 onUnlock={() => unlockMedia(msg.id)}
                 unlocking={unlocking === msg.id}
+                onOpenImage={setViewing}
               />
             )
           ))}
@@ -660,11 +680,20 @@ export default function Chat() {
       {topUp !== null && (
         <TopUpModal requiredTokens={topUp} onClose={() => setTopUp(null)} onSuccess={() => { setTopUp(null); loadStatus(); }} />
       )}
+
+      {/* Full size. Chat had no viewer at all, so a photograph somebody had
+          just paid to unlock stayed at the width of a bubble — the gallery has
+          opened its images all along and this did not. */}
+      {viewing && (
+        <div onClick={() => setViewing(null)} style={imageViewer}>
+          <img src={viewing} alt="" style={{ maxWidth: '94vw', maxHeight: '92vh', objectFit: 'contain', borderRadius: 4 }} />
+        </div>
+      )}
     </div>
   );
 }
 
-function MessageBubble({ msg, parent, onReply, onUnlock, unlocking }) {
+function MessageBubble({ msg, parent, onReply, onUnlock, unlocking, onOpenImage }) {
   const isMe = msg.is_mine;
 
   if (msg.is_locked_media) {
@@ -680,7 +709,8 @@ function MessageBubble({ msg, parent, onReply, onUnlock, unlocking }) {
                   ? <video key={i} src={item.url} controls style={{ width: '100%', borderRadius: 6, display: 'block' }} />
                   : item.type === 'audio'
                     ? <audio key={i} src={item.url} controls style={{ width: '100%' }} />
-                    : <img key={i} src={item.url} alt="" style={{ width: '100%', borderRadius: 6, display: 'block' }} />
+                    : <img key={i} src={item.url} alt="" onClick={() => onOpenImage?.(item.url)}
+                           style={{ width: '100%', borderRadius: 6, display: 'block', cursor: 'zoom-in' }} />
               ))}
             </div>
           ) : (
@@ -715,7 +745,7 @@ function MessageBubble({ msg, parent, onReply, onUnlock, unlocking }) {
     <div style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '75%', display: 'flex', flexDirection: 'column' }}>
       {!isMe && <div style={{ fontFamily: F.sans, fontSize: 11, color: C.accent, marginBottom: 3 }}>★ Jinal Joshi</div>}
       <div style={{ ...bubble, background: isMe ? 'rgba(193,125,74,0.1)' : C.surface, border: isMe ? `1px solid rgba(193,125,74,0.25)` : `1px solid ${C.border}`, padding: msg.media_url ? 6 : '10px 14px', overflow: 'hidden' }}>
-        {msg.media_url && msg.media_type === 'image' && <img src={msg.media_url} alt="" style={{ width: '100%', maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: msg.content ? 8 : 0 }} />}
+        {msg.media_url && msg.media_type === 'image' && <img src={msg.media_url} alt="" onClick={() => onOpenImage?.(msg.media_url)} style={{ width: '100%', maxWidth: 280, borderRadius: 8, display: 'block', cursor: 'zoom-in', marginBottom: msg.content ? 8 : 0 }} />}
         {msg.media_url && msg.media_type === 'video' && <video src={msg.media_url} controls style={{ width: '100%', maxWidth: 280, borderRadius: 8, display: 'block', marginBottom: msg.content ? 8 : 0 }} />}
         {msg.media_url && msg.media_type === 'audio' && <audio src={msg.media_url} controls style={{ width: '100%', minWidth: 220 }} />}
         {parent && (
@@ -759,6 +789,8 @@ const statLabel    = { fontFamily: F.sans, fontSize: 10, color: C.muted, textTra
 const giftPill     = { fontFamily: F.sans, fontSize: 11, color: '#8FC88F', background: 'rgba(100,160,100,0.1)', border: '1px solid rgba(100,160,100,0.28)', borderRadius: 999, padding: '3px 9px', whiteSpace: 'nowrap' };
 const topUpBtn     = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 11, padding: '4px 8px', borderRadius: 6, cursor: 'pointer' };
 const inlineTopUp  = { background: C.accent, border: 'none', color: '#1A1714', fontFamily: F.sans, fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
+const imageViewer = { position: 'fixed', inset: 0, zIndex: 120, background: 'rgba(6,5,4,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out', padding: 12 };
+
 const bubble       = { fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, borderRadius: 10, wordBreak: 'break-word', textAlign: 'left' };
 const errorBox     = { background: 'rgba(156,90,90,0.12)', border: '1px solid rgba(156,90,90,0.35)', color: '#D99A9A', padding: '10px 14px', borderRadius: 8, fontFamily: F.sans, fontSize: 13 };
 const costPreview  = { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 };
