@@ -934,8 +934,8 @@ export function Content({ openWith, collection = false, upload = false }) {
 
   return (
     <div>
-      <Eyebrow>{collection ? 'Collections' : 'Gallery'}</Eyebrow>
-      <T.title>{collection ? 'Collections' : 'Gallery'}</T.title>
+      <Eyebrow>{upload ? 'Where sets are made' : collection ? 'Collections' : 'Gallery'}</Eyebrow>
+      <T.title>{upload ? 'Upload' : collection ? 'Collections' : 'Gallery'}</T.title>
 
       {collection && (
         <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, lineHeight: 1.7, marginBottom: 18, maxWidth: 660 }}>
@@ -948,7 +948,7 @@ export function Content({ openWith, collection = false, upload = false }) {
       {/* Selfie of the Day belongs to the gallery. Offering it here would be a
           second way to put something in the wrong place, which is the thing
           having two pages is meant to prevent. */}
-      {!collection && (
+      {!collection && !upload && (
         <SectionTabs
           tabs={[
             { key: 'sets',    label: 'Media' },
@@ -1013,9 +1013,13 @@ export function Content({ openWith, collection = false, upload = false }) {
             </div>
           </>
         )}
-        <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 16, lineHeight: 1.6 }}>
-          Upload photos/videos into whichever category buckets they belong to below. One base price covers the whole set — each membership tier's price and any upsell for higher-tier or purchase-only content is calculated automatically.
-        </p>
+        {/* The mode above already says what happens to these photographs, and
+            saying it twice in different words invites the two to disagree. */}
+        {!upload && (
+          <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 16, lineHeight: 1.6 }}>
+            Upload photos/videos into whichever category buckets they belong to below. One base price covers the whole set — each membership tier's price and any upsell for higher-tier or purchase-only content is calculated automatically.
+          </p>
+        )}
 
         <div style={S.formGrid}>
           <Field label="Title">
