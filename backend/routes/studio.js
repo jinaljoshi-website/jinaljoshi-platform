@@ -684,10 +684,37 @@ router.get('/content', async (req, res) => {
          -- the tier check already handles.
          AND (
            s.visible = TRUE
-           OR NOT EXISTS (
-             SELECT 1 FROM set_items i
-              WHERE i.set_id = s.id
-                AND (i.tier_category IS NULL OR i.review_flag = 'remove')
+           OR (
+             -- Nothing left undecided,
+             NOT EXISTS (
+               SELECT 1 FROM set_items i
+                WHERE i.set_id = s.id
+                  AND (i.tier_category IS NULL OR i.review_flag = 'remove')
+             )
+             -- and nothing left to separate.
+             --
+             -- A sorted set can still be three sets waiting to happen: tiered
+             -- photographs with purchase-only or collection ones among them.
+             -- Checking only for undecided photographs let such a set into the
+             -- gallery whole, carrying collection photographs into a library
+             -- they do not belong in.
+             -- Only where it is mixed. A set uploaded straight to the
+             -- collection is already a collection set, and its photographs
+             -- carry no marker to separate — is_collection said so from the
+             -- moment it was made.
+             AND NOT (
+               EXISTS (SELECT 1 FROM set_items i
+                        WHERE i.set_id = s.id AND i.tier_category = 'collection')
+               AND s.is_collection = FALSE
+             )
+             AND NOT (
+               EXISTS (SELECT 1 FROM set_items i
+                        WHERE i.set_id = s.id AND i.tier_category = 'purchase_only')
+               AND EXISTS (SELECT 1 FROM set_items i
+                            WHERE i.set_id = s.id
+                              AND i.tier_category IS NOT NULL
+                              AND i.tier_category NOT IN ('purchase_only', 'collection'))
+             )
            )
          )
        -- The same order the fans see, so arranging here is arranging there.
@@ -980,10 +1007,25 @@ router.get('/content/queue', async (req, res) => {
                 AND i.tier_category = 'collection')                                               AS collection
          FROM sets s
         WHERE s.visible = FALSE
-          AND EXISTS (
-            SELECT 1 FROM set_items i
-             WHERE i.set_id = s.id
-               AND (i.tier_category IS NULL OR i.review_flag = 'remove')
+          AND (
+            EXISTS (
+              SELECT 1 FROM set_items i
+               WHERE i.set_id = s.id
+                 AND (i.tier_category IS NULL OR i.review_flag = 'remove')
+            )
+            OR (
+              EXISTS (SELECT 1 FROM set_items i
+                       WHERE i.set_id = s.id AND i.tier_category = 'collection')
+              AND s.is_collection = FALSE
+            )
+            OR (
+              EXISTS (SELECT 1 FROM set_items i
+                       WHERE i.set_id = s.id AND i.tier_category = 'purchase_only')
+              AND EXISTS (SELECT 1 FROM set_items i
+                           WHERE i.set_id = s.id
+                             AND i.tier_category IS NOT NULL
+                             AND i.tier_category NOT IN ('purchase_only', 'collection'))
+            )
           )
         ORDER BY s.created_at DESC`
     );
@@ -994,10 +1036,13 @@ router.get('/content/queue', async (req, res) => {
         coverUrl: toPublicUrl(r.cover_key),
         total: r.total, untiered: r.untiered, marked: r.marked,
         purchase: r.purchase, collection: r.collection,
-        // Ready when nothing is left undecided. Marked photographs still count
-        // as undecided: they have been judged but not yet acted on, and a set
-        // should not reach its library carrying photographs meant to be gone.
+        // Ready when nothing is left undecided and nothing is left to
+        // separate. A set of tiered photographs with collection ones among them
+        // is sorted but not finished — it is two sets that have not been made
+        // yet, and letting it through put collection photographs in the gallery.
         ready: r.untiered === 0,
+        needsSplit: (r.collection > 0 && !r.is_collection)
+          || (r.purchase > 0 && r.total - r.purchase - r.collection - r.marked > 0),
       })),
     });
   } catch (err) {

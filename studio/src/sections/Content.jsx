@@ -22,6 +22,12 @@ const CATEGORIES = [
   { key: 'premium',       label: 'Premium',        color: '#D9A45C' },
   { key: 'supreme',       label: 'Supreme',        color: '#EBC49A' },
   { key: 'purchase_only', label: 'Purchase-only',  color: '#D99A9A' },
+  // The two destinations, reachable by mouse as well as by key.
+  //
+  // 6 and 7 were added to the keyboard and not here, so every dropdown that
+  // does the same job offered five tiers and no way to send a photograph to the
+  // collection at all — the keys worked and the controls beside them did not.
+  { key: 'collection',    label: 'Exclusive',      color: '#C9A227' },
 ];
 
 // What the upload form asks, which is only the one thing it has to: whether
@@ -45,6 +51,17 @@ const UPLOAD_BUCKETS = [
 // A collection set is bought whole, so there are no tiers to sort into and no
 // purchase-only distinction to draw — everything here is purchased. One place
 // to put files is the entire question.
+// One bucket per mode. The mode is the decision; this is only where the files
+// land while it is being made.
+const UPLOAD_MODE_BUCKETS = {
+  bulk:      [{ key: 'unsorted',      label: 'Photos & videos', color: '#D9A45C',
+                note: 'Sorted photograph by photograph after uploading.' }],
+  purchase:  [{ key: 'purchase_only', label: 'Photos & videos', color: '#D99A9A',
+                note: 'All bought outright. Nothing to sub-tier.' }],
+  exclusive: [{ key: 'unsorted',      label: 'Photos & videos', color: '#C9A227',
+                note: 'All for the private collection. Nothing to sub-tier.' }],
+};
+
 const COLLECTION_BUCKETS = [
   { key: 'unsorted', label: 'Files', color: '#D9A45C', note: 'Reviewed before it goes out.' },
 ];
@@ -177,7 +194,18 @@ export function Content({ openWith, collection = false, upload = false }) {
   const [uploadMode, setUploadMode] = useState('bulk');
   // Nothing in a collection is free, so free is not a tier that can be picked
   // there by accident.
-  const reviewCategories = collection ? CATEGORIES.filter((c) => c.key !== 'free') : CATEGORIES;
+  // What the dropdowns may offer, which is not always everything.
+  //
+  // Nothing in a collection is free, so free is not a tier that can be picked
+  // there by accident. And the two destinations only make sense while sorting a
+  // mixed pile — a set already in the gallery has been decided, and offering to
+  // send one of its photographs to the collection would be offering to break it
+  // in half by accident.
+  const reviewCategories = collection
+    ? CATEGORIES.filter((c) => !['free', 'purchase_only', 'collection'].includes(c.key))
+    : upload
+    ? CATEGORIES
+    : CATEGORIES.filter((c) => c.key !== 'collection');
   // Mirrors what fans see: sets and Selfie of the Day are one Gallery to them,
   // so they should be one screen here too.
   const [tab, setTab] = useState(openWith?.filter === 'selfies' ? 'selfies' : 'sets');
@@ -794,7 +822,11 @@ export function Content({ openWith, collection = false, upload = false }) {
         visible:     form.visible,
         category:    form.category,
         photographerNames: form.photographerNames,
-        isCollection: collection,
+        // Which library it belongs to, decided by the mode on the upload tab
+        // and by the page everywhere else. A collection set is a collection set
+        // from the moment it exists — there is no control to change it later
+        // and no checkbox to get wrong.
+        isCollection: upload ? uploadMode === 'exclusive' : collection,
       });
       const setId = setData.set.id;
 
@@ -1078,16 +1110,30 @@ export function Content({ openWith, collection = false, upload = false }) {
             Media ({totalFileCount} {totalFileCount === 1 ? 'item' : 'items'})
           </div>
           <p style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 10, lineHeight: 1.5 }}>
-            A set is either an ordinary one or purchase-only, never both — adding a file to one side locks the other, so the base price never gets split unexpectedly.
+            {upload
+              ? 'Everything here goes where the mode above says.'
+              : 'A set is either an ordinary one or purchase-only, never both — adding a file to one side locks the other, so the base price never gets split unexpectedly.'}
           </p>
           <div style={{ display: 'grid', gap: 14 }}>
-            {(collection ? COLLECTION_BUCKETS : UPLOAD_BUCKETS).map((cat) => {
+            {/* One place to put photographs, because the mode above already
+                said where they go. A second control asking the same question
+                can only agree redundantly or disagree confusingly — and it did
+                disagree: it carried the old rule about a set being ordinary or
+                purchase-only, which stopped being true the moment one pile
+                could be sorted into three. */}
+            {(upload ? UPLOAD_MODE_BUCKETS[uploadMode]
+                     : collection ? COLLECTION_BUCKETS : UPLOAD_BUCKETS).map((cat) => {
               const files = filesByCategory[cat.key];
               const isPurchaseOnly = cat.key === 'purchase_only';
               const tierCategoriesHaveFiles = filesByCategory.unsorted.length > 0
                 || CATEGORIES.filter((c) => c.key !== 'purchase_only').some((c) => filesByCategory[c.key].length > 0);
               const purchaseOnlyHasFiles = filesByCategory.purchase_only.length > 0;
-              const isLocked = isPurchaseOnly ? tierCategoriesHaveFiles : purchaseOnlyHasFiles;
+              // The lock belongs to the gallery form, where one set is being
+              // made and it must be one kind. On the upload tab the mode has
+              // already decided, there is only one bucket, and locking it would
+              // lock the only place to put anything.
+              const isLocked = upload ? false
+                : isPurchaseOnly ? tierCategoriesHaveFiles : purchaseOnlyHasFiles;
 
               return (
                 <div key={cat.key} style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12, opacity: isLocked ? 0.4 : 1, pointerEvents: isLocked ? 'none' : 'auto' }}>
@@ -1156,7 +1202,34 @@ export function Content({ openWith, collection = false, upload = false }) {
 
       {/* ── Content list ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <T.sectionTitle>All content ({sets.length})</T.sectionTitle>
+        <T.sectionTitle>
+          {upload ? `Sets to review (${sets.length})` : `All content (${sets.length})`}
+        </T.sectionTitle>
+
+        {/* Why a set is still here.
+            //
+            // The row said nothing, so a set that needed one more keystroke
+            // looked identical to one that was finished and stuck. Saying what
+            // is outstanding is the difference between a queue and a list of
+            // things that will not move. */}
+        {upload && sets.length > 0 && (
+          <div style={{ display: 'grid', gap: 6, margin: '4px 0 14px' }}>
+            {sets.map((s) => (
+              <div key={`why-${s.id}`} style={{ fontFamily: sans, fontSize: 12, color: colors.muted }}>
+                <strong style={{ color: colors.text }}>{s.title}</strong>
+                {' — '}
+                {s.untiered > 0
+                  ? `${s.untiered} photograph${s.untiered === 1 ? '' : 's'} still to sort`
+                  : s.marked > 0
+                  ? `${s.marked} marked for removal`
+                  : s.needsSplit
+                  ? 'sorted — separate it into its sets'
+                  : 'ready'}
+                {s.total ? ` · ${s.total} in all` : ''}
+              </div>
+            ))}
+          </div>
+        )}
         {sets.length > 1 && (
           <button onClick={() => { setArranging(!arranging); setArrangeList(sets); }}
                   style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
