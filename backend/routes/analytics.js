@@ -128,7 +128,11 @@ router.get('/traffic', async (req, res) => {
                   WHEN t.path ~ '^/auth'                    THEN 'Sign in'
                   WHEN t.path = '/'                         THEN 'Front page'
                   ELSE t.path
-                END AS t.path,
+                -- The output column, not a reference to one. A regex that
+                -- qualified every column name rewrote this alias too, and
+                -- 'AS t.path' is not a legal name for a result column — which
+                -- is what the endpoint was actually failing on.
+                END AS path,
                 COUNT(*)::int AS views,
                 COUNT(DISTINCT COALESCE(t.user_id::text, t.visitor_hash))::int AS visitors
            ${base} AND t.event IS NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 20`, [site]),
