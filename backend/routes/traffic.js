@@ -32,6 +32,33 @@
 const router = require('express').Router();
 const crypto = require('crypto');
 const pool   = require('../db/pool');
+const { getClientIp, lookupIpCountry } = require('../lib/geoip');
+
+// Country, looked up once a day per visitor rather than once a pageview.
+//
+// The lookup is a free-tier service with a rate limit, and a pageview counter
+// can fire hundreds of times an hour — calling it per view would exhaust the
+// quota by lunchtime and start returning nothing, which is how a column ends up
+// quietly empty. Cached in memory against the visitor's own daily hash: the
+// first view of a visit pays for the lookup and the rest are free.
+//
+// Held in the process, so it is lost on deploy. That costs one extra lookup per
+// visitor afterwards, which is a fair price for not adding a table.
+const countryCache = new Map();
+
+async function countryFor(req, key) {
+  if (countryCache.has(key)) return countryCache.get(key);
+  // Cloudflare's header if it is ever put behind one; otherwise look it up.
+  const header = req.headers['cf-ipcountry'];
+  if (header) { countryCache.set(key, header); return header; }
+  try {
+    const { country } = await lookupIpCountry(getClientIp(req));
+    countryCache.set(key, country || null);
+    // A day's worth is plenty, and the map should not grow without bound.
+    if (countryCache.size > 5000) countryCache.clear();
+    return country || null;
+  } catch { return null; }
+}
 
 // The only events that count. Anything not named here is ignored.
 //
@@ -114,6 +141,11 @@ router.post('/hit', async (req, res) => {
       } catch { /* an expired token is simply an anonymous visit */ }
     }
 
+    // The same key the visitor hash uses, so one lookup covers a whole visit
+    // whether or not they are signed in.
+    const hash = visitorHash(req);
+    const country = await countryFor(req, hash);
+
     await pool.query(
       `INSERT INTO traffic (site, path, event, user_id, visitor_hash,
                             referrer_host, utm_source, utm_campaign,
@@ -121,11 +153,11 @@ router.post('/hit', async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         site, String(path).slice(0, 300), event || null,
-        userId, userId ? null : visitorHash(req),
+        userId, userId ? null : hash,
         referrerHost(referrer),
         utm_source ? String(utm_source).slice(0, 60) : null,
         utm_campaign ? String(utm_campaign).slice(0, 60) : null,
-        req.headers['cf-ipcountry'] || null,
+        country,
         deviceFrom(ua),
         meta ? JSON.stringify(meta).slice(0, 500) : null,
       ]
