@@ -1664,13 +1664,29 @@ router.patch('/content/item/:itemId', async (req, res) => {
       `SELECT DISTINCT tier_category FROM set_items WHERE set_id = $1 AND id <> $2`,
       [setId, req.params.itemId]
     );
+    // The same rule as the bulk move, and for a long time only fixed there.
+    //
+    // Written twice and corrected once: the bulk route learned that a draft is
+    // exactly where the three kinds sit together, and this one — the route every
+    // keystroke and every dropdown actually uses — kept refusing. Pressing 6 or
+    // choosing Purchase-only returned 409 and changed nothing, quietly, because
+    // the error appears in a banner above the fold of a long review.
+    //
+    // It holds for published sets, where it protects a member from finding part
+    // of a set walled off. It has no business in a draft being sorted.
+    const { rows: liveRows } = await pool.query(
+      `SELECT visible FROM sets WHERE id = $1`, [setId]
+    );
+    const isLive = liveRows[0]?.visible === true;
+
     const movingToPurchase = tierCategory === 'purchase_only';
-    const hasTiered  = others.some((o) => o.tier_category !== 'purchase_only');
+    const hasTiered  = others.some((o) => o.tier_category
+      && !['purchase_only', 'collection'].includes(o.tier_category));
     const hasPurchase = others.some((o) => o.tier_category === 'purchase_only');
-    if ((movingToPurchase && hasTiered) || (!movingToPurchase && hasPurchase)) {
+    if (isLive && ((movingToPurchase && hasTiered) || (!movingToPurchase && hasPurchase))) {
       return res.status(409).json({
         error: 'CATEGORY_LOCKED',
-        message: 'A set is either tier-segmented or purchase-only, never both. Move the other items first.',
+        message: 'A published set is either tier-segmented or purchase-only, never both. Move the other items first.',
       });
     }
 

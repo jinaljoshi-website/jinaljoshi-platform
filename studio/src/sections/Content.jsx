@@ -1401,19 +1401,31 @@ export function Content({ openWith, collection = false, upload = false }) {
                     looked at them whole.
                   </div>
 
+                  {/* All three, always, even the empty ones.
+                      //
+                      // Hiding a group with no photographs made the panel show
+                      // two fields where three were expected, and the labels
+                      // were read at the speed of somebody who already knew
+                      // what they were going to type. A caption meant for the
+                      // purchase set went to the tiered one, and the tiered set
+                      // took the wrong name and price.
+                      //
+                      // An empty group shown and greyed says what a missing one
+                      // cannot: that nothing was marked for it. */}
                   {[
                     ['tiered',     'The gallery set',      splitPrompt.counts.tiered],
                     ['purchase',   'Purchase only',        splitPrompt.counts.purchase],
                     ['collection', 'The Private Collection', splitPrompt.counts.collection],
-                  ].filter(([, , n]) => n > 0).map(([key, label, n]) => (
-                    <div key={key} style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12 }}>
-                      <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: colors.muted, marginBottom: 8 }}>
-                        {label} · {n} photo{n === 1 ? '' : 's'}
+                  ].map(([key, label, n]) => (
+                    <div key={key} style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12,
+                                            opacity: n > 0 ? 1 : 0.45 }}>
+                      <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: n > 0 ? colors.muted : '#D99A9A', marginBottom: 8 }}>
+                        {label} · {n > 0 ? `${n} photo${n === 1 ? '' : 's'}` : 'nothing marked for this'}
                       </div>
-                      <input value={splitPrompt[key].title} placeholder="Caption"
+                      <input value={splitPrompt[key].title} placeholder="Caption" disabled={n === 0}
                              onChange={(e) => setSplitPrompt((p2) => ({ ...p2, [key]: { ...p2[key], title: e.target.value } }))}
                              style={{ ...S.input, width: '100%', marginBottom: 8 }} />
-                      <input value={splitPrompt[key].price} placeholder="Price in tokens" inputMode="numeric"
+                      <input value={splitPrompt[key].price} placeholder="Price in tokens" inputMode="numeric" disabled={n === 0}
                              onChange={(e) => setSplitPrompt((p2) => ({ ...p2, [key]: { ...p2[key], price: e.target.value } }))}
                              style={{ ...S.input, width: 180 }} />
                     </div>
