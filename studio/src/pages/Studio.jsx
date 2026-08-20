@@ -42,6 +42,10 @@ const NAV = [
   { id: 'dashboard',     label: 'Dashboard'        },
   { id: 'messages',      label: 'Chat'             },
   { id: 'community',     label: 'Public Corner'    },
+  // Before the libraries, because this is where work starts. A set is made
+  // here, sorted here, and only reaches Gallery or Collections once it has been
+  // through review — so the order of the nav is the order of the work.
+  { id: 'upload',        label: 'Upload'           },
   { id: 'content',       label: 'Gallery'          },
   { id: 'collections',   label: 'Collections'      },
   { id: 'calls',         label: 'Calls'            },
@@ -132,6 +136,7 @@ const SECTIONS = {
   traffic:       Traffic,
   messages:      Messages,
   content:       Content,
+  upload:        (props) => <Content {...props} upload />,
   collections:   Collections,
   selfies:       Selfies,
   photographers: Photographers,

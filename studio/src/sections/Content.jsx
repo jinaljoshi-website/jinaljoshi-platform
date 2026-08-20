@@ -167,7 +167,14 @@ function emptyCategoryFiles() {
 // a new set is created in — from the page itself rather than from a control on
 // it, so there is nothing to tick wrongly and no way to upload to one list while
 // looking at the other.
-export function Content({ openWith, collection = false }) {
+export function Content({ openWith, collection = false, upload = false }) {
+  // Where a set goes when it is made here.
+  //
+  // The upload tab is the only place a set is born, and the three modes are the
+  // three kinds a shoot can turn out to be. Bulk arrives untiered and is sorted
+  // photograph by photograph; the other two arrive already decided, so their
+  // review is only keep or remove.
+  const [uploadMode, setUploadMode] = useState('bulk');
   // Nothing in a collection is free, so free is not a tier that can be picked
   // there by accident.
   const reviewCategories = collection ? CATEGORIES.filter((c) => c.key !== 'free') : CATEGORIES;
@@ -353,7 +360,12 @@ export function Content({ openWith, collection = false }) {
   const coverRef = useRef(null);
   const categoryRefs = useRef({});
 
-  const loadSets = () => api.get(`/api/studio/content${collection ? '?collection=1' : ''}`).then((d) => setSets(d.sets || []));
+  // The queue rather than a library, when this is the upload tab. A set here
+  // has not finished review and belongs to neither library yet.
+  const loadSets = () => api.get(
+    upload ? '/api/studio/content/queue'
+           : `/api/studio/content${collection ? '?collection=1' : ''}`
+  ).then((d) => setSets(d.sets || []));
   const loadPhotographers = () => api.get('/api/studio/photographers')
     .then((d) => setPhotographers(d.photographers || [])).catch(() => {});
 
@@ -973,7 +985,34 @@ export function Content({ openWith, collection = false }) {
 
       {/* ── Create form ── */}
       <Card style={{ marginBottom: 28 }}>
-        <T.sectionTitle>New content</T.sectionTitle>
+        <T.sectionTitle>{upload ? 'New set' : 'New content'}</T.sectionTitle>
+
+        {upload && (
+          <>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '10px 0 6px' }}>
+              {[
+                ['bulk',      'Bulk upload & sort'],
+                ['purchase',  'Purchase only'],
+                ['exclusive', 'Collection only'],
+              ].map(([k, label]) => (
+                <button key={k} onClick={() => setUploadMode(k)}
+                        style={{ fontFamily: sans, fontSize: 11, padding: '5px 12px', borderRadius: 999,
+                                 cursor: 'pointer', background: 'transparent',
+                                 border: `1px solid ${uploadMode === k ? colors.accent : colors.border}`,
+                                 color: uploadMode === k ? colors.accent : colors.muted }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 12, lineHeight: 1.6 }}>
+              {uploadMode === 'bulk'
+                ? 'Everything arrives untiered. Sort it photograph by photograph — 1 to 5 for tiers, 6 for purchase-only, 7 for the collection — and it becomes as many sets as it turns out to hold.'
+                : uploadMode === 'purchase'
+                ? 'One set, bought outright. Nothing to sub-tier, so the review is keep or remove.'
+                : 'One set for the private collection. Nothing to sub-tier, so the review is keep or remove.'}
+            </div>
+          </>
+        )}
         <p style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 16, lineHeight: 1.6 }}>
           Upload photos/videos into whichever category buckets they belong to below. One base price covers the whole set — each membership tier's price and any upsell for higher-tier or purchase-only content is calculated automatically.
         </p>
@@ -1694,7 +1733,13 @@ export function Content({ openWith, collection = false }) {
           removingMarked={removingMarked}
           mediaUrl={toUrl}
           categories={reviewCategories}
-          collection={collection}
+          // Nothing to sub-tier here.
+          //
+          // Not the page's idea of itself but the set's: a collection set has
+          // no tiers, and neither does a purchase-only one — it is bought whole
+          // or not at all. Either way the review is keep or remove, and offering
+          // five tiers would be offering a choice that does not exist.
+          collection={collection || reviewSet?.is_collection || reviewSet?.isCollection || uploadMode === 'purchase' || uploadMode === 'exclusive'}
         />
       )}
     </>}
