@@ -674,6 +674,22 @@ router.get('/content', async (req, res) => {
                WHERE sp.set_id = s.id) AS photographer
        FROM sets s
        WHERE s.is_collection = $1
+         -- Only what has been through review.
+         --
+         -- A set is not in its library until every photograph in it has been
+         -- decided: given a tier, or marked and then actually removed. Until
+         -- then it sits in the upload queue, where the work is unfinished and
+         -- visible as such. A live set stays put whatever is added to it —
+         -- new photographs are simply not served until they are tiered, which
+         -- the tier check already handles.
+         AND (
+           s.visible = TRUE
+           OR NOT EXISTS (
+             SELECT 1 FROM set_items i
+              WHERE i.set_id = s.id
+                AND (i.tier_category IS NULL OR i.review_flag = 'remove')
+           )
+         )
        -- The same order the fans see, so arranging here is arranging there.
        ORDER BY (s.pinned_at IS NULL), s.pinned_at DESC,
                 s.display_order ASC NULLS LAST,
@@ -786,7 +802,7 @@ router.post('/content/:id/split', async (req, res) => {
   // A caption and price for each group the sort turned up, the tiered one
   // included: the draft was named before anybody had seen the photographs, and
   // by the end of a review there is usually a better name for it.
-  const { tiered, purchase, collection } = req.body;   // { title, description, price } each
+  const { tiered, purchase, collection, removeMarked } = req.body;
   const setId = req.params.id;
 
   const client = await pool.connect();
@@ -824,6 +840,32 @@ router.post('/content/:id/split', async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'COLLECTION_CAPTION_REQUIRED',
         message: `${forCollection.length} photographs are marked for the collection and need a caption and price.` });
+    }
+
+    // Marked photographs go first, or nothing goes at all.
+    //
+    // A set must not reach its library carrying photographs meant to be gone —
+    // they have been judged and simply not acted on yet. Asked once, here,
+    // rather than at publish: this is the moment the sets are being made, and
+    // it is the last point at which somebody is still looking at the review.
+    const { rows: doomedRows } = await client.query(
+      `SELECT id, r2_key FROM set_items WHERE set_id = $1 AND review_flag = 'remove'`,
+      [setId]
+    );
+    if (doomedRows.length && !removeMarked) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'MARKED_ITEMS',
+        marked: doomedRows.length,
+        message: `${doomedRows.length} photograph${doomedRows.length === 1 ? ' is' : 's are'} marked for removal. They go before the sets are made.`,
+      });
+    }
+    if (doomedRows.length) {
+      await client.query(`DELETE FROM set_items WHERE id = ANY($1)`, [doomedRows.map((d) => d.id)]);
+      // The files themselves, after the transaction has committed — a failed
+      // delete in R2 should not roll back a finished review, and the orphan
+      // sweep would find them anyway.
+      var doomedKeys = doomedRows.map((d) => d.r2_key).filter(Boolean);
     }
 
     const made = [];
@@ -888,12 +930,18 @@ router.post('/content/:id/split', async (req, res) => {
     }
 
     await client.query('COMMIT');
+
+    if (typeof doomedKeys !== 'undefined' && doomedKeys.length) {
+      deleteObjects(doomedKeys).catch((e) => console.error('split: R2 delete failed:', e.message));
+    }
+
     // Everything hidden, including the original. A sort is not a decision to
     // publish — the sets are looked at once more, whole, before anybody sees
     // them, and that second look is the point of leaving them hidden.
     res.json({
       ok: true,
       stayed: staying.length,
+      removed: doomedRows.length,
       created: made,
       note: 'All sets are hidden. Publish each when you have looked at it whole.',
     });
@@ -903,6 +951,58 @@ router.post('/content/:id/split', async (req, res) => {
     res.status(500).json({ error: 'SPLIT_FAILED', message: err.message });
   } finally {
     client.release();
+  }
+});
+
+
+// ─────────────────────────────────────────────
+// GET /api/studio/content/queue
+// ─────────────────────────────────────────────
+//
+// Everything uploaded and not yet finished with.
+//
+// Both libraries at once, because a shoot does not know yet which it belongs to
+// — that is what the review decides. A set leaves this list by being finished:
+// every photograph tiered, and anything marked for removal actually removed.
+router.get('/content/queue', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.id, s.title, s.is_collection, s.price_coins, s.created_at,
+              ${COVER_FALLBACK} AS cover_key,
+              (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id)                       AS total,
+              (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
+                AND i.tier_category IS NULL AND i.review_flag IS DISTINCT FROM 'remove')          AS untiered,
+              (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
+                AND i.review_flag = 'remove')                                                     AS marked,
+              (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
+                AND i.tier_category = 'purchase_only')                                            AS purchase,
+              (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
+                AND i.tier_category = 'collection')                                               AS collection
+         FROM sets s
+        WHERE s.visible = FALSE
+          AND EXISTS (
+            SELECT 1 FROM set_items i
+             WHERE i.set_id = s.id
+               AND (i.tier_category IS NULL OR i.review_flag = 'remove')
+          )
+        ORDER BY s.created_at DESC`
+    );
+    res.json({
+      sets: rows.map((r) => ({
+        id: r.id, title: r.title, isCollection: r.is_collection,
+        priceCoins: r.price_coins, createdAt: r.created_at,
+        coverUrl: toPublicUrl(r.cover_key),
+        total: r.total, untiered: r.untiered, marked: r.marked,
+        purchase: r.purchase, collection: r.collection,
+        // Ready when nothing is left undecided. Marked photographs still count
+        // as undecided: they have been judged but not yet acted on, and a set
+        // should not reach its library carrying photographs meant to be gone.
+        ready: r.untiered === 0,
+      })),
+    });
+  } catch (err) {
+    console.error('studio/content/queue error:', err);
+    res.status(500).json({ error: 'Could not load the queue' });
   }
 });
 
