@@ -148,7 +148,11 @@ router.get('/traffic', async (req, res) => {
            SELECT COALESCE(t.user_id::text, t.visitor_hash) AS who
              ${base}
             GROUP BY 1 HAVING COUNT(DISTINCT date_trunc('day', t.at)) > 1
-         ) t`, [site]),
+         -- Named for what it holds. It was 't', which is now the traffic table
+         -- itself, and Postgres will not have the same alias twice in one
+         -- scope — so the whole endpoint returned 500 the moment the exclusion
+         -- introduced that alias.
+         ) repeat_visitors`, [site]),
     ]);
 
     const t = totals.rows[0];
