@@ -96,8 +96,10 @@ export function Traffic() {
                   sub={`${t.views} page view${t.views === 1 ? '' : 's'}`} />
             <Stat head="Came back" value={`${t.returningPct}%`}
                   sub={`${t.returning} on more than one day`} />
-            <Stat head="Clicks per view" value={`${t.clickRate}%`}
-                  sub={`${t.clicks} counted click${t.clicks === 1 ? '' : 's'}`} />
+            <Stat head="Did something" value={`${t.clickedPct}%`}
+                  sub={`${t.clickers} of ${t.visitors} went beyond looking`} />
+            <Stat head="Actions each" value={t.clicksPerVisitor}
+                  sub={`${t.clicks} counted in total`} />
             {site === 'ps' && (
               <Stat head="Signed in" value={t.members}
                     sub="the rest were anonymous" />

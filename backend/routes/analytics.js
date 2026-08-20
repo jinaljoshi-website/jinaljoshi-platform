@@ -72,7 +72,18 @@ router.get('/traffic', async (req, res) => {
         `SELECT COUNT(*) FILTER (WHERE event IS NULL)::int AS views,
                 COUNT(*) FILTER (WHERE event IS NOT NULL)::int AS clicks,
                 COUNT(DISTINCT COALESCE(user_id::text, visitor_hash))::int AS visitors,
-                COUNT(DISTINCT user_id)::int AS members
+                COUNT(DISTINCT user_id)::int AS members,
+                -- How many of them did anything at all.
+                --
+                -- Clicks over pageviews was the wrong shape: a pageview is a
+                -- page and a click is an action, one person can do several on
+                -- one page, and dividing one by the other describes nothing.
+                -- Over visitors it would exceed 100%, which is not a rate.
+                --
+                -- This is bounded and answers the question actually worth
+                -- asking — did they only look, or did they do something.
+                COUNT(DISTINCT COALESCE(user_id::text, visitor_hash))
+                  FILTER (WHERE event IS NOT NULL)::int AS clickers
            ${base}`, [site]),
       pool.query(
         `SELECT to_char(date_trunc('day', at), 'YYYY-MM-DD') AS day,
@@ -111,9 +122,14 @@ router.get('/traffic', async (req, res) => {
         visitors: t.visitors,
         members:  t.members,
         returning: returning.rows[0].n,
-        // Clicks per view, as asked. Only meaningful because the events are a
-        // closed list — an open one would make the numerator arbitrary.
-        clickRate: t.views > 0 ? Math.round((t.clicks / t.views) * 1000) / 10 : 0,
+        // Two figures, because one number cannot carry both meanings.
+        //
+        // A share of visitors who did anything — bounded, and a real rate. And
+        // an average of how much they did — which can exceed one without being
+        // nonsense, because somebody can click several times.
+        clickers: t.clickers,
+        clickedPct: t.visitors > 0 ? Math.round((t.clickers / t.visitors) * 1000) / 10 : 0,
+        clicksPerVisitor: t.visitors > 0 ? Math.round((t.clicks / t.visitors) * 10) / 10 : 0,
         returningPct: t.visitors > 0
           ? Math.round((returning.rows[0].n / t.visitors) * 1000) / 10 : 0,
       },
