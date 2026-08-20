@@ -65,14 +65,28 @@ router.get('/traffic', async (req, res) => {
 
   try {
     const since = `NOW() - INTERVAL '${days} days'`;
-    const base  = `FROM traffic WHERE site = $1 AND at >= ${since}`;
+    // Jinal's own visits, and the test accounts, are not traffic.
+    //
+    // Every session spent building or checking something lands in this table,
+    // and at this volume that is most of it — the figures would mostly measure
+    // us. Narrow on purpose: only the artist and accounts already flagged as
+    // tests. Anything else stays, including visits that look like testing and
+    // are not. One row questioned earlier turned out to be the most interesting
+    // thing in the table, which is a good argument against a broad filter.
+    const base = `FROM traffic t
+                  WHERE t.site = $1 AND t.at >= ${since}
+                    AND NOT EXISTS (
+                      SELECT 1 FROM users u
+                       WHERE u.id = t.user_id
+                         AND (u.is_artist = TRUE OR u.is_test = TRUE)
+                    )`;
 
     const [totals, byDay, pages, refs, devices, events, returning] = await Promise.all([
       pool.query(
-        `SELECT COUNT(*) FILTER (WHERE event IS NULL)::int AS views,
-                COUNT(*) FILTER (WHERE event IS NOT NULL)::int AS clicks,
-                COUNT(DISTINCT COALESCE(user_id::text, visitor_hash))::int AS visitors,
-                COUNT(DISTINCT user_id)::int AS members,
+        `SELECT COUNT(*) FILTER (WHERE t.event IS NULL)::int AS views,
+                COUNT(*) FILTER (WHERE t.event IS NOT NULL)::int AS clicks,
+                COUNT(DISTINCT COALESCE(t.user_id::text, t.visitor_hash))::int AS visitors,
+                COUNT(DISTINCT t.user_id)::int AS members,
                 -- How many of them did anything at all.
                 --
                 -- Clicks over pageviews was the wrong shape: a pageview is a
@@ -82,13 +96,13 @@ router.get('/traffic', async (req, res) => {
                 --
                 -- This is bounded and answers the question actually worth
                 -- asking — did they only look, or did they do something.
-                COUNT(DISTINCT COALESCE(user_id::text, visitor_hash))
-                  FILTER (WHERE event IS NOT NULL)::int AS clickers
+                COUNT(DISTINCT COALESCE(t.user_id::text, t.visitor_hash))
+                  FILTER (WHERE t.event IS NOT NULL)::int AS clickers
            ${base}`, [site]),
       pool.query(
-        `SELECT to_char(date_trunc('day', at), 'YYYY-MM-DD') AS day,
-                COUNT(*) FILTER (WHERE event IS NULL)::int AS views,
-                COUNT(DISTINCT COALESCE(user_id::text, visitor_hash))::int AS visitors
+        `SELECT to_char(date_trunc('day', t.at), 'YYYY-MM-DD') AS day,
+                COUNT(*) FILTER (WHERE t.event IS NULL)::int AS views,
+                COUNT(DISTINCT COALESCE(t.user_id::text, t.visitor_hash))::int AS visitors
            ${base} GROUP BY 1 ORDER BY 1`, [site]),
       // Grouped by destination rather than listed by URL.
       //
@@ -99,41 +113,41 @@ router.get('/traffic', async (req, res) => {
       // properly under Money, by name and by earnings.
       pool.query(
         `SELECT CASE
-                  WHEN path ~ '^/platform/gallery/.+'     THEN 'Photos — inside a set'
-                  WHEN path ~ '^/platform/collections/.+' THEN 'The Private Collection — inside a set'
-                  WHEN path = '/platform/gallery'         THEN 'Gallery'
-                  WHEN path = '/platform/collections'     THEN 'The Private Collection'
-                  WHEN path = '/platform/landing'         THEN 'Member home'
-                  WHEN path = '/platform/chat'            THEN 'Chat'
-                  WHEN path = '/platform/calls'           THEN 'Calls'
-                  WHEN path = '/platform/shop'            THEN 'Shop'
-                  WHEN path = '/platform/coins'           THEN 'Coins'
-                  WHEN path = '/platform/membership'      THEN 'Membership'
-                  WHEN path = '/platform/community'       THEN 'Public Corner'
-                  WHEN path = '/platform/profile'         THEN 'Profile'
-                  WHEN path ~ '^/auth'                    THEN 'Sign in'
-                  WHEN path = '/'                         THEN 'Front page'
-                  ELSE path
-                END AS path,
+                  WHEN t.path ~ '^/platform/gallery/.+'     THEN 'Photos — inside a set'
+                  WHEN t.path ~ '^/platform/collections/.+' THEN 'The Private Collection — inside a set'
+                  WHEN t.path = '/platform/gallery'         THEN 'Gallery'
+                  WHEN t.path = '/platform/collections'     THEN 'The Private Collection'
+                  WHEN t.path = '/platform/landing'         THEN 'Member home'
+                  WHEN t.path = '/platform/chat'            THEN 'Chat'
+                  WHEN t.path = '/platform/calls'           THEN 'Calls'
+                  WHEN t.path = '/platform/shop'            THEN 'Shop'
+                  WHEN t.path = '/platform/coins'           THEN 'Coins'
+                  WHEN t.path = '/platform/membership'      THEN 'Membership'
+                  WHEN t.path = '/platform/community'       THEN 'Public Corner'
+                  WHEN t.path = '/platform/profile'         THEN 'Profile'
+                  WHEN t.path ~ '^/auth'                    THEN 'Sign in'
+                  WHEN t.path = '/'                         THEN 'Front page'
+                  ELSE t.path
+                END AS t.path,
                 COUNT(*)::int AS views,
-                COUNT(DISTINCT COALESCE(user_id::text, visitor_hash))::int AS visitors
-           ${base} AND event IS NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 20`, [site]),
+                COUNT(DISTINCT COALESCE(t.user_id::text, t.visitor_hash))::int AS visitors
+           ${base} AND t.event IS NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 20`, [site]),
       pool.query(
-        `SELECT COALESCE(referrer_host, 'direct') AS source, COUNT(*)::int AS visits
-           ${base} AND event IS NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 12`, [site]),
+        `SELECT COALESCE(t.referrer_host, 'direct') AS source, COUNT(*)::int AS visits
+           ${base} AND t.event IS NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 12`, [site]),
       pool.query(
-        `SELECT device, COUNT(DISTINCT COALESCE(user_id::text, visitor_hash))::int AS visitors
-           ${base} GROUP BY device ORDER BY 2 DESC`, [site]),
+        `SELECT t.device, COUNT(DISTINCT COALESCE(t.user_id::text, t.visitor_hash))::int AS visitors
+           ${base} GROUP BY t.device ORDER BY 2 DESC`, [site]),
       pool.query(
-        `SELECT event, COUNT(*)::int AS times
-           ${base} AND event IS NOT NULL GROUP BY event ORDER BY 2 DESC`, [site]),
+        `SELECT t.event, COUNT(*)::int AS times
+           ${base} AND t.event IS NOT NULL GROUP BY t.event ORDER BY 2 DESC`, [site]),
       // Somebody who came on more than one day. For a portfolio this is the
       // best signal there is — a visit can be an accident, a return cannot.
       pool.query(
         `SELECT COUNT(*)::int AS n FROM (
-           SELECT COALESCE(user_id::text, visitor_hash) AS who
+           SELECT COALESCE(t.user_id::text, t.visitor_hash) AS who
              ${base}
-            GROUP BY 1 HAVING COUNT(DISTINCT date_trunc('day', at)) > 1
+            GROUP BY 1 HAVING COUNT(DISTINCT date_trunc('day', t.at)) > 1
          ) t`, [site]),
     ]);
 

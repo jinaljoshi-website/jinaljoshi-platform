@@ -28,6 +28,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { F } from '../tokens';
 import { api } from '../api';
+import { track } from '../lib/traffic';
 import TopUpModal from '../components/TopUpModal';
 import { WonderCoinAmount } from '../components/WonderCoin';
 
@@ -127,6 +128,13 @@ export default function Collections() {
     try {
       const d = await api.get(`/api/collections/sets/${id}?seed=${seedRef.current}`);
       setOpen(d);
+      // A locked set looked at and not bought.
+      //
+      // This was recorded in the gallery and not here, which is backwards: the
+      // collection carries the highest prices, so it is where somebody stopping
+      // at one matters most. Without it the only way to learn that a member had
+      // considered a set and walked away was to read the raw rows.
+      if (!d.unlocked) track('set_preview', { set: d.id, price: d.price, where: 'collection' });
     } catch (err) { setError(err.message); }
   };
 
