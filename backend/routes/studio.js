@@ -686,10 +686,22 @@ router.get('/content', async (req, res) => {
            s.visible = TRUE
            OR (
              -- Nothing left undecided,
+             -- Undecided means different things in the two libraries.
+             --
+             -- A gallery photograph is undecided until it has a tier. A
+             -- collection photograph never has one — access is the whole point
+             -- and there is nothing to sub-tier — so it is undecided until
+             -- somebody has said keep or remove. Reading a null tier as
+             -- undecided held every collection set in the queue for ever,
+             -- including the ones the split had just correctly made.
              NOT EXISTS (
                SELECT 1 FROM set_items i
                 WHERE i.set_id = s.id
-                  AND (i.tier_category IS NULL OR i.review_flag = 'remove')
+                  AND (
+                    i.review_flag = 'remove'
+                    OR (s.is_collection = FALSE AND i.tier_category IS NULL)
+                    OR (s.is_collection = TRUE  AND i.reviewed_at IS NULL)
+                  )
              )
              -- and nothing left to separate.
              --
@@ -950,9 +962,13 @@ router.post('/content/:id/split', async (req, res) => {
     if (forCollection.length) {
       const created = await makeSet(collection, true, forCollection);
       // Inside the collection there are no tiers to speak of — access is the
-      // whole point and the set is opened or it is not.
+      // whole point and the set is opened or it is not. Marked reviewed at the
+      // same time: without a tier to stand for the decision, reviewed_at is the
+      // only record that somebody looked at these and kept them, and a
+      // collection set is judged by that.
       await client.query(
-        `UPDATE set_items SET tier_category = NULL WHERE set_id = $1`, [created.id]);
+        `UPDATE set_items SET tier_category = NULL, reviewed_at = COALESCE(reviewed_at, NOW())
+          WHERE set_id = $1`, [created.id]);
       made.push({ id: created.id, title: created.title, kind: 'collection', items: forCollection.length });
     }
 
@@ -998,7 +1014,9 @@ router.get('/content/queue', async (req, res) => {
               ${COVER_FALLBACK} AS cover_key,
               (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id)                       AS total,
               (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
-                AND i.tier_category IS NULL AND i.review_flag IS DISTINCT FROM 'remove')          AS untiered,
+                AND i.review_flag IS DISTINCT FROM 'remove'
+                AND (CASE WHEN s.is_collection THEN i.reviewed_at IS NULL
+                          ELSE i.tier_category IS NULL END))                                      AS untiered,
               (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
                 AND i.review_flag = 'remove')                                                     AS marked,
               (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
@@ -1011,7 +1029,11 @@ router.get('/content/queue', async (req, res) => {
             EXISTS (
               SELECT 1 FROM set_items i
                WHERE i.set_id = s.id
-                 AND (i.tier_category IS NULL OR i.review_flag = 'remove')
+                 AND (
+                   i.review_flag = 'remove'
+                   OR (s.is_collection = FALSE AND i.tier_category IS NULL)
+                   OR (s.is_collection = TRUE  AND i.reviewed_at IS NULL)
+                 )
             )
             OR (
               EXISTS (SELECT 1 FROM set_items i
