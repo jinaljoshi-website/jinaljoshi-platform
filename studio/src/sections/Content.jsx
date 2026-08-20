@@ -922,7 +922,14 @@ export function Content({ openWith, collection = false, upload = false }) {
           purchase:   live.filter((i) => i.tier_category === 'purchase_only').length,
           collection: live.filter((i) => i.tier_category === 'collection').length,
         },
-        tiered:     { title: set?.title || '', description: set?.description || '', price: set?.price_coins ?? 0 },
+        // Both shapes, because the queue and the library name this field
+        // differently — read only one and the price prefills as zero and the
+        // split quietly resets it.
+        tiered: {
+          title: set?.title || '',
+          description: set?.description || '',
+          price: set?.price_coins ?? set?.priceCoins ?? 0,
+        },
         purchase:   { title: '', description: '', price: '' },
         collection: { title: '', description: '', price: '' },
       });
@@ -1545,6 +1552,19 @@ export function Content({ openWith, collection = false, upload = false }) {
 
                 <div style={rowActions}>
                   <button onClick={() => openReview(set)} style={actionBtn}>Review</button>
+                  {/* The thing the status line just asked for.
+                      //
+                      // The row said "separate it into its sets" and offered no
+                      // way to do it — the panel only opened from a publish that
+                      // failed, and a queue row has no publish button. A message
+                      // telling somebody what to do next should be next to the
+                      // means of doing it. */}
+                  {upload && set.needsSplit && (
+                    <button onClick={() => openSplit(set.id)}
+                            style={{ ...actionBtn, color: colors.accent, borderColor: colors.accent }}>
+                      Separate
+                    </button>
+                  )}
                   <button onClick={() => openCoverPicker(set)} style={actionBtn}>
                     {coverFor === set.id ? 'Close' : 'Cover'}
                   </button>
