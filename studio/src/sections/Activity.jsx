@@ -47,6 +47,7 @@ export function Activity({ openWith }) {
   // A notification about one member opens showing that member. Rows carry the
   // name rather than an id, which is also what somebody would scan for.
   const [who,    setWho]    = useState(openWith?.who || '');
+  const [expanded, setExpanded] = useState(null);
 
   useEffect(() => {
     api.get('/api/studio/analytics/member-activity')
@@ -57,9 +58,28 @@ export function Activity({ openWith }) {
   const shown = (rows || []).filter((r) => {
     if (who && String(r.who || '').toLowerCase() !== who.toLowerCase()) return false;
     if (filter === 'needsReply') return r.kind === 'message' || r.kind === 'call' || r.kind === 'request';
-    if (filter === 'money')      return r.kind === 'recharge' || r.kind === 'membership';
+    // Money in, and only that.
+    //
+    // Membership was counted here too, but a membership is bought with tokens
+    // that were paid for earlier — it is the same rupee arriving twice in a
+    // list meant to show rupees arriving. A recharge is money; everything
+    // after it is that money moving.
+    if (filter === 'money')      return r.kind === 'recharge';
     return true;
   });
+
+  // Consecutive activity by one member, gathered into a single entry.
+  //
+  // Somebody opening nine sets in four minutes produced nine rows, and pushed
+  // everybody else off the screen. A run is broken by anybody else acting, so
+  // the order of events is never rearranged — only the repetition of one name
+  // is folded away.
+  const runs = [];
+  for (const r of shown) {
+    const last = runs[runs.length - 1];
+    if (last && last.who === r.who) last.items.push(r);
+    else runs.push({ who: r.who, tier: r.tier, items: [r] });
+  }
 
   return (
     <div>
@@ -100,24 +120,75 @@ export function Activity({ openWith }) {
        : shown.length === 0 ? <T.muted>Nothing here yet.</T.muted>
        : (
         <div style={{ display: 'grid', gap: 6 }}>
-          {shown.map((r, i) => {
-            const k = KINDS[r.kind] || { label: r.kind, colour: colors.muted };
-            return (
-              <div key={i} style={row}>
-                <div style={{ flex: 1, minWidth: 200 }}>
-                  <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
-                    <span style={{ color: k.colour }}>{k.label}</span>
-                    {' · '}{r.who}
+          {runs.map((run, ri) => {
+            const first = run.items[0];
+            const k = KINDS[first.kind] || { label: first.kind, colour: colors.muted };
+            const tokens = run.items.reduce((a, x) => a + (x.tokens || 0), 0);
+
+            // One thing happened: show it plainly, as before.
+            if (run.items.length === 1) {
+              return (
+                <div key={ri} style={row}>
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+                      <span style={{ color: k.colour }}>{k.label}</span>{' · '}{run.who}
+                    </div>
+                    <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 3 }}>
+                      {when(first.at)} · {first.tier}
+                      {first.detail && ` · ${first.detail}`}
+                      {first.extra && first.kind === 'call' && ` · ${first.extra}`}
+                    </div>
                   </div>
-                  <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 3 }}>
-                    {when(r.at)} · {r.tier}
-                    {r.detail && ` · ${r.detail}`}
-                    {r.extra && r.kind === 'call' && ` · ${r.extra}`}
-                  </div>
+                  {first.tokens > 0 && (
+                    <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted, flexShrink: 0 }}>
+                      {first.tokens} tokens
+                    </span>
+                  )}
                 </div>
-                {r.tokens > 0 && (
+              );
+            }
+
+            // A run: one line, opened if you want the detail.
+            const open = expanded === ri;
+            const kinds = [...new Set(run.items.map((x) => (KINDS[x.kind] || {}).label || x.kind))];
+            return (
+              <div key={ri} style={row}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <button onClick={() => setExpanded(open ? null : ri)}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' }}>
+                    <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+                      <span style={{ color: colors.accent }}>{run.items.length} things</span>
+                      {' · '}{run.who}
+                    </div>
+                    <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 3 }}>
+                      {when(run.items[run.items.length - 1].at)} – {when(first.at)} · {run.tier}
+                      {' · '}{kinds.join(', ')}
+                      {' · '}{open ? 'hide' : 'show each'}
+                    </div>
+                  </button>
+
+                  {open && (
+                    <div style={{ marginTop: 10, paddingLeft: 12, borderLeft: `1px solid ${colors.border}`, display: 'grid', gap: 8 }}>
+                      {run.items.map((r, i) => {
+                        const rk = KINDS[r.kind] || { label: r.kind, colour: colors.muted };
+                        return (
+                          <div key={i}>
+                            <div style={{ fontFamily: sans, fontSize: 12, color: colors.text }}>
+                              <span style={{ color: rk.colour }}>{rk.label}</span>
+                              {r.tokens > 0 && <span style={{ color: colors.muted }}>{` · ${r.tokens} tokens`}</span>}
+                            </div>
+                            <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
+                              {when(r.at)}{r.detail && ` · ${r.detail}`}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                {tokens > 0 && (
                   <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted, flexShrink: 0 }}>
-                    {r.tokens} tokens
+                    {tokens} tokens
                   </span>
                 )}
               </div>
