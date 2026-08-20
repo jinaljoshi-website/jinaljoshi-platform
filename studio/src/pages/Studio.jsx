@@ -6,6 +6,7 @@ import { StudioNotificationBell } from '../components/NotificationBell';
 
 import { Dashboard }     from '../sections/Dashboard';
 import { Analytics }     from '../sections/Analytics';
+import { Traffic }       from '../sections/Traffic';
 import { Messages }      from '../sections/Messages';
 import { Content }       from '../sections/Content';
 // The same screen, asking for the other list. Not a copy: uploading and
@@ -53,6 +54,7 @@ const NAV = [
 const ADMIN_NAV = [
   { id: 'members',       label: 'Members'       },
   { id: 'analytics',     label: 'Money'         },
+  { id: 'traffic',       label: 'Traffic'       },
   { id: 'invoices',      label: 'Invoices'      },
   { id: 'photographers', label: 'Photographers' },
   { id: 'merchmedia',    label: 'Media library' },
@@ -127,6 +129,7 @@ function AdminDoor({ open, onToggle, active, onSelect }) {
 const SECTIONS = {
   dashboard:     Dashboard,
   analytics:     Analytics,
+  traffic:       Traffic,
   messages:      Messages,
   content:       Content,
   collections:   Collections,
