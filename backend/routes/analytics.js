@@ -90,10 +90,34 @@ router.get('/traffic', async (req, res) => {
                 COUNT(*) FILTER (WHERE event IS NULL)::int AS views,
                 COUNT(DISTINCT COALESCE(user_id::text, visitor_hash))::int AS visitors
            ${base} GROUP BY 1 ORDER BY 1`, [site]),
+      // Grouped by destination rather than listed by URL.
+      //
+      // Every set has its own address, so a hundred sets make a hundred rows of
+      // one view each and bury the handful of pages that matter. What is worth
+      // knowing is that people are looking at sets, and how much — not which
+      // identifier was in the address bar. The set itself is already reported
+      // properly under Money, by name and by earnings.
       pool.query(
-        `SELECT path, COUNT(*)::int AS views,
+        `SELECT CASE
+                  WHEN path ~ '^/platform/gallery/.+'     THEN 'Photos — inside a set'
+                  WHEN path ~ '^/platform/collections/.+' THEN 'The Private Collection — inside a set'
+                  WHEN path = '/platform/gallery'         THEN 'Gallery'
+                  WHEN path = '/platform/collections'     THEN 'The Private Collection'
+                  WHEN path = '/platform/landing'         THEN 'Member home'
+                  WHEN path = '/platform/chat'            THEN 'Chat'
+                  WHEN path = '/platform/calls'           THEN 'Calls'
+                  WHEN path = '/platform/shop'            THEN 'Shop'
+                  WHEN path = '/platform/coins'           THEN 'Coins'
+                  WHEN path = '/platform/membership'      THEN 'Membership'
+                  WHEN path = '/platform/community'       THEN 'Public Corner'
+                  WHEN path = '/platform/profile'         THEN 'Profile'
+                  WHEN path ~ '^/auth'                    THEN 'Sign in'
+                  WHEN path = '/'                         THEN 'Front page'
+                  ELSE path
+                END AS path,
+                COUNT(*)::int AS views,
                 COUNT(DISTINCT COALESCE(user_id::text, visitor_hash))::int AS visitors
-           ${base} AND event IS NULL GROUP BY path ORDER BY 2 DESC LIMIT 20`, [site]),
+           ${base} AND event IS NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 20`, [site]),
       pool.query(
         `SELECT COALESCE(referrer_host, 'direct') AS source, COUNT(*)::int AS visits
            ${base} AND event IS NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 12`, [site]),
