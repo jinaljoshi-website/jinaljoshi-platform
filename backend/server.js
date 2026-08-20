@@ -26,6 +26,9 @@ app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 
 // Public routes (no auth)
 app.use('/api/public',       require('./routes/public'));
+// Counting visits. Unauthenticated by necessity — most of what is worth
+// counting happens before anybody signs in.
+app.use('/api/traffic',      require('./routes/traffic'));
 
 // Link previews. Not under /api — these are real pages a crawler fetches, and
 // they are reached at ps.jinaljoshi.in/s/... through a rewrite in ps/vercel.json.

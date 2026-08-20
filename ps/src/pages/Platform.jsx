@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { api, getUser, logout } from '../api';
+import { track } from '../lib/traffic';
 import { TIERS, setDisplayCurrency } from '../data';
 import CurrencyPicker from '../components/CurrencyPicker';
 import { WonderCoinAmount } from '../components/WonderCoin';
@@ -393,6 +394,7 @@ export default function Platform() {
                 <Link
                   key={item.to}
                   to={item.to}
+                  onClick={() => track('nav_click', { to: item.to })}
                   style={{ ...drawerLink, background: active ? 'rgba(193,125,74,0.12)' : 'transparent', color: active ? C.text : C.muted, display: 'flex', alignItems: 'center', gap: 8 }}
                 >
                   {item.gilt && <GiltMark />}
@@ -494,6 +496,7 @@ export default function Platform() {
                   <Link
                     key={item.to}
                     to={item.to}
+                    onClick={() => track('nav_click', { to: item.to })}
                     style={{ ...navLink, background: active ? 'rgba(193,125,74,0.12)' : 'transparent', color: active ? C.text : C.muted, border: active ? `1px solid ${C.border}` : '1px solid transparent', display: 'flex', alignItems: 'center', gap: 8 }}
                   >
                     {item.gilt && <GiltMark />}

@@ -1,5 +1,7 @@
 // ps/src/App.jsx
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { pageView } from './lib/traffic';
 import Homepage from './pages/Homepage';
 import Auth     from './pages/Auth';
 import Landing  from './pages/Landing';
@@ -27,9 +29,22 @@ function Private({ children }) {
   return <Navigate to="/auth?mode=login" replace />;
 }
 
+// Counts a page each time the route changes.
+//
+// Inside the router rather than around it, because useLocation only works
+// beneath a BrowserRouter — and a single count at mount would record only the
+// first page of a visit, which for a single-page app is nearly every visit
+// looking like one page.
+function CountViews() {
+  const location = useLocation();
+  useEffect(() => { pageView(location.pathname); }, [location.pathname]);
+  return null;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
+      <CountViews />
       <div style={{ background: C.bg, minHeight: '100vh', color: C.text, fontFamily: F.sans }}>
         <Routes>
           <Route path="/"        element={<Homepage />} />

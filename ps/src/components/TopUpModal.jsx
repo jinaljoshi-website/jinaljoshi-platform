@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { C, F } from '../tokens';
 import { WonderCoin, WonderCoinAmount } from './WonderCoin';
 import { api } from '../api';
+import { track } from '../lib/traffic';
 import { rechargePacks, tokenRateInr, rechargePrice, money } from '../data';
 
 // Currencies quoted without decimal places. Razorpay expects the smallest unit
@@ -64,6 +65,18 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
   // It is held aside rather than applied for them: taking it should be a
   // choice, and one tap is a light enough ask.
   const [pendingOffer, setPendingOffer] = useState(null);
+
+  // Opened, and — on unmount — whether it led to a payment.
+  //
+  // The single most useful number here is the one nobody records: how many
+  // people opened this and closed it. It would also have caught the worst bug
+  // of the week, when the modal never opened for anybody at all — the count
+  // would have sat at zero and said so.
+  const paidRef = useRef(false);
+  useEffect(() => {
+    track('topup_opened');
+    return () => { if (!paidRef.current) track('topup_abandoned'); };
+  }, []);
 
   useEffect(() => {
     api.get('/api/coins/bonus-offer')
@@ -146,6 +159,7 @@ export default function TopUpModal({ requiredTokens = 0, exactTokens = 0, onClos
               tokens:              tokenAmount,
               bonusCode:           offer?.hasCode ? code.trim() : undefined,
             });
+            paidRef.current = true;   // so unmount does not count this as abandoned
             onSuccess?.(verifyData.newBalance);
             onClose();
           } catch (verifyErr) {

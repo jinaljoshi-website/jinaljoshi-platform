@@ -581,7 +581,45 @@ function ContactSection() {
 
 const API_BASE = import.meta.env.VITE_API_URL
 
+// Counting a visit to the portfolio.
+//
+// Nobody signs in here and nothing is bought, so every visitor is anonymous and
+// every number is about reach rather than conversion: how many arrived, from
+// where, which work they opened, and whether they came back another day.
+//
+// Best-effort throughout. A count that delays a page or throws in a console is
+// worse than no count — and this is somebody's shopfront.
+const CAMPAIGN = (() => {
+  try {
+    const q = new URLSearchParams(window.location.search)
+    const source = q.get('utm_source')
+    if (source) return { utm_source: source, utm_campaign: q.get('utm_campaign') || null }
+  } catch { /* nothing worth failing over */ }
+  return {}
+})()
+
+function countHit(body) {
+  try {
+    const payload = JSON.stringify({ site: 'portfolio', ...CAMPAIGN, ...body })
+    const url = `${API_BASE}/api/traffic/hit`
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' }))
+    } else {
+      fetch(url, { method: 'POST', keepalive: true,
+        headers: { 'Content-Type': 'application/json' }, body: payload }).catch(() => {})
+    }
+  } catch { /* never surfaced */ }
+}
+
+export function trackWork(title) {
+  countHit({ path: window.location.pathname, event: 'work_click', meta: { work: title } })
+}
+
 export default function App() {
+  useEffect(() => {
+    countHit({ path: window.location.pathname, referrer: document.referrer || null })
+  }, [])
+
   const [slides, setSlides] = useState(FALLBACK_SLIDES)
   const [worksData, setWorksData] = useState(FALLBACK_WORKS)
   const [current, setCurrent] = useState(0)

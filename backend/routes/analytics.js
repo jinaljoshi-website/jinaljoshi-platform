@@ -48,6 +48,87 @@ const round = (n) => Math.round((Number(n) || 0) * 100) / 100;
 // The purchased tab summarised and then, oddly, listed what fans had spent
 // tokens on — which belongs with spending, not with buying. What was missing
 // was the plain thing: who bought, when, how much, and what it cost them.
+
+// ─────────────────────────────────────────────
+// GET /api/studio/analytics/traffic?site=ps&days=30
+// ─────────────────────────────────────────────
+//
+// What the counting adds up to, for one site at a time.
+//
+// The two sites answer different questions and should not be added together:
+// the portfolio has no accounts and nothing to buy, so its numbers are about
+// reach; PS has a funnel, so its numbers are about persuasion. A single total
+// across both would mean nothing.
+router.get('/traffic', async (req, res) => {
+  const site = req.query.site === 'portfolio' ? 'portfolio' : 'ps';
+  const days = Math.min(parseInt(req.query.days, 10) || 30, 365);
+
+  try {
+    const since = `NOW() - INTERVAL '${days} days'`;
+    const base  = `FROM traffic WHERE site = $1 AND at >= ${since}`;
+
+    const [totals, byDay, pages, refs, devices, events, returning] = await Promise.all([
+      pool.query(
+        `SELECT COUNT(*) FILTER (WHERE event IS NULL)::int AS views,
+                COUNT(*) FILTER (WHERE event IS NOT NULL)::int AS clicks,
+                COUNT(DISTINCT COALESCE(user_id::text, visitor_hash))::int AS visitors,
+                COUNT(DISTINCT user_id)::int AS members
+           ${base}`, [site]),
+      pool.query(
+        `SELECT to_char(date_trunc('day', at), 'YYYY-MM-DD') AS day,
+                COUNT(*) FILTER (WHERE event IS NULL)::int AS views,
+                COUNT(DISTINCT COALESCE(user_id::text, visitor_hash))::int AS visitors
+           ${base} GROUP BY 1 ORDER BY 1`, [site]),
+      pool.query(
+        `SELECT path, COUNT(*)::int AS views,
+                COUNT(DISTINCT COALESCE(user_id::text, visitor_hash))::int AS visitors
+           ${base} AND event IS NULL GROUP BY path ORDER BY 2 DESC LIMIT 20`, [site]),
+      pool.query(
+        `SELECT COALESCE(referrer_host, 'direct') AS source, COUNT(*)::int AS visits
+           ${base} AND event IS NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 12`, [site]),
+      pool.query(
+        `SELECT device, COUNT(DISTINCT COALESCE(user_id::text, visitor_hash))::int AS visitors
+           ${base} GROUP BY device ORDER BY 2 DESC`, [site]),
+      pool.query(
+        `SELECT event, COUNT(*)::int AS times
+           ${base} AND event IS NOT NULL GROUP BY event ORDER BY 2 DESC`, [site]),
+      // Somebody who came on more than one day. For a portfolio this is the
+      // best signal there is — a visit can be an accident, a return cannot.
+      pool.query(
+        `SELECT COUNT(*)::int AS n FROM (
+           SELECT COALESCE(user_id::text, visitor_hash) AS who
+             ${base}
+            GROUP BY 1 HAVING COUNT(DISTINCT date_trunc('day', at)) > 1
+         ) t`, [site]),
+    ]);
+
+    const t = totals.rows[0];
+    res.json({
+      site, days,
+      totals: {
+        views:    t.views,
+        clicks:   t.clicks,
+        visitors: t.visitors,
+        members:  t.members,
+        returning: returning.rows[0].n,
+        // Clicks per view, as asked. Only meaningful because the events are a
+        // closed list — an open one would make the numerator arbitrary.
+        clickRate: t.views > 0 ? Math.round((t.clicks / t.views) * 1000) / 10 : 0,
+        returningPct: t.visitors > 0
+          ? Math.round((returning.rows[0].n / t.visitors) * 1000) / 10 : 0,
+      },
+      byDay:   byDay.rows,
+      pages:   pages.rows,
+      sources: refs.rows,
+      devices: devices.rows,
+      events:  events.rows,
+    });
+  } catch (err) {
+    console.error('analytics/traffic error:', err);
+    res.status(500).json({ error: 'Could not load traffic' });
+  }
+});
+
 router.get('/orders', async (req, res) => {
   try {
     const { rows } = await pool.query(

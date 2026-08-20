@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { api } from '../api';
+import { track } from '../lib/traffic';
 import TopUpModal from '../components/TopUpModal';
 import Clamped from '../components/Clamped';
 import Selfies from './Selfies';
@@ -76,6 +77,9 @@ export default function Gallery() {
     setViewerError('');
     setItemsLoad(true);
     seedRef.current = Math.random().toString(36).slice(2, 12);
+    // A locked set looked at. How often one is opened before it is bought says
+    // more about whether the price is right than the sales figure does.
+    if (!set.isGenuinelyUnlocked) track('set_preview', { set: set.id, price: set.tierPrice });
     try {
       const itemsData = await api.get(`/api/gallery/sets/${set.id}/items?seed=${seedRef.current}`);
       setSetItems(itemsData.items || []);
