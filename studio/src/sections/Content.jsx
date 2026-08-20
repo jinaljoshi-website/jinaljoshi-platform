@@ -455,6 +455,10 @@ export function Content({ openWith, collection = false }) {
     } catch (err) { setError(err.message); } finally { setPinBusy(null); }
   };
   const [publishPrompt,  setPublishPrompt]  = useState(null);
+  // The sort turned up more than one kind of photograph, so more than one set
+  // is about to exist and each needs a name.
+  const [splitPrompt,    setSplitPrompt]    = useState(null);
+  const [splitting,      setSplitting]      = useState(false);
 
   // The marked pile, removed together. Kept here rather than in the panel
   // because it changes the set the parent holds, and the panel should not be
@@ -850,8 +854,51 @@ export function Content({ openWith, collection = false }) {
       setSuccess(extra.removeMarked ? 'Marked photos removed, and the set is live.' : 'Updated.');
     } catch (err) {
       if (err.code === 'MARKED_ITEMS') { setPublishPrompt({ id, marked: err.body?.marked || 0 }); return; }
+      // Not a refusal so much as an unfinished job: the sort found photographs
+      // that belong elsewhere, and where they go still needs naming.
+      if (err.code === 'NEEDS_SPLIT') { openSplit(id); return; }
       throw err;
     }
+  };
+
+  // Counts first, then the captions.
+  //
+  // Writing a caption for a group is much easier having been told there are six
+  // photographs in it than being asked cold — and the counts are what make it
+  // obvious whether the sort went the way it was meant to.
+  const openSplit = async (setId) => {
+    const set = sets.find((x) => x.id === setId);
+    try {
+      const d = await api.get(`/api/studio/content/${setId}/items`);
+      const live = (d.items || []).filter((i) => i.review_flag !== 'remove');
+      setSplitPrompt({
+        id: setId,
+        counts: {
+          tiered:     live.filter((i) => i.tier_category && !['purchase_only', 'collection'].includes(i.tier_category)).length,
+          purchase:   live.filter((i) => i.tier_category === 'purchase_only').length,
+          collection: live.filter((i) => i.tier_category === 'collection').length,
+        },
+        tiered:     { title: set?.title || '', description: set?.description || '', price: set?.price_coins ?? 0 },
+        purchase:   { title: '', description: '', price: '' },
+        collection: { title: '', description: '', price: '' },
+      });
+    } catch (err) { setError(err.message); }
+  };
+
+  const runSplit = async () => {
+    if (!splitPrompt) return;
+    setSplitting(true); setError('');
+    try {
+      const d = await api.post(`/api/studio/content/${splitPrompt.id}/split`, {
+        tiered:     splitPrompt.counts.tiered     ? splitPrompt.tiered     : undefined,
+        purchase:   splitPrompt.counts.purchase   ? splitPrompt.purchase   : undefined,
+        collection: splitPrompt.counts.collection ? splitPrompt.collection : undefined,
+      });
+      setSplitPrompt(null);
+      setSuccess(`${d.created.length + 1} sets, all hidden. Look at each one whole before publishing.`);
+      loadSets();
+    } catch (err) { setError(err.message); }
+    finally { setSplitting(false); }
   };
 
   const handleDelete = async (setId) => {
@@ -1213,6 +1260,47 @@ export function Content({ openWith, collection = false }) {
                             disabled={creating} style={S.ghostBtn}>
                       Cancel
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {splitPrompt?.id === set.id && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '4px 0 8px' }}>
+                  <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>
+                    This sort turned up {[
+                      splitPrompt.counts.tiered     && `${splitPrompt.counts.tiered} tiered`,
+                      splitPrompt.counts.purchase   && `${splitPrompt.counts.purchase} purchase`,
+                      splitPrompt.counts.collection && `${splitPrompt.counts.collection} exclusive`,
+                    ].filter(Boolean).join(' · ')}.
+                  </div>
+                  <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, lineHeight: 1.6 }}>
+                    Each becomes its own set, hidden. Nothing goes out until you have
+                    looked at them whole.
+                  </div>
+
+                  {[
+                    ['tiered',     'The gallery set',      splitPrompt.counts.tiered],
+                    ['purchase',   'Purchase only',        splitPrompt.counts.purchase],
+                    ['collection', 'The Private Collection', splitPrompt.counts.collection],
+                  ].filter(([, , n]) => n > 0).map(([key, label, n]) => (
+                    <div key={key} style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12 }}>
+                      <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: colors.muted, marginBottom: 8 }}>
+                        {label} · {n} photo{n === 1 ? '' : 's'}
+                      </div>
+                      <input value={splitPrompt[key].title} placeholder="Caption"
+                             onChange={(e) => setSplitPrompt((p2) => ({ ...p2, [key]: { ...p2[key], title: e.target.value } }))}
+                             style={{ ...S.input, width: '100%', marginBottom: 8 }} />
+                      <input value={splitPrompt[key].price} placeholder="Price in tokens" inputMode="numeric"
+                             onChange={(e) => setSplitPrompt((p2) => ({ ...p2, [key]: { ...p2[key], price: e.target.value } }))}
+                             style={{ ...S.input, width: 180 }} />
+                    </div>
+                  ))}
+
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button onClick={runSplit} disabled={splitting} style={{ ...S.btn, opacity: splitting ? 0.5 : 1 }}>
+                      {splitting ? 'Separating…' : 'Separate into sets'}
+                    </button>
+                    <button onClick={() => setSplitPrompt(null)} style={S.ghostBtn}>Not yet</button>
                   </div>
                 </div>
               )}
@@ -2090,7 +2178,22 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   // through near-identical frames at one keystroke a second is exactly when a
   // finger lands one key across. The marked photos gather in their own tab and
   // go in a single deliberate act, once somebody has looked at the pile.
-  const TIER_KEYS = { 1: 'free', 2: 'community', 3: 'insider', 4: 'premium', 5: 'supreme' };
+  // 6 and 7 are destinations, not tiers.
+  //
+  // A photograph marked Purchase or Exclusive is not going anywhere on the
+  // ladder — it is leaving this set entirely when the sort is finished, for one
+  // of its own. Sitting on the same row of keys because they are decided in the
+  // same pass, at the same speed, looking at the same photograph.
+  const TIER_KEYS = {
+    1: 'free', 2: 'community', 3: 'insider', 4: 'premium', 5: 'supreme',
+    6: 'purchase_only', 7: 'collection',
+  };
+
+  const KEY_LABELS = {
+    free: 'Free', community: 'Community', insider: 'Insider',
+    premium: 'Premium', supreme: 'Supreme',
+    purchase_only: 'Purchase', collection: 'Exclusive',
+  };
 
   const sortHere = async (tier) => {
     if (!current) return;
@@ -2360,7 +2463,9 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
             </div>
 
             <div style={{ fontFamily: sans, fontSize: 11, color: '#7C736A' }}>
-              {collection ? '1 keep · 0 remove · Arrows to move · Esc to close' : '1 Free · 2 Community · 3 Insider · 4 Premium · 5 Supreme · 0 mark for removal · Arrows to move · Esc to close'}
+              {collection
+                ? '1 keep · 0 remove · Arrows to move · Esc to close'
+                : '1 Free · 2 Community · 3 Insider · 4 Premium · 5 Supreme · 6 Purchase · 7 Exclusive · 0 remove · Arrows · Esc'}
             </div>
           </div>
         )}

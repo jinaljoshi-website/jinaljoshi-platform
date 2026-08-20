@@ -739,7 +739,9 @@ router.post('/content', async (req, res) => {
   }
 });
 
-const VALID_TIER_CATEGORIES = ['free', 'community', 'insider', 'premium', 'supreme', 'purchase_only'];
+// 'collection' is a marker used only while sorting, never a served tier: the
+// split moves those photographs into a collection set and clears it again.
+const VALID_TIER_CATEGORIES = ['free', 'community', 'insider', 'premium', 'supreme', 'purchase_only', 'collection'];
 
 // The cover image, served through the backend rather than from storage.
 //
@@ -759,6 +761,151 @@ const VALID_TIER_CATEGORIES = ['free', 'community', 'insider', 'premium', 'supre
 //
 // The same trick the cover backfill already uses: the server reads from R2 and
 // streams it back same-origin, where the canvas is allowed to look at it.
+
+// ─────────────────────────────────────────────
+// POST /api/studio/content/:id/split
+// ─────────────────────────────────────────────
+//
+// One shoot, sorted once, into as many sets as it turns out to hold.
+//
+// Photographs come off a camera in one pile and belong in different places, and
+// deciding which before uploading means guessing at a thumbnail. So they arrive
+// as one draft and the review decides: 1-5 tier them, 6 marks a photograph as
+// purchase-only, 7 sends it to the private collection.
+//
+// A set never mixes the three. A Supreme member who has paid for everything
+// should not find part of a set walled off from her, so purchase-only content
+// is its own set rather than a locked corner of somebody else's — which the
+// database already enforces, and this works with rather than around.
+//
+// The original set keeps whatever was tiered and the others are created beside
+// it, hidden, each with its own caption, price and cover. Nothing is published
+// here: a collection set may want different timing from a gallery drop, and
+// that is a decision for afterwards.
+router.post('/content/:id/split', async (req, res) => {
+  // A caption and price for each group the sort turned up, the tiered one
+  // included: the draft was named before anybody had seen the photographs, and
+  // by the end of a review there is usually a better name for it.
+  const { tiered, purchase, collection } = req.body;   // { title, description, price } each
+  const setId = req.params.id;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: srcRows } = await client.query(
+      `SELECT * FROM sets WHERE id = $1 FOR UPDATE`, [setId]
+    );
+    if (!srcRows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Set not found' });
+    }
+    const src = srcRows[0];
+
+    const { rows: items } = await client.query(
+      `SELECT id, tier_category, r2_key, media_type FROM set_items
+        WHERE set_id = $1 AND review_flag IS DISTINCT FROM 'remove'
+        ORDER BY position ASC, created_at ASC`, [setId]
+    );
+
+    const forPurchase  = items.filter((i) => i.tier_category === 'purchase_only');
+    const forCollection = items.filter((i) => i.tier_category === 'collection');
+    const staying      = items.filter((i) =>
+      i.tier_category && i.tier_category !== 'purchase_only' && i.tier_category !== 'collection');
+
+    // Told plainly rather than silently doing nothing. A caption asked for and
+    // then not used is a worse outcome than being asked to go back.
+    if (forPurchase.length && !purchase?.title?.trim()) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'PURCHASE_CAPTION_REQUIRED',
+        message: `${forPurchase.length} photographs are marked purchase-only and need a caption and price.` });
+    }
+    if (forCollection.length && !collection?.title?.trim()) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'COLLECTION_CAPTION_REQUIRED',
+        message: `${forCollection.length} photographs are marked for the collection and need a caption and price.` });
+    }
+
+    const made = [];
+
+    // The original, renamed and repriced if the sort suggested better.
+    if (tiered?.title?.trim()) {
+      await client.query(
+        `UPDATE sets SET title = $1, description = $2, price_coins = $3 WHERE id = $4`,
+        [tiered.title.trim(), tiered.description || null,
+         parseInt(tiered.price, 10) || src.price_coins, setId]
+      );
+    }
+
+    // Each new set is made the same way the create route makes one, so a set
+    // born of a split is indistinguishable from one made by hand.
+    const makeSet = async (spec, isCollection, moving) => {
+      const { rows } = await client.query(
+        `INSERT INTO sets (title, description, type, price_coins, visible, category, is_collection,
+                           display_order, cover_key)
+         VALUES ($1, $2, $3, $4, FALSE, $5, $6,
+                 (SELECT COALESCE(MIN(display_order), 0) - 1 FROM sets WHERE is_collection = $6),
+                 $7)
+         RETURNING *`,
+        [spec.title.trim(), spec.description || null, src.type,
+         parseInt(spec.price, 10) || 0, src.category, isCollection,
+         // The first photograph of the group, so a set is never coverless. It
+         // can be changed afterwards like any other.
+         moving.find((m) => m.media_type !== 'video')?.r2_key || null]
+      );
+      const made = rows[0];
+      await client.query(
+        `UPDATE set_items SET set_id = $1 WHERE id = ANY($2)`,
+        [made.id, moving.map((m) => m.id)]
+      );
+      // The same people are credited: it is one shoot however many sets it
+      // becomes.
+      await client.query(
+        `INSERT INTO set_photographers (set_id, photographer_id)
+         SELECT $1, photographer_id FROM set_photographers WHERE set_id = $2
+         ON CONFLICT DO NOTHING`,
+        [made.id, setId]
+      );
+      return made;
+    };
+
+    if (forPurchase.length) {
+      // Purchase-only carries no tier: it is not part of any ladder, and
+      // leaving the marker behind would put it back in one.
+      const created = await makeSet(purchase, false, forPurchase);
+      await client.query(
+        `UPDATE set_items SET tier_category = 'purchase_only' WHERE set_id = $1`, [created.id]);
+      made.push({ id: created.id, title: created.title, kind: 'purchase', items: forPurchase.length });
+    }
+
+    if (forCollection.length) {
+      const created = await makeSet(collection, true, forCollection);
+      // Inside the collection there are no tiers to speak of — access is the
+      // whole point and the set is opened or it is not.
+      await client.query(
+        `UPDATE set_items SET tier_category = NULL WHERE set_id = $1`, [created.id]);
+      made.push({ id: created.id, title: created.title, kind: 'collection', items: forCollection.length });
+    }
+
+    await client.query('COMMIT');
+    // Everything hidden, including the original. A sort is not a decision to
+    // publish — the sets are looked at once more, whole, before anybody sees
+    // them, and that second look is the point of leaving them hidden.
+    res.json({
+      ok: true,
+      stayed: staying.length,
+      created: made,
+      note: 'All sets are hidden. Publish each when you have looked at it whole.',
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('studio/content/split error:', err);
+    res.status(500).json({ error: 'SPLIT_FAILED', message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 router.get('/content/item/:itemId/image', async (req, res) => {
   try {
     const { GetObjectCommand, S3Client } = require('@aws-sdk/client-s3');
@@ -1412,11 +1559,27 @@ router.post('/content/items/move', async (req, res) => {
       [setId, itemIds]
     );
     const after = new Set([...rest.map((r) => r.tier_category), tierCategory]);
-    if (after.has('purchase_only') && after.size > 1) {
+
+    // The rule holds for what fans can see, not for what is still being sorted.
+    //
+    // A draft is exactly where the three kinds sit side by side: the whole
+    // point of sorting one pile is that it holds tiered, purchase-only and
+    // collection photographs at once, and the split separates them at the end.
+    // Applied to a draft this would block the first keystroke of every sort.
+    //
+    // Published sets are checked as before, because there the rule is about
+    // what a member is shown — a Supreme member who has paid for everything
+    // should not find part of a set walled off from her.
+    const { rows: liveRows } = await client.query(
+      `SELECT visible FROM sets WHERE id = $1`, [setId]
+    );
+    const isLive = liveRows[0]?.visible === true;
+
+    if (isLive && after.has('purchase_only') && after.size > 1) {
       await client.query('ROLLBACK');
       return res.status(409).json({
         error: 'CATEGORY_LOCKED',
-        message: 'A set is either tier-segmented or purchase-only, never both. Move the rest first.',
+        message: 'A published set is either tier-segmented or purchase-only, never both. Move the rest first.',
       });
     }
 
@@ -2105,6 +2268,46 @@ router.patch('/content/:id', async (req, res) => {
         [req.params.id, isCollectionSet]
       );
       const { marked, unsorted } = pending[0];
+
+      // Sorted, but not yet separated.
+      //
+      // A draft that still holds purchase-only or collection photographs has
+      // been reviewed and not split, and publishing it now would put both in
+      // front of members who should never see them there. Blocked with a count,
+      // because the fix is one button away and the message should say so.
+      const { rows: awaiting } = await client.query(
+        `SELECT count(*) FILTER (WHERE tier_category = 'purchase_only')::int AS purchase,
+                count(*) FILTER (WHERE tier_category = 'collection')::int    AS collection
+           FROM set_items
+          WHERE set_id = $1 AND review_flag IS DISTINCT FROM 'remove'`,
+        [req.params.id]
+      );
+      const waiting = awaiting[0];
+      if (!isCollectionSet && (waiting.purchase > 0 && unsorted === 0 && marked >= 0)) {
+        const alsoTiered = await client.query(
+          `SELECT count(*)::int AS n FROM set_items
+            WHERE set_id = $1 AND review_flag IS DISTINCT FROM 'remove'
+              AND tier_category IS NOT NULL
+              AND tier_category NOT IN ('purchase_only', 'collection')`,
+          [req.params.id]
+        );
+        // Only a problem where the set holds more than one kind. A set that is
+        // purely purchase-only is a finished set and publishes as it is.
+        if (alsoTiered.rows[0].n > 0 || waiting.collection > 0) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({
+            error: 'NEEDS_SPLIT',
+            message: `This holds ${waiting.purchase} purchase-only and ${waiting.collection} collection photographs alongside tiered ones. Separate them into their own sets first.`,
+          });
+        }
+      }
+      if (!isCollectionSet && waiting.collection > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'NEEDS_SPLIT',
+          message: `${waiting.collection} photographs are marked for the private collection. Separate them into their own set first.`,
+        });
+      }
 
       // Unsorted photos are a hard stop. A photo nobody has looked at has no
       // tier, and publishing would put it in front of whoever the default

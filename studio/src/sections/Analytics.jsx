@@ -22,8 +22,8 @@ const SPEND_LABELS = {
   membership_extend:   'Extensions',
   // Buckets used by the spend analysis, which groups by what the fan was
   // buying rather than by ledger type.
-  sets_ladder:    'Sets — on the ladder',
-  sets_exclusive: 'Sets — exclusive portion',
+  sets_ladder:    'Sets — within their tier',
+  sets_exclusive: 'Sets — bought above their tier',
   media:          'Media unlocked in chat',
   membership:     'Memberships',
   messages:       'Messages',
@@ -440,7 +440,7 @@ export function Analytics() {
                     opened {s.unlocks} time{s.unlocks === 1 ? '' : 's'}
                     {s.creditUnlocks > 0 && ` · ${s.creditUnlocks} on a membership`}
                     {s.ladderUnlocks > 0 && ` · ${s.ladderUnlocks} on the ladder`}
-                    {s.upsellUnlocks > 0 && ` · ${s.upsellUnlocks} exclusive`}
+                    {s.upsellUnlocks > 0 && ` · ${s.upsellUnlocks} above their tier`}
                     {s.giftedTokens > 0 && ` · ${s.giftedTokens} gifted`}
                   </div>
                 </div>
@@ -448,9 +448,15 @@ export function Analytics() {
                   <div style={{ fontFamily: sans, fontSize: 14, color: colors.text }}>{rupees(s.revenueInr)}</div>
                   {(s.ladderInr > 0 || s.upsellInr > 0) && (
                     <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
-                      {s.ladderInr > 0 && `ladder ${rupees(s.ladderInr)}`}
+                      {/* What the two figures are. 'Exclusive' was wrong: a
+                          published set is either tier-segmented or
+                          purchase-only, never both, so there is no exclusive
+                          corner within a set. Both are the ladder — one is
+                          somebody opening what their tier covers, the other is
+                          somebody reaching above it. */}
+                      {s.ladderInr > 0 && `within their tier ${rupees(s.ladderInr)}`}
                       {s.ladderInr > 0 && s.upsellInr > 0 && ' · '}
-                      {s.upsellInr > 0 && `exclusive ${rupees(s.upsellInr)}`}
+                      {s.upsellInr > 0 && `bought above it ${rupees(s.upsellInr)}`}
                     </div>
                   )}
                   {s.purchasedTokens > 0 && (
