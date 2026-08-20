@@ -5,6 +5,7 @@ import { createCompressPool } from '../workers/compressPool';
 import { Selfies } from './Selfies';
 import { SectionTabs } from '../components/SectionTabs';
 import ShareLink from '../components/ShareLink';
+import ActionError from '../components/ActionError';
 import { T, S, Card, Eyebrow, Field, TokenField, colors } from '../ui';
 
 const TOKEN_RATE   = 66;
@@ -192,6 +193,12 @@ export function Content({ openWith, collection = false, upload = false }) {
   // photograph by photograph; the other two arrive already decided, so their
   // review is only keep or remove.
   const [uploadMode, setUploadMode] = useState('bulk');
+  // Live, hidden, or everything. With a hundred and thirty sets in one list,
+  // finding the three that are still hidden means reading every row.
+  const [visFilter, setVisFilter] = useState('all');
+  // Keyed by photograph, so two failures can coexist and each stays under the
+  // control that produced it.
+  const [itemErrors, setItemErrors] = useState({});
   // Nothing in a collection is free, so free is not a tier that can be picked
   // there by accident.
   // What the dropdowns may offer, which is not always everything.
@@ -390,6 +397,14 @@ export function Content({ openWith, collection = false, upload = false }) {
 
   // The queue rather than a library, when this is the upload tab. A set here
   // has not finished review and belongs to neither library yet.
+  // What the list actually renders. The upload queue is never filtered — a set
+  // there is hidden by definition, so the choice would be between everything
+  // and nothing.
+  const shownSets = upload ? sets
+    : visFilter === 'live'   ? sets.filter((x) => x.visible)
+    : visFilter === 'hidden' ? sets.filter((x) => !x.visible)
+    : sets;
+
   const loadSets = () => api.get(
     upload ? '/api/studio/content/queue'
            : `/api/studio/content${collection ? '?collection=1' : ''}`
@@ -680,12 +695,18 @@ export function Content({ openWith, collection = false, upload = false }) {
 
   const retierItem = async (item, tierCategory) => {
     setError('');
+    setItemErrors((prev) => ({ ...prev, [item.id]: null }));
     try {
       const d = await api.patch(`/api/studio/content/item/${item.id}`, { tierCategory });
       setReviewItems((prev) => prev.map((i) => i.id === item.id ? d.item : i));
       // No toast. This now fires once per keystroke through a whole set, and a
       // message that appears several hundred times says nothing.
-    } catch (err) { setError(err.message); }
+    } catch (err) {
+      // Against the photograph, not the page. A refusal shown at the top of a
+      // long review is a refusal nobody sees — which is how a 409 on every
+      // purchase-only keystroke passed for a control that did nothing.
+      setItemErrors((prev) => ({ ...prev, [item.id]: err.message }));
+    }
   };
 
   const handleCategoryFilePick = (categoryKey, e) => {
@@ -1210,8 +1231,26 @@ export function Content({ openWith, collection = false, upload = false }) {
       {/* ── Content list ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <T.sectionTitle>
-          {upload ? `Sets to review (${sets.length})` : `All content (${sets.length})`}
+          {upload ? `Sets to review (${sets.length})` : `All content (${shownSets.length})`}
         </T.sectionTitle>
+
+        {!upload && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '8px 0 14px' }}>
+            {[
+              ['all',    `Everything (${sets.length})`],
+              ['live',   `Live (${sets.filter((x) => x.visible).length})`],
+              ['hidden', `Hidden (${sets.filter((x) => !x.visible).length})`],
+            ].map(([k, label]) => (
+              <button key={k} onClick={() => setVisFilter(k)}
+                      style={{ fontFamily: sans, fontSize: 11, padding: '5px 12px', borderRadius: 999,
+                               cursor: 'pointer', background: 'transparent',
+                               border: `1px solid ${visFilter === k ? colors.accent : colors.border}`,
+                               color: visFilter === k ? colors.accent : colors.muted }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Why a set is still here.
             //
@@ -1290,7 +1329,7 @@ export function Content({ openWith, collection = false, upload = false }) {
       )}
       <div style={{ display: 'grid', gap: 10 }}>
         {sets.length === 0 && <T.muted>No content yet.</T.muted>}
-        {sets.map((set) => {
+        {shownSets.map((set) => {
           const counts = set.categoryCounts || {};
           const summary = CATEGORIES
             .filter((c) => counts[c.key] > 0)
@@ -1842,6 +1881,7 @@ export function Content({ openWith, collection = false, upload = false }) {
           removingMarked={removingMarked}
           mediaUrl={toUrl}
           categories={reviewCategories}
+          itemErrors={itemErrors}
           // Nothing to sub-tier here.
           //
           // Not the page's idea of itself but the set's: a collection set has
@@ -2063,7 +2103,7 @@ function PhotographerPicker({ names, onChange, options }) {
   );
 }
 
-function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItemsChanged, onDeleteMarked, removingMarked, deletingItem, collection = false, lightbox, setLightbox, mediaUrl, categories,
+function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItemsChanged, onDeleteMarked, removingMarked, deletingItem, collection = false, lightbox, setLightbox, mediaUrl, categories, itemErrors,
                        selected, setSelected, onBulkMove, onBulkDelete, bulkBusy,
                        ordering, setOrdering, onSaveOrder, orderBusy }) {
   // Grouped for the grid, but navigation runs across the whole set in the order
@@ -2539,6 +2579,9 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                     {categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>)}
                   </select>
                   )}
+                  {/* Under the control that refused, where somebody who has
+                      just used it is already looking. */}
+                  <ActionError>{itemErrors?.[item.id]}</ActionError>
                 </div>
               ))}
             </div>

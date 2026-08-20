@@ -881,6 +881,25 @@ router.post('/content/:id/split', async (req, res) => {
         message: `${forCollection.length} photographs are marked for the collection and need a caption and price.` });
     }
 
+    // Neither of these can be free.
+    //
+    // A tiered set may well be worth nothing on its own — membership already
+    // paid for it, and a price of zero says exactly that. Purchase-only and
+    // collection sets have no such story: being bought is the whole of what
+    // they are, and a zero there is a slip that hands them to everybody.
+    // Caught here rather than at publish, because this is where the number is
+    // typed and where it can still be corrected in context.
+    if (forPurchase.length && !(parseInt(purchase?.price, 10) > 0)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'PURCHASE_PRICE_REQUIRED',
+        message: 'A purchase-only set needs a price. Being bought is the whole of what it is.' });
+    }
+    if (forCollection.length && !(parseInt(collection?.price, 10) > 0)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'COLLECTION_PRICE_REQUIRED',
+        message: 'A collection set needs a price. Being bought is the whole of what it is.' });
+    }
+
     // Marked photographs go first, or nothing goes at all.
     //
     // A set must not reach its library carrying photographs meant to be gone —
@@ -2458,6 +2477,29 @@ router.patch('/content/:id', async (req, res) => {
       // been reviewed and not split, and publishing it now would put both in
       // front of members who should never see them there. Blocked with a count,
       // because the fix is one button away and the message should say so.
+      // The same rule at the other door.
+      //
+      // The split refuses a free purchase-only or collection set, but a price
+      // can also be edited to nothing afterwards, and publishing is the moment
+      // that would matter. One guard is not a guard if there are two ways in.
+      const { rows: kindCheck } = await client.query(
+        `SELECT s.price_coins, s.is_collection,
+                EXISTS (SELECT 1 FROM set_items i
+                         WHERE i.set_id = s.id AND i.tier_category = 'purchase_only') AS has_purchase
+           FROM sets s WHERE s.id = $1`,
+        [req.params.id]
+      );
+      const k = kindCheck[0];
+      if (k && (k.is_collection || k.has_purchase) && !(k.price_coins > 0)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'PRICE_REQUIRED',
+          message: k.is_collection
+            ? 'A collection set cannot be published free. Set a price first.'
+            : 'A purchase-only set cannot be published free. Set a price first.',
+        });
+      }
+
       const { rows: awaiting } = await client.query(
         `SELECT count(*) FILTER (WHERE tier_category = 'purchase_only')::int AS purchase,
                 count(*) FILTER (WHERE tier_category = 'collection')::int    AS collection
