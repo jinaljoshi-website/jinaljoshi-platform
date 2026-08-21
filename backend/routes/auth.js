@@ -9,6 +9,10 @@ const { sendSignupVerificationEmail, sendPasswordResetEmail, consumeToken } = re
 const { lookupIpCountry, getClientIp } = require('../lib/geoip');
 const { getBalances, grantGiftedTokens } = require('../lib/tokens');
 const { sendJoinedWelcome } = require('../lib/welcome');
+// Refusing the tenth attempt at something nobody does nine times. Every limit
+// sits far above plausible human behaviour, so a member who genuinely forgot a
+// password is never the one refused.
+const rl = require('../middleware/rateLimit');
 const { getConfigNumber } = require('../lib/config');
 
 async function logAccessEvent(userId, req, eventType) {
@@ -84,7 +88,7 @@ async function createSessionAndRespond(user, req, res, timezone) {
 
 // ── SIGNUP ────────────────────────────────────
 
-router.post('/signup', async (req, res) => {
+router.post('/signup', rl.signup, async (req, res) => {
   const { email, password, dob, displayName, consentTerms, consentNoRefund, timezone } = req.body;
 
   if (!email || !password || !dob) {
@@ -211,7 +215,7 @@ router.post('/verify-email', async (req, res) => {
   }
 });
 
-router.post('/resend-verification', async (req, res) => {
+router.post('/resend-verification', rl.resendVerification, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
 
@@ -232,7 +236,7 @@ router.post('/resend-verification', async (req, res) => {
 
 // ── LOGIN ─────────────────────────────────────
 
-router.post('/login', async (req, res) => {
+router.post('/login', rl.loginByIp, rl.loginByEmail, async (req, res) => {
   const { email, password, timezone } = req.body;
 
   if (!email || !password) {
@@ -311,7 +315,7 @@ router.post('/verify-phone/confirm', authMid, async (req, res) => {
 
 // ── FORGOT PASSWORD (email link) ────────────────
 
-router.post('/forgot/request', async (req, res) => {
+router.post('/forgot/request', rl.forgotPassword, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
 

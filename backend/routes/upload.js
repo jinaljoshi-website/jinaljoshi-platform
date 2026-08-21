@@ -33,7 +33,7 @@ const ALLOWED_ALL   = [...ALLOWED_IMAGE, ...ALLOWED_VIDEO];
 // Returns: { uploadUrl, key, publicUrl }
 // ─────────────────────────────────────────────
 
-router.post('/presign', authMid, async (req, res) => {
+router.post('/presign', authMid, require('../middleware/rateLimit').presign, async (req, res) => {
   const { filename, contentType, context = 'chat_media' } = req.body;
 
   if (!filename || !contentType) {
