@@ -1908,6 +1908,7 @@ export function Content({ openWith, collection = false, upload = false }) {
           mediaUrl={toUrl}
           categories={reviewCategories}
           itemErrors={itemErrors}
+          onKeepFailed={(id, msg) => setItemErrors((prev) => ({ ...prev, [id]: msg }))}
           // Nothing to sub-tier here.
           //
           // Not the page's idea of itself but the set's: a collection set has
@@ -2129,7 +2130,7 @@ function PhotographerPicker({ names, onChange, options }) {
   );
 }
 
-function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItemsChanged, onDeleteMarked, removingMarked, deletingItem, collection = false, lightbox, setLightbox, mediaUrl, categories, itemErrors,
+function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItemsChanged, onDeleteMarked, removingMarked, deletingItem, collection = false, lightbox, setLightbox, mediaUrl, categories, itemErrors, onKeepFailed,
                        selected, setSelected, onBulkMove, onBulkDelete, bulkBusy,
                        ordering, setOrdering, onSaveOrder, orderBusy }) {
   // Grouped for the grid, but navigation runs across the whole set in the order
@@ -2432,7 +2433,16 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
     try {
       await api.post('/api/studio/content/items/flag', { itemIds: [current.id], flag: null });
       onItemsChanged?.([current.id], { review_flag: null, reviewed_at: new Date().toISOString() });
-    } catch { /* leaving it unreviewed is safe */ }
+    } catch (err) {
+      // Not safe, as it turns out.
+      //
+      // This swallowed the failure and moved to the next photograph anyway, so
+      // a keep that never happened looked exactly like a keep that did — press
+      // 1, watch it advance, come back later and find it still unreviewed. The
+      // same silence that hid a 409 on every purchase-only keystroke.
+      onKeepFailed?.(current.id, err.message);
+      return;   // stay on the photograph that did not take
+    }
     go(1);
   };
 
@@ -2586,6 +2596,16 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                   )}
                   {item.review_flag === 'remove' && (
                     <div style={{ ...flagChip, color: '#D99A9A', borderColor: 'rgba(217,154,154,0.5)' }}>to be removed</div>
+                  )}
+                  {/* Something to show for a good photograph.
+                      //
+                      // A removed one says so and a tiered one shows its tier,
+                      // but in a collection a kept photograph had no tier to
+                      // show and no chip either — so pressing 1 changed nothing
+                      // visible and the only way to tell a reviewed photograph
+                      // from an untouched one was to count what was left. */}
+                  {collection && item.review_flag !== 'remove' && item.reviewed_at && (
+                    <div style={{ ...flagChip, color: '#8FC88F', borderColor: 'rgba(143,200,143,0.45)' }}>keeping</div>
                   )}
                   {groupOf[item.id] !== undefined && (
                     <div style={{ ...groupChip, background: GROUP_COLOURS[groupOf[item.id] % GROUP_COLOURS.length] }}>
