@@ -3,6 +3,51 @@
 // missed-call detection, and expired chat message cleanup
 
 const cron    = require('node-cron');
+
+// What ran, when, and whether it threw.
+//
+// A nightly job here once called a function that was never written and threw a
+// ReferenceError every night at four in the morning until somebody happened to
+// read the log. Nothing was watching, because there was nothing to watch — a
+// job that fails silently is indistinguishable from one that has nothing to do.
+//
+// Held in memory and read by the health endpoint. It says when each job last
+// finished and what it said if it failed, which is enough to tell a scheduler
+// that is working from one that stopped a week ago.
+const jobHealth = new Map();
+
+function record(name, fn) {
+  return async (...args) => {
+    const startedAt = new Date();
+    try {
+      const out = await fn(...args);
+      jobHealth.set(name, { lastRunAt: startedAt, lastOkAt: new Date(), error: null });
+      return out;
+    } catch (err) {
+      jobHealth.set(name, {
+        lastRunAt: startedAt,
+        lastOkAt: jobHealth.get(name)?.lastOkAt || null,
+        error: err.message,
+      });
+      // Still logged, because the health endpoint is a summary and the log is
+      // where the stack trace lives.
+      console.error(`scheduled job failed: ${name}:`, err.message);
+    }
+  };
+}
+
+function schedulerHealth() {
+  const out = {};
+  for (const [name, h] of jobHealth) {
+    out[name] = {
+      lastRunAt: h.lastRunAt,
+      lastOkAt: h.lastOkAt,
+      error: h.error,
+      minutesSinceOk: h.lastOkAt ? Math.round((Date.now() - h.lastOkAt) / 60000) : null,
+    };
+  }
+  return out;
+}
 const pool    = require('../db/pool');
 const { notifyArtist, pushToUser } = require('./notify');
 const fx = require('./fx');
@@ -450,14 +495,14 @@ async function checkMembershipExpiry() {
 function startScheduler() {
   // Every minute: reminders and no-show checks
   cron.schedule('* * * * *', () => {
-    checkUpcomingReminders();
-    checkNoShows();
+    record('call-reminders', checkUpcomingReminders)();
+    record('call-no-shows', checkNoShows)();
   });
 
   // Every 15 seconds: hard duration cutoff enforcement, plus missed-call detection (ringing needs fast response)
   setInterval(() => {
-    checkDurationCutoffs();
-    checkMissedCalls();
+    record('call-cutoffs', checkDurationCutoffs)();
+    record('missed-calls', checkMissedCalls)();
   }, 15000);
 
   // Chat messages are not deleted on a schedule, and deliberately so. The
@@ -474,20 +519,20 @@ function startScheduler() {
 
   // Every minute: auction lifecycle (ending auctions, reminder emails, expiring unclaimed wins, queue promotion)
   cron.schedule('* * * * *', () => {
-    checkAuctions();
+    record('auctions', checkAuctions)();
   });
 
   // Once a day at 10am IST — a renewal nudge is not urgent, and nobody wants a
   // push about billing at three in the morning.
   cron.schedule('30 4 * * *', () => {
-    checkMembershipExpiry();
+    record('membership-expiry', checkMembershipExpiry)();
   });
 
   // Exchange rates, twice daily. A rate older than 48 hours withdraws its
   // currency from sale, so a single missed run must not be enough to take
   // international payments offline — twice a day means two consecutive
   // failures before anything stops working.
-  cron.schedule('0 2,14 * * *', () => { fx.refreshRates(); });
+  cron.schedule('0 2,14 * * *', () => { record('fx-rates', fx.refreshRates)(); });
 
   // And once at boot, because a deploy after any downtime would otherwise run
   // on whatever the rates were before it.
@@ -496,4 +541,4 @@ function startScheduler() {
   console.log('Scheduler started: reminders, no-show checks and auction lifecycle every minute; duration cutoff and missed-call checks every 15s; membership expiry reminders daily');
 }
 
-module.exports = { startScheduler };
+module.exports = { startScheduler, schedulerHealth };

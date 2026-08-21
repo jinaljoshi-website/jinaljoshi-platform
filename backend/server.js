@@ -29,6 +29,10 @@ app.use('/api/public',       require('./routes/public'));
 // Counting visits. Unauthenticated by necessity — most of what is worth
 // counting happens before anybody signs in.
 app.use('/api/traffic',      require('./routes/traffic'));
+// Whether the thing is actually working. Unauthenticated at the root, because
+// an uptime checker cannot sign in — and it says a word and a status code,
+// which is all such a checker reads.
+app.use('/api/health',       require('./routes/health'));
 
 // Link previews. Not under /api — these are real pages a crawler fetches, and
 // they are reached at ps.jinaljoshi.in/s/... through a rewrite in ps/vercel.json.
