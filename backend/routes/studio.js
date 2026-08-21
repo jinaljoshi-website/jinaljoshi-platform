@@ -937,6 +937,35 @@ router.post('/content/:id/split', async (req, res) => {
       );
     }
 
+    // The cover, if it left with another set.
+    //
+    // A cover is chosen at upload from the first photograph of the whole pile,
+    // which was the only pile there was at the time. After a sort that
+    // photograph may have gone to the purchase-only set, or to the collection,
+    // or been removed — and the tiered set was left wearing the face of content
+    // it no longer contains. Repointed at the first photograph it actually
+    // still holds.
+    if (staying.length) {
+      const stillHere = staying.map((i) => i.id);
+      await client.query(
+        `UPDATE sets s
+            SET cover_key = (
+              SELECT i.r2_key FROM set_items i
+               WHERE i.id = ANY($2) AND i.media_type <> 'video'
+               ORDER BY i.position ASC, i.created_at ASC LIMIT 1
+            )
+          WHERE s.id = $1
+            AND (
+              s.cover_key IS NULL
+              OR NOT EXISTS (
+                SELECT 1 FROM set_items i
+                 WHERE i.id = ANY($2) AND i.r2_key = s.cover_key
+              )
+            )`,
+        [setId, stillHere]
+      );
+    }
+
     // Each new set is made the same way the create route makes one, so a set
     // born of a split is indistinguishable from one made by hand.
     const makeSet = async (spec, isCollection, moving) => {
@@ -1030,6 +1059,10 @@ router.get('/content/queue', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT s.id, s.title, s.is_collection, s.price_coins, s.created_at,
+              s.description,
+              (SELECT string_agg(p.name, ', ' ORDER BY p.name)
+                 FROM set_photographers sp JOIN photographers p ON p.id = sp.photographer_id
+                WHERE sp.set_id = s.id) AS photographer,
               ${COVER_FALLBACK} AS cover_key,
               (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id)                       AS total,
               (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
@@ -1073,8 +1106,24 @@ router.get('/content/queue', async (req, res) => {
     res.json({
       sets: rows.map((r) => ({
         id: r.id, title: r.title, isCollection: r.is_collection,
+        // The library's own field names alongside, because the row that renders
+        // these is the same row the libraries use and it reads snake_case. Two
+        // shapes for one thing is how the cover came out blank and the price
+        // came out zero — worth serving both rather than teaching one component
+        // two vocabularies.
+        is_collection: r.is_collection,
+        price_coins: r.price_coins,
+        description: r.description,
+        photographer: r.photographer,
+        visible: false,
         priceCoins: r.price_coins, createdAt: r.created_at,
-        coverUrl: toPublicUrl(r.cover_key),
+        // Both names. The library returns cover_key and the row reads that or
+        // cover_url; returning only a camelCase coverUrl meant every set in the
+        // queue showed no photograph at all — which is precisely where one is
+        // most needed, since a set here is one nobody has finished looking at.
+        coverUrl:  toPublicUrl(r.cover_key),
+        cover_url: toPublicUrl(r.cover_key),
+        cover_key: r.cover_key,
         total: r.total, untiered: r.untiered, marked: r.marked,
         purchase: r.purchase, collection: r.collection,
         // Ready when nothing is left undecided and nothing is left to
