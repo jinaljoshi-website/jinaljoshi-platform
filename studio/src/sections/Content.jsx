@@ -1610,9 +1610,25 @@ export function Content({ openWith, collection = false, upload = false }) {
                       // failed, and a queue row has no publish button. A message
                       // telling somebody what to do next should be next to the
                       // means of doing it. */}
-                  {upload && set.needsSplit && (
-                    <button onClick={() => openSplit(set.id)}
-                            style={{ ...actionBtn, color: colors.accent, borderColor: colors.accent }}>
+                  {/* Always there, dimmed until it can do anything.
+                      //
+                      // A button that appears only once it is needed teaches
+                      // nothing until the moment it matters, and if the row is
+                      // stale it does not appear even then. Shown from the
+                      // start, it says what the next step will be; disabled, it
+                      // says the sort is not finished yet. */}
+                  {upload && (
+                    <button onClick={() => openSplit(set.id)} disabled={!set.needsSplit}
+                            title={set.needsSplit
+                              ? 'Make its sets'
+                              : set.untiered > 0
+                              ? `${set.untiered} still to sort`
+                              : 'Nothing here needs separating'}
+                            style={{ ...actionBtn,
+                                     color: set.needsSplit ? colors.accent : colors.muted,
+                                     borderColor: set.needsSplit ? colors.accent : colors.border,
+                                     opacity: set.needsSplit ? 1 : 0.45,
+                                     cursor: set.needsSplit ? 'pointer' : 'not-allowed' }}>
                       Separate
                     </button>
                   )}
@@ -1861,7 +1877,17 @@ export function Content({ openWith, collection = false, upload = false }) {
           set={reviewSet}
           items={reviewItems}
           loading={reviewLoading}
-          onClose={() => { setReviewSet(null); setLightbox(null); clearSelection(); setOrdering(false); }}
+          onClose={() => {
+            setReviewSet(null); setLightbox(null); clearSelection(); setOrdering(false);
+            // Reload the row that was just reviewed.
+            //
+            // Whether a set needs separating is decided by what is in it, and
+            // the review is where that changes — so closing it without asking
+            // again left the row describing the set as it was before anybody
+            // looked. The Separate button appeared only after leaving the page
+            // and coming back, which is a poor way to learn that work is done.
+            loadSets().catch(() => {});
+          }}
           ordering={ordering}
           setOrdering={setOrdering}
           onSaveOrder={saveOrder}
@@ -2508,7 +2534,10 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
 
         {!ordering && unsortedCount > 0 && (
           <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 14 }}>
-            {unsortedCount} still to review — open the first and press {collection ? '1 to keep, 0 to remove' : '1–5 for its tier, or 0 to mark it for removal'}.
+            {unsortedCount} still to review — open the first and press{' '}
+            {collection
+              ? '1 to keep, 0 to remove'
+              : '1–5 for its tier, 6 for purchase-only, 7 for the collection, or 0 to remove'}.
           </div>
         )}
 
@@ -2525,7 +2554,13 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
               </span>
               {cat.key === '__unsorted' && (
                 <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
-                  Open one and press 1–5 for its tier, or 0 to mark it for removal. The set will not publish while any remain.
+                  {/* The same sentence as above, and for a while not the same
+                      sentence at all: this one was written before there were two
+                      kinds of review and said 1–5 to everybody, including a
+                      collection where those keys do nothing. */}
+                  {collection
+                    ? 'Open one and press 1 to keep it, or 0 to mark it for removal. The set will not publish while any remain.'
+                    : 'Open one and press 1–5 for its tier, 6 for purchase-only, 7 for the collection, or 0 to remove. The set will not publish while any remain.'}
                 </span>
               )}
               <button onClick={() => selectSection(byTier[cat.key] || [])}
