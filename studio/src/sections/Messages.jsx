@@ -80,6 +80,13 @@ export function Messages({ openWith }) {
   const [panel,    setPanel]    = useState(null);
   const [allFans,       setAllFans]       = useState([]);
   const [fanSearch,     setFanSearch]     = useState('');
+  // Searching what was said, which is a different question from searching for
+  // whom. One thread runs to eighteen hundred messages; scrolling is not a way
+  // of finding anything.
+  const [msgQuery,      setMsgQuery]      = useState('');
+  const [msgResults,    setMsgResults]    = useState(null);
+  const [searching,     setSearching]     = useState(false);
+  const searchTimer = useRef(null);
   const [showNewChat,   setShowNewChat]   = useState(false);
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [defaultChatBg, setDefaultChatBg] = useState(null);
@@ -705,6 +712,53 @@ export function Messages({ openWith }) {
           </div>
 
           {showBroadcast && <Broadcast onClose={() => setShowBroadcast(false)} />}
+
+          <input
+            value={msgQuery}
+            onChange={(e) => {
+              const v = e.target.value;
+              setMsgQuery(v);
+              if (v.trim().length < 2) { setMsgResults(null); return; }
+              setSearching(true);
+              clearTimeout(searchTimer.current);
+              // Waits for the typing to stop. A request per keystroke would
+              // search eighteen hundred messages nine times to answer once.
+              searchTimer.current = setTimeout(() => {
+                api.get(`/api/studio/dms/search?q=${encodeURIComponent(v.trim())}`)
+                  .then((d) => setMsgResults(d.results || []))
+                  .catch(() => setMsgResults([]))
+                  .finally(() => setSearching(false));
+              }, 350);
+            }}
+            placeholder="Search everything anyone has said…"
+            style={{ ...S.input, width: '100%', marginBottom: 10, boxSizing: 'border-box' }}
+          />
+
+          {msgResults && (
+            <Card style={{ marginBottom: 8 }}>
+              <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: colors.muted, marginBottom: 10 }}>
+                {searching ? 'Looking…'
+                  : msgResults.length === 0 ? 'Nothing found'
+                  : `${msgResults.length}${msgResults.length === 100 ? '+' : ''} found`}
+              </div>
+              <div style={{ maxHeight: 320, overflowY: 'auto', display: 'grid', gap: 8 }}>
+                {msgResults.map((r) => (
+                  <button key={r.id}
+                          onClick={() => { openConvo(r.fanId); setMsgResults(null); setMsgQuery(''); }}
+                          style={{ background: 'transparent', border: 'none', borderBottom: `1px solid ${colors.border}`,
+                                   padding: '8px 4px', textAlign: 'left', cursor: 'pointer' }}>
+                    <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginBottom: 3 }}>
+                      {r.isMine ? 'You' : r.who} · {new Date(r.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {r.isLocked && ' · locked media'}
+                    </div>
+                    <div style={{ fontFamily: sans, fontSize: 13, color: colors.text, lineHeight: 1.5 }}>
+                      {r.excerpt}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </Card>
+          )}
 
           {showNewChat && (
             <Card style={{ marginBottom: 8 }}>

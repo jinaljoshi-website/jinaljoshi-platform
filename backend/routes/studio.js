@@ -461,6 +461,76 @@ router.get('/fans', async (req, res) => {
 // MESSAGES
 // ─────────────────────────────────────────────
 
+
+// ─────────────────────────────────────────────
+// GET /api/studio/dms/search?q=...
+// ─────────────────────────────────────────────
+//
+// Finding a thing somebody said, across every conversation there has ever been.
+//
+// One thread runs to eighteen hundred messages, so scrolling is not a way of
+// finding anything. Results come back as messages rather than conversations:
+// what is being looked for is a sentence, and knowing only which fan said it
+// leaves the same scroll to do afterwards.
+//
+// Locked media is searched by its caption only — the caption is public before
+// anybody pays, so this reveals nothing that was not already on the fan's own
+// screen. Deleted messages are not searched at all: deleted means deleted, and
+// a search that resurrects them would make the delete a lie.
+router.get('/dms/search', async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return res.json({ results: [], query: q });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT dm.id, dm.created_at, dm.content,
+              (dm.sender_id = $1) AS is_mine,
+              dm.unlock_price_coins IS NOT NULL AS is_locked,
+              CASE WHEN dm.sender_id = $1 THEN dm.recipient_id ELSE dm.sender_id END AS fan_id,
+              u.display_name, u.email, u.tier
+         FROM direct_messages dm
+         JOIN users u ON u.id = CASE WHEN dm.sender_id = $1 THEN dm.recipient_id ELSE dm.sender_id END
+        WHERE (dm.sender_id = $1 OR dm.recipient_id = $1)
+          AND dm.deleted_at IS NULL
+          AND dm.content ILIKE $2
+        ORDER BY dm.created_at DESC
+        LIMIT 100`,
+      [req.user.userId, `%${q}%`]
+    );
+
+    res.json({
+      query: q,
+      results: rows.map((r) => ({
+        id: r.id,
+        at: r.created_at,
+        fanId: r.fan_id,
+        who: r.display_name || r.email,
+        tier: r.tier,
+        isMine: r.is_mine,
+        isLocked: r.is_locked,
+        // Enough of the sentence to recognise it, centred on the match rather
+        // than the beginning — a keyword nine hundred characters in is no use
+        // if the excerpt stops at eighty.
+        excerpt: excerptAround(r.content || '', q),
+      })),
+    });
+  } catch (err) {
+    console.error('studio/dms/search error:', err);
+    res.status(500).json({ error: 'Could not search' });
+  }
+});
+
+// A window around the match, on word boundaries where it can manage it.
+function excerptAround(text, needle, radius = 90) {
+  const at = text.toLowerCase().indexOf(needle.toLowerCase());
+  if (at < 0) return text.slice(0, radius * 2);
+  let start = Math.max(0, at - radius);
+  let end   = Math.min(text.length, at + needle.length + radius);
+  if (start > 0) { const sp = text.indexOf(' ', start); if (sp > -1 && sp < at) start = sp + 1; }
+  if (end < text.length) { const sp = text.lastIndexOf(' ', end); if (sp > at) end = sp; }
+  return (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '');
+}
+
 router.get('/dms', async (req, res) => {
   try {
     const { rows } = await pool.query(
