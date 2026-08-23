@@ -447,7 +447,16 @@ export function Messages({ openWith }) {
     setPanel(null);
     try {
       if (locked) {
-        const price = parseInt(window.prompt('Price to unlock, in tokens?', lockedPrice || '10'), 10);
+        // The price already typed in the media panel, if there is one.
+        //
+        // A browser prompt is a poor place to decide what something costs —
+        // no currency shown, no way to see it beside the photographs it is
+        // for. The panel has a proper field; this falls back to asking only
+        // when it was left empty.
+        const fromPanel = parseInt(lockedPrice, 10);
+        const price = fromPanel > 0
+          ? fromPanel
+          : parseInt(window.prompt('Price to unlock, in tokens?', '10'), 10);
         if (!price || price <= 0) return;
         const data = await api.post(`/api/studio/dms/${selected}/send-locked-media`, {
           mediaItems: picked.map((p2) => ({ url: p2.url, type: p2.type })),
@@ -1091,8 +1100,18 @@ export function Messages({ openWith }) {
                     </p>
                     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
                       <input ref={lockedFileRef} type="file" accept="image/*,video/*" multiple style={{ display: 'none' }} onChange={handleLockedFilesChange} />
+                      {/* Two ways to the same place.
+                          //
+                          // Sending a photograph is one intention; whether it
+                          // comes off the computer or off the platform is a
+                          // detail of where it happens to live. Two buttons in
+                          // the composer made it look like two different things
+                          // to do. */}
                       <button onClick={() => lockedFileRef.current?.click()} style={{ ...S.ghostBtn, fontSize: 12, padding: '8px 14px' }}>
-                        {lockedFiles.length > 0 ? `${lockedFiles.length} file${lockedFiles.length === 1 ? '' : 's'} selected` : 'Choose photos/videos'}
+                        {lockedFiles.length > 0 ? `${lockedFiles.length} file${lockedFiles.length === 1 ? '' : 's'} selected` : 'Upload from this device'}
+                      </button>
+                      <button onClick={() => setPanel('library')} style={{ ...S.ghostBtn, fontSize: 12, padding: '8px 14px' }}>
+                        Choose from the gallery
                       </button>
                       <TokenField label="Bundle price" value={lockedPrice} onChange={setLockedPrice} tokenRateInr={TOKEN_RATE} />
                       <Field label="Caption (optional)">
@@ -1273,15 +1292,10 @@ export function Messages({ openWith }) {
                           wrong thing — the lock is about price, not about what
                           is being sent. */}
                       <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                        <button onClick={() => setPanel(panel === 'library' ? null : 'library')}
-                                style={{ ...composerIcon, color: panel === 'library' ? colors.accent : colors.muted }}
-                                title="Send a photograph — upload one, or choose from the gallery">
-                          🖼
-                        </button>
                         <button onClick={() => setPanel(panel === 'locked-media' ? null : 'locked-media')}
-                                style={{ ...composerIcon, color: panel === 'locked-media' ? colors.accent : colors.muted }}
-                                title="Send media they must pay to open">
-                          🔒
+                                style={{ ...composerIcon, color: (panel === 'locked-media' || panel === 'library') ? colors.accent : colors.muted }}
+                                title="Send media — from this device or from the gallery">
+                          🖼
                         </button>
                         <button onClick={startRecording} disabled={sending}
                                 style={{ ...composerIcon, opacity: sending ? 0.5 : 1 }}
