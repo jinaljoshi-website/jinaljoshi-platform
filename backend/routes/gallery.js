@@ -464,19 +464,30 @@ router.post('/unlock', authMid, async (req, res) => {
     const { rows: itemRows } = await client.query(`SELECT r2_key, media_type, tier_category FROM set_items WHERE set_id = $1`, [setId]);
     // Recomputed with the cap state so the price charged matches what the
     // gallery showed.
+    // The same bands the gallery quoted from, in the same shape.
+    //
+    // This passed (atCap, overageForTier) — a boolean and a number — where
+    // computeSegments expects (opensUsed, bands). Destructuring a number gives
+    // undefined for every band, so nextOpenCost saw no openCap and returned
+    // zero every time: the gallery quoted a token and the unlock took nothing.
+    // Every set opened past the monthly allowance has been free.
     const monthKeyForCap = getAllotmentPeriodKey(user.membership_started_at);
-    const [capForTier, overageForTier] = await Promise.all([
+    const [openCap, band2Until, band2Cost, band3Until, band3Cost] = await Promise.all([
       isGuest ? 0 : getConfigNumber(`tier_open_cap_${userTier}`).catch(() => 0),
-      getConfigNumber('tier_open_overage_cost').catch(() => 1),
+      getConfigNumber('tier_open_band2_until').catch(() => 30),
+      getConfigNumber('tier_open_band2_cost').catch(() => 1),
+      getConfigNumber('tier_open_band3_until').catch(() => 50),
+      getConfigNumber('tier_open_band3_cost').catch(() => 3),
     ]);
+    const bandsForCap = { openCap, band2Until, band2Cost, band3Until, band3Cost };
+
     const { rows: capRows } = await client.query(
       `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2`,
       [req.user.userId, monthKeyForCap]
     );
     const alreadyOpened = capRows[0]?.unlocks_used || 0;
-    const atCap = !isGuest && capForTier > 0 && alreadyOpened >= capForTier;
 
-    const segments = computeSegments(itemRows, userTier, set.price_coins, discountPct, isGuest, guestMultiplier, atCap, overageForTier);
+    const segments = computeSegments(itemRows, userTier, set.price_coins, discountPct, isGuest, guestMultiplier, alreadyOpened, bandsForCap);
 
     if (scope === 'upsell' && !segments.hasUpsell) {
       await client.query('ROLLBACK');

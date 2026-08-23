@@ -143,7 +143,16 @@ function fairUsageText() {
     .map((c) => `${c.tier.charAt(0).toUpperCase() + c.tier.slice(1)} ${c.n}`)
     .join(', ');
 
-  return `Each membership includes a number of sets a month at your own level — ${named}, and Supreme as many as you like. Past your allowance it is 1 token a set up to 30, 3 tokens a set up to 50, and the set's own price beyond that. It resets on your membership date.`;
+  // The bands, read rather than written down. These were 1 and 3 in the
+  // sentence and configurable in the settings, which is how a sentence and a
+  // price quietly disagree.
+  const b2Until = cfgNum('tier_open_band2_until') ?? 30;
+  const b2Cost  = cfgNum('tier_open_band2_cost')  ?? 1;
+  const b3Until = cfgNum('tier_open_band3_until') ?? 50;
+  const b3Cost  = cfgNum('tier_open_band3_cost')  ?? 3;
+  const tok = (n) => `${n} token${n === 1 ? '' : 's'}`;
+
+  return `Each membership includes a number of sets a month at your own level — ${named}, and Supreme as many as you like. Past your allowance it is ${tok(b2Cost)} a set up to ${b2Until}, ${tok(b3Cost)} a set up to ${b3Until}, and the set's own price beyond that. It resets on your membership date.`;
 }
 
 export const MEMBERSHIP_NOTES = [
