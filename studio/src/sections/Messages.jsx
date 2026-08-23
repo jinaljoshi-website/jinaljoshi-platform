@@ -1183,10 +1183,12 @@ export function Messages({ openWith }) {
                       <button onClick={stopRecording} style={{ ...S.btn, fontSize: 12, padding: '7px 14px' }}>Send</button>
                     </div>
                   ) : (
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-                      <button onClick={() => setPanel(panel === 'library' ? null : 'library')} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', color: panel === 'library' ? colors.accent : colors.muted }} title="Send something already on the platform">
-                        🖼️
-                      </button>
+                    // A column, not a row. The reply banner and the writing box
+                    // were siblings in a horizontal flex, so choosing a message
+                    // to reply to put the banner beside the box and squeezed it
+                    // into a vertical sliver. What is being replied to belongs
+                    // above what is being written.
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       <button onClick={() => setPanel(panel === 'locked-media' ? null : 'locked-media')} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', color: panel === 'locked-media' ? colors.accent : colors.muted }} title="Send unlockable media bundle">
                         🔒
                       </button>
@@ -1222,6 +1224,11 @@ export function Messages({ openWith }) {
                         </div>
                       )}
 
+                      {/* A floor as well as a ceiling on the box below: nothing
+                          on this row may shrink it. A writing box that changes
+                          size when something else appears is one you cannot
+                          trust to be there. */}
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                       <textarea
                         ref={replyRef}
                         value={reply}
@@ -1229,11 +1236,12 @@ export function Messages({ openWith }) {
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
                         placeholder={replyTo ? 'Write your reply…' : 'Reply… (Enter to send)'}
                         rows={3}
-                        style={{ flex: 1, background: 'rgba(22,20,16,0.9)', border: `1px solid ${colors.border}`, color: colors.text, fontFamily: sans, fontSize: 16, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', textAlign: 'left', maxHeight: 160 }}
+                        style={{ flex: 1, minWidth: 0, minHeight: 76, background: 'rgba(22,20,16,0.9)', border: `1px solid ${colors.border}`, color: colors.text, fontFamily: sans, fontSize: 16, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', textAlign: 'left', maxHeight: 160 }}
                       />
                       <button onClick={() => sendReply()} disabled={sending || !reply.trim()} style={{ ...S.btn, opacity: (sending || !reply.trim()) ? 0.5 : 1 }}>
                         {sending ? '…' : 'Send'}
                       </button>
+                      </div>
                     </div>
                   )}
                 </div>
