@@ -120,10 +120,36 @@ export function tierDescription(tierId) {
 
 // Stated once, as policy, rather than repeated as a restriction inside every
 // tier. A ceiling read four times sounds mean; read once it sounds reasonable.
+// Read from the configured caps rather than written down.
+//
+// This said fifteen sets for everybody, which stopped being true the moment the
+// tiers were given different allowances — Community ten, Insider fifteen,
+// Premium twenty. A number typed into a sentence does not change when the
+// setting does, and a promise that has quietly gone wrong is worse than one
+// stated vaguely.
+//
+// Written so it reads on the homepage, where nobody has a tier yet and all four
+// numbers have to be true at once.
+function fairUsageText() {
+  const caps = ['community', 'insider', 'premium']
+    .map((t) => ({ tier: t, n: cfgNum(`tier_open_cap_${t}`) }))
+    .filter((c) => c.n > 0);
+
+  if (!caps.length) {
+    return 'Each membership includes a number of sets a month at your own level. Beyond that they are a token or two each, and it resets on your membership date. Supreme has no limit at all.';
+  }
+
+  const named = caps
+    .map((c) => `${c.tier.charAt(0).toUpperCase() + c.tier.slice(1)} ${c.n}`)
+    .join(', ');
+
+  return `Each membership includes a number of sets a month at your own level — ${named}, and Supreme as many as you like. Past your allowance it is 1 token a set up to 30, 3 tokens a set up to 50, and the set's own price beyond that. It resets on your membership date.`;
+}
+
 export const MEMBERSHIP_NOTES = [
   {
     title: 'Fair usage',
-    text: 'Everything at your level is included for the first 15 sets a month. After that it is 1 token a set up to 30, 3 tokens a set up to 50, and the set\'s own price beyond that. It resets on your membership date. Supreme has no limit at all.',
+    get text() { return fairUsageText(); },
   },
   {
     title: 'Purchasable content',
