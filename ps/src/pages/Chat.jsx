@@ -31,6 +31,15 @@ export default function Chat() {
   // unlocked set stayed at the width of a chat bubble, which is a poor way to
   // see something somebody has just paid for.
   const [viewing,    setViewing]    = useState(null);
+  const [showMedia,  setShowMedia]  = useState(false);
+  const [media,      setMedia]      = useState(null);
+
+  // Fetched when first opened, not on every visit to the chat. Most people are
+  // here to talk, and the gallery of what was sent is a thing you go looking
+  // for rather than something that should load itself.
+  const loadMedia = () => api.get('/api/chat/media')
+    .then((d) => setMedia(d.items || []))
+    .catch(() => setMedia([]));
 
   // Escape closes it, as it does in the gallery.
   useEffect(() => {
@@ -573,10 +582,50 @@ export default function Chat() {
   return (
     <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: C.bg, borderRadius: chatBg ? 10 : 0, overflow: 'hidden' }}>
       <div style={{ ...stickyHeader, padding: '10px 16px' }}>
-        <div style={{ marginBottom: 6 }}>
-          <div style={eyebrow}>Direct messages</div>
-          <h1 style={title}>Chat with Jinal</h1>
+        <div style={{ marginBottom: 6, display: 'flex', alignItems: 'flex-end', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <div style={eyebrow}>Direct messages</div>
+            <h1 style={title}>Chat with Jinal</h1>
+          </div>
+          {/* Everything she has sent, without scrolling to find it.
+              //
+              // A photograph paid for in March is otherwise reachable only by
+              // scrolling past every message since — which on a long
+              // conversation means it may as well not be there. */}
+          <button onClick={() => { setShowMedia((v) => !v); if (!media) loadMedia(); }}
+                  style={{ fontFamily: F.sans, fontSize: 12, padding: '6px 12px', borderRadius: 999,
+                           background: 'transparent', cursor: 'pointer',
+                           border: `1px solid ${showMedia ? C.accent : C.border}`,
+                           color: showMedia ? C.accent : C.muted }}>
+            Media
+          </button>
         </div>
+
+        {showMedia && (
+          <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginBottom: 10 }}>
+            {!media ? (
+              <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>Looking…</div>
+            ) : media.length === 0 ? (
+              <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>
+                Nothing shared here yet.
+              </div>
+            ) : (
+              <>
+                <div style={{ fontFamily: F.mono, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted, marginBottom: 10 }}>
+                  {media.length} {media.length === 1 ? 'photograph' : 'photographs'}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(76px,1fr))', gap: 6, maxHeight: 260, overflowY: 'auto' }}>
+                  {media.map((m, i) => (
+                    m.type === 'video'
+                      ? <video key={i} src={m.url} controls style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 5 }} />
+                      : <img key={i} src={m.url} alt="" onClick={() => setViewing(m.url)}
+                             style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 5, cursor: 'zoom-in' }} />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {status && (
           <div style={statusBar}>
