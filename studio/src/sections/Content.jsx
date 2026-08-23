@@ -1252,6 +1252,40 @@ export function Content({ openWith, collection = false, upload = false }) {
           </div>
         )}
 
+        {/* One line, not eighty-six.
+            //
+            // This listed every set and what it was waiting on, which read well
+            // with one set in the queue and became a wall of text with eighty.
+            // The same fact belongs on each row, beside the set it describes —
+            // a summary here, the detail there. */}
+        {upload && sets.length > 0 && (
+          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, margin: '4px 0 14px' }}>
+            {sets.reduce((a, x) => a + (x.untiered || 0), 0).toLocaleString('en-IN')} photographs still to sort
+            {sets.filter((x) => x.needsSplit).length > 0 &&
+              ` · ${sets.filter((x) => x.needsSplit).length} ready to separate`}
+            {sets.reduce((a, x) => a + (x.marked || 0), 0) > 0 &&
+              ` · ${sets.reduce((a, x) => a + (x.marked || 0), 0)} marked for removal`}
+          </div>
+        )}
+
+        {!upload && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '8px 0 14px' }}>
+            {[
+              ['all',    `Everything (${sets.length})`],
+              ['live',   `Live (${sets.filter((x) => x.visible).length})`],
+              ['hidden', `Hidden (${sets.filter((x) => !x.visible).length})`],
+            ].map(([k, label]) => (
+              <button key={k} onClick={() => setVisFilter(k)}
+                      style={{ fontFamily: sans, fontSize: 11, padding: '5px 12px', borderRadius: 999,
+                               cursor: 'pointer', background: 'transparent',
+                               border: `1px solid ${visFilter === k ? colors.accent : colors.border}`,
+                               color: visFilter === k ? colors.accent : colors.muted }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Why a set is still here.
             //
             // The row said nothing, so a set that needed one more keystroke
@@ -1592,6 +1626,19 @@ export function Content({ openWith, collection = false, upload = false }) {
                       Base price {set.price_coins} tokens
                       {summary && ` · ${summary}`}
                     </div>
+                    {/* What this one is waiting on, beside the set it describes
+                        rather than in a list of eighty-six above it. */}
+                    {upload && (
+                      <div style={{ ...S.rowSub, color: set.needsSplit ? colors.accent : colors.muted }}>
+                        {set.untiered > 0
+                          ? `${set.untiered} of ${set.total} still to sort`
+                          : set.marked > 0
+                          ? `${set.marked} marked for removal`
+                          : set.needsSplit
+                          ? 'Sorted — separate it into its sets'
+                          : 'Ready'}
+                      </div>
+                    )}
                   </div>
                   {/* Live or hidden stays on the title row — it is a property of
                       the set, not an action. */}
