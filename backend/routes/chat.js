@@ -62,6 +62,53 @@ function toFanSafeMessage(row) {
 // GET /api/chat/messages
 // ─────────────────────────────────────────────
 
+
+// ─────────────────────────────────────────────
+// GET /api/chat/media
+// ─────────────────────────────────────────────
+//
+// Every photograph in the conversation, without scrolling to find it.
+//
+// The same reasoning as Studio's: photographs are the part of a chat most worth
+// returning to and the hardest to reach. Locked bundles appear only once the
+// fan has paid for them — before that there is nothing to show and showing a
+// placeholder would only advertise what they have not bought, in the one place
+// they came to look at what they have.
+router.get('/media', authMid, async (req, res) => {
+  try {
+    const artistId = process.env.ARTIST_USER_ID;
+    const { rows } = await pool.query(
+      `SELECT id, created_at, media_url, media_type, locked_media_urls,
+              unlock_price_coins, unlocked_at,
+              (sender_id = $1) AS is_mine
+         FROM direct_messages
+        WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
+          AND deleted_at IS NULL
+          AND (media_url IS NOT NULL OR (locked_media_urls IS NOT NULL AND unlocked_at IS NOT NULL))
+        ORDER BY created_at DESC`,
+      [req.user.userId, artistId]
+    );
+
+    const items = [];
+    for (const r of rows) {
+      if (r.media_url) {
+        items.push({ messageId: r.id, at: r.created_at, url: r.media_url,
+                     type: r.media_type || 'image', isMine: r.is_mine, unlocked: false });
+      }
+      if (r.unlocked_at && Array.isArray(r.locked_media_urls)) {
+        for (const m of r.locked_media_urls) {
+          items.push({ messageId: r.id, at: r.created_at, url: m.url,
+                       type: m.type || 'image', isMine: r.is_mine, unlocked: true });
+        }
+      }
+    }
+    res.json({ items });
+  } catch (err) {
+    console.error('chat/media error:', err);
+    res.status(500).json({ error: 'Could not load the media' });
+  }
+});
+
 router.get('/messages', authMid, async (req, res) => {
   try {
     const { rows } = await pool.query(

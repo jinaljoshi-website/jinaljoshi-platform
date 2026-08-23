@@ -47,6 +47,12 @@ function isCurrentlyBlocked(blockedUntil) {
 
 const mono = "'DM Mono', 'Courier New', monospace";
 
+// Small enough that three stack against the writing box without crowding it.
+const composerIcon = {
+  background: 'transparent', border: `1px solid ${colors.border}`, borderRadius: 6,
+  fontSize: 13, lineHeight: 1, padding: '5px 8px', cursor: 'pointer', color: colors.muted,
+};
+
 const msgActionBtn    = { background: 'none', border: 'none', color: '#9B8F83', fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 11, cursor: 'pointer', padding: 0 };
 const quotedInStudio  = { borderLeft: '2px solid #C17D4A', paddingLeft: 8, marginBottom: 6, opacity: 0.85 };
 const deleteBar       = { position: 'sticky', bottom: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#100F0C', border: '1px solid rgba(156,90,90,0.4)', borderRadius: 10, padding: '10px 14px', marginTop: 10, zIndex: 5 };
@@ -88,6 +94,17 @@ export function Messages({ openWith }) {
   const [searching,     setSearching]     = useState(false);
   const searchTimer = useRef(null);
   const sendingRef  = useRef(false);
+  // Every photograph in this conversation, so finding one does not mean
+  // scrolling past seventeen hundred messages to reach it.
+  const [chatMedia, setChatMedia] = useState(null);
+
+  const loadChatMedia = (fanId) => {
+    if (!fanId) return;
+    setChatMedia(null);
+    api.get(`/api/studio/dms/${fanId}/media`)
+      .then((d) => setChatMedia(d.items || []))
+      .catch(() => setChatMedia([]));
+  };
   const [showNewChat,   setShowNewChat]   = useState(false);
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [defaultChatBg, setDefaultChatBg] = useState(null);
@@ -931,6 +948,7 @@ export function Messages({ openWith }) {
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => { setPanel(panel === 'media' ? null : 'media'); if (panel !== 'media') loadChatMedia(selected); }} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 10px', color: panel === 'media' ? colors.accent : colors.muted }}>Media</button>
                     <button onClick={() => setPanel(panel === 'grant' ? null : 'grant')} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 10px', color: panel === 'grant' ? colors.accent : colors.muted }}>Send tokens</button>
                     <button onClick={() => setPanel(panel === 'settings' ? null : 'settings')} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 10px', color: panel === 'settings' ? colors.accent : colors.muted }}>Chat settings</button>
                   </div>
@@ -1031,6 +1049,32 @@ export function Messages({ openWith }) {
                       <button onClick={saveSettings} disabled={settingsSaving} style={{ ...S.btn, opacity: settingsSaving ? 0.5 : 1 }}>
                         {settingsSaving ? 'Saving…' : 'Save settings'}
                       </button>
+                    </div>
+                  </Card>
+                )}
+
+                {panel === 'media' && (
+                  <Card style={{ marginBottom: 10 }}>
+                    <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: colors.muted, marginBottom: 10 }}>
+                      {chatMedia === null ? 'Looking…'
+                        : chatMedia.length === 0 ? 'Nothing sent yet'
+                        : `${chatMedia.length} photograph${chatMedia.length === 1 ? '' : 's'}`}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(84px,1fr))', gap: 6, maxHeight: '46vh', overflowY: 'auto' }}>
+                      {(chatMedia || []).map((m, i) => (
+                        <a key={i} href={m.url} target="_blank" rel="noreferrer"
+                           style={{ position: 'relative', display: 'block' }}>
+                          <img src={m.url} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 4, display: 'block' }} />
+                          {m.locked && (
+                            <span style={{ position: 'absolute', bottom: 3, left: 3, fontSize: 9, fontFamily: mono,
+                                           padding: '1px 4px', borderRadius: 3,
+                                           background: 'rgba(6,5,4,0.8)',
+                                           color: m.paidAt ? '#8FC88F' : colors.muted }}>
+                              {m.paidAt ? 'opened' : `${m.price}t`}
+                            </span>
+                          )}
+                        </a>
+                      ))}
                     </div>
                   </Card>
                 )}
@@ -1223,19 +1267,28 @@ export function Messages({ openWith }) {
                           size when something else appears is one you cannot
                           trust to be there. */}
                       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-                      {/* Beside the box, not above it. Made direct children of
-                          the column these stretched to full width and became
-                          two bars nobody would read as buttons. */}
-                      <button onClick={() => setPanel(panel === 'locked-media' ? null : 'locked-media')}
-                              style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', flexShrink: 0, color: panel === 'locked-media' ? colors.accent : colors.muted }}
-                              title="Send media — upload, or choose from the gallery">
-                        🔒
-                      </button>
-                      <button onClick={startRecording} disabled={sending}
-                              style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', flexShrink: 0, opacity: sending ? 0.5 : 1 }}
-                              title="Record a voice note">
-                        🎙️
-                      </button>
+                      {/* Three small controls in a line on one side, Send on
+                          the other, and the writing box taking everything
+                          between. A padlock stood for media, which said the
+                          wrong thing — the lock is about price, not about what
+                          is being sent. */}
+                      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                        <button onClick={() => setPanel(panel === 'library' ? null : 'library')}
+                                style={{ ...composerIcon, color: panel === 'library' ? colors.accent : colors.muted }}
+                                title="Send a photograph — upload one, or choose from the gallery">
+                          🖼
+                        </button>
+                        <button onClick={() => setPanel(panel === 'locked-media' ? null : 'locked-media')}
+                                style={{ ...composerIcon, color: panel === 'locked-media' ? colors.accent : colors.muted }}
+                                title="Send media they must pay to open">
+                          🔒
+                        </button>
+                        <button onClick={startRecording} disabled={sending}
+                                style={{ ...composerIcon, opacity: sending ? 0.5 : 1 }}
+                                title="Record a voice note">
+                          🎙
+                        </button>
+                      </div>
                       <textarea
                         ref={replyRef}
                         value={reply}

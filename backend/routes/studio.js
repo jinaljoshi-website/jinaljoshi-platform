@@ -559,6 +559,62 @@ router.get('/dms', async (req, res) => {
   }
 });
 
+
+// ─────────────────────────────────────────────
+// GET /api/studio/dms/:fanId/media
+// ─────────────────────────────────────────────
+//
+// Everything ever sent as a photograph in one conversation.
+//
+// A thread of eighteen hundred messages holds perhaps forty photographs, and
+// finding one of them means scrolling past the other seventeen hundred and
+// sixty. They are the part most worth going back to and the hardest to reach.
+//
+// Locked bundles are included with what they cost and whether it was paid —
+// what was sent is the question, and whether it was opened is part of the
+// answer.
+router.get('/dms/:fanId/media', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, created_at, media_url, media_type, locked_media_urls,
+              unlock_price_coins, unlocked_at,
+              (sender_id = $1) AS is_mine
+         FROM direct_messages
+        WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
+          AND deleted_at IS NULL
+          AND (media_url IS NOT NULL OR locked_media_urls IS NOT NULL)
+        ORDER BY created_at DESC`,
+      [req.user.userId, req.params.fanId]
+    );
+
+    // One entry per photograph rather than per message, because a bundle of
+    // six is six things to look at, not one.
+    const items = [];
+    for (const r of rows) {
+      if (r.media_url) {
+        items.push({
+          messageId: r.id, at: r.created_at, url: r.media_url,
+          type: r.media_type || 'image', isMine: r.is_mine, locked: false,
+        });
+      }
+      if (Array.isArray(r.locked_media_urls)) {
+        for (const m of r.locked_media_urls) {
+          items.push({
+            messageId: r.id, at: r.created_at, url: m.url,
+            type: m.type || 'image', isMine: r.is_mine,
+            locked: true, price: r.unlock_price_coins, paidAt: r.unlocked_at,
+          });
+        }
+      }
+    }
+    res.json({ items });
+  } catch (err) {
+    console.error('studio/dms/media error:', err);
+    res.status(500).json({ error: 'Could not load the media' });
+  }
+});
+
+
 router.get('/dms/:fanId', async (req, res) => {
   try {
     const { rows } = await pool.query(
