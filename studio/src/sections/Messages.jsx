@@ -87,6 +87,7 @@ export function Messages({ openWith }) {
   const [msgResults,    setMsgResults]    = useState(null);
   const [searching,     setSearching]     = useState(false);
   const searchTimer = useRef(null);
+  const sendingRef  = useRef(false);
   const [showNewChat,   setShowNewChat]   = useState(false);
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [defaultChatBg, setDefaultChatBg] = useState(null);
@@ -211,6 +212,39 @@ export function Messages({ openWith }) {
           { id: tokenData.userId, name: tokenData.userName },
           tokenData.token
         );
+
+        // Every conversation, not only the open one.
+        //
+        // The channel listener below is attached to whichever chat is on
+        // screen, so a message to anybody else arrived nowhere: the push
+        // notification came from the server, which knows about all of them,
+        // and the screen knew about one. The list then kept whatever preview
+        // it was last given, which is why every conversation appeared to end
+        // with the same sentence.
+        //
+        // This fires for all of them. The open thread is handled by the
+        // channel listener as before; this only refreshes the list, so a
+        // message arriving elsewhere moves that conversation to the top with
+        // the right preview against it.
+        scClient.on((event) => {
+          if (event.type !== 'message.new') return;
+          if (event.user?.id === tokenData.userId) return;   // her own echo
+
+          api.get('/api/studio/dms')
+            .then((d) => setConvos(d.conversations || []))
+            .catch(() => {});
+
+          // And if it belongs to the thread on screen, make sure it is there.
+          //
+          // The channel listener normally does this, but a websocket that
+          // dropped and came back does not always replay what it missed — and
+          // a message that arrives as a notification and not in the chat is
+          // the most confusing possible outcome. Reloading the thread is
+          // cheap and settles it either way.
+          if (selectedRef.current && event.user?.id === selectedRef.current) {
+            resyncThread(selectedRef.current);
+          }
+        });
       }
     } catch (err) {
       console.error('Studio Stream init error:', err);
@@ -430,10 +464,26 @@ export function Messages({ openWith }) {
 
   const sendReply = async (mediaUrl = null, mediaType = null) => {
     if (!reply.trim() && !mediaUrl) return;
+
+    // One send at a time, held in a ref rather than in state.
+    //
+    // setSending is a state update and is not visible to a second call in the
+    // same tick, and `reply` is not cleared until the request returns — so two
+    // quick Enters, or one Enter while the network is slow, both passed the
+    // check above and sent the same message twice. On a long thread with a
+    // laggy connection that is how a sentence arrives three times.
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+
+    // Cleared here, not after the request. Whatever happens next, the words
+    // have left the box, and a retry is the person's own decision rather than
+    // something the keyboard does for them.
+    const text = reply.trim();
+    setReply('');
     setSending(true);
     try {
       const data = await api.post(`/api/studio/dms/${selected}/reply`, {
-        content:   reply.trim() || undefined,
+        content:   text || undefined,
         mediaUrl:  mediaUrl  || undefined,
         mediaType: mediaType || undefined,
         parentId:  replyTo?.id || undefined,
@@ -441,7 +491,9 @@ export function Messages({ openWith }) {
       setReplyTo(null);
 
       setThread((prev) => [...prev, data.message]);
-      setReply('');
+      // Not cleared again here. The box was emptied before the request went
+      // out, and clearing it now would wipe whatever was typed while waiting —
+      // which on a slow connection is a whole sentence.
       if (replyRef.current) replyRef.current.style.height = 'auto';
 
       if (channelRef.current) {
@@ -458,8 +510,13 @@ export function Messages({ openWith }) {
       }
 
       api.get('/api/studio/dms').then((d) => setConvos(d.conversations || [])).catch(() => {});
-    } catch (err) { alert(err.message); }
-    finally { setSending(false); }
+    } catch (err) {
+      // Put back what was taken out of the box, so a failed send is a retry
+      // rather than a lost sentence.
+      setReply(text);
+      alert(err.message);
+    }
+    finally { setSending(false); sendingRef.current = false; }
   };
 
   // ── Voice notes (Jinal's side) ──

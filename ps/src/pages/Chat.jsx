@@ -379,9 +379,23 @@ export default function Chat() {
     setError('');
     try {
       const data = await api.post(`/api/chat/messages/${dbMessageId}/unlock`, {});
+
+      // Matched on either id, then confirmed from the server.
+      //
+      // A message delivered by Stream carries db_message_id where it can and
+      // its own id where it cannot, so matching on one of them alone could
+      // update nothing at all — somebody pays, the tokens go, and the
+      // photographs do not appear. Whatever else is true, that must not be.
       setMessages((prev) => prev.map((m) =>
-        m.id === dbMessageId ? { ...m, unlocked_media: data.lockedMediaUrls } : m
+        (m.id === dbMessageId || m.stream_id === dbMessageId)
+          ? { ...m, unlocked_media: data.lockedMediaUrls, is_locked_media: true }
+          : m
       ));
+
+      // And read it back. The local patch is what makes it feel immediate; this
+      // is what makes it true — if anything above missed, the thread is rebuilt
+      // from the database, which knows the unlock happened.
+      syncMessages(myIdRef.current).catch(() => {});
       if (data.newBalance !== undefined) {
         setStatus((prev) => ({ ...prev, coinBalance: data.newBalance }));
         statusRef.current = { ...statusRef.current, coinBalance: data.newBalance };
