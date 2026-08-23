@@ -1189,12 +1189,6 @@ export function Messages({ openWith }) {
                     // into a vertical sliver. What is being replied to belongs
                     // above what is being written.
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <button onClick={() => setPanel(panel === 'locked-media' ? null : 'locked-media')} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', color: panel === 'locked-media' ? colors.accent : colors.muted }} title="Send unlockable media bundle">
-                        🔒
-                      </button>
-                      <button onClick={startRecording} disabled={sending} style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', opacity: sending ? 0.5 : 1 }} title="Record a voice note">
-                        🎙️
-                      </button>
                       {pickedMsgs.length > 0 && (
                         <div style={deleteBar}>
                           <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
@@ -1229,6 +1223,19 @@ export function Messages({ openWith }) {
                           size when something else appears is one you cannot
                           trust to be there. */}
                       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                      {/* Beside the box, not above it. Made direct children of
+                          the column these stretched to full width and became
+                          two bars nobody would read as buttons. */}
+                      <button onClick={() => setPanel(panel === 'locked-media' ? null : 'locked-media')}
+                              style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', flexShrink: 0, color: panel === 'locked-media' ? colors.accent : colors.muted }}
+                              title="Send media — upload, or choose from the gallery">
+                        🔒
+                      </button>
+                      <button onClick={startRecording} disabled={sending}
+                              style={{ ...S.ghostBtn, fontSize: 16, padding: '8px 10px', flexShrink: 0, opacity: sending ? 0.5 : 1 }}
+                              title="Record a voice note">
+                        🎙️
+                      </button>
                       <textarea
                         ref={replyRef}
                         value={reply}
