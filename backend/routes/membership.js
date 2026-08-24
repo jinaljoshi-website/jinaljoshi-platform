@@ -651,7 +651,7 @@ router.post('/gift', authMid, artistOnly, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: fanRows } = await client.query(
-      `SELECT id, email, display_name, membership_expires_at FROM users WHERE email = $1`,
+      `SELECT id, email, display_name, membership_expires_at FROM users WHERE email = $1 AND closed_at IS NULL`,
       [email.toLowerCase().trim()]
     );
     if (!fanRows.length) {
@@ -715,7 +715,7 @@ router.post('/gift/extend', authMid, artistOnly, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: fanRows } = await client.query(
-      `SELECT id, email, tier, membership_expires_at FROM users WHERE email = $1`,
+      `SELECT id, email, tier, membership_expires_at FROM users WHERE email = $1 AND closed_at IS NULL`,
       [email.toLowerCase().trim()]
     );
     if (!fanRows.length) {
@@ -776,7 +776,7 @@ router.post('/gift/change', authMid, artistOnly, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: fanRows } = await client.query(
-      `SELECT id, email, membership_expires_at FROM users WHERE email = $1`,
+      `SELECT id, email, membership_expires_at FROM users WHERE email = $1 AND closed_at IS NULL`,
       [email.toLowerCase().trim()]
     );
     if (!fanRows.length) {

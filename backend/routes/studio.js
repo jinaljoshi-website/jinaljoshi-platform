@@ -192,7 +192,7 @@ router.post('/grant-tokens', async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { rows } = await client.query(`SELECT id FROM users WHERE email = $1`, [email.toLowerCase().trim()]);
+    const { rows } = await client.query(`SELECT id FROM users WHERE email = $1 AND closed_at IS NULL`, [email.toLowerCase().trim()]);
     if (!rows.length) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'No account found for this email' });

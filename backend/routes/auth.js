@@ -112,7 +112,7 @@ router.post('/signup', rl.signup, async (req, res) => {
     return res.status(400).json({ error: 'You must accept both agreements to create an account' });
   }
 
-  const existing = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+  const existing = await pool.query('SELECT id FROM users WHERE email = $1 AND closed_at IS NULL', [normalizedEmail]);
   if (existing.rows.length) {
     return res.status(409).json({ error: 'An account with this email already exists' });
   }
@@ -220,7 +220,7 @@ router.post('/resend-verification', rl.resendVerification, async (req, res) => {
   if (!email) return res.status(400).json({ error: 'Email is required' });
 
   const normalizedEmail = email.toLowerCase().trim();
-  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
+  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1 AND closed_at IS NULL', [normalizedEmail]);
   if (!rows.length) return res.status(404).json({ error: 'No account found with this email' });
 
   const user = rows[0];
@@ -244,7 +244,7 @@ router.post('/login', rl.loginByIp, rl.loginByEmail, async (req, res) => {
   }
 
   const normalizedEmail = email.toLowerCase().trim();
-  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
+  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1 AND closed_at IS NULL', [normalizedEmail]);
 
   if (!rows.length) {
     return res.status(401).json({ error: 'Email or password is incorrect' });
@@ -320,7 +320,7 @@ router.post('/forgot/request', rl.forgotPassword, async (req, res) => {
   if (!email) return res.status(400).json({ error: 'Email is required' });
 
   const normalizedEmail = email.toLowerCase().trim();
-  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
+  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1 AND closed_at IS NULL', [normalizedEmail]);
 
   const genericMessage = 'If an account exists for that email, a reset link has been sent.';
 
@@ -381,6 +381,101 @@ router.get('/profile', authMid, async (req, res) => {
 });
 
 // ── UPDATE PROFILE ──────────────────────────────
+
+
+// ─────────────────────────────────────────────
+// POST /api/auth/change-password
+// ─────────────────────────────────────────────
+//
+// Changing a password without being locked out of the account first.
+//
+// The only way to do this was the forgotten-password flow, which means asking
+// for an email and following a link — a strange thing to require of somebody
+// who is signed in and simply wants a different password.
+//
+// The current one is asked for because a signed-in session is not proof that
+// the person at the keyboard is the owner. A borrowed laptop is enough.
+router.post('/change-password', authMid, rl.loginByIp, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Both the current and the new password are needed' });
+  }
+  if (String(newPassword).length < 8) {
+    return res.status(400).json({ error: 'The new password needs at least 8 characters' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT password_hash FROM users WHERE id = $1 AND closed_at IS NULL`,
+      [req.user.userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Account not found' });
+
+    const ok = await argon2.verify(rows[0].password_hash, currentPassword);
+    if (!ok) return res.status(401).json({ error: 'That is not your current password' });
+
+    const hash = await argon2.hash(newPassword);
+    await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [hash, req.user.userId]);
+
+    // Every other session ends. Changing a password is what somebody does when
+    // they think another person has it, and leaving those sessions signed in
+    // would make the change pointless.
+    await pool.query(
+      `DELETE FROM active_sessions WHERE user_id = $1 AND session_id <> $2`,
+      [req.user.userId, req.user.sessionId || '']
+    );
+
+    res.json({ ok: true, message: 'Password changed. Any other device has been signed out.' });
+  } catch (err) {
+    console.error('auth/change-password error:', err);
+    res.status(500).json({ error: 'Could not change the password' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/auth/close-account
+// ─────────────────────────────────────────────
+//
+// Leaving, without erasing what happened.
+//
+// The account ceases to exist from this moment: no sign-in, no access, and the
+// email address is free for somebody to register with again. What went before
+// stays exactly as it was — invoices, ledger, unlocks, messages — because a
+// chargeback or a legal notice arriving in two years is answered with records,
+// and an account with no trace of ever having existed is answered with nothing.
+//
+// Which is also what the law asks for. Deleting the tax record of a real
+// transaction is not privacy, it is a different compliance failure.
+router.post('/close-account', authMid, async (req, res) => {
+  const { password, reason } = req.body;
+  if (!password) return res.status(400).json({ error: 'Your password is needed to close the account' });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT password_hash, email FROM users WHERE id = $1 AND closed_at IS NULL`,
+      [req.user.userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Account not found' });
+
+    const ok = await argon2.verify(rows[0].password_hash, password);
+    if (!ok) return res.status(401).json({ error: 'That password is not right' });
+
+    await pool.query(
+      `UPDATE users SET closed_at = NOW(), close_reason = $2 WHERE id = $1`,
+      [req.user.userId, (reason || '').slice(0, 300) || null]
+    );
+
+    // Signed out everywhere, at once.
+    await pool.query(`DELETE FROM active_sessions WHERE user_id = $1`, [req.user.userId]);
+
+    console.log(`account closed: ${rows[0].email}`);
+    res.json({ ok: true, message: 'Your account is closed.' });
+  } catch (err) {
+    console.error('auth/close-account error:', err);
+    res.status(500).json({ error: 'Could not close the account' });
+  }
+});
 
 router.patch('/profile', authMid, async (req, res) => {
   const { displayName, dob } = req.body;
