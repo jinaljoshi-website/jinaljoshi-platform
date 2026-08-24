@@ -211,9 +211,15 @@ router.post('/unlock', async (req, res) => {
           type:        'content_unlock',
           label:       set.title,
           relatedId:   setId,
-          // Gifted tokens spend here as anywhere else — they were given to be
-          // used, and this is a purchase like any other.
-          allowGifted: true,
+          // Not with gifted tokens.
+          //
+          // The gallery takes them and should: a gift is meant to be spent, and
+          // that is content anybody's membership already reaches. The
+          // collection is the one thing nobody reaches by default, and fans ask
+          // for gifts specifically to open it — which turns a gesture into a
+          // way in, and makes the exclusivity somebody paid ₹43,000 for
+          // negotiable by asking nicely.
+          allowGifted: false,
         });
       } catch (err) {
         if (err.code === 'INSUFFICIENT_TOKENS') {

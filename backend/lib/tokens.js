@@ -59,15 +59,26 @@ async function getBalances(db, userId) {
   };
 }
 
-function insufficientError({ required, purchased, bonus = 0, gifted, allowGifted }) {
+function insufficientError({ required, purchased, bonus = 0, gifted, allowGifted, spendType }) {
   const usable  = allowGifted ? purchased + bonus + gifted : purchased + bonus;
   const err     = new Error('INSUFFICIENT_TOKENS');
   err.code      = 'INSUFFICIENT_TOKENS';
+
+  // Where the gifted tokens can go instead.
+  //
+  // Saying only that there are not enough leaves somebody staring at a balance
+  // that looks sufficient. The old wording said gifted tokens work for messages
+  // and content — true of the gallery, and no longer true of the collection, so
+  // it needs to say which.
+  const giftedNote = (!allowGifted && gifted > 0)
+    ? spendType === 'content_unlock'
+      ? ` Your ${gifted} gifted tokens can be spent in the gallery, but not here.`
+      : ` Your ${gifted} gifted tokens can only be used for messages and content.`
+    : '';
+
   err.httpBody  = {
     error:    'INSUFFICIENT_TOKENS',
-    message:  allowGifted
-      ? `This costs ${required} tokens. You have ${usable}.`
-      : `This costs ${required} tokens. You have ${usable}.${gifted > 0 ? ` Your ${gifted} gifted tokens can only be used for messages and content.` : ''}`,
+    message:  `This costs ${required} tokens. You have ${usable}.${giftedNote}`,
     required,
     available:          usable,
     shortBy:            required - usable,
@@ -119,6 +130,7 @@ async function spendTokens(client, { userId, amount, type, label, relatedId = nu
   if (purchased < fromPurchased) {
     throw insufficientError({
       required: amount, purchased, bonus, gifted: giftedAvailable, allowGifted: eligible,
+      spendType: type,
     });
   }
 

@@ -313,6 +313,13 @@ function SetCard({ set, flip, onOpen }) {
             <>
               <span style={{ color: V.edge }}>·</span>
               <span style={{ color: V.gold }}>{set.price} tokens</span>
+              {/* Said before it is tried, not after it fails.
+                  //
+                  // Somebody looking at a balance that appears sufficient and
+                  // then being refused has been told the rule at the worst
+                  // possible moment. */}
+              <span style={{ color: V.edge }}>·</span>
+              <span>purchased tokens only</span>
             </>
           )}
         </div>
