@@ -3669,6 +3669,10 @@ router.get('/calls', async (req, res) => {
 
 router.patch('/calls/:id', async (req, res) => {
   const { status, reason } = req.body;
+  // 'countered' is not settable here — it is set by making a counter-offer,
+  // which needs a price. But a countered request must be rejectable, and it was
+  // not: the list of statuses a request could move to left it stuck the moment
+  // a counter went out and the fan stopped replying.
   if (!['pending','confirmed','completed','cancelled','rejected'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
@@ -3794,6 +3798,71 @@ router.patch('/requests/:id', async (req, res) => {
 // Counter-offer a pending request with a different price. A LOWER counter is strictly
 // fan-favorable, so it auto-applies immediately (partial refund, request confirmed right away).
 // A HIGHER counter requires the fan's explicit confirmation before any additional charge.
+
+// ─────────────────────────────────────────────
+// POST /api/studio/requests/:id/withdraw-counter
+// ─────────────────────────────────────────────
+//
+// Taking back a counter-offer, and taking the request at what was first asked.
+//
+// A countered request waits on the fan, and a fan who never answers leaves it
+// waiting for ever — the money already charged, the work neither agreed nor
+// refused. The only way out was to reject it, which refunds somebody who did
+// nothing wrong and may simply not have seen the message.
+//
+// So: withdraw the counter and honour the original price. What they offered was
+// acceptable enough to negotiate over, and a request that has sat for a week is
+// worth more accepted than cancelled.
+router.post('/requests/:id/withdraw-counter', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
+      `SELECT cr.*, u.display_name, u.email
+         FROM custom_requests cr JOIN users u ON u.id = cr.user_id
+        WHERE cr.id = $1 FOR UPDATE OF cr`,
+      [req.params.id]
+    );
+    if (!rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Request not found' });
+    }
+    const current = rows[0];
+
+    if (current.status !== 'countered') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'There is no counter-offer on this request' });
+    }
+
+    // Back to where it started: the counter forgotten, the original price
+    // standing. Nothing is charged again — the fan paid when they asked.
+    await client.query(
+      `UPDATE custom_requests
+          SET status = 'pending', counter_price_coins = NULL, counter_note = NULL
+        WHERE id = $1`,
+      [current.id]
+    );
+
+    await client.query('COMMIT');
+
+    pushToUser(current.user_id, {
+      title: 'Your request is accepted',
+      body:  `Jinal has taken "${current.topic}" at the price you offered.`,
+      url:   '/platform/requests',
+      tag:   'request',
+    }).catch(() => {});
+
+    res.json({ ok: true, message: 'Counter withdrawn. The request stands at the original price.' });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('studio/requests/withdraw-counter error:', err);
+    res.status(500).json({ error: 'Could not withdraw the counter' });
+  } finally {
+    client.release();
+  }
+});
+
 router.post('/requests/:id/counter', async (req, res) => {
   const { counterPrice, note } = req.body;
   const price = parseInt(counterPrice);

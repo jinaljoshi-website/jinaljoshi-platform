@@ -12,6 +12,7 @@ export function Requests({ openWith }) {
   const [requests, setRequests] = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [rejecting, setRejecting] = useState(null);
+  const [withdrawing, setWithdrawing] = useState(null);
   const [countering, setCountering] = useState(null); // id of request being countered
   const [reason,    setReason]    = useState('');
   const [counterAmount, setCounterAmount] = useState('');
@@ -44,6 +45,20 @@ export function Requests({ openWith }) {
   const confirmReject = (id) => {
     if (!reason.trim()) return;
     updateStatus(id, 'rejected', reason.trim());
+  };
+
+  // Withdrawing the counter and taking the original price.
+  const withdrawCounter = async (id) => {
+    setWithdrawing(id);
+    setError('');
+    try {
+      await api.post(`/api/studio/requests/${id}/withdraw-counter`, {});
+      // Re-read the list rather than patching one row: the status and the price
+      // both change, and the same refresh is what countering already does.
+      const refreshed = await api.get('/api/studio/requests');
+      setRequests(refreshed.requests || []);
+    } catch (err) { setError(err.message); }
+    finally { setWithdrawing(null); }
   };
 
   const startCounter = (r) => {
@@ -103,6 +118,8 @@ export function Requests({ openWith }) {
                 key={r.id}
                 request={r}
                 onUpdate={updateStatus}
+                onWithdrawCounter={() => withdrawCounter(r.id)}
+                withdrawing={withdrawing === r.id}
                 rejecting={rejecting === r.id}
                 onStartReject={() => startReject(r.id)}
                 onCancelReject={() => { setRejecting(null); setReason(''); }}
@@ -159,6 +176,7 @@ export function Requests({ openWith }) {
 function RequestRow({
   request: r, onUpdate, rejecting, onStartReject, onCancelReject, onConfirmReject, reason, onReasonChange,
   countering, onStartCounter, onCancelCounter, onSubmitCounter, counterAmount, onCounterAmountChange, counterNote, onCounterNoteChange,
+  onWithdrawCounter, withdrawing,
 }) {
   const sans = "'DM Sans', system-ui, sans-serif";
 
@@ -201,7 +219,23 @@ function RequestRow({
 
       {r.status === 'countered' && (
         <div style={{ fontFamily: sans, fontSize: 13, color: '#D9A45C', background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.25)', borderRadius: 8, padding: '8px 12px', marginBottom: 10 }}>
-          Countered at {r.counter_price_coins} tokens — awaiting the fan's response.
+          <div>Countered at {r.counter_price_coins} tokens — awaiting the fan's response.</div>
+          {/* A way out of the waiting.
+              //
+              // This said what was happening and offered nothing to do about
+              // it, so a fan who never answered left the request sitting for
+              // ever: the money charged, the work neither agreed nor refused.
+              // Rejecting refunds somebody who may simply not have seen it. */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            <button onClick={onWithdrawCounter} disabled={withdrawing}
+                    style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: colors.accent, borderColor: colors.accent }}>
+              {withdrawing ? '…' : `Take it at ${r.offered_price_coins || r.coins_charged} tokens`}
+            </button>
+            <button onClick={onStartReject}
+                    style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A', borderColor: 'rgba(156,90,90,0.4)' }}>
+              Decline and refund
+            </button>
+          </div>
         </div>
       )}
 
