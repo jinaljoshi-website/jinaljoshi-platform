@@ -75,7 +75,13 @@ router.post('/request', authMid, async (req, res) => {
   if (!details?.trim())     return res.status(400).json({ error: 'Please describe your request' });
   if (!offeredPrice || offeredPrice < 1) return res.status(400).json({ error: 'Please offer a token amount' });
   if (!consentAgreed)       return res.status(400).json({ error: 'Please confirm all agreements before sending' });
-  if (!['email', 'whatsapp'].includes(deliveryChannel)) return res.status(400).json({ error: 'Please choose how you\'d like this delivered' });
+  // Chat needs no address of any kind.
+  //
+  // The other two ask a fan to hand over an email or a phone number for
+  // something that could just as easily arrive where they already talk to her —
+  // and for anything private, sending it to a personal inbox is the part they
+  // are most likely to hesitate over.
+  if (!['email', 'whatsapp', 'chat'].includes(deliveryChannel)) return res.status(400).json({ error: 'Please choose how you\'d like this delivered' });
   if (deliveryChannel === 'email' && !deliveryEmail?.trim())       return res.status(400).json({ error: 'Please provide an email address for delivery' });
   if (deliveryChannel === 'whatsapp' && !deliveryWhatsapp?.trim()) return res.status(400).json({ error: 'Please provide a WhatsApp number for delivery' });
 

@@ -60,7 +60,10 @@ export default function Extras() {
   const allConsented = consent1 && consent2 && consent3 && consent4;
   const offeredNum = parseInt(offeredPrice) || 0;
   const canAfford = offeredNum > 0 ? (data?.coinBalance || 0) >= offeredNum : true;
-  const deliveryContactFilled = deliveryChannel === 'email' ? !!deliveryEmail.trim() : !!deliveryWhatsapp.trim();
+  // Chat has nothing to fill in, so nothing to wait for before the button works.
+  const deliveryContactFilled = deliveryChannel === 'chat' ? true
+    : deliveryChannel === 'email' ? !!deliveryEmail.trim()
+    : !!deliveryWhatsapp.trim();
 
   const resetForm = () => {
     setSelected(null); setTopic(''); setDetails(''); setReferenceUrl('');
@@ -217,11 +220,25 @@ export default function Extras() {
               <input type="radio" checked={deliveryChannel === 'whatsapp'} onChange={() => setDeliveryChannel('whatsapp')} />
               WhatsApp
             </label>
+            {/* Where they already talk to her, and no address to hand over.
+                //
+                // The other two ask for an email or a phone number for
+                // something that could arrive in the conversation they are
+                // already having — and for anything private, sending it to a
+                // personal inbox is the part worth hesitating over. */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: F.sans, fontSize: 13, color: C.muted, cursor: 'pointer' }}>
+              <input type="radio" checked={deliveryChannel === 'chat'} onChange={() => setDeliveryChannel('chat')} />
+              Here, in our chat
+            </label>
           </div>
           {deliveryChannel === 'email' ? (
             <input type="email" value={deliveryEmail} onChange={(e) => setDeliveryEmail(e.target.value)} placeholder="you@example.com" style={{ ...urlInput, marginBottom: 16 }} />
-          ) : (
+          ) : deliveryChannel === 'whatsapp' ? (
             <input type="tel" value={deliveryWhatsapp} onChange={(e) => setDeliveryWhatsapp(e.target.value)} placeholder="e.g. +91 98765 43210" style={{ ...urlInput, marginBottom: 16 }} />
+          ) : (
+            <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginBottom: 16, lineHeight: 1.6 }}>
+              It will arrive in your chat with Jinal. Nothing to fill in.
+            </div>
           )}
 
           <div style={consentBox}>

@@ -193,7 +193,13 @@ function RequestRow({
           </div>
           {r.delivery_channel && (
             <div style={{ fontFamily: sans, fontSize: 13, color: colors.accent, marginBottom: 10 }}>
-              Deliver via {r.delivery_channel === 'email' ? 'Email' : 'WhatsApp'}: {r.delivery_channel === 'email' ? r.delivery_email : r.delivery_whatsapp}
+              {/* Three channels, not two. Written as a pair, a chat delivery
+                  read as "Deliver via WhatsApp:" with nothing after it. */}
+              {r.delivery_channel === 'chat'
+                ? 'Deliver in your chat with them'
+                : r.delivery_channel === 'email'
+                ? `Deliver via Email: ${r.delivery_email}`
+                : `Deliver via WhatsApp: ${r.delivery_whatsapp}`}
             </div>
           )}
         </div>
