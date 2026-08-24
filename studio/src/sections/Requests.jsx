@@ -149,6 +149,8 @@ export function Requests({ openWith }) {
                 key={r.id}
                 request={r}
                 onUpdate={updateStatus}
+                onWithdrawCounter={() => withdrawCounter(r.id)}
+                withdrawing={withdrawing === r.id}
                 rejecting={rejecting === r.id}
                 onStartReject={() => startReject(r.id)}
                 onCancelReject={() => { setRejecting(null); setReason(''); }}
