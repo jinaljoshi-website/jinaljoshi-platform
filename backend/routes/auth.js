@@ -448,18 +448,55 @@ router.post('/change-password', authMid, rl.loginByIp, async (req, res) => {
 // Which is also what the law asks for. Deleting the tax record of a real
 // transaction is not privacy, it is a different compliance failure.
 router.post('/close-account', authMid, async (req, res) => {
-  const { password, reason } = req.body;
+  const { password, reason, forfeitTokens } = req.body;
   if (!password) return res.status(400).json({ error: 'Your password is needed to close the account' });
 
   try {
     const { rows } = await pool.query(
-      `SELECT password_hash, email FROM users WHERE id = $1 AND closed_at IS NULL`,
+      `SELECT password_hash, email, coin_balance, COALESCE(bonus_balance, 0) AS bonus_balance,
+              membership_expires_at
+         FROM users WHERE id = $1 AND closed_at IS NULL`,
       [req.user.userId]
     );
     if (!rows.length) return res.status(404).json({ error: 'Account not found' });
+    const u = rows[0];
 
-    const ok = await argon2.verify(rows[0].password_hash, password);
+    const ok = await argon2.verify(u.password_hash, password);
     if (!ok) return res.status(401).json({ error: 'That password is not right' });
+
+    // Tokens still in the account, said out loud before they are gone.
+    //
+    // Closing forfeits them, and finding that out afterwards would be finding
+    // out too late. Asked once, and answered by saying so — not by a checkbox
+    // that could be clicked past.
+    const balance = (u.coin_balance || 0) + (u.bonus_balance || 0);
+    if (balance > 0 && !forfeitTokens) {
+      return res.status(409).json({
+        error: 'TOKENS_REMAIN',
+        balance,
+        message: `You have ${balance} token${balance === 1 ? '' : 's'} left. Closing the account gives them up — they are not refunded and do not come back.`,
+      });
+    }
+
+    // A membership already paid for runs its course.
+    //
+    // Closing today would take away time somebody has bought, so the request is
+    // held and acted on when the membership ends. They keep everything until
+    // then, and can change their mind by signing in.
+    const membershipActive = u.membership_expires_at && new Date(u.membership_expires_at) > new Date();
+    if (membershipActive) {
+      await pool.query(
+        `UPDATE users SET close_requested_at = NOW(), close_reason = $2 WHERE id = $1`,
+        [req.user.userId, (reason || '').slice(0, 300) || null]
+      );
+      console.log(`account closure scheduled: ${u.email} (at ${u.membership_expires_at})`);
+      return res.json({
+        ok: true,
+        scheduled: true,
+        closesAt: u.membership_expires_at,
+        message: 'Request received. Your account will close when your membership ends. Until then nothing changes, and signing in and asking us to stop is enough to cancel it.',
+      });
+    }
 
     await pool.query(
       `UPDATE users SET closed_at = NOW(), close_reason = $2 WHERE id = $1`,
@@ -469,11 +506,28 @@ router.post('/close-account', authMid, async (req, res) => {
     // Signed out everywhere, at once.
     await pool.query(`DELETE FROM active_sessions WHERE user_id = $1`, [req.user.userId]);
 
-    console.log(`account closed: ${rows[0].email}`);
+    console.log(`account closed: ${u.email}`);
     res.json({ ok: true, message: 'Your account is closed.' });
   } catch (err) {
     console.error('auth/close-account error:', err);
     res.status(500).json({ error: 'Could not close the account' });
+  }
+});
+
+
+// Changing your mind, which should be easier than deciding in the first place.
+router.post('/cancel-close', authMid, async (req, res) => {
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE users SET close_requested_at = NULL, close_reason = NULL
+        WHERE id = $1 AND closed_at IS NULL AND close_requested_at IS NOT NULL`,
+      [req.user.userId]
+    );
+    if (!rowCount) return res.status(404).json({ error: 'There is no closure waiting to be cancelled' });
+    res.json({ ok: true, message: 'Your account will stay open.' });
+  } catch (err) {
+    console.error('auth/cancel-close error:', err);
+    res.status(500).json({ error: 'Could not cancel' });
   }
 });
 

@@ -434,6 +434,26 @@ async function checkAuctions() {
 // membership_reminders records what has already been sent, so a fan is never
 // nudged twice for the same expiry — and the row is written only after the push
 // resolves, so a failure means a retry tomorrow rather than a silent miss.
+// Accounts asked to close once their membership had run its course.
+//
+// Held until the day, because closing on request would have taken away time
+// already paid for. Runs alongside the expiry check, so an account ends within
+// a minute of the membership it was waiting on.
+async function closeExpiredAccounts() {
+  const { rows } = await pool.query(
+    `UPDATE users
+        SET closed_at = NOW()
+      WHERE closed_at IS NULL
+        AND close_requested_at IS NOT NULL
+        AND (membership_expires_at IS NULL OR membership_expires_at <= NOW())
+      RETURNING id, email`
+  );
+  for (const u of rows) {
+    await pool.query(`DELETE FROM active_sessions WHERE user_id = $1`, [u.id]);
+    console.log(`account closed on schedule: ${u.email}`);
+  }
+}
+
 async function checkMembershipExpiry() {
   const client = await pool.connect();
   try {
@@ -526,6 +546,7 @@ function startScheduler() {
   // push about billing at three in the morning.
   cron.schedule('30 4 * * *', () => {
     record('membership-expiry', checkMembershipExpiry)();
+    record('close-expired-accounts', closeExpiredAccounts)();
   });
 
   // Exchange rates, twice daily. A rate older than 48 hours withdraws its
