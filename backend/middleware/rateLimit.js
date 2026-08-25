@@ -117,15 +117,26 @@ const MIN = 60 * 1000;
 // addresses against one email is somebody working through a list of stolen
 // ones, and an address limit would never see it.
 const loginByIp = limit({
-  name: 'login-ip', max: 10, windowMs: 15 * MIN, by: ipOf,
+  // Also raised: several people behind one carrier address, each with a couple
+  // of failed attempts, reached ten between them. The per-email limit below is
+  // the one that actually stops password guessing, and it is untouched.
+  name: 'login-ip', max: 50, windowMs: 15 * MIN, by: ipOf,
 });
 const loginByEmail = limit({
   name: 'login-email', max: 10, windowMs: 15 * MIN,
   by: (req) => (req.body?.email || '').trim().toLowerCase() || null,
 });
 
+// Generous, because an address is not a person.
+//
+// Five an hour was set against what one person would plausibly do, which
+// ignored that Indian mobile networks put a great many subscribers behind the
+// same address — so a handful of unrelated people signing up from one carrier
+// exhausted it between them, and a real member was told to come back in an
+// hour. The limit is meant to stop a script enumerating accounts, and thirty an
+// hour still does that while never being reached by people.
 const signup = limit({
-  name: 'signup', max: 5, windowMs: 60 * MIN, by: ipOf,
+  name: 'signup', max: 30, windowMs: 60 * MIN, by: ipOf,
 });
 
 // Anything that sends an email is limited by the address it would send to.
