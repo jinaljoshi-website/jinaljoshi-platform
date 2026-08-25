@@ -963,6 +963,185 @@ const VALID_TIER_CATEGORIES = ['free', 'community', 'insider', 'premium', 'supre
 // it, hidden, each with its own caption, price and cover. Nothing is published
 // here: a collection set may want different timing from a gallery drop, and
 // that is a decision for afterwards.
+
+// ─────────────────────────────────────────────
+// POST /api/studio/content/:id/carve
+// ─────────────────────────────────────────────
+//
+// Taking a few photographs out of a pile and making a set of them.
+//
+// One shoot is rarely one set. Four outfits in an afternoon is four sets, and
+// the three-way split could only ever produce one of each kind — so a pile that
+// should become four gallery sets had to be uploaded four times, which means
+// deciding at the camera what is only obvious on a screen.
+//
+// This is the same move the split makes, done once per selection instead of
+// once per kind: choose some photographs, say where they go, and they leave the
+// pile. Repeat until the pile is empty.
+router.post('/content/:id/carve', async (req, res) => {
+  const { itemIds, destination, title, description, price } = req.body;
+  const setId = req.params.id;
+
+  if (!Array.isArray(itemIds) || !itemIds.length) {
+    return res.status(400).json({ error: 'Choose some photographs first' });
+  }
+  if (!['gallery', 'purchase', 'collection'].includes(destination)) {
+    return res.status(400).json({ error: 'Say where these should go' });
+  }
+  if (!title?.trim()) {
+    return res.status(400).json({ error: 'The new set needs a caption' });
+  }
+  // The same rule as everywhere else: what is bought outright cannot be free.
+  if (destination !== 'gallery' && !(parseInt(price, 10) > 0)) {
+    return res.status(400).json({
+      error: 'PRICE_REQUIRED',
+      message: 'A purchase-only or collection set needs a price. Being bought is the whole of what it is.',
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: srcRows } = await client.query(`SELECT * FROM sets WHERE id = $1 FOR UPDATE`, [setId]);
+    if (!srcRows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Set not found' }); }
+    const src = srcRows[0];
+
+    // Only photographs actually in this pile, so a stale page cannot move
+    // somebody else's items by sending their ids.
+    const { rows: moving } = await client.query(
+      `SELECT id, r2_key, media_type FROM set_items
+        WHERE set_id = $1 AND id = ANY($2) AND review_flag IS DISTINCT FROM 'remove'
+        ORDER BY position ASC, created_at ASC`,
+      [setId, itemIds]
+    );
+    if (!moving.length) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'None of those photographs are in this set' }); }
+
+    const isCollection = destination === 'collection';
+    const { rows: madeRows } = await client.query(
+      `INSERT INTO sets (title, description, type, price_coins, visible, category, is_collection,
+                         display_order, cover_key)
+       VALUES ($1, $2, $3, $4, FALSE, $5, $6,
+               (SELECT COALESCE(MIN(display_order), 0) - 1 FROM sets WHERE is_collection = $6),
+               $7)
+       RETURNING *`,
+      [title.trim(), description || null, src.type, parseInt(price, 10) || 0, src.category, isCollection,
+       moving.find((m) => m.media_type !== 'video')?.r2_key || null]
+    );
+    const made = madeRows[0];
+
+    await client.query(`UPDATE set_items SET set_id = $1 WHERE id = ANY($2)`,
+      [made.id, moving.map((m) => m.id)]);
+
+    // The tier each destination implies. A collection has none — access is the
+    // whole point — and is marked reviewed instead, since without a tier that is
+    // the only record anybody looked at it.
+    if (destination === 'purchase') {
+      await client.query(`UPDATE set_items SET tier_category = 'purchase_only' WHERE set_id = $1`, [made.id]);
+    } else if (isCollection) {
+      await client.query(
+        `UPDATE set_items SET tier_category = NULL, reviewed_at = COALESCE(reviewed_at, NOW()) WHERE set_id = $1`,
+        [made.id]);
+    }
+    // A gallery set keeps whatever tiers were given in the pass, or none yet.
+
+    await client.query(
+      `INSERT INTO set_photographers (set_id, photographer_id)
+       SELECT $1, photographer_id FROM set_photographers WHERE set_id = $2
+       ON CONFLICT DO NOTHING`,
+      [made.id, setId]
+    );
+
+    const { rows: left } = await client.query(
+      `SELECT count(*)::int AS n FROM set_items WHERE set_id = $1`, [setId]);
+
+    await client.query('COMMIT');
+    res.json({
+      ok: true,
+      created: { id: made.id, title: made.title, isCollection: made.is_collection, items: moving.length },
+      remaining: left[0].n,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('studio/content/carve error:', err);
+    res.status(500).json({ error: 'Could not make the set' });
+  } finally {
+    client.release();
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/studio/content/:id/move-to
+// ─────────────────────────────────────────────
+//
+// Sending photographs from the pile into a set that already exists.
+//
+// Not everything from a shoot belongs in something new — a dozen of them may
+// simply belong with the green robe set from last week. Without this the only
+// way was to make a set and never publish it, which leaves the library full of
+// things that were never meant to be sets.
+router.post('/content/:id/move-to', async (req, res) => {
+  const { itemIds, targetSetId } = req.body;
+  if (!Array.isArray(itemIds) || !itemIds.length) {
+    return res.status(400).json({ error: 'Choose some photographs first' });
+  }
+  if (!targetSetId) return res.status(400).json({ error: 'Choose a set to move them into' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: tgtRows } = await client.query(`SELECT * FROM sets WHERE id = $1 FOR UPDATE`, [targetSetId]);
+    if (!tgtRows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'That set no longer exists' }); }
+    const target = tgtRows[0];
+
+    const { rows: moving } = await client.query(
+      `SELECT id FROM set_items
+        WHERE set_id = $1 AND id = ANY($2) AND review_flag IS DISTINCT FROM 'remove'`,
+      [req.params.id, itemIds]
+    );
+    if (!moving.length) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'None of those photographs are in this set' }); }
+
+    // Appended, not interleaved. A set that has been arranged should keep its
+    // order, and new arrivals belong at the end until somebody says otherwise.
+    const { rows: posRows } = await client.query(
+      `SELECT COALESCE(MAX(position), 0) AS p FROM set_items WHERE set_id = $1`, [targetSetId]);
+    let pos = Number(posRows[0].p);
+
+    for (const m of moving) {
+      pos += 1;
+      await client.query(`UPDATE set_items SET set_id = $1, position = $2 WHERE id = $3`,
+        [targetSetId, pos, m.id]);
+    }
+
+    // What the destination implies, exactly as carving does.
+    if (target.is_collection) {
+      await client.query(
+        `UPDATE set_items SET tier_category = NULL, reviewed_at = COALESCE(reviewed_at, NOW())
+          WHERE id = ANY($1)`, [moving.map((m) => m.id)]);
+    } else {
+      const { rows: kind } = await client.query(
+        `SELECT bool_or(tier_category = 'purchase_only') AS purchase FROM set_items WHERE set_id = $1`,
+        [targetSetId]);
+      if (kind[0].purchase) {
+        await client.query(`UPDATE set_items SET tier_category = 'purchase_only' WHERE id = ANY($1)`,
+          [moving.map((m) => m.id)]);
+      }
+      // Otherwise they arrive untiered and wait for the review, which is what
+      // keeps them off a live set until somebody has decided.
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok: true, moved: moving.length, into: target.title });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('studio/content/move-to error:', err);
+    res.status(500).json({ error: 'Could not move them' });
+  } finally {
+    client.release();
+  }
+});
+
 router.post('/content/:id/split', async (req, res) => {
   // A caption and price for each group the sort turned up, the tiered one
   // included: the draft was named before anybody had seen the photographs, and
@@ -3562,14 +3741,20 @@ router.get('/extras', async (req, res) => {
 });
 
 router.post('/extras', async (req, res) => {
-  const { title, price_coins, visible = false } = req.body;
+  const { title, price_coins, visible = false, topic_example } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
   if (!price_coins)   return res.status(400).json({ error: 'Price is required' });
   try {
     const { rows } = await pool.query(
-      `INSERT INTO extras_items (title, price_coins, visible)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [title.trim(), price_coins, visible]
+      // The example shown in the topic field, per item.
+      //
+      // One placeholder served every kind of request, so somebody asking for a
+      // shoot in a particular outfit was prompted with "e.g. My mom's 50th
+      // birthday" — an example for a different thing entirely, and a poor
+      // suggestion of what to write.
+      `INSERT INTO extras_items (title, price_coins, visible, topic_example)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [title.trim(), price_coins, visible, (topic_example || '').trim() || null]
     );
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
@@ -3579,15 +3764,16 @@ router.post('/extras', async (req, res) => {
 });
 
 router.patch('/extras/:id', async (req, res) => {
-  const { title, price_coins, visible } = req.body;
+  const { title, price_coins, visible, topic_example } = req.body;
   try {
     const { rows } = await pool.query(
       `UPDATE extras_items SET
          title       = COALESCE($1, title),
          price_coins = COALESCE($2, price_coins),
-         visible     = COALESCE($3, visible)
-       WHERE id = $4 RETURNING *`,
-      [title, price_coins, visible, req.params.id]
+         visible     = COALESCE($3, visible),
+         topic_example = COALESCE($4, topic_example)
+       WHERE id = $5 RETURNING *`,
+      [title, price_coins, visible, topic_example, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Item not found' });
     res.json({ ok: true, item: rows[0] });
