@@ -1406,40 +1406,35 @@ export function Content({ openWith, collection = false, upload = false }) {
                     Add photos to "{set.title}"
                   </div>
                   <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginBottom: 12, lineHeight: 1.6 }}>
-                    {collection
-                      ? 'New photos are added unreviewed, and go through the same pass as the rest. Existing ones are untouched, so this is also how you finish an interrupted upload.'
-                      : 'New items are appended to the tier you choose. Existing items are untouched, so this is also how you finish a set whose upload was interrupted.'}
+                    New photographs arrive unsorted and go through review like any
+                    others — they are not shown to anybody until they have been
+                    given a tier. Existing ones are untouched, so this is also how
+                    an interrupted upload is finished.
                   </div>
                   <div style={{ display: 'grid', gap: 10 }}>
-                    {/* A collection set has one place for files. Offering the
-                        tier list here offered to put photos somewhere it does
-                        not have, which is how a set ends up with items nothing
-                        will ever show. */}
-                    {(collection ? COLLECTION_BUCKETS : CATEGORIES).filter((cat) => {
-                      if (collection) return true;
-                      // Respect the same lock as creation: a set is tier-segmented
-                      // or purchase-only, never both.
-                      const hasPurchase = (counts.purchase_only || 0) > 0;
-                      const hasTiered   = CATEGORIES.some((c2) => c2.key !== 'purchase_only' && counts[c2.key] > 0);
-                      if (hasPurchase) return cat.key === 'purchase_only';
-                      if (hasTiered)   return cat.key !== 'purchase_only';
-                      return true;
-                    }).map((cat) => (
-                      <div key={cat.key} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                        <input
-                          ref={(el) => { categoryRefs.current[`add-${set.id}-${cat.key}`] = el; }}
-                          type="file" accept="image/*,video/*" multiple style={{ display: 'none' }}
-                          onChange={(e) => handleCategoryFilePick(cat.key, e)}
-                        />
-                        <button onClick={() => categoryRefs.current[`add-${set.id}-${cat.key}`]?.click()}
-                                style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', minWidth: 130, textAlign: 'left' }}>
-                          + Add {cat.label}
-                        </button>
-                        <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
-                          {counts[cat.key] || 0} already · {(filesByCategory[cat.key] || []).length} queued
-                        </span>
-                      </div>
-                    ))}
+                    {/* One place to put them, and no tier chosen up front.
+                        //
+                        // This asked which tier before the photographs had been
+                        // looked at — the thing the review pass exists to decide
+                        // — and applied the old rule that a set is tiered or
+                        // purchase-only, which stopped being true when a sort
+                        // could produce three sets. A photograph with no tier is
+                        // already invisible to every fan, so arriving unsorted is
+                        // safe as well as simpler. */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <input
+                        ref={(el) => { categoryRefs.current[`add-${set.id}-unsorted`] = el; }}
+                        type="file" accept="image/*,video/*" multiple style={{ display: 'none' }}
+                        onChange={(e) => handleCategoryFilePick('unsorted', e)}
+                      />
+                      <button onClick={() => categoryRefs.current[`add-${set.id}-unsorted`]?.click()}
+                              style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', minWidth: 130, textAlign: 'left' }}>
+                        + Add photos &amp; videos
+                      </button>
+                      <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
+                        {(filesByCategory.unsorted || []).length} queued
+                      </span>
+                    </div>
                   </div>
 
                   {uploadProgress && (
