@@ -537,6 +537,56 @@ export function Content({ openWith, collection = false, upload = false }) {
 
   const clearSelection = () => setSelected([]);
 
+  // Carving a set out of the pile, and sending photographs to one that exists.
+  //
+  // Only in the upload queue: a pile is a set that has not been decided yet, and
+  // offering to cut a published set in half is offering an easy accident.
+  const [carving, setCarving] = useState(null);   // { destination, title, price }
+  const [carveBusy, setCarveBusy] = useState(false);
+  const [moveTarget, setMoveTarget] = useState('');
+  const [allSets, setAllSets] = useState([]);
+
+  const loadAllSets = () => Promise.all([
+    api.get('/api/studio/content'),
+    api.get('/api/studio/content?collection=1'),
+  ]).then(([g, c]) => setAllSets([
+    ...(g.sets || []).map((x) => ({ ...x, where: 'Gallery' })),
+    ...(c.sets || []).map((x) => ({ ...x, where: 'Collection' })),
+  ])).catch(() => {});
+
+  const doCarve = async () => {
+    if (!reviewSet || !carving?.title?.trim()) return;
+    setCarveBusy(true); setError('');
+    try {
+      const d = await api.post(`/api/studio/content/${reviewSet.id}/carve`, {
+        itemIds: selected,
+        destination: carving.destination,
+        title: carving.title.trim(),
+        price: carving.price,
+      });
+      setSuccess(`"${d.created.title}" made with ${d.created.items} photograph${d.created.items === 1 ? '' : 's'}. ${d.remaining} left in the pile.`);
+      setCarving(null); setSelected([]);
+      await openReview(reviewSet);
+      loadSets();
+    } catch (err) { setError(err.message); }
+    finally { setCarveBusy(false); }
+  };
+
+  const doMoveTo = async () => {
+    if (!reviewSet || !moveTarget) return;
+    setCarveBusy(true); setError('');
+    try {
+      const d = await api.post(`/api/studio/content/${reviewSet.id}/move-to`, {
+        itemIds: selected, targetSetId: moveTarget,
+      });
+      setSuccess(`${d.moved} photograph${d.moved === 1 ? '' : 's'} moved into "${d.into}".`);
+      setMoveTarget(''); setSelected([]);
+      await openReview(reviewSet);
+      loadSets();
+    } catch (err) { setError(err.message); }
+    finally { setCarveBusy(false); }
+  };
+
   // The order fans actually see. Arranged in a flat list rather than the
   // tier-grouped grid, because those are different orders — arranging within
   // tiers would mean arranging something other than what a fan looks at.
@@ -1938,6 +1988,18 @@ export function Content({ openWith, collection = false, upload = false }) {
           setSelected={setSelected}
           onBulkMove={bulkMove}
           onBulkDelete={bulkDelete}
+          pile={upload}
+          carving={carving}
+          onStartCarve={(destination) => { setCarving({ destination, title: '', price: '' }); }}
+          onCarveChange={(patch) => setCarving((c) => ({ ...c, ...patch }))}
+          onCancelCarve={() => setCarving(null)}
+          onConfirmCarve={doCarve}
+          carveBusy={carveBusy}
+          allSets={allSets}
+          onLoadSets={loadAllSets}
+          moveTarget={moveTarget}
+          onMoveTargetChange={setMoveTarget}
+          onConfirmMove={doMoveTo}
           bulkBusy={bulkBusy}
           onDelete={deleteItem}
           onRetier={retierItem}
@@ -2174,6 +2236,8 @@ function PhotographerPicker({ names, onChange, options }) {
 
 function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItemsChanged, onDeleteMarked, removingMarked, deletingItem, collection = false, lightbox, setLightbox, mediaUrl, categories, itemErrors, onKeepFailed,
                        selected, setSelected, onBulkMove, onBulkDelete, bulkBusy,
+                       pile, carving, onStartCarve, onCarveChange, onCancelCarve, onConfirmCarve, carveBusy,
+                       allSets, onLoadSets, moveTarget, onMoveTargetChange, onConfirmMove,
                        ordering, setOrdering, onSaveOrder, orderBusy }) {
   // Grouped for the grid, but navigation runs across the whole set in the order
   // shown. A shoot produces near-identical frames, so being able to step through
@@ -2685,6 +2749,41 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
           </div>
         ))}
 
+        {/* Asked for once a destination is chosen, not before.
+            //
+            // A caption and a price mean nothing until it is known what is being
+            // made, and asking for them up front is asking somebody to describe
+            // a thing they have not decided on. */}
+        {pile && carving && selected.length > 0 && (
+          <div style={{ ...bulkBar, flexWrap: 'wrap', gap: 8 }}>
+            <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+              {selected.length} photograph{selected.length === 1 ? '' : 's'} →{' '}
+              {carving.destination === 'gallery' ? 'the gallery'
+                : carving.destination === 'purchase' ? 'purchase only'
+                : 'the collection'}
+            </span>
+            <input autoFocus value={carving.title} placeholder="Caption"
+                   onChange={(e) => onCarveChange({ title: e.target.value })}
+                   style={{ ...S.input, width: 220, padding: '6px 10px', fontSize: 12 }} />
+            {carving.destination !== 'gallery' && (
+              <input value={carving.price} placeholder="Price in tokens" inputMode="numeric"
+                     onChange={(e) => onCarveChange({ price: e.target.value })}
+                     style={{ ...S.input, width: 140, padding: '6px 10px', fontSize: 12 }} />
+            )}
+            <button onClick={onConfirmCarve}
+                    disabled={carveBusy || !carving.title.trim()
+                      || (carving.destination !== 'gallery' && !(parseInt(carving.price, 10) > 0))}
+                    style={{ ...S.btn, fontSize: 12, padding: '6px 14px',
+                             opacity: (carveBusy || !carving.title.trim()) ? 0.5 : 1 }}>
+              {carveBusy ? 'Making…' : 'Make it'}
+            </button>
+            <button onClick={onCancelCarve} disabled={carveBusy}
+                    style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
+              Not yet
+            </button>
+          </div>
+        )}
+
         {selected.length > 0 && (
           <div style={bulkBar}>
             <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
@@ -2707,6 +2806,38 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                              borderColor: 'rgba(156,90,90,0.35)', opacity: bulkBusy ? 0.5 : 1 }}>
               {bulkBusy ? '…' : `Remove ${selected.length}`}
             </button>
+            {/* Only in the pile.
+                //
+                // A pile is a set nobody has decided about yet. A published set
+                // has been decided, and offering to cut one in half from the
+                // same bar is offering an easy accident. */}
+            {pile && !carving && (
+              <>
+                <select defaultValue="" disabled={bulkBusy || carveBusy}
+                        onChange={(e) => { if (e.target.value) { onStartCarve(e.target.value); e.target.value = ''; } }}
+                        style={{ ...S.input, width: 'auto', padding: '6px 10px', fontSize: 12 }}>
+                  <option value="">Make a set…</option>
+                  <option value="gallery">In the gallery</option>
+                  <option value="purchase">Purchase only</option>
+                  <option value="collection">The Private Collection</option>
+                </select>
+                <select value={moveTarget} disabled={bulkBusy || carveBusy}
+                        onFocus={() => { if (!allSets.length) onLoadSets(); }}
+                        onChange={(e) => onMoveTargetChange(e.target.value)}
+                        style={{ ...S.input, width: 'auto', maxWidth: 220, padding: '6px 10px', fontSize: 12 }}>
+                  <option value="">Move into an existing set…</option>
+                  {allSets.map((x) => (
+                    <option key={x.id} value={x.id}>{x.where} · {x.title}</option>
+                  ))}
+                </select>
+                {moveTarget && (
+                  <button onClick={onConfirmMove} disabled={carveBusy}
+                          style={{ ...S.btn, fontSize: 12, padding: '6px 12px' }}>
+                    {carveBusy ? '…' : `Move ${selected.length}`}
+                  </button>
+                )}
+              </>
+            )}
             <button onClick={() => setSelected([])} disabled={bulkBusy}
                     style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
               Cancel
