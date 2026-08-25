@@ -77,6 +77,15 @@ function relativeTime(ts) {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
+function ConsentLine({ label, value, tone }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+      <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted }}>{label}</span>
+      <span style={{ fontFamily: sans, fontSize: 12, color: tone || colors.text, textAlign: 'right' }}>{value}</span>
+    </div>
+  );
+}
+
 export function Members() {
   const [fans,     setFans]     = useState([]);
   const [loading,  setLoading]  = useState(true);
@@ -433,6 +442,37 @@ export function Members() {
                           ))}
                         </>
                       )}
+                    </div>
+                  )}
+
+                  {/* What they agreed to, and when.
+                      //
+                      // Recorded at registration and shown nowhere, which made
+                      // it useless for the one thing it exists for — answering a
+                      // question about it later, from a bank or from the person
+                      // themselves. */}
+                  {histTab === 'history' && (
+                    <div style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                      <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: colors.muted, marginBottom: 8 }}>
+                        Registration &amp; consent
+                      </div>
+                      <div style={{ display: 'grid', gap: 4 }}>
+                        <ConsentLine label="Registered"
+                                     value={new Date(fan.created_at).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })} />
+                        {fan.signup_country && <ConsentLine label="From" value={fan.signup_country} />}
+                        <ConsentLine label="Email verified" value={fan.email_verified ? 'Yes' : 'Not yet'}
+                                     tone={fan.email_verified ? colors.success : '#D99A9A'} />
+                        <ConsentLine label="Accepted the terms"
+                                     value={fan.consent_terms ? 'Yes' : 'No'}
+                                     tone={fan.consent_terms ? colors.success : '#D99A9A'} />
+                        <ConsentLine label="Accepted no-refund"
+                                     value={fan.consent_no_refund ? 'Yes' : 'No'}
+                                     tone={fan.consent_no_refund ? colors.success : '#D99A9A'} />
+                        {fan.consented_at && (
+                          <ConsentLine label="Consent recorded"
+                                       value={new Date(fan.consented_at).toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })} />
+                        )}
+                      </div>
                     </div>
                   )}
 

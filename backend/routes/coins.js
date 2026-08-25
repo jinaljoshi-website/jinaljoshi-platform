@@ -4,7 +4,7 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
 const { getClientIp, lookupIpCountry } = require('../lib/geoip');
-const { issueInvoiceForPurchase } = require('../lib/invoice');
+const { issueInvoiceForPurchase, generateInvoicePdfBuffer } = require('../lib/invoice');
 const payments = require('../lib/payments');
 const { getConfigNumber, getConfigValue } = require('../lib/config');
 const { getBalances, activeBonusOffer, bonusFor, grantBonusTokens } = require('../lib/tokens');
@@ -62,6 +62,69 @@ async function calcPrice(tokens) {
 // ─────────────────────────────────────────────
 // GET /api/coins/balance
 // ─────────────────────────────────────────────
+
+
+// ─────────────────────────────────────────────
+// GET /api/coins/invoices  ·  GET /api/coins/invoices/:id/pdf
+// ─────────────────────────────────────────────
+//
+// A member's own tax invoices, which they could not reach at all.
+//
+// One was raised for every purchase and stored, and there was no endpoint and
+// no link — so a document issued in somebody's name existed only where they
+// could not see it. A function to email them was written and never called, and
+// nothing filled the gap.
+//
+// A ledger of purchases is not the same as a tax invoice. Anybody claiming this
+// against business expenses, or asked by a bank to show what they paid for,
+// needs the document itself.
+router.get('/invoices', authMid, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT i.id, i.invoice_number, i.created_at, i.amount_inr_equivalent,
+              i.tokens_purchased, i.currency, i.is_export
+         FROM invoices i
+        WHERE i.user_id = $1
+        ORDER BY i.created_at DESC`,
+      [req.user.userId]
+    );
+    res.json({
+      invoices: rows.map((r) => ({
+        id: r.id,
+        number: r.invoice_number,
+        at: r.created_at,
+        amountInr: r.amount_inr_equivalent,
+        tokens: r.tokens_purchased,
+        currency: r.currency || 'INR',
+      })),
+    });
+  } catch (err) {
+    console.error('coins/invoices error:', err);
+    res.status(500).json({ error: 'Could not load your invoices' });
+  }
+});
+
+router.get('/invoices/:id/pdf', authMid, async (req, res) => {
+  try {
+    // Scoped to the person asking. An invoice carries a name, an email and an
+    // amount, and the id is the only thing standing between one member's and
+    // another's.
+    const { rows } = await pool.query(
+      `SELECT * FROM invoices WHERE id = $1 AND user_id = $2`,
+      [req.params.id, req.user.userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Invoice not found' });
+
+    const pdf = await generateInvoicePdfBuffer(rows[0]);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="${String(rows[0].invoice_number).replace(/\//g, '-')}.pdf"`);
+    res.send(pdf);
+  } catch (err) {
+    console.error('coins/invoice pdf error:', err);
+    res.status(500).json({ error: 'Could not produce the invoice' });
+  }
+});
 
 router.get('/balance', authMid, async (req, res) => {
   try {

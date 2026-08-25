@@ -423,6 +423,11 @@ router.get('/fans', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT u.id, u.email, u.display_name, u.tier, u.membership_expires_at,
               u.coin_balance, u.created_at, u.is_muted, u.blocked_until, u.block_count,
+              -- What was agreed, and when. Recorded at registration and never
+              -- shown anywhere, which made it useless for the one purpose it
+              -- exists for: answering a question about it afterwards.
+              u.consent_terms, u.consent_no_refund, u.consented_at,
+              u.email_verified, u.signup_country,
               u.email_verified,
               COALESCE((
                 SELECT SUM(g.remaining) FROM gifted_grants g

@@ -14,6 +14,32 @@ export default function Coins() {
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(true);
   const [showModal, setShowModal] = useState(false);
+  // Fetched when asked for, not on every visit to the page. Most people come
+  // here to buy tokens or read a balance, and a list of tax documents is
+  // something you go looking for.
+  const [invoices, setInvoices] = useState(null);
+
+  const loadInvoices = () => api.get('/api/coins/invoices')
+    .then((d) => setInvoices(d.invoices || []))
+    .catch(() => setInvoices([]));
+
+  // Fetched with the token attached rather than followed as a plain link — the
+  // endpoint requires authentication, and a bare href carries none.
+  const downloadInvoice = async (iv) => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/coins/invoices/${iv.id}/pdf`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('jwt')}` },
+      });
+      if (!res.ok) throw new Error('Could not fetch the invoice');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${String(iv.number).replace(/\//g, '-')}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { /* the list is still there and the attempt can be repeated */ }
+  };
   const [modalAmount, setModalAmount] = useState(0);
 
   // Custom amount state
@@ -297,6 +323,50 @@ export default function Coins() {
                 </div>
               );
             })
+          )}
+        </div>
+
+        {/* The tax invoices, which were raised and stored where nobody could
+            reach them.
+            //
+            // One is issued for every purchase and always has been. There was
+            // no list and no link, so a document in somebody's own name existed
+            // only in the database. Anybody claiming this against expenses, or
+            // asked to show what they paid for, needs the document itself. */}
+        <div style={{ marginTop: 28 }}>
+          <div style={{ fontFamily: F.mono, fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted, marginBottom: 10 }}>
+            Tax invoices
+          </div>
+          {invoices === null ? (
+            <button onClick={loadInvoices}
+                    style={{ fontFamily: F.sans, fontSize: 12, padding: '7px 14px', borderRadius: 999,
+                             background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, cursor: 'pointer' }}>
+              Show my invoices
+            </button>
+          ) : invoices.length === 0 ? (
+            <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>
+              Nothing yet — an invoice is raised the moment you buy tokens.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 6 }}>
+              {invoices.map((iv) => (
+                <div key={iv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                          padding: '9px 0', borderBottom: `1px solid ${C.border}` }}>
+                  <div>
+                    <div style={{ fontFamily: F.sans, fontSize: 13, color: C.text }}>{iv.number}</div>
+                    <div style={{ fontFamily: F.mono, fontSize: 10, color: C.muted, marginTop: 2 }}>
+                      {new Date(iv.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {' · '}{iv.tokens} tokens
+                    </div>
+                  </div>
+                  <a href={`${import.meta.env.VITE_API_URL}/api/coins/invoices/${iv.id}/pdf`}
+                     onClick={(e) => { e.preventDefault(); downloadInvoice(iv); }}
+                     style={{ fontFamily: F.sans, fontSize: 12, color: C.accent, textDecoration: 'none', cursor: 'pointer' }}>
+                    Download
+                  </a>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>
