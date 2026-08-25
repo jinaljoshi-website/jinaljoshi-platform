@@ -759,12 +759,30 @@ export function Content({ openWith, collection = false, upload = false }) {
     }
   };
 
+  // How many of the chosen files get a thumbnail.
+  //
+  // Every preview is a blob URL, and a blob URL holds its file in memory for as
+  // long as it exists. Made for all of them at once, five thousand photographs
+  // became five thousand pinned files and five thousand images in the page
+  // before a single byte had been uploaded — which is not slow, it is the tab
+  // dying. Safari gave up sooner than Chrome, which is the same fault seen from
+  // a different browser.
+  //
+  // The first sixty are shown, which is enough to see that the right folder was
+  // picked. The rest upload exactly as before; they simply have no picture
+  // beside them while they wait.
+  const PREVIEW_LIMIT = 60;
+
   const handleCategoryFilePick = (categoryKey, e) => {
     const picked = Array.from(e.target.files || []);
     e.target.value = '';
-    const newFiles = picked.map((f) => ({
+
+    const already = (filesByCategory[categoryKey] || []).length;
+    const newFiles = picked.map((f, i) => ({
       file: f,
-      preview:  f.type.startsWith('image/') ? URL.createObjectURL(f) : null,
+      preview: (already + i) < PREVIEW_LIMIT && f.type.startsWith('image/')
+        ? URL.createObjectURL(f)
+        : null,
       isVideo:  f.type.startsWith('video/'),
       status:   'pending',
       publicUrl: null,
@@ -1238,7 +1256,14 @@ export function Content({ openWith, collection = false, upload = false }) {
                   </div>
                   {files.length > 0 && (
                     <div style={fileGrid}>
-                      {files.map((f, i) => (
+                      {/* Only the ones with a picture get a card.
+                          //
+                          // Five thousand cards is five thousand nodes the
+                          // browser has to lay out and keep laid out, and the
+                          // ones past the preview limit have nothing to show
+                          // anyway. The count below says how many are waiting,
+                          // which is the only thing worth knowing about them. */}
+                      {files.slice(0, PREVIEW_LIMIT).map((f, i) => (
                         <div key={i} style={{ ...fileCard, borderColor: f.status === 'done' ? 'rgba(100,160,100,0.4)' : f.status === 'error' ? 'rgba(156,90,90,0.4)' : colors.border }}>
                           {f.preview
                             ? <img src={f.preview} alt="" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 4, marginBottom: 4 }} />
@@ -1253,6 +1278,11 @@ export function Content({ openWith, collection = false, upload = false }) {
                           )}
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {files.length > PREVIEW_LIMIT && (
+                    <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 6 }}>
+                      and {files.length - PREVIEW_LIMIT} more waiting — they upload the same, without a picture here.
                     </div>
                   )}
                 </div>
