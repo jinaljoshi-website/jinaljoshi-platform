@@ -3771,14 +3771,21 @@ router.post('/extras', async (req, res) => {
 router.patch('/extras/:id', async (req, res) => {
   const { title, price_coins, visible, topic_example } = req.body;
   try {
+    // Whether it is visible is set outright, not coalesced.
+    //
+    // COALESCE keeps the old value when the new one is null, which is right for
+    // a caption nobody meant to change and wrong for a switch: it made hiding
+    // something depend on the frontend remembering to send false rather than
+    // simply omitting it. A boolean that cannot be turned off by any obvious
+    // means is a boolean that will eventually be reported as broken.
     const { rows } = await pool.query(
       `UPDATE extras_items SET
-         title       = COALESCE($1, title),
-         price_coins = COALESCE($2, price_coins),
-         visible     = COALESCE($3, visible),
+         title         = COALESCE($1, title),
+         price_coins   = COALESCE($2, price_coins),
+         visible       = CASE WHEN $3::boolean IS NULL THEN visible ELSE $3::boolean END,
          topic_example = COALESCE($4, topic_example)
        WHERE id = $5 RETURNING *`,
-      [title, price_coins, visible, topic_example, req.params.id]
+      [title, price_coins, typeof visible === 'boolean' ? visible : null, topic_example, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Item not found' });
     res.json({ ok: true, item: rows[0] });
