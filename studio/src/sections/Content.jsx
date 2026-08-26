@@ -543,6 +543,7 @@ export function Content({ openWith, collection = false, upload = false }) {
   // offering to cut a published set in half is offering an easy accident.
   const [carving, setCarving] = useState(null);   // { destination, title, price }
   const [carveBusy, setCarveBusy] = useState(false);
+  const [carveError, setCarveError] = useState('');
   const [moveTarget, setMoveTarget] = useState('');
   const [allSets, setAllSets] = useState([]);
 
@@ -565,10 +566,15 @@ export function Content({ openWith, collection = false, upload = false }) {
         price: carving.price,
       });
       setSuccess(`"${d.created.title}" made with ${d.created.items} photograph${d.created.items === 1 ? '' : 's'}. ${d.remaining} left in the pile.`);
-      setCarving(null); setSelected([]);
+      setCarving(null); setSelected([]); setCarveError('');
       await openReview(reviewSet);
       loadSets();
-    } catch (err) { setError(err.message); }
+    } catch (err) {
+      // Beside the button, not in the banner at the top of the page. The review
+      // is a modal and the banner is behind it, so a refusal shown there is a
+      // refusal nobody sees.
+      setCarveError(err.message);
+    }
     finally { setCarveBusy(false); }
   };
 
@@ -580,10 +586,10 @@ export function Content({ openWith, collection = false, upload = false }) {
         itemIds: selected, targetSetId: moveTarget,
       });
       setSuccess(`${d.moved} photograph${d.moved === 1 ? '' : 's'} moved into "${d.into}".`);
-      setMoveTarget(''); setSelected([]);
+      setMoveTarget(''); setSelected([]); setCarveError('');
       await openReview(reviewSet);
       loadSets();
-    } catch (err) { setError(err.message); }
+    } catch (err) { setCarveError(err.message); }
     finally { setCarveBusy(false); }
   };
 
@@ -2025,6 +2031,7 @@ export function Content({ openWith, collection = false, upload = false }) {
           onCancelCarve={() => setCarving(null)}
           onConfirmCarve={doCarve}
           carveBusy={carveBusy}
+          carveError={carveError}
           allSets={allSets}
           onLoadSets={loadAllSets}
           moveTarget={moveTarget}
@@ -2266,7 +2273,7 @@ function PhotographerPicker({ names, onChange, options }) {
 
 function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItemsChanged, onDeleteMarked, removingMarked, deletingItem, collection = false, lightbox, setLightbox, mediaUrl, categories, itemErrors, onKeepFailed,
                        selected, setSelected, onBulkMove, onBulkDelete, bulkBusy,
-                       pile, carving, onStartCarve, onCarveChange, onCancelCarve, onConfirmCarve, carveBusy,
+                       pile, carving, onStartCarve, onCarveChange, onCancelCarve, onConfirmCarve, carveBusy, carveError,
                        allSets, onLoadSets, moveTarget, onMoveTargetChange, onConfirmMove,
                        ordering, setOrdering, onSaveOrder, orderBusy }) {
   // Grouped for the grid, but navigation runs across the whole set in the order
@@ -2779,41 +2786,6 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
           </div>
         ))}
 
-        {/* Asked for once a destination is chosen, not before.
-            //
-            // A caption and a price mean nothing until it is known what is being
-            // made, and asking for them up front is asking somebody to describe
-            // a thing they have not decided on. */}
-        {pile && carving && selected.length > 0 && (
-          <div style={{ ...bulkBar, flexWrap: 'wrap', gap: 8 }}>
-            <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
-              {selected.length} photograph{selected.length === 1 ? '' : 's'} →{' '}
-              {carving.destination === 'gallery' ? 'the gallery'
-                : carving.destination === 'purchase' ? 'purchase only'
-                : 'the collection'}
-            </span>
-            <input autoFocus value={carving.title} placeholder="Caption"
-                   onChange={(e) => onCarveChange({ title: e.target.value })}
-                   style={{ ...S.input, width: 220, padding: '6px 10px', fontSize: 12 }} />
-            {carving.destination !== 'gallery' && (
-              <input value={carving.price} placeholder="Price in tokens" inputMode="numeric"
-                     onChange={(e) => onCarveChange({ price: e.target.value })}
-                     style={{ ...S.input, width: 140, padding: '6px 10px', fontSize: 12 }} />
-            )}
-            <button onClick={onConfirmCarve}
-                    disabled={carveBusy || !carving.title.trim()
-                      || (carving.destination !== 'gallery' && !(parseInt(carving.price, 10) > 0))}
-                    style={{ ...S.btn, fontSize: 12, padding: '6px 14px',
-                             opacity: (carveBusy || !carving.title.trim()) ? 0.5 : 1 }}>
-              {carveBusy ? 'Making…' : 'Make it'}
-            </button>
-            <button onClick={onCancelCarve} disabled={carveBusy}
-                    style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
-              Not yet
-            </button>
-          </div>
-        )}
-
         {selected.length > 0 && (
           <div style={bulkBar}>
             <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
@@ -2865,6 +2837,48 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                           style={{ ...S.btn, fontSize: 12, padding: '6px 12px' }}>
                     {carveBusy ? '…' : `Move ${selected.length}`}
                   </button>
+                )}
+              </>
+            )}
+
+            {/* In the bar, not above it.
+                //
+                // These fields were their own block placed before the selection
+                // bar, and the bar is sticky to the bottom of the review while
+                // the block was not. Choosing a destination halfway down a long
+                // set put the caption field somewhere off the top of the screen,
+                // so the dropdown vanished and nothing appeared to replace it. */}
+            {pile && carving && (
+              <>
+                <span style={{ fontFamily: sans, fontSize: 12, color: colors.accent }}>
+                  → {carving.destination === 'gallery' ? 'gallery'
+                     : carving.destination === 'purchase' ? 'purchase only'
+                     : 'collection'}
+                </span>
+                <input autoFocus value={carving.title} placeholder="Caption for the new set"
+                       onChange={(e) => onCarveChange({ title: e.target.value })}
+                       onKeyDown={(e) => { if (e.key === 'Enter' && carving.title.trim()) onConfirmCarve(); }}
+                       style={{ ...S.input, width: 200, padding: '6px 10px', fontSize: 12 }} />
+                {carving.destination !== 'gallery' && (
+                  <input value={carving.price} placeholder="Price in tokens" inputMode="numeric"
+                         onChange={(e) => onCarveChange({ price: e.target.value })}
+                         style={{ ...S.input, width: 130, padding: '6px 10px', fontSize: 12 }} />
+                )}
+                <button onClick={onConfirmCarve}
+                        disabled={carveBusy || !carving.title.trim()
+                          || (carving.destination !== 'gallery' && !(parseInt(carving.price, 10) > 0))}
+                        style={{ ...S.btn, fontSize: 12, padding: '6px 14px',
+                                 opacity: (carveBusy || !carving.title.trim()) ? 0.5 : 1 }}>
+                  {carveBusy ? 'Making…' : `Make it with ${selected.length}`}
+                </button>
+                <button onClick={onCancelCarve} disabled={carveBusy}
+                        style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
+                  Not yet
+                </button>
+                {carveError && (
+                  <span style={{ fontFamily: sans, fontSize: 11, color: '#D99A9A', width: '100%' }}>
+                    {carveError}
+                  </span>
                 )}
               </>
             )}
