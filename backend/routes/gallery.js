@@ -141,6 +141,113 @@ function computeSegments(items, userTier, basePrice, discountPct, isGuest, guest
 // GET /api/gallery/sets
 // ─────────────────────────────────────────────
 
+
+// ─────────────────────────────────────────────
+// POST /api/gallery/items/:itemId/like
+// ─────────────────────────────────────────────
+//
+// Liking a photograph, and unliking it.
+//
+// One person, one photograph, once — enforced by the primary key rather than by
+// remembering to check, so a double tap on a slow connection cannot count
+// twice.
+//
+// Only on a photograph somebody can actually see. Liking through a locked set
+// would be a way to learn what is in one without paying for it.
+router.post('/items/:itemId/like', authMid, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT i.id, i.set_id, i.tier_category, s.is_collection
+         FROM set_items i JOIN sets s ON s.id = i.set_id
+        WHERE i.id = $1 AND s.visible = TRUE`,
+      [req.params.itemId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'That photograph is not available' });
+
+    const { rows: after } = await pool.query(
+      `INSERT INTO item_likes (item_id, user_id) VALUES ($1, $2)
+       ON CONFLICT (item_id, user_id) DO NOTHING
+       RETURNING item_id`,
+      [req.params.itemId, req.user.userId]
+    );
+
+    // Nothing inserted means it was already liked, so this tap is the undo.
+    let liked = true;
+    if (!after.length) {
+      await pool.query(`DELETE FROM item_likes WHERE item_id = $1 AND user_id = $2`,
+        [req.params.itemId, req.user.userId]);
+      liked = false;
+    }
+
+    const { rows: counted } = await pool.query(
+      `SELECT count(*)::int AS n FROM item_likes WHERE item_id = $1`, [req.params.itemId]);
+
+    res.json({ liked, likes: counted[0].n });
+  } catch (err) {
+    console.error('gallery/like error:', err);
+    res.status(500).json({ error: 'Could not register that' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/gallery/sets/:setId/fit-vote
+// ─────────────────────────────────────────────
+//
+// Keep it or send it back.
+//
+// Open for a day from the moment the set went live, then the result stands. A
+// vote nobody can change afterwards is the point: it is a first reaction, not a
+// running tally to be gamed.
+//
+// Measured from published_at rather than created_at, because a set can sit as a
+// draft for a week and a poll that closed before anybody saw it is not a poll.
+router.post('/sets/:setId/fit-vote', authMid, async (req, res) => {
+  const { verdict } = req.body;
+  if (!['keep', 'return'].includes(verdict)) {
+    return res.status(400).json({ error: 'Say keep or return' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, category, published_at, created_at FROM sets
+        WHERE id = $1 AND visible = TRUE AND is_collection = FALSE`,
+      [req.params.setId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'That set is not available' });
+    const set = rows[0];
+
+    if (set.category !== 'fit_check') {
+      return res.status(400).json({ error: 'There is no vote on this set' });
+    }
+
+    const opened = new Date(set.published_at || set.created_at);
+    const closes = new Date(opened.getTime() + 24 * 60 * 60 * 1000);
+    if (Date.now() > closes.getTime()) {
+      return res.status(409).json({ error: 'VOTING_CLOSED', message: 'Voting on this one has closed.' });
+    }
+
+    // Changing your mind is allowed while it is open. Somebody who sees the
+    // rest of the photographs and thinks again should be able to say so.
+    await pool.query(
+      `INSERT INTO fit_votes (set_id, user_id, verdict) VALUES ($1, $2, $3)
+       ON CONFLICT (set_id, user_id) DO UPDATE SET verdict = $3, created_at = NOW()`,
+      [set.id, req.user.userId, verdict]
+    );
+
+    const { rows: tally } = await pool.query(
+      `SELECT count(*) FILTER (WHERE verdict = 'keep')::int   AS keep,
+              count(*) FILTER (WHERE verdict = 'return')::int AS ret
+         FROM fit_votes WHERE set_id = $1`,
+      [set.id]
+    );
+
+    res.json({ yours: verdict, keep: tally[0].keep, return: tally[0].ret, closesAt: closes });
+  } catch (err) {
+    console.error('gallery/fit-vote error:', err);
+    res.status(500).json({ error: 'Could not register your vote' });
+  }
+});
+
 router.get('/sets', authMid, async (req, res) => {
   try {
     const { rows: userRows } = await pool.query(
@@ -222,7 +329,16 @@ router.get('/sets', authMid, async (req, res) => {
               COALESCE(s.cover_key,
                 (SELECT r2_key FROM set_items WHERE set_id = s.id
                  AND media_type <> 'video' ORDER BY position ASC, created_at ASC LIMIT 1)
-              ) AS cover_key
+              ) AS cover_key,
+              -- How many people opened it, and how many likes its photographs
+              -- have between them. Counted rather than kept in a column: a
+              -- counter drifts the first time something fails halfway, and then
+              -- nobody can say whether the number is real.
+              (SELECT count(*)::int FROM set_views v WHERE v.set_id = s.id)     AS view_count,
+              (SELECT count(*)::int FROM item_likes l
+                 JOIN set_items i ON i.id = l.item_id
+                WHERE i.set_id = s.id)                                          AS like_count,
+              s.published_at
        FROM sets s
        WHERE s.visible = TRUE AND s.is_collection = FALSE
        -- Ordered by when it became available, falling back to upload date for
@@ -687,8 +803,58 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
       coverKey: coverRows[0]?.cover_key || null,
     });
 
-    const itemsWithUrls = ordered.map((item) => ({ ...item, media_url: toUrl(item.r2_key) }));
-    res.json({ items: itemsWithUrls });
+    // Likes on each photograph, and whether this person put one there.
+    //
+    // Fetched in one query rather than one per photograph: a set of two hundred
+    // would otherwise be two hundred round trips to draw a heart.
+    const itemIds = ordered.map((i) => i.id);
+    const likeCounts = new Map();
+    const mine = new Set();
+    if (itemIds.length) {
+      const { rows: lc } = await pool.query(
+        `SELECT item_id, count(*)::int AS n,
+                bool_or(user_id = $2) AS mine
+           FROM item_likes WHERE item_id = ANY($1)
+          GROUP BY item_id`,
+        [itemIds, req.user.userId]
+      );
+      for (const r of lc) {
+        likeCounts.set(r.item_id, r.n);
+        if (r.mine) mine.add(r.item_id);
+      }
+    }
+
+    const itemsWithUrls = ordered.map((item) => ({
+      ...item,
+      media_url: toUrl(item.r2_key),
+      likes: likeCounts.get(item.id) || 0,
+      likedByMe: mine.has(item.id),
+    }));
+
+    // The vote, if this set is one of the fit checks.
+    let fitCheck = null;
+    const { rows: setRows } = await pool.query(
+      `SELECT category, published_at, created_at FROM sets WHERE id = $1`, [setId]);
+    if (setRows[0]?.category === 'fit_check') {
+      const opened = new Date(setRows[0].published_at || setRows[0].created_at);
+      const closes = new Date(opened.getTime() + 24 * 60 * 60 * 1000);
+      const { rows: v } = await pool.query(
+        `SELECT count(*) FILTER (WHERE verdict = 'keep')::int   AS keep,
+                count(*) FILTER (WHERE verdict = 'return')::int AS ret,
+                max(verdict) FILTER (WHERE user_id = $2)        AS yours
+           FROM fit_votes WHERE set_id = $1`,
+        [setId, req.user.userId]
+      );
+      fitCheck = {
+        open: Date.now() <= closes.getTime(),
+        closesAt: closes,
+        keep: v[0].keep,
+        return: v[0].ret,
+        yours: v[0].yours || null,
+      };
+    }
+
+    res.json({ items: itemsWithUrls, fitCheck });
   } catch (err) {
     console.error('gallery/items error:', err);
     res.status(500).json({ error: 'Failed to load set items' });

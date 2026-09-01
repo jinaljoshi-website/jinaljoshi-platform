@@ -69,7 +69,7 @@ const COLLECTION_BUCKETS = [
 
 const CONTENT_CATEGORIES = [
   { key: 'behind_the_scenes', label: 'Behind-the-Scenes' },
-  { key: 'vlog_style',        label: 'Vlog-Style' },
+  { key: 'fit_check',         label: 'Fit Check — Vote Now' },
   { key: 'photos_videos',     label: 'Photos & Videos' },
 ];
 

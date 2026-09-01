@@ -11,7 +11,7 @@ import GuestNudge from '../components/GuestNudge';
 
 const CONTENT_CATEGORIES = [
   { key: 'behind_the_scenes', label: 'Behind-the-Scenes' },
-  { key: 'vlog_style',        label: 'Vlog-Style' },
+  { key: 'fit_check',         label: 'Fit Check — Vote Now' },
   { key: 'photos_videos',     label: 'Photos & Videos' },
 ];
 
@@ -22,7 +22,7 @@ const TABS = [
   { key: 'photos_videos',     label: 'Photos & Videos'   },
   { key: 'selfies',           label: 'Selfie of the Day' },
   { key: 'behind_the_scenes', label: 'Behind-the-Scenes' },
-  { key: 'vlog_style',        label: 'Vlog-Style'        },
+  { key: 'fit_check',         label: 'Fit Check — Vote Now' },
   { key: 'all',               label: 'All'               },
   { key: 'unlocked',          label: 'Unlocked Media'    },
 ];
