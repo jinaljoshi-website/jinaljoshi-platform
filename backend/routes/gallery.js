@@ -154,6 +154,52 @@ function computeSegments(items, userTier, basePrice, discountPct, isGuest, guest
 //
 // Only on a photograph somebody can actually see. Liking through a locked set
 // would be a way to learn what is in one without paying for it.
+
+// ─────────────────────────────────────────────
+// POST /api/gallery/items/viewed
+// ─────────────────────────────────────────────
+//
+// Which photographs somebody actually looked at.
+//
+// Set views counted people who opened a set, which put a number next to the
+// likes that could never be compared with them: a hundred photographs might
+// carry three hundred likes and twelve views, and the pair reads as broken even
+// though both are right. Counting photographs on both sides makes them the same
+// kind of number.
+//
+// Sent in batches as somebody scrolls rather than one request per photograph. A
+// set of two hundred would otherwise be two hundred requests to record that
+// somebody looked at it once.
+//
+// One row per person per photograph, ever. This is reach, not traffic: the
+// question is how many people have seen a photograph, not how many times it has
+// been on a screen.
+router.post('/items/viewed', authMid, async (req, res) => {
+  const ids = Array.isArray(req.body.itemIds) ? req.body.itemIds.slice(0, 300) : [];
+  if (!ids.length) return res.json({ ok: true, recorded: 0 });
+
+  try {
+    // Only photographs the person can actually see. Without this, a script
+    // could record views against a locked set and learn what is in it from the
+    // counts.
+    const { rows } = await pool.query(
+      `INSERT INTO item_views (item_id, user_id)
+       SELECT i.id, $2 FROM set_items i
+         JOIN sets s ON s.id = i.set_id
+        WHERE i.id = ANY($1) AND s.visible = TRUE
+       ON CONFLICT DO NOTHING
+       RETURNING item_id`,
+      [ids, req.user.userId]
+    );
+    res.json({ ok: true, recorded: rows.length });
+  } catch (err) {
+    // Never allowed to matter. This is information about the photographs, and
+    // it must not stand between a fan and looking at them.
+    console.error('gallery/items/viewed error:', err.message);
+    res.json({ ok: true, recorded: 0 });
+  }
+});
+
 router.post('/items/:itemId/like', authMid, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -334,7 +380,11 @@ router.get('/sets', authMid, async (req, res) => {
               -- have between them. Counted rather than kept in a column: a
               -- counter drifts the first time something fails halfway, and then
               -- nobody can say whether the number is real.
-              (SELECT count(*)::int FROM set_views v WHERE v.set_id = s.id)     AS view_count,
+              -- Photographs looked at, not sets opened, so this and the likes
+              -- beside it are the same kind of number.
+              (SELECT count(*)::int FROM item_views vi
+                 JOIN set_items i ON i.id = vi.item_id
+                WHERE i.set_id = s.id)                                          AS view_count,
               (SELECT count(*)::int FROM item_likes l
                  JOIN set_items i ON i.id = l.item_id
                 WHERE i.set_id = s.id)                                          AS like_count,
@@ -809,25 +859,31 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
     // would otherwise be two hundred round trips to draw a heart.
     const itemIds = ordered.map((i) => i.id);
     const likeCounts = new Map();
+    const viewCounts = new Map();
     const mine = new Set();
     if (itemIds.length) {
-      const { rows: lc } = await pool.query(
-        `SELECT item_id, count(*)::int AS n,
-                bool_or(user_id = $2) AS mine
-           FROM item_likes WHERE item_id = ANY($1)
-          GROUP BY item_id`,
-        [itemIds, req.user.userId]
-      );
-      for (const r of lc) {
+      const [lc, vc] = await Promise.all([
+        pool.query(
+          `SELECT item_id, count(*)::int AS n, bool_or(user_id = $2) AS mine
+             FROM item_likes WHERE item_id = ANY($1) GROUP BY item_id`,
+          [itemIds, req.user.userId]),
+        pool.query(
+          `SELECT item_id, count(*)::int AS n
+             FROM item_views WHERE item_id = ANY($1) GROUP BY item_id`,
+          [itemIds]),
+      ]);
+      for (const r of lc.rows) {
         likeCounts.set(r.item_id, r.n);
         if (r.mine) mine.add(r.item_id);
       }
+      for (const r of vc.rows) viewCounts.set(r.item_id, r.n);
     }
 
     const itemsWithUrls = ordered.map((item) => ({
       ...item,
       media_url: toUrl(item.r2_key),
       likes: likeCounts.get(item.id) || 0,
+      views: viewCounts.get(item.id) || 0,
       likedByMe: mine.has(item.id),
     }));
 
