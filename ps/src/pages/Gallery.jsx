@@ -424,14 +424,21 @@ export default function Gallery() {
                   // themselves looking at a full-screen photograph instead. */}
               <button onClick={(e) => { e.stopPropagation(); toggleLike(item.id); }}
                       aria-label={item.likedByMe ? 'Unlike' : 'Like'}
-                      style={{ position: 'absolute', bottom: 6, right: 6, zIndex: 2,
-                               display: 'flex', alignItems: 'center', gap: 4,
-                               background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
-                               border: 'none', borderRadius: 999, padding: '4px 9px',
+                      style={{ position: 'absolute', bottom: 8, right: 8, zIndex: 2,
+                               display: 'flex', alignItems: 'center', gap: 5,
+                               // Dark enough to sit on a bright photograph and
+                               // pale enough to sit on a dark one. An outline at
+                               // three-quarter opacity disappeared into both.
+                               background: 'rgba(0,0,0,0.62)', backdropFilter: 'blur(6px)',
+                               border: '1px solid rgba(255,255,255,0.22)',
+                               borderRadius: 999, padding: '6px 11px',
                                cursor: 'pointer', lineHeight: 1,
-                               fontFamily: F.mono, fontSize: 11,
-                               color: item.likedByMe ? '#E4A0A0' : 'rgba(255,255,255,0.75)' }}>
-                <span style={{ fontSize: 12 }}>{item.likedByMe ? '♥' : '♡'}</span>
+                               fontFamily: F.mono, fontSize: 12,
+                               // A heart nobody has filled is still white, not
+                               // grey. It has to look like something to press.
+                               color: item.likedByMe ? '#E4A0A0' : '#FFFFFF',
+                               textShadow: '0 1px 3px rgba(0,0,0,0.5)' }}>
+                <span style={{ fontSize: 14 }}>{item.likedByMe ? '♥' : '♡'}</span>
                 {item.likes > 0 && <span>{item.likes}</span>}
               </button>
             </div>
@@ -508,10 +515,37 @@ export default function Gallery() {
               {setItems[lightbox]?.media_type === 'video' ? (
                 <video src={setItems[lightbox].media_url} controls autoPlay style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8 }} />
               ) : (
-                <img src={setItems[lightbox]?.media_url} alt="" style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8, objectFit: 'contain' }} />
+                // Double tap to like, which is what a hand expects on a
+                // photograph. The button below does the same thing for anybody
+                // who does not think to try.
+                <img src={setItems[lightbox]?.media_url} alt=""
+                     onDoubleClick={() => { if (!setItems[lightbox]?.likedByMe) toggleLike(setItems[lightbox].id); }}
+                     style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8, objectFit: 'contain',
+                              userSelect: 'none', WebkitUserSelect: 'none' }} />
               )}
-              <div style={{ fontFamily: F.mono, fontSize: 11, color: 'rgba(255,255,255,0.4)', textAlign: 'center', marginTop: 10 }}>
-                {lightbox + 1} / {setItems.length}
+              {/* Liking it while looking at it.
+                  //
+                  // The heart on the grid tile is no use here: closing a
+                  // photograph to say you liked it, then opening the next one,
+                  // is not something anybody will do. This is the moment the
+                  // feeling happens, so the button belongs in it. */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            gap: 18, marginTop: 12 }}>
+                <button onClick={(e) => { e.stopPropagation(); toggleLike(setItems[lightbox].id); }}
+                        aria-label={setItems[lightbox]?.likedByMe ? 'Unlike' : 'Like'}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8,
+                                 background: 'rgba(255,255,255,0.08)',
+                                 border: `1px solid ${setItems[lightbox]?.likedByMe ? 'rgba(228,160,160,0.5)' : 'rgba(255,255,255,0.2)'}`,
+                                 borderRadius: 999, padding: '9px 18px', cursor: 'pointer',
+                                 fontFamily: F.sans, fontSize: 14, lineHeight: 1,
+                                 color: setItems[lightbox]?.likedByMe ? '#E4A0A0' : '#FFFFFF' }}>
+                  <span style={{ fontSize: 17 }}>{setItems[lightbox]?.likedByMe ? '♥' : '♡'}</span>
+                  <span>{setItems[lightbox]?.likes > 0 ? setItems[lightbox].likes : 'Like'}</span>
+                </button>
+
+                <span style={{ fontFamily: F.mono, fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
+                  {lightbox + 1} / {setItems.length}
+                </span>
               </div>
             </div>
             <button onClick={(e) => { e.stopPropagation(); setLightbox((i) => Math.min(setItems.length - 1, i + 1)); }} style={{ ...navBtn, right: 16 }} disabled={lightbox === setItems.length - 1}>›</button>
