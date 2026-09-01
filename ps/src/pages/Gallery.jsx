@@ -27,6 +27,48 @@ const TABS = [
   { key: 'unlocked',          label: 'Unlocked Media'    },
 ];
 
+
+// The result, once voting has closed.
+//
+// A bar rather than two numbers, because the split is the interesting part and
+// a reader should not have to do the arithmetic. The winning side is named in
+// words as well, since a bar alone leaves somebody squinting at which is longer.
+function FitResult({ keep, ret, yours }) {
+  const total = (keep || 0) + (ret || 0);
+  if (!total) {
+    return (
+      <div style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.6 }}>
+        Voting has closed and nobody weighed in. It stays, then.
+      </div>
+    );
+  }
+  const keepPct = Math.round((keep / total) * 100);
+  const verdict = keep > ret ? 'It stays.' : keep < ret ? 'Back it goes.' : 'A dead heat — I will decide.';
+
+  return (
+    <div>
+      <div style={{ fontFamily: F.sans, fontSize: 15, color: C.text, marginBottom: 12, fontWeight: 500 }}>
+        {verdict}
+      </div>
+      <div style={{ display: 'flex', height: 8, borderRadius: 999, overflow: 'hidden',
+                    background: 'rgba(255,255,255,0.06)', marginBottom: 8 }}>
+        <div style={{ width: `${keepPct}%`, background: '#8FC88F' }} />
+        <div style={{ width: `${100 - keepPct}%`, background: '#D99A9A' }} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F.mono, fontSize: 11, color: C.muted }}>
+        <span style={{ color: '#8FC88F' }}>Love it · {keep}</span>
+        <span>{total} {total === 1 ? 'vote' : 'votes'}</span>
+        <span style={{ color: '#D99A9A' }}>{ret} · Return it</span>
+      </div>
+      {yours && (
+        <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginTop: 10 }}>
+          You said {yours === 'keep' ? 'love it' : 'return it'}.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Gallery() {
   const navigate    = useNavigate();
   const [data,      setData]      = useState(null);
@@ -42,6 +84,49 @@ export default function Gallery() {
 
   const { setId } = useParams();
   const [setItems,  setSetItems]  = useState([]);
+  const [fitCheck,  setFitCheck]  = useState(null);
+  const [voting,    setVoting]    = useState(false);
+
+  // Totalled from the photographs rather than asked for separately: the counts
+  // arrive with them already, and a second request would only be a chance for
+  // the two numbers to disagree.
+  // Liking, shown before the server has agreed.
+  //
+  // A heart that waits for a round trip feels broken on a slow connection, so
+  // the tile changes at once and is corrected from the response. The server is
+  // the authority on the count; this is only about the wait.
+  const toggleLike = async (itemId) => {
+    setSetItems((prev) => prev.map((i) => i.id === itemId
+      ? { ...i, likedByMe: !i.likedByMe, likes: (i.likes || 0) + (i.likedByMe ? -1 : 1) }
+      : i));
+    try {
+      const d = await api.post(`/api/gallery/items/${itemId}/like`);
+      setSetItems((prev) => prev.map((i) => i.id === itemId
+        ? { ...i, likedByMe: d.liked, likes: d.likes } : i));
+    } catch {
+      // Put it back. A heart that stays filled after a failed request is a lie
+      // that persists until the page is reloaded.
+      setSetItems((prev) => prev.map((i) => i.id === itemId
+        ? { ...i, likedByMe: !i.likedByMe, likes: (i.likes || 0) + (i.likedByMe ? -1 : 1) }
+        : i));
+    }
+  };
+
+  const castVote = async (verdict) => {
+    if (!openSet?.id || voting) return;
+    setVoting(true);
+    try {
+      const d = await api.post(`/api/gallery/sets/${openSet.id}/fit-vote`, { verdict });
+      // The tally comes back but is not shown while voting is open. Kept so the
+      // result is already there the moment it closes.
+      setFitCheck((f) => ({ ...f, yours: d.yours, keep: d.keep, return: d.return }));
+    } catch (err) {
+      if (err.code === 'VOTING_CLOSED') setFitCheck((f) => ({ ...f, open: false }));
+    } finally { setVoting(false); }
+  };
+
+  const setViews = setItems.reduce((a, i) => a + (i.views || 0), 0);
+  const setLikes = setItems.reduce((a, i) => a + (i.likes || 0), 0);
   // One seed per opening of a set. The server shuffles from it, so every fetch
   // while the set is open returns the same order — refreshing after an unlock
   // does not rearrange the photographs somebody is part-way through. Opening
@@ -73,7 +158,7 @@ export default function Gallery() {
   const openViewer = async (set, { silent } = {}) => {
     if (!silent) navigate(`/platform/gallery/${set.id}`, { replace: false });
     setOpenSet(set);
-    setSetItems([]);
+    setSetItems([]); setFitCheck(null);
     setViewerError('');
     setItemsLoad(true);
     seedRef.current = Math.random().toString(36).slice(2, 12);
@@ -83,6 +168,18 @@ export default function Gallery() {
     try {
       const itemsData = await api.get(`/api/gallery/sets/${set.id}/items?seed=${seedRef.current}`);
       setSetItems(itemsData.items || []);
+      setFitCheck(itemsData.fitCheck || null);
+
+      // Recorded once the set is open and the photographs are on screen.
+      //
+      // Sent as one batch rather than a request per photograph, and never
+      // awaited: this is information about the pictures, and it must not stand
+      // between somebody and looking at them. A failure loses a count, which is
+      // the right thing to lose.
+      const seen = (itemsData.items || []).map((i) => i.id);
+      if (seen.length) {
+        api.post('/api/gallery/items/viewed', { itemIds: seen }).catch(() => {});
+      }
     } catch (err) {
       setViewerError('Failed to load set contents');
     } finally {
@@ -104,7 +201,7 @@ export default function Gallery() {
   const closeViewer = () => {
     if (setId) navigate('/platform/gallery', { replace: true });
     setOpenSet(null);
-    setSetItems([]);
+    setSetItems([]); setFitCheck(null);
     setViewerError('');
     setLightbox(null);
   };
@@ -234,8 +331,73 @@ export default function Gallery() {
           </div>
         )}
 
+        {/* What the set has drawn.
+            //
+            // Both counts are per photograph, so they can sit beside each other
+            // and mean something together. Shown only once there is something
+            // to show: a set announcing nought views has been seen by the one
+            // person reading it, which is a strange thing to tell them. */}
+        {(setViews > 0 || setLikes > 0) && (
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 14,
+                        fontFamily: F.mono, fontSize: 11, color: C.muted, letterSpacing: '0.06em' }}>
+            {setViews > 0 && <span>{setViews.toLocaleString('en-IN')} {setViews === 1 ? 'view' : 'views'}</span>}
+            {setLikes > 0 && (
+              <span style={{ color: '#E4A0A0' }}>
+                ♥ {setLikes.toLocaleString('en-IN')} {setLikes === 1 ? 'like' : 'likes'}
+              </span>
+            )}
+          </div>
+        )}
+
         <Clamped text={openSet.description} lines={3}
                  style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.7, maxWidth: 600 }} />
+
+        {/* The verdict on something newly bought.
+            //
+            // Open for a day, then the result stands. While it is open the tally
+            // stays hidden: numbers on screen change how people vote, and the
+            // point is a first reaction rather than agreement with whoever
+            // arrived first. */}
+        {fitCheck && (
+          <div style={{ border: `1px solid ${fitCheck.open ? C.accent : C.border}`, borderRadius: 12,
+                        padding: '16px 18px', margin: '18px 0', maxWidth: 600,
+                        background: fitCheck.open ? 'rgba(193,125,74,0.06)' : 'transparent' }}>
+            <div style={{ fontFamily: F.mono, fontSize: 10, letterSpacing: '0.12em',
+                          textTransform: 'uppercase', color: C.accent, marginBottom: 8 }}>
+              {fitCheck.open ? 'Fit check — vote now' : 'Fit check — closed'}
+            </div>
+
+            {fitCheck.open ? (
+              <>
+                <div style={{ fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, marginBottom: 14 }}>
+                  You decide what stays in my wardrobe. Tell me honestly whether this one
+                  earns its place, or goes back to the shop.
+                </div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {[['keep', 'Love it', '#8FC88F'], ['return', 'Return it', '#D99A9A']].map(([v, label, colour]) => (
+                    <button key={v} onClick={() => castVote(v)} disabled={voting}
+                            style={{ fontFamily: F.sans, fontSize: 14, padding: '10px 20px', borderRadius: 999,
+                                     cursor: voting ? 'default' : 'pointer',
+                                     background: fitCheck.yours === v ? colour : 'transparent',
+                                     color: fitCheck.yours === v ? '#14120F' : colour,
+                                     border: `1px solid ${colour}`,
+                                     fontWeight: fitCheck.yours === v ? 600 : 400,
+                                     opacity: voting ? 0.6 : 1 }}>
+                      {label}
+                    </button>
+                  ))}
+                  {fitCheck.yours && (
+                    <span style={{ fontFamily: F.sans, fontSize: 12, color: C.muted }}>
+                      Counted. You can change your mind until voting closes.
+                    </span>
+                  )}
+                </div>
+              </>
+            ) : (
+              <FitResult keep={fitCheck.keep} ret={fitCheck.return} yours={fitCheck.yours} />
+            )}
+          </div>
+        )}
 
 
 
@@ -254,6 +416,24 @@ export default function Gallery() {
                 <img src={item.media_url} alt="" style={thumb} />
               )}
               {item.media_type === 'video' && <div style={playBadge}>▶</div>}
+
+              {/* The heart sits on the photograph and does not open it.
+                  //
+                  // stopPropagation because the whole tile opens the lightbox,
+                  // and somebody reaching for the heart should not find
+                  // themselves looking at a full-screen photograph instead. */}
+              <button onClick={(e) => { e.stopPropagation(); toggleLike(item.id); }}
+                      aria-label={item.likedByMe ? 'Unlike' : 'Like'}
+                      style={{ position: 'absolute', bottom: 6, right: 6, zIndex: 2,
+                               display: 'flex', alignItems: 'center', gap: 4,
+                               background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
+                               border: 'none', borderRadius: 999, padding: '4px 9px',
+                               cursor: 'pointer', lineHeight: 1,
+                               fontFamily: F.mono, fontSize: 11,
+                               color: item.likedByMe ? '#E4A0A0' : 'rgba(255,255,255,0.75)' }}>
+                <span style={{ fontSize: 12 }}>{item.likedByMe ? '♥' : '♡'}</span>
+                {item.likes > 0 && <span>{item.likes}</span>}
+              </button>
             </div>
           ))}
 
