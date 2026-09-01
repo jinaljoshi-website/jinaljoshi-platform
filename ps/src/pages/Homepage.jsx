@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
-import { tierPerks, tierDescription, MEMBERSHIP_NOTES, cfgNum } from '../data';
+import { tierPerks, tierDescription, MEMBERSHIP_NOTES, cfgNum , PHYSICAL_GOODS } from '../data';
 
 // The homepage is public, but a signed-in member should not be invited to join
 // something they already pay for. Guarded because pre-rendering runs in Node,
@@ -289,7 +289,10 @@ export default function Homepage() {
               <a href="/terms"    style={footerLink}>Terms of Use</a>
               <a href="/privacy"  style={footerLink}>Privacy Policy</a>
               <a href="/refund"   style={footerLink}>Refund Policy</a>
-              <a href="/shipping" style={footerLink}>Shipping Policy</a>
+              {/* No shipping policy on a platform that ships nothing. The page
+                  itself stays reachable so an old link does not break, and comes
+                  back into the footer with the physical goods. */}
+              {PHYSICAL_GOODS && <a href="/shipping" style={footerLink}>Shipping Policy</a>}
               <a href="/contact"  style={footerLink}>Contact Us</a>
             </div>
             <div style={footerCol}>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { C, F } from '../tokens';
-import { bestMemberPrice, bestDiscountPct, guestMultiplier } from '../data';
+import { bestMemberPrice, bestDiscountPct, guestMultiplier, PHYSICAL_GOODS } from '../data';
 import GuestNudge from '../components/GuestNudge';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
@@ -73,12 +73,18 @@ export default function Shop() {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <div style={eyebrow}>Shop</div>
-        <h1 style={title}>Official shop</h1>
+        <div style={eyebrow}>{PHYSICAL_GOODS ? 'Shop' : 'Made for you'}</div>
+        <h1 style={title}>{PHYSICAL_GOODS ? 'Official shop' : 'Custom requests'}</h1>
         <p style={text}>
-          One-of-one pieces from set, limited merchandise drops, and things made just for you.
-          All purchases in J Tokens.
-          {data?.isGuest && bestDiscountPct() > 0 && ` Members get up to ${bestDiscountPct()}% off merchandise.`}
+          {PHYSICAL_GOODS ? (
+            <>
+              One-of-one pieces from set, limited merchandise drops, and things made just for you.
+              All purchases in J Tokens.
+              {data?.isGuest && bestDiscountPct() > 0 && ` Members get up to ${bestDiscountPct()}% off merchandise.`}
+            </>
+          ) : (
+            'Ask for something made just for you. Every request is read and decided on personally, and priced before anything is made.'
+          )}
         </p>
         <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 8, opacity: 0.8 }}>
           All purchases are voluntary, final &amp; non-refundable.
@@ -88,7 +94,8 @@ export default function Shop() {
       {/* Two very different things live here: repeatable merchandise, and one-of-one
           pieces sold through the wardrobe. Keeping them apart stops the shop grid
           implying an outfit can be restocked. */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+      {/* One tab is not a choice, so it is not shown as one. */}
+      <div style={{ display: PHYSICAL_GOODS ? 'flex' : 'none', gap: 8, marginBottom: 20 }}>
         {[
           { key: 'outfits',  label: 'Outfits' },
           { key: 'merch',    label: 'Merchandise' },
@@ -106,10 +113,10 @@ export default function Shop() {
         ))}
       </div>
 
-      {tab === 'outfits'  && <Outfits focusId={onOutfitPath ? itemId : null} />}
-      {tab === 'requests' && <Extras />}
+      {PHYSICAL_GOODS && tab === 'outfits'  && <Outfits focusId={onOutfitPath ? itemId : null} />}
+      {(!PHYSICAL_GOODS || tab === 'requests') && <Extras />}
 
-      {tab === 'merch' && <MerchDrop>
+      {PHYSICAL_GOODS && tab === 'merch' && <MerchDrop>
       {/* A top-up only helps when the problem is actually a shortage of tokens.
           Offering it beside "you were signed in on another device" is noise at
           best and misleading at worst. */}

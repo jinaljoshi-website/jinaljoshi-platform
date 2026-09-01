@@ -4,7 +4,7 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-r
 import { C, F } from '../tokens';
 import { api, getUser, logout } from '../api';
 import { track } from '../lib/traffic';
-import { TIERS, setDisplayCurrency } from '../data';
+import { TIERS, setDisplayCurrency , PHYSICAL_GOODS } from '../data';
 import CurrencyPicker from '../components/CurrencyPicker';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import InstallPrompt    from '../components/InstallPrompt';
@@ -37,7 +37,10 @@ const navItems = [
   { to: '/platform/chat',       label: 'Chat',           live: 'chat'  },
   { to: '/platform/calls',      label: 'Calls',          live: 'calls' },
   { to: '/platform/gallery',    label: 'Gallery',        live: 'gallery' },
-  { to: '/platform/shop',       label: 'Shop'          },
+  // Named for what it now holds. With the outfits and merchandise gone to their
+  // own subdomain, what remains is custom requests, and calling that a shop
+  // promises a catalogue that is not there.
+  { to: '/platform/shop',       label: PHYSICAL_GOODS ? 'Shop' : 'Custom Requests' },
   { to: '/platform/community',  label: 'Public Corner' },
   { to: '/platform/membership', label: 'Membership'    },
   { to: '/platform/coins',      label: 'Coins'         },
@@ -475,6 +478,9 @@ export default function Platform() {
             <Route path="community"  element={<Community />}  />
             <Route path="calls"      element={<Calls />}      />
             <Route path="shop"       element={<Shop />}       />
+            {/* Kept, so an old link from a message or an email still lands
+                somewhere sensible rather than on nothing. Shop itself shows only
+                custom requests while PHYSICAL_GOODS is off. */}
             <Route path="shop/:itemId"    element={<Shop />} />
             <Route path="outfits/:itemId" element={<Shop />} />
             {/* Custom requests moved into Shop. Request notifications still link

@@ -58,18 +58,6 @@ const SECTIONS = [
     access: 'All members · Token-priced per minute',
   },
   {
-    title:    'Official Merchandise',
-    path:     '/platform/shop',
-    desc:     'Handpicked drops — outfits, accessories, and keepsakes. Limited quantities, shipped to you directly. Member pricing is always better than guest pricing.',
-    features: [
-      'Limited stock drops with live inventory counts',
-      'Shipping address saved for future orders',
-      'Order notifications sent to Jinal automatically',
-      'Member discount applied site-wide',
-    ],
-    access: 'All members and guests · Members get discounted pricing',
-  },
-  {
     title:    'Personalised Requests',
     path:     '/platform/extras',
     desc:     'Ask for something made just for you — a birthday greeting, an anniversary message, a shoutout for someone special. Jinal fulfils these personally after confirming your request.',

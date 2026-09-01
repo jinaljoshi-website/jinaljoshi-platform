@@ -29,15 +29,15 @@ export default function Refund() {
 
         <Section title="Our commitment to transparency">
           <p>Personal Space is operated by Jinal Joshi, a sole proprietorship registered under GSTIN {gstin}, with its registered office at {address}.</p>
-          <p>This policy is split into two clearly separate parts, because Personal Space sells two genuinely different kinds of things, digital access (which cannot be "returned" once delivered) and physical merchandise (which can). Please read the part that applies to what you've purchased.</p>
+          <p>Everything sold on Personal Space is delivered digitally and cannot be "returned" once delivered. This policy sets out what that means in practice, and the narrow circumstances in which we will put things right.</p>
         </Section>
 
-        <Section title="Part A — Digital purchases (tokens, memberships, content, messages, calls)">
-          <p>This part covers everything delivered digitally: J Token recharges, membership plans, content set unlocks, direct messages, virtual call bookings, and personalised video requests.</p>
+        <Section title="What this covers">
+          <p>This covers everything on the platform: J Token recharges, membership plans, content set unlocks, direct messages, virtual call bookings, and personalised video requests.</p>
         </Section>
 
         <Section title="What J Tokens are">
-          <p>J Tokens are single-use digital utility instruments that exist solely within the Personal Space platform. They are used to access digital content, direct messaging, calls, merchandise, personalised requests, and membership plans.</p>
+          <p>J Tokens are single-use digital utility instruments that exist solely within the Personal Space platform. They are used to access digital content, direct messaging, calls, personalised requests, and membership plans.</p>
           <p><strong style={{ color: C.text }}>J Tokens are not currency.</strong> They cannot be transferred to another account, traded peer-to-peer, withdrawn, or converted back into Indian Rupees or any other currency under any circumstances. They carry no real-world cash value outside of this platform.</p>
           {rate !== null && <p>1 J Token = ₹{rate} incl. GST at the time of purchase. This rate is set by the platform and is subject to change with advance notice.</p>}
         </Section>
@@ -52,7 +52,7 @@ export default function Refund() {
             <li>Virtual call bookings</li>
             <li>Personalised video requests</li>
           </ul>
-          <p>Once tokens are credited to your account or a service has been activated, no refund will be issued. This policy exists because digital content, once accessed, cannot be "returned." Physical merchandise is handled separately, see Part B below.</p>
+          <p>Once tokens are credited to your account or a service has been activated, no refund will be issued. This policy exists because digital content, once accessed, cannot be "returned."</p>
           <p>By making any purchase, you confirm that the transaction is voluntary, made of your own free will, and that you understand and accept these terms.</p>
         </Section>
 
@@ -71,51 +71,8 @@ export default function Refund() {
           <p><strong style={{ color: C.text }}>Cash refunds are not available under any circumstances,</strong> including technical issues. Token credits are the only form of remedy available for digital purchases.</p>
         </Section>
 
-        <Section title="Part B — Physical merchandise">
-          <p>Merchandise on Personal Space is purchased using J Tokens you've already bought, not a fresh payment at checkout. Because of this, every remedy below is issued as a <strong style={{ color: C.text }}>token credit back to your balance</strong>, never a cash refund, consistent with how J Tokens work everywhere else on the platform.</p>
-        </Section>
-
-        <Section title="Cancelling a merchandise order">
-          <p>You may cancel a merchandise order for a full token credit at any time <strong style={{ color: C.text }}>before it has been dispatched</strong>. Once an order has been handed to the courier or postal service, it can no longer be cancelled, you may instead choose to refuse the parcel at the point of delivery.</p>
-          <p>To cancel an order before dispatch, write to <a href="mailto:orders@jinaljoshi.in" style={link}>orders@jinaljoshi.in</a> with your order details as soon as possible.</p>
-        </Section>
-
-        <Section title="Damaged, defective, or incorrect items">
-          <p>If you receive a merchandise item that is damaged, defective, or not what you ordered, write to <a href="mailto:orders@jinaljoshi.in" style={link}>orders@jinaljoshi.in</a> with photographic evidence <strong style={{ color: C.text }}>within 3 days of delivery</strong>. Once reviewed, we will arrange either a replacement (where stock allows) or a full token credit for the item, at your preference.</p>
-          <p>Items must be reported unused and, where possible, in their original packaging for a replacement or credit to be issued.</p>
-        </Section>
-
-        <Section title="Items not eligible for cancellation or return">
-          <p>Merchandise explicitly marked as limited-edition, personalised, or final sale at the time of purchase is not eligible for cancellation, return, or exchange except in cases of genuine damage or defect.</p>
-          <p>This includes <strong style={{ color: C.text }}>customised items</strong> — anything made to your specification, such as a mug printed with your chosen photograph and text. Production begins on your instruction and the result cannot be resold, so these cannot be cancelled once production has started.</p>
-        </Section>
-
-        <Section title="Part C — One-of-one items (Outfits)">
-          <p>Items listed under Outfits are genuine one-of-one pieces worn by Jinal on a shoot. There is exactly one of each. A clearly stated percentage of the proceeds from every such sale is donated by Jinal to a charity chosen by the buyer, and that donation is made once the sale completes.</p>
-          <p><strong style={{ color: C.text }}>One-of-one items cannot be cancelled, returned, or exchanged.</strong> Because only a single unit exists and a charitable donation is committed against the sale, the only circumstance in which a remedy is available is an item that arrives damaged.</p>
-        </Section>
-
-        <Section title="Damage claims on one-of-one items — unboxing video required">
-          <p>To claim for damage on a one-of-one item you must provide an <strong style={{ color: C.text }}>unboxing video</strong>. This is a condition of purchase and is stated again at checkout before payment.</p>
-          <p>The recording must be:</p>
-          <ul>
-            <li>Continuous and unedited, in a single take</li>
-            <li>Started <strong style={{ color: C.text }}>before</strong> the parcel is opened, showing the sealed packaging and shipping label</li>
-            <li>Continued without interruption through opening the parcel and removing the item</li>
-            <li>Clear enough for the reported damage to be visible</li>
-          </ul>
-          <p>Send it to <a href="mailto:orders@jinaljoshi.in" style={link}>orders@jinaljoshi.in</a> within <strong style={{ color: C.text }}>3 days of delivery</strong>. Without a recording meeting these conditions, a damage claim cannot be assessed, as there is no way to establish whether damage occurred in transit.</p>
-          <p>Where a claim is accepted, a token credit for the item is issued to your balance. As only one unit exists, replacement is not possible. The charitable donation associated with the sale is not reversed.</p>
-        </Section>
-
-        <Section title="Auction purchases">
-          <p>Winning an auction is a commitment to purchase. Tokens are not deducted when you bid, and are only charged when you claim the item you have won.</p>
-          <p>If a winning bid is left unclaimed within the stated window, the item is returned to general sale and no charge is made. Repeatedly leaving winning bids unclaimed may result in temporary suspension of access to future auctions, as each unclaimed bid prevented other members from winning.</p>
-          <p>Once an auction item is claimed and paid for, the one-of-one terms in Part C apply in full.</p>
-        </Section>
-
         <Section title="Processing time">
-          <p>Approved token credits for merchandise cancellations, damage, or defects are applied to your account balance within <strong style={{ color: C.text }}>7 business days</strong> of approval.</p>
+          <p>Approved token credits are applied to your account balance within <strong style={{ color: C.text }}>7 business days</strong> of approval.</p>
         </Section>
 
         <Section title="Chargebacks">

@@ -51,8 +51,7 @@ export default function Privacy() {
           <p>We collect only what is necessary to operate the platform:</p>
           <ul>
             <li><strong style={{ color: C.text }}>Account information</strong> — your email address, date of birth, and the password you set (stored as a secure hash, we never see it in plain text).</li>
-            <li><strong style={{ color: C.text }}>Shipping address</strong> — only if you place a merchandise order and choose to save your address for future use.</li>
-            <li><strong style={{ color: C.text }}>Usage data</strong> — token transactions, membership purchases, and content unlocks. This is necessary to maintain your balance and access history.</li>
+                        <li><strong style={{ color: C.text }}>Usage data</strong> — token transactions, membership purchases, and content unlocks. This is necessary to maintain your balance and access history.</li>
             <li><strong style={{ color: C.text }}>Device information</strong> — browser type and approximate location, collected automatically when you log in, for security purposes.</li>
             <li><strong style={{ color: C.text }}>Communications</strong> — messages sent through the platform's direct messaging feature are stored to maintain conversation history.</li>
           </ul>
@@ -65,8 +64,7 @@ export default function Privacy() {
             <li>To create and maintain your account</li>
             <li>To process token purchases and maintain your balance</li>
             <li>To manage membership access and benefits</li>
-            <li>To deliver merchandise orders to the address you provide</li>
-            <li>To send push notifications if you have enabled them</li>
+                        <li>To send push notifications if you have enabled them</li>
             <li>To respond to support requests</li>
             <li>To prevent fraud and maintain platform security</li>
           </ul>
@@ -77,8 +75,7 @@ export default function Privacy() {
           <p>We share your information only with the specific third parties genuinely necessary to deliver what you've purchased:</p>
           <ul>
             <li><strong style={{ color: C.text }}>Our payment gateway partner</strong> — to process token recharges and payments securely. See "Payment processing" below.</li>
-            <li><strong style={{ color: C.text }}>Courier and postal partners</strong> — your name, address, and phone number, only if you place a merchandise order, solely to deliver it to you.</li>
-          </ul>
+                      </ul>
           <p>We do not share your information with any other business partners, sellers, or third-party marketing programs, because Personal Space is not a marketplace and has none. We may disclose personal data if required by law, in response to a valid legal process, or where reasonably necessary to protect the rights, property, or safety of Personal Space, our users, or the public.</p>
         </Section>
 

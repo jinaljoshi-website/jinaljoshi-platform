@@ -57,14 +57,6 @@ export default function Contact() {
           </div>
 
           <div style={contactCard}>
-            <div style={cardIcon}>📦</div>
-            <div style={cardTitle}>Merchandise & orders</div>
-            <div style={cardDesc}>For shipping queries, damaged items, or order status. Please include your order details and photos if relevant.</div>
-            <a href="mailto:orders@jinaljoshi.in" style={emailLink}>orders@jinaljoshi.in</a>
-            <div style={responseTime}>Response within 48 hours for urgent order issues</div>
-          </div>
-
-          <div style={contactCard}>
             <div style={cardIcon}>⚖️</div>
             <div style={cardTitle}>Grievance officer</div>
             <div style={cardDesc}>Jinal Joshi, Grievance Officer under the IT (Intermediary Guidelines) Rules, 2021. For formal grievances or consumer protection matters.</div>

@@ -5,6 +5,22 @@
 export const PLATFORM_NAME      = 'Personal Space';
 export const PLATFORM_NAME_FULL = "Jinal Joshi's Personal Space";
 export const ARTIST_NAME        = 'Jinal Joshi';
+
+// Physical goods do not live here.
+//
+// An RBI merchant category covers one kind of business, and digital content and
+// physical retail are two. Carrying both on one account is what a payment
+// provider will eventually ask about, and the account worth protecting is the
+// one the platform runs on.
+//
+// So the outfits and the merchandise move to their own subdomain, with their
+// own merchant account, priced in rupees rather than tokens: a courier is not
+// an instant delivery, and a token exists because everything else here is.
+//
+// Nothing is deleted. The pages, the routes and the backend all remain, switched
+// off behind this one flag, so turning them back on is a single line rather than
+// a rebuild.
+export const PHYSICAL_GOODS = false;
 // ─────────────────────────────────────────────
 // LIVE PRICING — hydrated from /api/public/config before the app renders.
 // Nothing below defines a price. If config is unavailable we render nothing
@@ -165,12 +181,10 @@ export const MEMBERSHIP_NOTES = [
     text: 'Some things I mark purchase-only. Those sit outside membership whatever your tier, including Supreme.',
   },
   {
-    // The perk itself now names where the discount applies, so this only has to
-    // cover the two places a reader might reasonably assume it does and be
-    // wrong. Messages are priced by tier already; outfits are flat so a bid
-    // means the same from everyone.
+    // Names the one place a reader might reasonably assume the discount applies
+    // and be wrong: messages are priced by tier already.
     title: 'Discounts',
-    text: 'Messages are already priced by your tier, so no further discount applies there. One-of-One Outfits are flat-priced for everyone.',
+    text: 'Messages are already priced by your tier, so no further discount applies there.',
   },
 ];
 
@@ -192,7 +206,7 @@ export function tierPerks(tierId) {
     perks.push('Selfie of the Day, free');
   }
   if (e.discountPct) {
-    perks.push(`${e.discountPct}% additional off on Gallery, Merchandise & Calls`);
+    perks.push(`${e.discountPct}% additional off on Gallery & Calls`);
   }
   if (uncapped) {
     perks.push('No fair usage limit');
@@ -254,7 +268,6 @@ export function bestMemberPrice(baseTokens) {
 
 export const OFFERING_CATEGORIES = [
   { id: 'access',      label: 'Access',          subtitle: 'Chat & Calls' },
-  { id: 'merchandise', label: 'Merchandise',      subtitle: 'Outfits, Drops & Accessories' },
   { id: 'content',     label: 'Content',          subtitle: 'BTS, Videos, Photos & Albums' },
   { id: 'greetings',   label: 'Custom Greetings', subtitle: 'Birthday, Anniversary & Special Moments' },
 ];
@@ -265,7 +278,6 @@ export const OFFERING_CATEGORIES = [
 
 export const HOMEPAGE_OFFERINGS = [
   { id: 'community',   title: 'Member Community',      text: 'A live space where members and Jinal interact freely. Ask, share, react — in real time.' },
-  { id: 'merchandise', title: 'Official Merchandise',  text: 'Outfits, accessories and limited drops — available exclusively to members first.' },
   { id: 'messages',    title: 'Direct Messaging',      text: 'Your membership includes a monthly DM quota with a daily cap. Go over? One token per message.' },
   { id: 'calls',       title: 'Virtual Sessions',      text: 'Book a private audio or video call. Token-priced, member-discounted.' },
   { id: 'extras',      title: 'Personalised Requests', text: 'Custom video greetings for birthdays, anniversaries, or any moment worth celebrating.' },
@@ -276,7 +288,6 @@ export const HOMEPAGE_OFFERINGS = [
 
 export const FEATURE_LABELS = {
   community:   'member community',
-  merchandise: 'official merchandise',
   messages:    'direct messaging',
   calls:       'virtual sessions',
   extras:      'personalised requests',

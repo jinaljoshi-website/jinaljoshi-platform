@@ -48,7 +48,7 @@ export default function Terms() {
 
         <Section title="What is Personal Space?">
           <p>Personal Space (ps.jinaljoshi.in) is an independent digital platform run and managed personally by Jinal Joshi, operating as a sole proprietorship registered under GSTIN {gstin}, with its registered office at {address} (referred to in these Terms as "Platform Owner," "we," "us," or "our"). It is not a multi-artist platform or a fan aggregator. This is Jinal's own space, built for people who want to experience her journey more closely.</p>
-          <p>The platform offers exclusive content, direct messaging, calls, official merchandise, community interaction, personalised video requests, behind-the-scenes access, and early access to upcoming work. Everything inside the platform is accessed using J Tokens, the platform's internal currency.</p>
+          <p>The platform offers exclusive content, direct messaging, calls, community interaction, personalised video requests, behind-the-scenes access, and early access to upcoming work. Everything on Personal Space is delivered digitally, and is accessed using J Tokens, the platform's internal currency.</p>
           <p>This platform is independently operated. It is not affiliated with any talent agency, management company, or third-party creator network.</p>
           <p>By accessing, browsing, or otherwise using the Platform, you agree to be bound by these Terms of Use in their entirety. If you do not agree, please do not access or use the Platform.</p>
         </Section>
@@ -60,7 +60,7 @@ export default function Terms() {
         </Section>
 
         <Section title="J Tokens — the platform currency">
-          <p>J Tokens are the internal currency of Personal Space. They are used to access everything on the platform: content unlocks, direct messages, call bookings, merchandise purchases, membership plans, personalised requests, and more.</p>
+          <p>J Tokens are the internal currency of Personal Space. They are used to access everything on the platform: content unlocks, direct messages, call bookings, membership plans, personalised requests, and more.</p>
           <p>The price of J Tokens in Indian Rupees (INR) is set by the platform and is displayed in real time on the platform's pricing page and at checkout. The rate includes all applicable taxes. No hidden charges apply.</p>
           <p>Bulk discounts apply automatically when purchasing larger quantities of tokens. The exact thresholds and discount percentages are displayed at the time of purchase.</p>
           <p><strong style={{ color: C.text }}>Tokens are strictly single-use digital utility instruments.</strong> They exist solely within the Personal Space platform and hold no real-world cash value. Tokens cannot be converted back to INR, transferred to another account, traded peer-to-peer, or redeemed for cash under any circumstances. Token balances do not expire.</p>
@@ -90,7 +90,7 @@ export default function Terms() {
         </Section>
 
         <Section title="All sales are final">
-          <p>All digital purchases made on Personal Space, including J Token recharges, membership plans, content unlocks, call bookings, and personalised requests, are <strong style={{ color: C.text }}>final and non-refundable.</strong> Physical merchandise orders follow a separate cancellation and damage-reporting process, set out in full in our <a href="/refund" style={link}>Refund &amp; Cancellation Policy</a>.</p>
+          <p>All purchases made on Personal Space, including J Token recharges, membership plans, content unlocks, call bookings, and personalised requests, are <strong style={{ color: C.text }}>final and non-refundable.</strong> The full position is set out in our <a href="/refund" style={link}>Refund &amp; Cancellation Policy</a>.</p>
           <p>Tokens cannot be refunded once purchased. Memberships cannot be cancelled for a refund once activated.</p>
           <p><strong style={{ color: C.text }}>Technical issues:</strong> If a purchase fails due to a verifiable technical error on the platform's side, you may write to <a href="mailto:billing@jinaljoshi.in" style={link}>billing@jinaljoshi.in</a>. Token credits may be issued at the platform's discretion. Cash refunds are not available under any circumstances.</p>
           <p>By making any purchase, you confirm that the transaction is voluntary and made of your own free will for your own benefit. You agree to pay all charges associated with your use of the Platform's services.</p>
@@ -109,11 +109,6 @@ export default function Terms() {
           <p>Jinal may end a call immediately if any of the above is breached, or for any conduct she considers inappropriate. A call ended for that reason is not refundable, and the account may be restricted or terminated. Tokens are refunded only where a call does not take place for reasons set out in our <a href="/refund" style={link}>Refund &amp; Cancellation Policy</a>.</p>
         </Section>
 
-        <Section title="Merchandise and shipping">
-          <p>Merchandise items are shipped to the address provided at the time of purchase. Delivery timelines, shipping areas, and courier handling are set out in full in our <a href="/shipping" style={link}>Shipping Policy</a>.</p>
-          <p>Merchandise cancellations, damaged or incorrect items, and applicable token-credit remedies are set out in full in our <a href="/refund" style={link}>Refund &amp; Cancellation Policy</a>, rather than repeated here, so that the current rules always live in one place.</p>
-        </Section>
-
         <Section title="Account and security">
           <p>You are responsible for maintaining the security of your account credentials. Personal Space enforces single-device login for fan accounts: signing in on a new device will end your previous session.</p>
           <p>You may not share your account with another person or allow anyone else to use your account. Accounts found to be shared may be terminated.</p>
@@ -121,7 +116,7 @@ export default function Terms() {
         </Section>
 
         <Section title="Privacy">
-          <p>Personal Space collects the minimum information required to operate the platform: your email address, date of birth, and any shipping address you choose to provide. Your data is not sold to third parties.</p>
+          <p>Personal Space collects the minimum information required to operate the platform: your email address and date of birth. Your data is not sold to third parties.</p>
           <p>Payment processing is handled by our secure, third-party payment gateway partner. Personal Space does not store your card or bank details. Please refer to our <a href="/privacy" style={link}>Privacy Policy</a> for full details.</p>
         </Section>
 
