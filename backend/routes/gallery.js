@@ -474,6 +474,11 @@ router.get('/sets', authMid, async (req, res) => {
         cover_url: coverBlurred ? (s.cover_blur || null) : toUrl(s.cover_key),
         photoCount: counts.photos,
         videoCount: counts.videos,
+        // Fetched by the query above and, until now, dropped here. The columns
+        // were being selected and thrown away, so the card had nothing to show
+        // however carefully it asked.
+        view_count: s.view_count || 0,
+        like_count: s.like_count || 0,
         isFreeForAll: items.length > 0 && items.every((i) => i.tier_category === 'free'),
 
         freeCount: segments.freeCount,

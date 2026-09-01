@@ -696,6 +696,31 @@ export default function Gallery() {
                       <span style={{ fontFamily: F.mono, fontSize: 11, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Preview</span>
                     </div>
                   )}
+
+                  {/* On the cover rather than in the text below it.
+                      //
+                      // An eye and a heart need no labels and take almost no
+                      // room, which is what lets them sit on the photograph
+                      // instead of pushing the title further down every card. */}
+                  {(item.view_count > 0 || item.like_count > 0) && (
+                    <div style={{ position: 'absolute', bottom: 8, right: 8,
+                                  display: 'flex', alignItems: 'center', gap: 10,
+                                  background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)',
+                                  borderRadius: 999, padding: '5px 10px',
+                                  fontFamily: F.mono, fontSize: 11, lineHeight: 1,
+                                  color: 'rgba(255,255,255,0.9)' }}>
+                      {item.view_count > 0 && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ fontSize: 12 }}>👁</span>{item.view_count.toLocaleString('en-IN')}
+                        </span>
+                      )}
+                      {item.like_count > 0 && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#E4A0A0' }}>
+                          <span style={{ fontSize: 12 }}>♥</span>{item.like_count.toLocaleString('en-IN')}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {catLabel && (
@@ -706,28 +731,12 @@ export default function Gallery() {
 
                 <div style={{ fontFamily: F.display, fontSize: 20, color: C.text, marginBottom: 4 }}>{item.title}</div>
 
-                {(item.photoCount > 0 || item.videoCount > 0 || item.view_count > 0 || item.like_count > 0) && (
-                  <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 6,
-                                display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <span>
-                      {[
-                        item.photoCount > 0 ? `${item.photoCount} photo${item.photoCount === 1 ? '' : 's'}` : null,
-                        item.videoCount > 0 ? `${item.videoCount} video${item.videoCount === 1 ? '' : 's'}` : null,
-                      ].filter(Boolean).join(' · ')}
-                    </span>
-                    {/* What it has drawn, on the card as well as inside.
-                        //
-                        // Somebody scanning the grid should be able to tell what
-                        // people have actually looked at without opening each
-                        // one. Shown only where there is something to show: a
-                        // row of noughts across a new gallery says nothing
-                        // except that it is new. */}
-                    {item.view_count > 0 && (
-                      <span style={{ opacity: 0.75 }}>· {item.view_count.toLocaleString('en-IN')} views</span>
-                    )}
-                    {item.like_count > 0 && (
-                      <span style={{ color: '#E4A0A0' }}>· ♥ {item.like_count.toLocaleString('en-IN')}</span>
-                    )}
+                {(item.photoCount > 0 || item.videoCount > 0) && (
+                  <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 6 }}>
+                    {[
+                      item.photoCount > 0 ? `${item.photoCount} photo${item.photoCount === 1 ? '' : 's'}` : null,
+                      item.videoCount > 0 ? `${item.videoCount} video${item.videoCount === 1 ? '' : 's'}` : null,
+                    ].filter(Boolean).join(' · ')}
                   </div>
                 )}
 
