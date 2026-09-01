@@ -1,3 +1,4 @@
+import { PHYSICAL_GOODS } from '../data';
 // ps/src/pages/Landing.jsx
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -14,7 +15,8 @@ const NAV_SECTIONS = [
   { path: '/platform/chat',       icon: '\u{1F4AC}', label: 'Messages'      },
   { path: '/platform/calls',      icon: '\u{1F4DE}', label: 'Calls'         },
   { path: '/platform/gallery',    icon: '\u{1F4F8}', label: 'Gallery'       },
-  { path: '/platform/shop',       icon: '\u{1F6CD}', label: 'Shop'          },
+  { path: PHYSICAL_GOODS ? '/platform/shop' : '/platform/requests',
+    icon: '\u{1F31F}', label: PHYSICAL_GOODS ? 'Shop' : 'Requests' },
   { path: '/platform/community',  icon: '\u2728',    label: 'Public Corner' },
   { path: '/platform/membership', icon: '\u{1F451}', label: 'Membership'    },
   { path: '/platform/coins',      icon: 'coin',       label: 'Coins'         },
@@ -25,9 +27,13 @@ const SECTIONS = [
   { path: '/platform/chat',              icon: '\u{1F4AC}', label: 'Chat',            desc: 'Send Jinal a message', live: 'chat'  },
   { path: '/platform/calls',             icon: '\u{1F4DE}', label: 'Calls',           desc: 'Book a personal call', live: 'calls' },
   { path: '/platform/gallery',           icon: '\u{1F4F8}', label: 'Gallery',         desc: 'Exclusive photo sets', live: 'gallery' },
-  { path: '/platform/shop?tab=outfits',  icon: '\u{1F457}', label: 'Outfits',         desc: 'One of one, from set' },
-  { path: '/platform/shop?tab=merch',    icon: '\u{1F6CD}', label: 'Merch',           desc: 'Limited drops'        },
-  { path: '/platform/shop?tab=requests', icon: '\u{1F31F}', label: 'Custom Requests', desc: 'Ask for something'    },
+  // Outfits and Merch belong to the shop subdomain now, and a tile that opens a
+  // tab which no longer renders is worse than no tile at all.
+  ...(PHYSICAL_GOODS ? [
+    { path: '/platform/shop?tab=outfits', icon: '\u{1F457}', label: 'Outfits',       desc: 'One of one, from set' },
+    { path: '/platform/shop?tab=merch',   icon: '\u{1F6CD}', label: 'Merch',         desc: 'Limited drops'        },
+  ] : []),
+  { path: '/platform/requests',          icon: '\u{1F31F}', label: 'Custom Requests', desc: 'Ask for something'    },
   { path: '/platform/community',         icon: '\u2728',    label: 'Public Corner',   desc: 'Live fan space'       },
   { path: '/platform/membership',        icon: '\u{1F451}', label: 'Membership',      desc: 'Your member plan'     },
   { path: '/platform/coins',             icon: 'coin',       label: 'Coins',           desc: 'J Token wallet'       },

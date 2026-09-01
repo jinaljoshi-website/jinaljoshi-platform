@@ -25,7 +25,7 @@ function buildTopics(c, go) {
     keys: ['token', 'coin', 'currency', 'jtoken', 'j token'],
     a: () => (
       <>
-        J Tokens are what you spend here — on messages, photo sets, calls and merchandise.
+        J Tokens are what you spend here — on messages, photo sets, calls and custom requests.
         One token is {rupees(c.tokenRate)} including tax, and they never expire.
         {c.tokens.total > 0
           ? <> You have <b>{plural(c.tokens.total, 'token', 'tokens')}</b> right now.</>
@@ -44,7 +44,7 @@ function buildTopics(c, go) {
           You have <b>{plural(c.tokens.gifted, 'gifted token', 'gifted tokens')}</b> from Jinal and{' '}
           <b>{plural(c.tokens.purchased, 'purchased token', 'purchased tokens')}</b>.
           Gifted ones are spent first, and they work on messages, photo sets and selfies —
-          not on merchandise, calls or membership.
+          not on The Private Collection, calls or membership.
           {c.tokens.giftedExpiresInDays !== null && c.tokens.giftedExpiresInDays !== undefined && (
             <> Your gifted tokens expire in <b>{plural(c.tokens.giftedExpiresInDays, 'day', 'days')}</b>.</>
           )}

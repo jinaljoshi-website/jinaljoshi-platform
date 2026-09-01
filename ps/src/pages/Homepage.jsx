@@ -24,7 +24,6 @@ const OFFERINGS = [
   { id: 'gallery',     title: 'Exclusive Content',     text: "There's only so much I can post on social media. Extended videos, alternate edits, more photos. Get all of them here. Only here!" },
   { id: 'bts',         title: 'Behind the Scenes',     text: "See how the work actually gets made — on set, on location, and everything the final edit leaves out." },
   { id: 'earlyAccess', title: 'Early Access',          text: "Public posts are planned and go live at a pre-decided time. Here, you see what might take a week to come live on social media." },
-  { id: 'merchandise', title: 'Official Merchandise',  text: "You get the option to own select merchandise, handcrafted accessories and outfits. Regular drops!" },
   { id: 'extras',      title: 'Personalised Requests', text: "Special days! Get a video from me wishing you or your loved ones on special days." },
   { id: 'messages',    title: 'Direct Messaging',      text: "For those of you who wish to write to me directly. No AI, no representative. You speak with me." },
   { id: 'calls',       title: 'Video & Audio Calls',   text: "Schedule a call with Jinal at a time that suits you both, or connect instantly when she is free." },
@@ -35,7 +34,7 @@ function howItWorks(discountCfg) {
     ? ` Tokens can also be bought at a discounted price in bulk: ${discountCfg.tier1Pct}% off on ${discountCfg.tier1Threshold} tokens, ${discountCfg.tier2Pct}% off on ${discountCfg.tier2Threshold}.`
     : '';
   return [
-  { title: 'J Token',                  text: "A wonderful currency that works inside the platform. Remember tokens from Play Zone? Same thing. One token works for everything: content, calls, messages, merchandise, memberships." },
+  { title: 'J Token',                  text: "A wonderful currency that works inside the platform. Remember tokens from Play Zone? Same thing. One token works for everything: content, calls, messages, custom requests, memberships." },
   { title: 'Membership',               text: "Each item has an associated token value. A membership offers a discounted token price for every item you access. Multiple tiers to choose from. Explore what works best for you." },
   { title: 'No Cash Reward or Refund', text: "Tokens can never be redeemed for cash or refund. In case of a technical issue, get token credits by writing to support. All purchases are voluntary and final." },
   { title: 'Heavy Discounts',          text: `Memberships bring discounts on every purchase.${bulk} Save more, do more.` },

@@ -3981,7 +3981,7 @@ router.patch('/requests/:id', async (req, res) => {
       cancelled: { title: 'Request cancelled',     body: `"${current.topic}" was cancelled.` },
     }[status];
     if (statusPush) {
-      pushToUser(current.user_id, { ...statusPush, url: '/platform/extras', tag: 'request' })
+      pushToUser(current.user_id, { ...statusPush, url: '/platform/requests', tag: 'request' })
         .catch((e) => console.error('Request status push failed:', e.message));
     }
   } catch (err) {
@@ -4131,7 +4131,7 @@ router.post('/requests/:id/counter', async (req, res) => {
         body:  refundAmount > 0
           ? `Jinal lowered the price to ${price} tokens. ${refundAmount} refunded.`
           : `Jinal confirmed your request at ${price} tokens.`,
-        url:   '/platform/extras',
+        url:   '/platform/requests',
         tag:   'request',
       }).catch((e) => console.error('Counter push failed:', e.message));
       return res.json({ ok: true, message: `Confirmed at ${price} tokens (${refundAmount} refunded to the fan).`, autoApplied: true });
@@ -4148,7 +4148,7 @@ router.post('/requests/:id/counter', async (req, res) => {
     pushToUser(current.user_id, {
       title: 'Jinal sent a counter-offer',
       body:  `"${current.topic}" — ${price} tokens. Tap to accept or decline.`,
-      url:   '/platform/extras',
+      url:   '/platform/requests',
       tag:   'request',
     }).catch((e) => console.error('Counter push failed:', e.message));
   } catch (err) {

@@ -40,7 +40,8 @@ const navItems = [
   // Named for what it now holds. With the outfits and merchandise gone to their
   // own subdomain, what remains is custom requests, and calling that a shop
   // promises a catalogue that is not there.
-  { to: '/platform/shop',       label: PHYSICAL_GOODS ? 'Shop' : 'Custom Requests' },
+  { to: PHYSICAL_GOODS ? '/platform/shop' : '/platform/requests',
+    label: PHYSICAL_GOODS ? 'Shop' : 'Requests' },
   { to: '/platform/community',  label: 'Public Corner' },
   { to: '/platform/membership', label: 'Membership'    },
   { to: '/platform/coins',      label: 'Coins'         },
@@ -477,15 +478,19 @@ export default function Platform() {
             <Route path="collections/:setId" element={<Suspense fallback={null}><Collections /></Suspense>} />
             <Route path="community"  element={<Community />}  />
             <Route path="calls"      element={<Calls />}      />
-            <Route path="shop"       element={<Shop />}       />
-            {/* Kept, so an old link from a message or an email still lands
-                somewhere sensible rather than on nothing. Shop itself shows only
-                custom requests while PHYSICAL_GOODS is off. */}
+            {/* Named for what it holds.
+                //
+                // It was the shop, and with the outfits and merchandise gone to
+                // their own subdomain what remains is custom requests. The old
+                // paths all still resolve: notifications, emails and messages
+                // sent months ago point at them, and none of those can be
+                // rewritten after the fact. */}
+            <Route path="requests"        element={<Shop />} />
+            <Route path="requests/:itemId" element={<Shop />} />
+            <Route path="shop"            element={<Navigate to="/platform/requests" replace />} />
             <Route path="shop/:itemId"    element={<Shop />} />
             <Route path="outfits/:itemId" element={<Shop />} />
-            {/* Custom requests moved into Shop. Request notifications still link
-                here, so this redirects rather than 404s. */}
-            <Route path="extras"     element={<Navigate to="/platform/shop?tab=requests" replace />} />
+            <Route path="extras"          element={<Navigate to="/platform/requests" replace />} />
             <Route path="coins"      element={<Coins />}      />
             <Route path="profile"    element={<Profile />}    />
             <Route path="*"          element={<Navigate to="chat" replace />} />
@@ -528,12 +533,14 @@ export default function Platform() {
                 <Route path="collections/:setId" element={<Suspense fallback={null}><Collections /></Suspense>} />
                 <Route path="community"  element={<Community />}  />
                 <Route path="calls"      element={<Calls />}      />
-                <Route path="shop"       element={<Shop />}       />
+                <Route path="requests"        element={<Shop />} />
+            <Route path="requests/:itemId" element={<Shop />} />
+            <Route path="shop"            element={<Navigate to="/platform/requests" replace />} />
             <Route path="shop/:itemId"    element={<Shop />} />
             <Route path="outfits/:itemId" element={<Shop />} />
                 {/* Custom requests moved into Shop. Request notifications still link
                 here, so this redirects rather than 404s. */}
-            <Route path="extras"     element={<Navigate to="/platform/shop?tab=requests" replace />} />
+            <Route path="extras"          element={<Navigate to="/platform/requests" replace />} />
                 <Route path="coins"      element={<Coins />}      />
                 <Route path="profile"    element={<Profile />}    />
                 <Route path="*"          element={<Navigate to="chat" replace />} />
