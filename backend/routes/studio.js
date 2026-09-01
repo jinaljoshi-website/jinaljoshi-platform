@@ -1107,6 +1107,29 @@ router.post('/content/:id/move-to', async (req, res) => {
     );
     if (!moving.length) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'None of those photographs are in this set' }); }
 
+    // Taking photographs out of something people have paid for.
+    //
+    // Access is granted against a set, not against a photograph, so anybody who
+    // unlocked this set loses whatever leaves it. They paid for what was in
+    // there at the time and would simply find less of it one day, with no
+    // notice and no refund.
+    //
+    // Not forbidden, because a set sorted into the wrong place has to be
+    // fixable. But it is said out loud and asked about once, so it cannot
+    // happen by a slip of the hand.
+    const { rows: paid } = await client.query(
+      `SELECT count(*)::int AS n FROM access_grants WHERE set_id = $1`,
+      [req.params.id]
+    );
+    if (paid[0].n > 0 && !req.body.confirmPaidSet) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'SET_HAS_BEEN_UNLOCKED',
+        unlockedBy: paid[0].n,
+        message: `${paid[0].n} ${paid[0].n === 1 ? 'person has' : 'people have'} unlocked this set. Moving photographs out takes them away from ${paid[0].n === 1 ? 'them' : 'those people'}, with no refund. Move them anyway?`,
+      });
+    }
+
     // Appended, not interleaved. A set that has been arranged should keep its
     // order, and new arrivals belong at the end until somebody says otherwise.
     const { rows: posRows } = await client.query(
@@ -1130,6 +1153,18 @@ router.post('/content/:id/move-to', async (req, res) => {
         [targetSetId]);
       if (kind[0].purchase) {
         await client.query(`UPDATE set_items SET tier_category = 'purchase_only' WHERE id = ANY($1)`,
+          [moving.map((m) => m.id)]);
+      } else {
+        // Back to unsorted, and back into the queue.
+        //
+        // A photograph that came from a collection carries no tier and a
+        // reviewed_at from the day it went in. Left alone it would arrive in a
+        // gallery draft looking like it had already been dealt with, and sit
+        // there invisible to fans and invisible in the queue. Clearing both
+        // puts it where somebody will actually see it again.
+        await client.query(
+          `UPDATE set_items SET tier_category = NULL, reviewed_at = NULL, review_flag = NULL
+            WHERE id = ANY($1)`,
           [moving.map((m) => m.id)]);
       }
       // Otherwise they arrive untiered and wait for the review, which is what

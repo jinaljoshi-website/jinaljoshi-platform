@@ -544,6 +544,7 @@ export function Content({ openWith, collection = false, upload = false }) {
   const [carving, setCarving] = useState(null);   // { destination, title, price }
   const [carveBusy, setCarveBusy] = useState(false);
   const [carveError, setCarveError] = useState('');
+  const [moveWarning, setMoveWarning] = useState(null);
   const [moveTarget, setMoveTarget] = useState('');
   const [allSets, setAllSets] = useState([]);
 
@@ -578,18 +579,24 @@ export function Content({ openWith, collection = false, upload = false }) {
     finally { setCarveBusy(false); }
   };
 
-  const doMoveTo = async () => {
+  const doMoveTo = async (confirmPaidSet = false) => {
     if (!reviewSet || !moveTarget) return;
     setCarveBusy(true); setError('');
     try {
       const d = await api.post(`/api/studio/content/${reviewSet.id}/move-to`, {
-        itemIds: selected, targetSetId: moveTarget,
+        itemIds: selected, targetSetId: moveTarget, confirmPaidSet,
       });
       setSuccess(`${d.moved} photograph${d.moved === 1 ? '' : 's'} moved into "${d.into}".`);
-      setMoveTarget(''); setSelected([]); setCarveError('');
+      setMoveTarget(''); setSelected([]); setCarveError(''); setMoveWarning(null);
       await openReview(reviewSet);
       loadSets();
-    } catch (err) { setCarveError(err.message); }
+    } catch (err) {
+      // Somebody paid for this set, and what leaves it leaves their account too.
+      // Asked once, in the bar, rather than refused outright: a set sorted into
+      // the wrong place still has to be fixable.
+      if (err.code === 'SET_HAS_BEEN_UNLOCKED') setMoveWarning(err.message);
+      else setCarveError(err.message);
+    }
     finally { setCarveBusy(false); }
   };
 
@@ -2036,7 +2043,10 @@ export function Content({ openWith, collection = false, upload = false }) {
           onLoadSets={loadAllSets}
           moveTarget={moveTarget}
           onMoveTargetChange={setMoveTarget}
-          onConfirmMove={doMoveTo}
+          onConfirmMove={() => doMoveTo(false)}
+          moveWarning={moveWarning}
+          onConfirmMoveAnyway={() => doMoveTo(true)}
+          onDismissMoveWarning={() => setMoveWarning(null)}
           bulkBusy={bulkBusy}
           onDelete={deleteItem}
           onRetier={retierItem}
@@ -2275,6 +2285,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                        selected, setSelected, onBulkMove, onBulkDelete, bulkBusy,
                        pile, carving, onStartCarve, onCarveChange, onCancelCarve, onConfirmCarve, carveBusy, carveError,
                        allSets, onLoadSets, moveTarget, onMoveTargetChange, onConfirmMove,
+                       moveWarning, onConfirmMoveAnyway, onDismissMoveWarning,
                        ordering, setOrdering, onSaveOrder, orderBusy }) {
   // Grouped for the grid, but navigation runs across the whole set in the order
   // shown. A shoot produces near-identical frames, so being able to step through
@@ -2813,8 +2824,16 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                 // A pile is a set nobody has decided about yet. A published set
                 // has been decided, and offering to cut one in half from the
                 // same bar is offering an easy accident. */}
-            {pile && !carving && (
+            {/* Moving is offered everywhere; carving only in the queue.
+                //
+                // A set sorted into the wrong place has to be fixable
+                // afterwards, and going through a whole collection by hand is
+                // not a fix. But cutting a published set into new ones is a
+                // different act from correcting a mistake, and belongs where the
+                // sorting happens. */}
+            {!carving && (
               <>
+                {pile && (
                 <select defaultValue="" disabled={bulkBusy || carveBusy}
                         onChange={(e) => { if (e.target.value) { onStartCarve(e.target.value); e.target.value = ''; } }}
                         style={{ ...S.input, width: 'auto', padding: '6px 10px', fontSize: 12 }}>
@@ -2823,6 +2842,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                   <option value="purchase">Purchase only</option>
                   <option value="collection">The Private Collection</option>
                 </select>
+                )}
                 <select value={moveTarget} disabled={bulkBusy || carveBusy}
                         onFocus={() => { if (!allSets.length) onLoadSets(); }}
                         onChange={(e) => onMoveTargetChange(e.target.value)}
@@ -2832,11 +2852,28 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                     <option key={x.id} value={x.id}>{x.where} · {x.title}</option>
                   ))}
                 </select>
-                {moveTarget && (
+                {moveTarget && !moveWarning && (
                   <button onClick={onConfirmMove} disabled={carveBusy}
                           style={{ ...S.btn, fontSize: 12, padding: '6px 12px' }}>
                     {carveBusy ? '…' : `Move ${selected.length}`}
                   </button>
+                )}
+                {moveWarning && (
+                  <div style={{ width: '100%', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
+                                background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.3)',
+                                borderRadius: 8, padding: '8px 12px' }}>
+                    <span style={{ fontFamily: sans, fontSize: 12, color: '#D9A45C', flex: 1, minWidth: 200 }}>
+                      {moveWarning}
+                    </span>
+                    <button onClick={onConfirmMoveAnyway} disabled={carveBusy}
+                            style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A', borderColor: 'rgba(156,90,90,0.4)' }}>
+                      {carveBusy ? '…' : 'Move them anyway'}
+                    </button>
+                    <button onClick={onDismissMoveWarning} disabled={carveBusy}
+                            style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
+                      Leave them
+                    </button>
+                  </div>
                 )}
               </>
             )}
