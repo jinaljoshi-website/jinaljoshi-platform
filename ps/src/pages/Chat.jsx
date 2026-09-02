@@ -793,6 +793,9 @@ export default function Chat() {
 }
 
 function MessageBubble({ msg, parent, onReply, onUnlock, unlocking, onOpenImage }) {
+  // Per message, so confirming one does not put every other locked bundle in
+  // the thread into the same state.
+  const [askUnlock, setAskUnlock] = useState(false);
   const isMe = msg.is_mine;
 
   if (msg.is_locked_media) {
@@ -820,13 +823,37 @@ function MessageBubble({ msg, parent, onReply, onUnlock, unlocking, onOpenImage 
               </div>
               {!isMe && (
                 <>
-                  <button onClick={onUnlock} disabled={unlocking} style={{ ...sendBtn, padding: '8px 16px', fontSize: 12, opacity: unlocking ? 0.6 : 1 }}>
-                    {unlocking ? '…' : msg.locked_price > 0 ? (
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        Unlock for <WonderCoinAmount amount={msg.locked_price} size={12} fontSize={12} textColor="#1A1714" />
-                      </span>
-                    ) : 'View'}
-                  </button>
+                  {/* Asked before the tokens go, as in the gallery. Free media
+                      opens on one tap: nothing is spent and nothing is lost. */}
+                  {askUnlock ? (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <div style={{ fontFamily: F.sans, fontSize: 12, color: C.text, lineHeight: 1.5 }}>
+                        Spend {msg.locked_price} tokens? Not refundable once spent.
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => { setAskUnlock(false); onUnlock(); }} disabled={unlocking}
+                                style={{ ...sendBtn, padding: '8px 14px', fontSize: 12, opacity: unlocking ? 0.6 : 1 }}>
+                          {unlocking ? '…' : 'Yes, unlock'}
+                        </button>
+                        <button onClick={() => setAskUnlock(false)} disabled={unlocking}
+                                style={{ fontFamily: F.sans, fontSize: 12, padding: '8px 14px', borderRadius: 999,
+                                         background: 'transparent', border: `1px solid ${C.border}`,
+                                         color: C.muted, cursor: 'pointer' }}>
+                          Not now
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => (msg.locked_price > 0 ? setAskUnlock(true) : onUnlock())}
+                            disabled={unlocking}
+                            style={{ ...sendBtn, padding: '8px 16px', fontSize: 12, opacity: unlocking ? 0.6 : 1 }}>
+                      {unlocking ? '…' : msg.locked_price > 0 ? (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                          Unlock for <WonderCoinAmount amount={msg.locked_price} size={12} fontSize={12} textColor="#1A1714" />
+                        </span>
+                      ) : 'View'}
+                    </button>
+                  )}
                 </>
               )}
             </div>

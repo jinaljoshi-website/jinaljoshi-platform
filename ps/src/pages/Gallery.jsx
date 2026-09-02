@@ -86,6 +86,7 @@ export default function Gallery() {
   const [setItems,  setSetItems]  = useState([]);
   const [fitCheck,  setFitCheck]  = useState(null);
   const [voting,    setVoting]    = useState(false);
+  const [confirming, setConfirming] = useState(null);
 
   // Totalled from the photographs rather than asked for separately: the counts
   // arrive with them already, and a second request would only be a chance for
@@ -488,11 +489,40 @@ export default function Gallery() {
                 )}
 
                 <div style={lockedActions}>
-                  <button onClick={() => !busy && handleViewerUnlock(scope)} disabled={busy} style={lockedPrimary}>
-                    {unlockingScope === scope ? 'Unlocking…'
-                      : onCredit ? 'Unlock this set with membership credit'
-                      : `Unlock this set for ${price} tokens`}
-                  </button>
+                  {/* Asked before the tokens go.
+                      //
+                      // One tap used to spend them. On a phone, a set priced at
+                      // six hundred tokens is a stray thumb away from being
+                      // bought, and the policy that purchases are final is a
+                      // poor answer to somebody who never meant to make one.
+                      //
+                      // Only where tokens are actually spent. A set opening
+                      // against a membership allowance costs nothing and takes
+                      // nothing away, so stopping to ask would be ceremony. */}
+                  {confirming === scope ? (
+                    <div style={{ display: 'grid', gap: 10 }}>
+                      <div style={{ fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6 }}>
+                        Spend <strong style={{ color: C.accent }}>{price} tokens</strong> to open
+                        this set? Tokens are not refundable once spent.
+                      </div>
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                        <button onClick={() => { setConfirming(null); handleViewerUnlock(scope); }}
+                                disabled={busy} style={lockedPrimary}>
+                          {unlockingScope === scope ? 'Unlocking…' : `Yes, spend ${price}`}
+                        </button>
+                        <button onClick={() => setConfirming(null)} disabled={busy} style={lockedSecondary}>
+                          Not now
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => !busy && (onCredit ? handleViewerUnlock(scope) : setConfirming(scope))}
+                            disabled={busy} style={lockedPrimary}>
+                      {unlockingScope === scope ? 'Unlocking…'
+                        : onCredit ? 'Unlock this set with membership credit'
+                        : `Unlock this set for ${price} tokens`}
+                    </button>
+                  )}
 
                   {offer && (
                     <button onClick={() => !busy && handleMembership()} disabled={busy} style={lockedSecondary}>
