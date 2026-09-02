@@ -100,6 +100,7 @@ export default function Collections() {
   const [error,   setError]   = useState('');
   const [topUp,   setTopUp]   = useState(null);
   const [pending, setPending] = useState(null);   // an unlock waiting on tokens
+  const [confirming, setConfirming] = useState(false);
   const [lightbox, setLightbox] = useState(null);
   const [denied,  setDenied]  = useState(false);
   // One seed per opening, as in the gallery: the order is fresh each visit but
@@ -203,9 +204,34 @@ export default function Collections() {
               <div style={{ fontFamily: T.body, fontSize: 12, color: V.quiet, marginTop: 6 }}>
                 {open.itemCount} {open.itemCount === 1 ? 'piece' : 'pieces'}
               </div>
-              <button onClick={() => unlock(open.id)} disabled={busy} style={{ ...unlockBtn, marginTop: 18 }}>
-                {busy ? 'Opening…' : <>Open for <WonderCoinAmount amount={open.price} size={13} fontSize={13} textColor="#1A1410" /></>}
-              </button>
+              {/* Asked before the tokens go, as in the gallery and the chat.
+                  //
+                  // The most expensive thing on the platform was also the one
+                  // that opened on a single tap. */}
+              {confirming ? (
+                <div style={{ marginTop: 18, display: 'grid', gap: 12, justifyItems: 'center' }}>
+                  <div style={{ fontFamily: T.body, fontSize: 13, color: V.ink, lineHeight: 1.6, maxWidth: 360 }}>
+                    Spend <strong style={{ color: V.gold }}>{open.price} tokens</strong> to open this?
+                    Tokens are not refundable once spent.
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+                    <button onClick={() => { setConfirming(false); unlock(open.id); }} disabled={busy}
+                            style={unlockBtn}>
+                      {busy ? 'Opening…' : <>Yes, spend <WonderCoinAmount amount={open.price} size={13} fontSize={13} textColor="#1A1410" /></>}
+                    </button>
+                    <button onClick={() => setConfirming(false)} disabled={busy}
+                            style={{ fontFamily: T.body, fontSize: 13, padding: '10px 20px', borderRadius: 999,
+                                     background: 'transparent', border: `1px solid ${V.edge}`,
+                                     color: V.quiet, cursor: 'pointer' }}>
+                      Not now
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setConfirming(true)} disabled={busy} style={{ ...unlockBtn, marginTop: 18 }}>
+                  {busy ? 'Opening…' : <>Open for <WonderCoinAmount amount={open.price} size={13} fontSize={13} textColor="#1A1410" /></>}
+                </button>
+              )}
               {error && <div style={errBox}>{error}</div>}
             </div>
           </div>
