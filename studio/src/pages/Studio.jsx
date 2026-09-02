@@ -12,10 +12,20 @@ import { Content }       from '../sections/Content';
 // The same screen, asking for the other list. Not a copy: uploading and
 // reviewing are the same job whichever it is, and two versions of a two
 // thousand line screen would drift within a month.
-function Collections(props) { return <Content {...props} collection />; }
+function Collections(props) {
+  // Who is waiting sits above the sets themselves, because it is a decision
+  // rather than a library, and one that gets forgotten if it is anywhere else.
+  return (
+    <>
+      <CollectionsWaiting />
+      <Content {...props} collection />
+    </>
+  );
+}
 import { Merch }         from '../sections/Merch';
 import { Extras }        from '../sections/Extras';
 import { Members }       from '../sections/Members';
+import CollectionsWaiting from '../components/CollectionsWaiting';
 import { Calls }         from '../sections/Calls';
 import { Availability }  from '../sections/Availability';
 import { Requests }      from '../sections/Requests';

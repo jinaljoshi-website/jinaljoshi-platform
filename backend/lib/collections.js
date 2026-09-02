@@ -129,7 +129,7 @@ async function accrueCollectionsAccess(db, userId) {
     notifyArtist({
       title: 'Someone has earned the collection',
       body:  `${name} has qualified for ${owedDays} days. Your call whether they get in.`,
-      url:   '/collections-waiting',
+      url:   '/collections',
       tag:   'collections-eligible',
     }).catch(() => {});
   } catch { /* never allowed to matter */ }
