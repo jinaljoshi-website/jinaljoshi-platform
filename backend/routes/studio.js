@@ -9,6 +9,7 @@ const { postSystemMessage } = require('./community');
 const { pushToUser } = require('./push');
 const { applyBlock, liftBlock, setMuted, logModerationAction } = require('../lib/moderation');
 const { notifyArtist } = require('../lib/notify');
+const { approveCollectionsAccess } = require('../lib/collections');
 const { grantGiftedTokens, refundByRelated, refundLedgerEntry } = require('../lib/tokens');
 const { deleteObjects, findOrphans } = require('../lib/r2');
 const { getBalances } = require('../lib/tokens');
@@ -482,6 +483,106 @@ router.get('/fans', async (req, res) => {
 // anybody pays, so this reveals nothing that was not already on the fan's own
 // screen. Deleted messages are not searched at all: deleted means deleted, and
 // a search that resurrects them would make the delete a lie.
+
+// ─────────────────────────────────────────────
+// GET  /api/studio/collections/waiting
+// POST /api/studio/collections/:userId/approve
+// POST /api/studio/collections/:userId/decline
+// ─────────────────────────────────────────────
+//
+// Who has earned their way to the collection, and whether they get in.
+//
+// Spending enough used to open it by itself. The collection is the one part of
+// the platform whose value is that not everybody is in it, and a threshold any
+// card can cross is not much of a door.
+//
+// So spending makes somebody eligible and says so here. She decides. The days
+// they earned start counting from her yes, not from the payment, because
+// nobody should lose a fortnight to the time it took her to read a message.
+router.get('/collections/waiting', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT u.id, u.email, u.display_name, u.tier,
+              u.collections_days_owed, u.collections_eligible_at,
+              u.collections_until, u.collections_tranches,
+              u.created_at,
+              (SELECT COALESCE(SUM(payment_amount_inr), 0)::int
+                 FROM coin_ledger
+                WHERE user_id = u.id AND direction = 'credit'
+                  AND type = 'recharge') AS paid_inr,
+              (SELECT count(*)::int FROM direct_messages
+                WHERE sender_id = u.id OR recipient_id = u.id) AS messages
+         FROM users u
+        WHERE u.closed_at IS NULL
+          AND COALESCE(u.collections_days_owed, 0) > 0
+        ORDER BY u.collections_eligible_at ASC NULLS LAST`
+    );
+
+    res.json({
+      waiting: rows.map((r) => ({
+        id: r.id,
+        who: r.display_name || r.email,
+        email: r.email,
+        tier: r.tier,
+        daysOwed: r.collections_days_owed,
+        eligibleSince: r.collections_eligible_at,
+        // Already inside, and has earned more. Worth distinguishing: extending
+        // somebody is a smaller decision than letting them in.
+        alreadyIn: r.collections_until && new Date(r.collections_until) > new Date(),
+        holdsUntil: r.collections_until,
+        paidInr: r.paid_inr,
+        messages: r.messages,
+        memberSince: r.created_at,
+      })),
+    });
+  } catch (err) {
+    console.error('studio/collections/waiting error:', err);
+    res.status(500).json({ error: 'Could not load who is waiting' });
+  }
+});
+
+router.post('/collections/:userId/approve', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const out = await approveCollectionsAccess(client, req.params.userId, req.body.days);
+    if (!out) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'There is nothing waiting for this member' });
+    }
+    await client.query('COMMIT');
+
+    pushToUser(req.params.userId, {
+      title: 'The Private Collection is open to you',
+      body:  'Jinal has given you access. Have a look whenever you like.',
+      url:   '/platform/collections',
+      tag:   'collections',
+    }).catch(() => {});
+
+    res.json({ ok: true, days: out.days, until: out.until });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('studio/collections/approve error:', err);
+    res.status(500).json({ error: 'Could not give access' });
+  } finally {
+    client.release();
+  }
+});
+
+// Declining clears what is owed without granting anything, and without telling
+// them. Somebody who was never told they had qualified has nothing to be
+// refused, and saying so now would only invent a disappointment.
+router.post('/collections/:userId/decline', async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE users SET collections_days_owed = 0 WHERE id = $1`, [req.params.userId]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('studio/collections/decline error:', err);
+    res.status(500).json({ error: 'Could not do that' });
+  }
+});
+
 router.get('/dms/search', async (req, res) => {
   const q = String(req.query.q || '').trim();
   if (q.length < 2) return res.json({ results: [], query: q });

@@ -94,17 +94,47 @@ async function accrueCollectionsAccess(db, userId) {
   const already = parseInt(rows[0].collections_tranches, 10) || 0;
   if (earned <= already) return null;
 
-  const now  = new Date();
-  const held = rows[0].collections_until ? new Date(rows[0].collections_until) : null;
-  const from = held && held > now ? held : now;
-  const until = new Date(from.getTime() + (earned - already) * span * 86400000);
+  // Earned, not granted.
+  //
+  // Spending enough now makes somebody eligible and tells Jinal so. It does not
+  // open the collection. That is the one part of the platform where the whole
+  // value is that not everybody is in it, and a threshold crossed by anybody
+  // with a card is not much of a door.
+  //
+  // The tranche counter still moves, so the same spending is never offered
+  // twice, and the days owed are held until she says yes. Her decision starts
+  // the clock: somebody should not lose a fortnight of access to the time it
+  // took her to see the message.
+  const owedDays = (earned - already) * span;
 
   await db.query(
-    `UPDATE users SET collections_tranches = $1, collections_until = $2 WHERE id = $3`,
-    [earned, until, userId]
+    `UPDATE users
+        SET collections_tranches = $1,
+            collections_days_owed = COALESCE(collections_days_owed, 0) + $2,
+            collections_eligible_at = COALESCE(collections_eligible_at, NOW())
+      WHERE id = $3`,
+    [earned, owedDays, userId]
   );
 
-  return { granted: earned - already, tranches: earned, until };
+  // Told, because a queue nobody looks at is not a decision anybody makes.
+  //
+  // Not awaited and its failure ignored: this runs inside the transaction that
+  // credits a payment, and a push notification must never be the reason money
+  // does not go through.
+  try {
+    const { notifyArtist } = require('./notify');
+    const { rows: who } = await db.query(
+      `SELECT display_name, email FROM users WHERE id = $1`, [userId]);
+    const name = who[0]?.display_name || who[0]?.email || 'A member';
+    notifyArtist({
+      title: 'Someone has earned the collection',
+      body:  `${name} has qualified for ${owedDays} days. Your call whether they get in.`,
+      url:   '/collections-waiting',
+      tag:   'collections-eligible',
+    }).catch(() => {});
+  } catch { /* never allowed to matter */ }
+
+  return { granted: 0, eligible: true, tranches: earned, daysOwed: owedDays };
 }
 
 // A grant made by hand, for a chosen number of days. Extends a live span rather
@@ -124,7 +154,37 @@ async function grantCollectionsAccess(db, userId, days) {
   return { until };
 }
 
+// Letting somebody in, once she has decided to.
+//
+// The days they earned have been waiting; this is where they start counting.
+// Deliberately the same helper a gift uses, because the difference between
+// earning access and being given it is a matter of how it was decided, not of
+// what happens afterwards.
+async function approveCollectionsAccess(db, userId, daysOverride) {
+  const { rows } = await db.query(
+    `SELECT collections_days_owed FROM users WHERE id = $1 FOR UPDATE`, [userId]
+  );
+  if (!rows.length) return null;
+
+  const days = parseInt(daysOverride, 10) || parseInt(rows[0].collections_days_owed, 10) || 0;
+  if (days <= 0) return null;
+
+  const granted = await grantCollectionsAccess(db, userId, days);
+
+  // Cleared, so approving twice does not hand over the same fortnight again.
+  await db.query(
+    `UPDATE users
+        SET collections_days_owed = 0,
+            collections_approved_at = NOW()
+      WHERE id = $1`,
+    [userId]
+  );
+
+  return { ...granted, days };
+}
+
 module.exports = {
+  approveCollectionsAccess,
   CARRYING_TIER,
   hasCollectionsAccess,
   lifetimeMoneyIn,
