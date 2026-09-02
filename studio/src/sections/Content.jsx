@@ -544,6 +544,19 @@ export function Content({ openWith, collection = false, upload = false }) {
   const [carving, setCarving] = useState(null);   // { destination, title, price }
   const [carveBusy, setCarveBusy] = useState(false);
   const [carveError, setCarveError] = useState('');
+  // Named apart from the storage scan, which is a different thing entirely and
+  // already owns the obvious name.
+  const [checkingPhotos, setCheckingPhotos] = useState(false);
+
+  const runScan = async (setId) => {
+    if (!setId || checkingPhotos) return;
+    setCheckingPhotos(true); setError('');
+    try {
+      const d = await api.post(`/api/studio/content/${setId}/scan`, {});
+      setSuccess(d.message);
+    } catch (err) { setError(err.message); }
+    finally { setCheckingPhotos(false); }
+  };
   const [moveWarning, setMoveWarning] = useState(null);
   const [moveTarget, setMoveTarget] = useState('');
   const [allSets, setAllSets] = useState([]);
@@ -2047,6 +2060,8 @@ export function Content({ openWith, collection = false, upload = false }) {
           carveBusy={carveBusy}
           carveError={carveError}
           allSets={allSets}
+          onScan={() => runScan(reviewSet?.id)}
+          scanning={checkingPhotos}
           onLoadSets={loadAllSets}
           moveTarget={moveTarget}
           onMoveTargetChange={setMoveTarget}
@@ -2290,6 +2305,7 @@ function PhotographerPicker({ names, onChange, options }) {
 
 function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItemsChanged, onDeleteMarked, removingMarked, deletingItem, collection = false, lightbox, setLightbox, mediaUrl, categories, itemErrors, onKeepFailed,
                        selected, setSelected, onBulkMove, onBulkDelete, bulkBusy,
+                       onScan, scanning,
                        pile, carving, onStartCarve, onCarveChange, onCancelCarve, onConfirmCarve, carveBusy, carveError,
                        allSets, onLoadSets, moveTarget, onMoveTargetChange, onConfirmMove,
                        moveWarning, onConfirmMoveAnyway, onDismissMoveWarning,
@@ -2680,6 +2696,20 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                              ...(ordering ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
               {ordering ? 'Done arranging' : 'Arrange order'}
             </button>
+
+            {/* For everything uploaded before there was a second opinion.
+                //
+                // Ten thousand photographs predate this, and scanning them all
+                // unasked would cost about nine hundred rupees to tell her
+                // something she was not asking about. One set, when she wants
+                // it. */}
+            {onScan && items.some((i) => !i.moderation && i.media_type !== 'video') && (
+              <button onClick={onScan} disabled={scanning}
+                      style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
+                {scanning ? 'Looking…' : 'Check these photographs'}
+              </button>
+            )}
+
             {ordering && (
               <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted, alignSelf: 'center' }}>
                 Drag to move, or use ↑ to send a photo to the front. The first is the cover.

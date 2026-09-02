@@ -1085,6 +1085,50 @@ const VALID_TIER_CATEGORIES = ['free', 'community', 'insider', 'premium', 'supre
 // This is the same move the split makes, done once per selection instead of
 // once per kind: choose some photographs, say where they go, and they leave the
 // pile. Repeat until the pile is empty.
+
+// ─────────────────────────────────────────────
+// POST /api/studio/content/:id/scan
+// ─────────────────────────────────────────────
+//
+// Asking for a second opinion on a set that was uploaded before there was one.
+//
+// Everything published before this existed has no score and no badge, and there
+// are ten thousand of them. Scanning the lot unasked would cost about nine
+// hundred rupees and tell her nothing she wants at that moment, so it happens
+// when she asks, one set at a time.
+//
+// Only photographs without a score already, so asking twice costs nothing and
+// a set half-scanned when something failed can simply be asked again.
+router.post('/content/:id/scan', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, r2_key, media_type FROM set_items
+        WHERE set_id = $1 AND media_type <> 'video'
+          AND (moderation IS NULL OR $2::boolean = TRUE)
+        ORDER BY position ASC`,
+      [req.params.id, req.body.rescanAll === true]
+    );
+
+    if (!rows.length) {
+      return res.json({ ok: true, queued: 0, message: 'Everything here has been looked at already.' });
+    }
+
+    // Answered now, done afterwards. Two hundred photographs is a couple of
+    // minutes of work and nobody should watch a spinner through it — the
+    // badges appear as the set is reopened.
+    for (const r of rows) scanInBackground(r.id, r.r2_key, r.media_type);
+
+    res.json({
+      ok: true,
+      queued: rows.length,
+      message: `Looking at ${rows.length} photograph${rows.length === 1 ? '' : 's'}. Reopen the set in a minute to see what it made of them.`,
+    });
+  } catch (err) {
+    console.error('studio/content/scan error:', err);
+    res.status(500).json({ error: 'Could not start the scan' });
+  }
+});
+
 router.post('/content/:id/carve', async (req, res) => {
   const { itemIds, destination, title, description, price } = req.body;
   const setId = req.params.id;
