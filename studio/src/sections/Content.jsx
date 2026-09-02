@@ -547,13 +547,14 @@ export function Content({ openWith, collection = false, upload = false }) {
   // Named apart from the storage scan, which is a different thing entirely and
   // already owns the obvious name.
   const [checkingPhotos, setCheckingPhotos] = useState(false);
+  const [scanNote, setScanNote] = useState('');
 
   const runScan = async (setId) => {
     if (!setId || checkingPhotos) return;
     setCheckingPhotos(true); setError('');
     try {
       const d = await api.post(`/api/studio/content/${setId}/scan`, {});
-      setSuccess(d.message);
+      setScanNote(d.message);
     } catch (err) { setError(err.message); }
     finally { setCheckingPhotos(false); }
   };
@@ -2062,6 +2063,7 @@ export function Content({ openWith, collection = false, upload = false }) {
           allSets={allSets}
           onScan={() => runScan(reviewSet?.id)}
           scanning={checkingPhotos}
+          scanNote={scanNote}
           onLoadSets={loadAllSets}
           moveTarget={moveTarget}
           onMoveTargetChange={setMoveTarget}
@@ -2305,7 +2307,7 @@ function PhotographerPicker({ names, onChange, options }) {
 
 function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItemsChanged, onDeleteMarked, removingMarked, deletingItem, collection = false, lightbox, setLightbox, mediaUrl, categories, itemErrors, onKeepFailed,
                        selected, setSelected, onBulkMove, onBulkDelete, bulkBusy,
-                       onScan, scanning,
+                       onScan, scanning, scanNote,
                        pile, carving, onStartCarve, onCarveChange, onCancelCarve, onConfirmCarve, carveBusy, carveError,
                        allSets, onLoadSets, moveTarget, onMoveTargetChange, onConfirmMove,
                        moveWarning, onConfirmMoveAnyway, onDismissMoveWarning,
@@ -2353,8 +2355,72 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
               :                               i.tier_category;
     (byTier[key] ||= []).push(i);
   });
+
+  // What is in a photograph, as a way of working through them.
+  //
+  // Rekognition answers in a hierarchy, so one bikini comes back as "Swimwear
+  // or Underwear" and again as "Female Swimwear or Underwear" — the same
+  // finding stated broadly and then precisely. Grouping on every label would
+  // put one photograph in five places; grouping on the most specific one puts
+  // it where it is actually described.
+  //
+  // And each appears once, under whatever it scored highest on. A photograph
+  // reviewed is reviewed, and seeing it twice spends attention for nothing.
+  const groupOfItem = (i) => {
+    const labels = i.moderation?.labels || [];
+    if (!labels.length) return i.moderation ? '__nothing' : '__unchecked';
+    // The deepest label available is the useful one: "Partially Exposed Female
+    // Breast" describes a photograph, "Non-Explicit Nudity of Intimate parts
+    // and Kissing" names a filing cabinet.
+    const deepest = labels.filter((l) => l.parent);
+    const pool = deepest.length ? deepest : labels;
+    return pool.reduce((a, b) => (b.confidence > a.confidence ? b : a)).name;
+  };
+
+  // Only for the pile still to sort. Once a photograph has a tier the tier is
+  // what matters about it, and a second way of grouping the same things is a
+  // second thing to read.
+  const unsortedByLabel = {};
+  (byTier.__unsorted || []).forEach((i) => {
+    (unsortedByLabel[groupOfItem(i)] ||= []).push(i);
+  });
+
+  // Most numerous first, with the two housekeeping groups last wherever they
+  // fall: "nothing detected" and "not checked" are answers about the process
+  // rather than about the photographs.
+  const labelGroups = Object.entries(unsortedByLabel)
+    .sort((a, b) => {
+      const rank = (k) => (k === '__unchecked' ? 2 : k === '__nothing' ? 1 : 0);
+      return rank(a[0]) - rank(b[0]) || b[1].length - a[1].length;
+    });
+  // The pile, split by what is in each photograph.
+  //
+  // Rather than one Unsorted heap of two hundred, a run of smaller ones with a
+  // name each. Sorting a set becomes going through "Female Swimwear or
+  // Underwear · 34" and giving them all the same tier, which is usually what
+  // happens anyway and is done in one selection rather than thirty.
+  //
+  // Written into the section list so the rendering below needs no idea any of
+  // this happened.
+  const SECTIONS = [];
+  for (const cat of REVIEW_SECTIONS) {
+    if (cat.key !== '__unsorted' || labelGroups.length <= 1) { SECTIONS.push(cat); continue; }
+    for (const [label, group] of labelGroups) {
+      const key = `__unsorted::${label}`;
+      byTier[key] = group;
+      SECTIONS.push({
+        key,
+        label: label === '__nothing'   ? 'Unsorted · nothing detected'
+             : label === '__unchecked' ? 'Unsorted · not checked'
+             :                           `Unsorted · ${label}`,
+        color: cat.color,
+        unsorted: true,
+      });
+    }
+  }
+
   // Unsorted first, so opening the first photo starts where the work is.
-  const ordered = REVIEW_SECTIONS.flatMap((cat) => byTier[cat.key] || []);
+  const ordered = SECTIONS.flatMap((cat) => byTier[cat.key] || []);
   const [blurThreshold, setBlurThreshold] = useState(null);
 
   useEffect(() => {
@@ -2709,6 +2775,22 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                 {scanning ? 'Looking…' : 'Check these photographs'}
               </button>
             )}
+            {scanNote && (
+              <span style={{ fontFamily: sans, fontSize: 11, color: colors.accent, alignSelf: 'center', flexBasis: '100%' }}>
+                {scanNote}
+              </span>
+            )}
+            {/* Said where the button is.
+                //
+                // The work happens in the background and the badges appear when
+                // the set is reopened, so the button returning to its old label
+                // a second later looks exactly like nothing having happened.
+                // The banner at the top of the page is behind this panel. */}
+            {scanNote && (
+              <span style={{ fontFamily: sans, fontSize: 12, color: colors.accent, alignSelf: 'center' }}>
+                {scanNote}
+              </span>
+            )}
 
             {ordering && (
               <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted, alignSelf: 'center' }}>
@@ -2746,14 +2828,14 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
           <SequenceView items={ordered} mediaUrl={mediaUrl} busy={orderBusy} onSave={onSaveOrder} groupOf={groupOf} />
         ) : loading ? <div style={{ fontFamily: sans, fontSize: 13, color: colors.muted }}>Loading…</div>
          : items.length === 0 ? <div style={{ fontFamily: sans, fontSize: 13, color: colors.muted }}>This set has no items yet.</div>
-         : REVIEW_SECTIONS.filter((cat) => byTier[cat.key]?.length).map((cat) => (
+         : SECTIONS.filter((cat) => byTier[cat.key]?.length).map((cat) => (
           <div key={cat.key} style={{ marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <span style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase',
-                             color: cat.key === '__unsorted' ? '#D9A45C' : colors.muted }}>
+                             color: (cat.unsorted || cat.key === '__unsorted') ? '#D9A45C' : colors.muted }}>
                 {cat.label} · {byTier[cat.key].length}
               </span>
-              {cat.key === '__unsorted' && (
+              {(cat.key === '__unsorted' || (cat.unsorted && cat === SECTIONS.find((x) => x.unsorted))) && (
                 <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
                   {/* The same sentence as above, and for a while not the same
                       sentence at all: this one was written before there were two
