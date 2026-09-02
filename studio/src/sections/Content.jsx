@@ -1725,6 +1725,13 @@ export function Content({ openWith, collection = false, upload = false }) {
                           : set.needsSplit
                           ? 'Sorted — separate it into its sets'
                           : 'Ready'}
+                        {/* Said before the set is opened, which is when knowing
+                            is worth anything. */}
+                        {set.worthALook > 0 && (
+                          <span style={{ color: '#E0B76A' }}>
+                            {' · '}{set.worthALook} worth a look
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2750,6 +2757,24 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                   )}
                   {item.review_flag === 'remove' && (
                     <div style={{ ...flagChip, color: '#D99A9A', borderColor: 'rgba(217,154,154,0.5)' }}>to be removed</div>
+                  )}
+
+                  {/* A second opinion, not a verdict.
+                      //
+                      // The classifier calls about one photograph in twenty
+                      // explicit when it is not, so this decides nothing. Every
+                      // set is looked at by hand anyway; this only says which
+                      // two of two hundred to look at first.
+                      //
+                      // Worded as an opinion for that reason. "Explicit 92%"
+                      // reads as a finding; "worth a look" reads as what it is. */}
+                  {item.moderation?.score >= 60 && (
+                    <div title={(item.moderation.labels || [])
+                                  .map((l) => `${l.name} ${l.confidence}%`).join('\n')}
+                         style={{ ...flagChip, color: '#E0B76A', borderColor: 'rgba(224,183,106,0.5)',
+                                  cursor: 'help' }}>
+                      worth a look · {item.moderation.score}%
+                    </div>
                   )}
                   {/* Something to show for a good photograph.
                       //

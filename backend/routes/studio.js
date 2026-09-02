@@ -10,6 +10,7 @@ const { pushToUser } = require('./push');
 const { applyBlock, liftBlock, setMuted, logModerationAction } = require('../lib/moderation');
 const { notifyArtist } = require('../lib/notify');
 const { approveCollectionsAccess } = require('../lib/collections');
+const { scanInBackground } = require('../lib/moderation-scan');
 const { grantGiftedTokens, refundByRelated, refundLedgerEntry } = require('../lib/tokens');
 const { deleteObjects, findOrphans } = require('../lib/r2');
 const { getBalances } = require('../lib/tokens');
@@ -1517,6 +1518,11 @@ router.get('/content/queue', async (req, res) => {
                           ELSE i.tier_category IS NULL END))                                      AS untiered,
               (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
                 AND i.review_flag = 'remove')                                                     AS marked,
+              -- How many an automated moderator thought were worth a second
+              -- look. Said on the row so it is known before the set is opened,
+              -- which is when it is useful.
+              (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
+                AND (i.moderation->>'score')::int >= 60)                                          AS worth_a_look,
               (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
                 AND i.tier_category = 'purchase_only')                                            AS purchase,
               (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
@@ -1562,6 +1568,7 @@ router.get('/content/queue', async (req, res) => {
         description: r.description,
         photographer: r.photographer,
         visible: false,
+        worthALook: r.worth_a_look || 0,
         priceCoins: r.price_coins, createdAt: r.created_at,
         // Both names. The library returns cover_key and the row reads that or
         // cover_url; returning only a camelCase coverUrl meant every set in the
@@ -1942,7 +1949,7 @@ router.get('/content/:id/items', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, set_id, type, media_type, r2_key, position, tier_category, created_at, quality,
-              review_flag, review_note, reviewed_at
+              review_flag, review_note, reviewed_at, moderation
        FROM set_items WHERE set_id = $1
        ORDER BY tier_category, position ASC, created_at ASC`,
       [req.params.id]
@@ -2910,6 +2917,14 @@ router.post('/content/item', async (req, res) => {
       [setId, type, r2Key, position ?? 0, tierCategory,
        req.body.quality ? JSON.stringify(req.body.quality) : null]
     );
+
+    // A second opinion, fetched afterwards and never waited for.
+    //
+    // The answer reaches the screen the next time the set is opened, which is
+    // when anybody would look at it. An upload must not be slower, or fail,
+    // because a moderation service was.
+    scanInBackground(rows[0].id, r2Key, type);
+
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
     console.error('studio/content/item error:', err);
