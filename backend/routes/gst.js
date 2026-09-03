@@ -46,7 +46,7 @@ router.get('/summary', async (req, res) => {
   const year = parseInt(req.query.year, 10) || new Date().getFullYear();
   try {
     const { rows } = await pool.query(
-      `SELECT to_char(created_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM') AS month,
+      `SELECT to_char(issued_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM') AS month,
               count(*)::int                                  AS invoices,
               COALESCE(SUM(taxable_amount_inr), 0)           AS taxable,
               COALESCE(SUM(cgst_amount_inr), 0)              AS cgst,
@@ -57,7 +57,7 @@ router.get('/summary', async (req, res) => {
               count(*) FILTER (WHERE is_export)::int         AS exports,
               COALESCE(SUM(amount_inr_equivalent) FILTER (WHERE is_export), 0) AS export_value
          FROM invoices
-        WHERE EXTRACT(YEAR FROM created_at AT TIME ZONE 'Asia/Kolkata') = $1
+        WHERE EXTRACT(YEAR FROM issued_at AT TIME ZONE 'Asia/Kolkata') = $1
         GROUP BY 1 ORDER BY 1`,
       [year]
     );
@@ -107,11 +107,11 @@ router.get('/month', async (req, res) => {
   try {
     // Table 5 — B2C Large. Interstate, above the threshold, one row each.
     const { rows: b2cl } = await pool.query(
-      `SELECT invoice_number, created_at AT TIME ZONE 'Asia/Kolkata' AS issued_at,
+      `SELECT invoice_number, issued_at AT TIME ZONE 'Asia/Kolkata' AS issued_at,
               place_of_supply, amount_inr_equivalent AS invoice_value,
               gst_rate_pct, taxable_amount_inr, igst_amount_inr
          FROM invoices
-        WHERE created_at >= $1 AND created_at < $2
+        WHERE issued_at >= $1 AND issued_at < $2
           AND is_export = FALSE
           AND igst_amount_inr > 0
           AND amount_inr_equivalent > $3
@@ -121,12 +121,12 @@ router.get('/month', async (req, res) => {
 
     // Table 6A — Exports.
     const { rows: exports6a } = await pool.query(
-      `SELECT invoice_number, created_at AT TIME ZONE 'Asia/Kolkata' AS issued_at,
+      `SELECT invoice_number, issued_at AT TIME ZONE 'Asia/Kolkata' AS issued_at,
               amount_inr_equivalent AS invoice_value, currency, amount_in_currency,
               user_country, taxable_amount_inr, gst_amount_inr,
               export_with_tax
          FROM invoices
-        WHERE created_at >= $1 AND created_at < $2 AND is_export = TRUE
+        WHERE issued_at >= $1 AND issued_at < $2 AND is_export = TRUE
         ORDER BY invoice_number`,
       [from, to]
     );
@@ -143,7 +143,7 @@ router.get('/month', async (req, res) => {
               COALESCE(SUM(igst_amount_inr), 0)      AS igst,
               COALESCE(SUM(amount_inr_equivalent), 0) AS gross
          FROM invoices
-        WHERE created_at >= $1 AND created_at < $2
+        WHERE issued_at >= $1 AND issued_at < $2
           AND is_export = FALSE
           AND NOT (igst_amount_inr > 0 AND amount_inr_equivalent > $3)
         GROUP BY 1, 2
@@ -174,7 +174,7 @@ router.get('/month', async (req, res) => {
               COALESCE(SUM(sgst_amount_inr), 0)       AS sgst,
               COALESCE(SUM(igst_amount_inr), 0)       AS igst
          FROM invoices
-        WHERE created_at >= $1 AND created_at < $2
+        WHERE issued_at >= $1 AND issued_at < $2
         GROUP BY 1`,
       [from, to]
     );
@@ -185,7 +185,7 @@ router.get('/month', async (req, res) => {
       `SELECT min(invoice_number) AS from_no, max(invoice_number) AS to_no,
               count(*)::int       AS issued
          FROM invoices
-        WHERE created_at >= $1 AND created_at < $2`,
+        WHERE issued_at >= $1 AND issued_at < $2`,
       [from, to]
     );
 
@@ -198,7 +198,7 @@ router.get('/month', async (req, res) => {
               COALESCE(SUM(gst_amount_inr), 0)       AS gst,
               COALESCE(SUM(amount_inr_equivalent), 0) AS gross
          FROM invoices
-        WHERE created_at >= $1 AND created_at < $2`,
+        WHERE issued_at >= $1 AND issued_at < $2`,
       [from, to]
     );
 
@@ -239,14 +239,14 @@ router.get('/invoices.csv', async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `SELECT invoice_number, created_at AT TIME ZONE 'Asia/Kolkata' AS issued_at,
+      `SELECT invoice_number, issued_at AT TIME ZONE 'Asia/Kolkata' AS issued_at,
               user_email, user_country, place_of_supply, is_export,
               currency, amount_in_currency, exchange_rate_used,
               amount_inr_equivalent, taxable_amount_inr, gst_rate_pct,
               cgst_amount_inr, sgst_amount_inr, igst_amount_inr, gst_amount_inr,
               sac_code, tokens_purchased, payment_method_display
          FROM invoices
-        WHERE created_at >= $1 AND created_at < $2
+        WHERE issued_at >= $1 AND issued_at < $2
         ORDER BY invoice_number`,
       [from, to]
     );
