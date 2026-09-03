@@ -396,7 +396,10 @@ router.post('/issued/:id/receipts', async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
       [req.params.id, receiptNumber, receivedOn || new Date(), cur, amt, rate, credited,
        method?.trim() || null, reference?.trim() || null, efircNumber?.trim() || null,
-       efircFileKey || null, note?.trim() || null]
+       efircFileKey || null, note?.trim() || null,
+       withheld, Math.round(withheld * rate * 100) / 100,
+       withholdingNote?.trim() || null, withholdingFileKey || null,
+       charges]
     );
     res.json({ ok: true, receipt: rows[0] });
   } catch (err) {
@@ -434,11 +437,24 @@ router.patch('/receipts/:id', async (req, res) => {
          currency = $2, amount_in_currency = $3, exchange_rate = $4, amount_credited_inr = $5,
          method = COALESCE($6, method), reference = COALESCE($7, reference),
          efirc_number = COALESCE($8, efirc_number), efirc_file_key = COALESCE($9, efirc_file_key),
-         note = COALESCE($10, note), updated_at = NOW()
+         note = COALESCE($10, note),
+         -- Editable too, or correcting a receipt would quietly drop the
+         -- withholding it was recorded with.
+         withheld_in_currency = COALESCE($12, withheld_in_currency),
+         withheld_inr         = COALESCE($13, withheld_inr),
+         withholding_note     = COALESCE($14, withholding_note),
+         withholding_file_key = COALESCE($15, withholding_file_key),
+         bank_charges_inr     = COALESCE($16, bank_charges_inr),
+         updated_at = NOW()
        WHERE id = $11 RETURNING *`,
       [f.receivedOn || null, cur, amt, rate, credited,
        f.method?.trim() ?? null, f.reference?.trim() ?? null, f.efircNumber?.trim() ?? null,
-       f.efircFileKey ?? null, f.note?.trim() ?? null, req.params.id]
+       f.efircFileKey ?? null, f.note?.trim() ?? null, req.params.id,
+       f.withheldInCurrency === undefined ? null : (parseFloat(f.withheldInCurrency) || 0),
+       f.withheldInCurrency === undefined ? null
+         : Math.round((parseFloat(f.withheldInCurrency) || 0) * rate * 100) / 100,
+       f.withholdingNote?.trim() ?? null, f.withholdingFileKey ?? null,
+       f.bankChargesInr === undefined || f.bankChargesInr === '' ? null : parseFloat(f.bankChargesInr)]
     );
     res.json({ ok: true, receipt: rows[0] });
   } catch (err) {

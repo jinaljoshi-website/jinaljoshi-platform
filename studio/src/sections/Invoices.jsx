@@ -528,16 +528,30 @@ function ReceiptsPanel({ invoice, onChanged }) {
 
   if (!data) return <div style={panelBox}><T.muted>Loading payments…</T.muted></div>;
 
+  // Rupees, for figures that genuinely are rupees.
+  //
+  // What the bank credited and what it took in charges are always INR: the
+  // money landed in an Indian account. Those keep this.
   const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
+  // And the invoice's own currency, for figures that are not.
+  //
+  // Invoiced, received and still due are stated in whatever the invoice was
+  // raised in. Formatting a two thousand dollar invoice with a rupee sign said
+  // ₹2,000 for something worth nearly two lakh.
+  const cur = data.currency || 'INR';
+  const own = (n) => (cur === 'INR'
+    ? inr(n)
+    : `${cur} ${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
   return (
     <div style={panelBox}>
       {error && <div style={{ ...S.error, fontSize: 12 }}>{error}</div>}
 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
-        <Sum label="Invoiced"  value={inr(data.invoiced)} />
-        <Sum label="Received"  value={inr(data.totals.gross)} tone={colors.success} />
-        <Sum label="Still due" value={inr(data.outstanding)} tone={data.outstanding > 0 ? '#D9A45C' : colors.muted} />
+        <Sum label="Invoiced"  value={own(data.invoiced)} />
+        <Sum label="Received"  value={own(data.totals.gross)} tone={colors.success} />
+        <Sum label="Still due" value={own(data.outstanding)} tone={data.outstanding > 0 ? '#D9A45C' : colors.muted} />
         {data.totals.charges > 0 && (
           <Sum label="Bank charges" value={inr(data.totals.charges)} sub="claimable expense" />
         )}
@@ -629,7 +643,7 @@ function ReceiptsPanel({ invoice, onChanged }) {
 
           {gross > 0 && (
             <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 10, lineHeight: 1.6 }}>
-              Counts {inr(gross)} against the invoice
+              Counts {own(gross)} against the invoice
               {charges > 0 && <>, with <strong style={{ color: colors.text }}>{inr(charges)}</strong> lost to bank charges</>}.
             </div>
           )}
