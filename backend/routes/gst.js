@@ -153,14 +153,22 @@ router.get('/month', async (req, res) => {
     // the same table; keeping them apart would file half of them.
     const { rows: issued6a } = await pool.query(
       `SELECT invoice_number, invoice_date AS issued_at,
-              total_amount AS invoice_value, currency,
+              currency,
+              -- The invoice's own currency stays its own currency.
               total_amount AS amount_in_currency,
               recipient_country AS user_country,
-              taxable_amount AS taxable_amount_inr,
               0 AS gst_amount_inr,
               FALSE AS export_with_tax,
-              -- What the bank actually realised, which is the only rupee figure
-              -- there is for a foreign invoice.
+              -- And the rupee columns are what the bank actually credited.
+              --
+              -- These were aliased from total_amount, so a USD 830.65 invoice
+              -- put 830.65 under a rupee heading. A foreign invoice has no
+              -- rupee value of its own: it is worth what was realised, which is
+              -- the sum of its receipts and nothing else.
+              (SELECT COALESCE(SUM(r.amount_credited_inr), 0)
+                 FROM invoice_receipts r WHERE r.invoice_id = i.id) AS invoice_value,
+              (SELECT COALESCE(SUM(r.amount_credited_inr), 0)
+                 FROM invoice_receipts r WHERE r.invoice_id = i.id) AS taxable_amount_inr,
               (SELECT COALESCE(SUM(r.amount_credited_inr), 0)
                  FROM invoice_receipts r WHERE r.invoice_id = i.id) AS realised_inr
          FROM issued_invoices i
@@ -174,7 +182,12 @@ router.get('/month', async (req, res) => {
       `SELECT invoice_number, issued_at AT TIME ZONE 'Asia/Kolkata' AS issued_at,
               amount_inr_equivalent AS invoice_value, currency, amount_in_currency,
               user_country, taxable_amount_inr, gst_amount_inr,
-              export_with_tax
+              export_with_tax,
+              -- A token purchase settles through the gateway at once, so the
+              -- rupee equivalent recorded on the invoice is what was realised.
+              -- Named the same as the issued-invoice column so the two sit in
+              -- one table without the display having to know which is which.
+              amount_inr_equivalent AS realised_inr
          FROM invoices
         WHERE issued_at >= $1 AND issued_at < $2 AND is_export = TRUE
         ORDER BY invoice_number`,
