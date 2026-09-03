@@ -146,6 +146,30 @@ router.get('/month', async (req, res) => {
     );
 
     // Table 6A — Exports.
+    //
+    // Two sources, because exports arrive two ways: a member abroad buying
+    // tokens in foreign currency, and an invoice raised directly to a foreign
+    // client. Both are zero-rated supplies of the same service and belong on
+    // the same table; keeping them apart would file half of them.
+    const { rows: issued6a } = await pool.query(
+      `SELECT invoice_number, invoice_date AS issued_at,
+              total_amount AS invoice_value, currency,
+              total_amount AS amount_in_currency,
+              recipient_country AS user_country,
+              taxable_amount AS taxable_amount_inr,
+              0 AS gst_amount_inr,
+              FALSE AS export_with_tax,
+              -- What the bank actually realised, which is the only rupee figure
+              -- there is for a foreign invoice.
+              (SELECT COALESCE(SUM(r.amount_credited_inr), 0)
+                 FROM invoice_receipts r WHERE r.invoice_id = i.id) AS realised_inr
+         FROM issued_invoices i
+        WHERE invoice_date >= $1 AND invoice_date < $2
+          AND is_export = TRUE
+        ORDER BY invoice_number`,
+      [from, to]
+    ).catch(() => ({ rows: [] }));
+
     const { rows: exports6a } = await pool.query(
       `SELECT invoice_number, issued_at AT TIME ZONE 'Asia/Kolkata' AS issued_at,
               amount_inr_equivalent AS invoice_value, currency, amount_in_currency,
@@ -254,13 +278,39 @@ router.get('/month', async (req, res) => {
       [from, to]
     );
 
+    // Domestic invoices raised by hand, for tables 5 and 7.
+    //
+    // An invoice to a client in India, or to one abroad who paid in rupees,
+    // carries GST and is reported like any other B2C supply. These were in the
+    // ledger and in no return.
+    const { rows: issuedDomestic } = await pool.query(
+      `SELECT invoice_number, invoice_date AS issued_at,
+              COALESCE(place_of_supply, recipient_state) AS place_of_supply,
+              gst_rate_pct, recipient_gstin,
+              COALESCE(taxable_inr, taxable_amount) AS taxable,
+              COALESCE(cgst_inr, cgst_amount)       AS cgst,
+              COALESCE(sgst_inr, sgst_amount)       AS sgst,
+              COALESCE(igst_inr, igst_amount)       AS igst,
+              COALESCE(total_inr, total_amount)     AS gross,
+              currency
+         FROM issued_invoices
+        WHERE invoice_date >= $1 AND invoice_date < $2
+          AND is_export = FALSE
+        ORDER BY invoice_number`,
+      [from, to]
+    ).catch(() => ({ rows: [] }));
+
     res.json({
       period: { year, month, from, to },
       b2clThreshold: B2CL_FROM,
       totals: totals[0],
       tables: {
         t5_b2cLarge:   b2cl,
-        t6a_exports:   exports6a,
+        t6a_exports:   [...exports6a, ...issued6a],
+        // Kept listed rather than folded into table 7, because each has a
+        // counterparty and an invoice number: these are documents somebody can
+        // be asked to produce, not a summary line.
+        t7_issuedInvoices: issuedDomestic,
         t7_b2cOthers:  b2cs,
         t9b_creditNotes: credits[0],
         t12_hsn:       hsn,

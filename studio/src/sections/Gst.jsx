@@ -141,6 +141,25 @@ export function Gst() {
                    ['igst', 'IGST', rupees],
                  ]} />
 
+          {/* Invoices raised by hand, which were in the ledger and in no
+              return. Listed rather than folded into the summary above, because
+              each has a counterparty and a number: these are documents
+              somebody can be asked to produce. */}
+          <Table title="Invoices raised directly — for 5 or 7"
+                 note="Domestic invoices written by hand, including foreign clients who paid in rupees. Add these to the table their value puts them in."
+                 empty="None this month."
+                 rows={t.t7_issuedInvoices}
+                 cols={[
+                   ['invoice_number', 'Invoice'],
+                   ['issued_at', 'Date', (v) => new Date(v).toLocaleDateString('en-IN')],
+                   ['place_of_supply', 'Place of supply'],
+                   ['gst_rate_pct', 'Rate', (v) => `${v}%`],
+                   ['taxable', 'Taxable', rupees],
+                   ['cgst', 'CGST', rupees],
+                   ['sgst', 'SGST', rupees],
+                   ['igst', 'IGST', rupees],
+                 ]} />
+
           <Table title="9B — Credit / Debit Notes (Unregistered)"
                  note="Refunds. They reduce what is owed and are the first thing missed when adding up by hand."
                  empty="No refunds this month."

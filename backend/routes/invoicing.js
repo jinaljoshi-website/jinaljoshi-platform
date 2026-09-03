@@ -158,6 +158,7 @@ router.post('/issued', async (req, res) => {
     gstRatePct:       gstRatePct ?? 18,
     isExportOverride: isExport,
     supplierState:    supplier.state,
+    currency,
   });
 
   const client = await pool.connect();

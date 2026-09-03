@@ -73,10 +73,26 @@ async function getNextNumber(client, kind) {
 // IGST Act, where the recipient is unregistered and no address is on record,
 // the place of supply is where the supplier is. Treating an unknown state as
 // inter-state would charge IGST on what is legally an intra-state supply.
-function computeTax({ lineItems, recipientCountry, placeOfSupply, gstRatePct, isExportOverride, supplierState }) {
+function computeTax({ lineItems, recipientCountry, placeOfSupply, gstRatePct, isExportOverride, supplierState, currency }) {
   const taxable = lineItems.reduce((sum, li) => sum + (parseFloat(li.amount) || 0), 0);
   const outsideIndia = recipientCountry && recipientCountry.trim().toLowerCase() !== 'india';
-  const isExport = isExportOverride !== undefined ? !!isExportOverride : outsideIndia;
+
+  // Being abroad is not enough.
+  //
+  // An export of services also needs the payment in convertible foreign
+  // exchange, so a buyer in the United States paying rupees is an ordinary
+  // domestic supply with GST on it. The token invoices already require both;
+  // this required only the country, and would have zero-rated a sale that owes
+  // eighteen per cent.
+  //
+  // The override still wins, because there are cases the rule cannot see — an
+  // LUT, a place of supply that sits outside India for reasons of its own — and
+  // whoever raises the invoice knows them.
+  const foreignCurrency = currency && currency.trim().toUpperCase() !== 'INR';
+  const qualifies = outsideIndia && foreignCurrency;
+  const isExport = isExportOverride !== undefined && isExportOverride !== null
+    ? !!isExportOverride
+    : qualifies;
 
   if (isExport) {
     return { taxable, cgst: 0, sgst: 0, igst: 0, total: taxable, isExport: true, appliedRate: 0, placeOfSupply: placeOfSupply || null };

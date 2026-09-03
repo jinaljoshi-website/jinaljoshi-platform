@@ -294,6 +294,16 @@ export function Invoices() {
                 <Field label="Country">
                   <input style={S.input} value={form.recipientCountry} onChange={(e) => setF('recipientCountry', e.target.value)} />
                 </Field>
+                {/* Chosen rather than inferred from whichever account was
+                    picked further down the form. It decides whether GST applies
+                    at all, so it belongs beside the country it depends on. */}
+                <Field label="Invoice currency">
+                  <select style={S.input} value={form.currency}
+                          onChange={(e) => setF('currency', e.target.value)}>
+                    {['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'AUD', 'CAD'].map((c) =>
+                      <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </Field>
               </div>
 
               <div style={{ marginTop: 12 }}>
@@ -321,10 +331,32 @@ export function Invoices() {
                 </div>
               )}
 
+              {/* Which of the two a foreign sale is.
+                  //
+                  // Being abroad is not enough for an export of services: the
+                  // payment has to be in convertible foreign exchange. A buyer
+                  // in the United States paying rupees is an ordinary domestic
+                  // supply with GST on it, and the note here used to promise
+                  // the opposite.
+                  //
+                  // Said before the invoice is raised rather than discovered
+                  // afterwards, because the two go to different places on the
+                  // return: 6A for a true export, 5 or 7 for everything else. */}
               {!isDomestic && (
                 <div style={exportNote}>
-                  Outside India — this will be raised as a zero-rated export under LUT, with no GST.
-                  Choose a foreign-currency account below so the client can pay.
+                  {form.currency === 'INR' ? (
+                    <>
+                      Outside India, but paid in rupees — so this is <strong>not</strong> an
+                      export of services. GST at {form.gstRatePct}% applies and it will be
+                      reported under B2C rather than 6A. Choose a foreign-currency account
+                      below if the client is paying in their own currency.
+                    </>
+                  ) : (
+                    <>
+                      A zero-rated export of services in {form.currency}, with no GST, reported
+                      under 6A. The rupee value follows from the e-FIRC when the money lands.
+                    </>
+                  )}
                 </div>
               )}
 
