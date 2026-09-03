@@ -40,7 +40,18 @@ router.get('/issued', async (req, res) => {
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
     const { rows } = await pool.query(
-      `SELECT i.*, a.label AS account_label
+      `SELECT i.*, a.label AS account_label,
+              -- What actually arrived, in rupees.
+              --
+              -- A foreign invoice has no rupee value until the money lands: the
+              -- rate is whatever the bank realised at, and the e-FIRC says what
+              -- that was. So this is the sum of the receipts rather than a
+              -- conversion done at invoice time, which would be a number the
+              -- money never agreed with.
+              (SELECT COALESCE(SUM(r.amount_credited_inr), 0)
+                 FROM invoice_receipts r WHERE r.invoice_id = i.id)  AS realised_inr,
+              (SELECT count(*)::int
+                 FROM invoice_receipts r WHERE r.invoice_id = i.id)  AS receipt_count
        FROM issued_invoices i
        LEFT JOIN payment_accounts a ON a.id = i.payment_account_id
        ${where}
@@ -148,14 +159,36 @@ router.post('/issued', async (req, res) => {
     await client.query('BEGIN');
     const invoiceNumber = await getNextNumber(client, kind);
 
+    // No rate here, and deliberately none.
+    //
+    // A foreign invoice is worth whatever the bank realises it at, on the day
+    // it lands, and that is not known when the invoice is written. The e-FIRC
+    // says what it was. Guessing a rate at creation would put a number on the
+    // invoice that the money never agreed with, and the return would be
+    // reckoned on a figure nobody could evidence.
+    //
+    // So a rupee invoice is its own equivalent and a foreign one has none until
+    // it is paid. The receipt carries the rate, and the rupee value of this
+    // invoice is the sum of what actually arrived against it.
+    const cur  = (currency || 'INR').trim().toUpperCase();
+    const rate = cur === 'INR' ? 1 : null;
+    const inr  = (n) => (rate === null ? null : Math.round(Number(n || 0) * rate * 100) / 100);
+    const fx = {
+      rate,
+      taxable: inr(tax.taxable), total: inr(tax.total),
+      cgst: inr(tax.cgst), sgst: inr(tax.sgst), igst: inr(tax.igst),
+    };
+
     const { rows } = await client.query(
       `INSERT INTO issued_invoices (
          kind, invoice_number, invoice_date,
          recipient_name, recipient_email, recipient_address, recipient_gstin,
          recipient_state, recipient_country, place_of_supply, reverse_charge,
          line_items, currency, taxable_amount, cgst_amount, sgst_amount, igst_amount,
-         gst_rate_pct, total_amount, is_export, payment_account_id, notes
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+         gst_rate_pct, total_amount, is_export, payment_account_id, notes,
+         exchange_rate, taxable_inr, total_inr, cgst_inr, sgst_inr, igst_inr
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
+                 $23,$24,$25,$26,$27,$28)
        RETURNING *`,
       [
         kind, invoiceNumber, invoiceDate || new Date(),
@@ -166,6 +199,7 @@ router.post('/issued', async (req, res) => {
         tax.taxable, tax.cgst, tax.sgst, tax.igst,
         tax.appliedRate, tax.total, tax.isExport,
         paymentAccountId || null, notes?.trim() || null,
+        fx.rate, fx.taxable, fx.total, fx.cgst, fx.sgst, fx.igst,
       ]
     );
     await client.query('COMMIT');
@@ -299,7 +333,9 @@ router.get('/issued/:id/receipts', async (req, res) => {
 
 router.post('/issued/:id/receipts', async (req, res) => {
   const { receivedOn, currency, amount, exchangeRate, amountCreditedInr,
-          method, reference, efircNumber, efircFileKey, note } = req.body;
+          method, reference, efircNumber, efircFileKey, note,
+          withheldInCurrency, withholdingNote, withholdingFileKey,
+          bankChargesInr } = req.body;
 
   const amt = parseFloat(amount);
   if (!amt || amt <= 0) return res.status(400).json({ error: 'An amount is required' });
@@ -316,6 +352,23 @@ router.post('/issued/:id/receipts', async (req, res) => {
   const credited = amountCreditedInr === undefined || amountCreditedInr === null || amountCreditedInr === ''
     ? Math.round(amt * rate * 100) / 100
     : parseFloat(amountCreditedInr);
+
+  // Tax the payer took off before sending, in the invoice currency.
+  //
+  // Meta bills two thousand, remits seventeen hundred, and three hundred goes
+  // to the IRS. Without this the invoice reads as underpaid rather than paid in
+  // full with tax deducted — and the withheld amount is claimable against
+  // Indian tax under the treaty, so losing sight of it costs real money.
+  const withheld = parseFloat(withheldInCurrency) || 0;
+
+  // What the banks took in transit, which is not the same thing at all.
+  //
+  // This used to be inferred by subtracting what arrived from what was sent,
+  // which quietly swallowed any withholding into it. Taken from the statement
+  // when it is given, and inferred only when it is not.
+  const charges = (bankChargesInr === undefined || bankChargesInr === null || bankChargesInr === '')
+    ? Math.round(Math.max(0, ((amt - withheld) * rate) - credited) * 100) / 100
+    : parseFloat(bankChargesInr);
 
   try {
     const { rows: inv } = await pool.query(
@@ -337,8 +390,10 @@ router.post('/issued/:id/receipts', async (req, res) => {
       `INSERT INTO invoice_receipts
          (invoice_id, receipt_number, received_on, currency, amount_in_currency,
           exchange_rate, amount_credited_inr, method, reference, efirc_number,
-          efirc_file_key, note)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+          efirc_file_key, note,
+          withheld_in_currency, withheld_inr, withholding_note, withholding_file_key,
+          bank_charges_inr)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
       [req.params.id, receiptNumber, receivedOn || new Date(), cur, amt, rate, credited,
        method?.trim() || null, reference?.trim() || null, efircNumber?.trim() || null,
        efircFileKey || null, note?.trim() || null]
