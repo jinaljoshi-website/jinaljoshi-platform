@@ -258,10 +258,20 @@ export function Invoices() {
               <button onClick={() => startNew(tab)} style={S.btn}>
                 {tab === 'b2b' ? 'New tax invoice' : 'New receipt'}
               </button>
-              {totals && (
-                <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted }}>
-                  {rupees(totals.total)} invoiced
-                  {totals.unpaid > 0 && <span style={{ color: '#D9A45C' }}> · {rupees(totals.unpaid)} unpaid</span>}
+              {/* No total across the list.
+                  //
+                  // It added every invoice together and put a rupee sign on the
+                  // answer, so eight hundred dollars read as eight hundred
+                  // rupees. Summing amounts in different currencies gives a
+                  // number that is not a quantity of anything, and there is
+                  // nothing useful to replace it with: each invoice already
+                  // states its own value, in its own currency, on its own row.
+                  //
+                  // How many are unpaid is still worth saying, because that is
+                  // a count rather than an amount. */}
+              {totals?.unpaidCount > 0 && (
+                <span style={{ fontFamily: sans, fontSize: 12, color: '#D9A45C' }}>
+                  {totals.unpaidCount} unpaid
                 </span>
               )}
             </div>

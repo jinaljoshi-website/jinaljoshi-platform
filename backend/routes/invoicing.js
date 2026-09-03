@@ -83,13 +83,19 @@ router.get('/issued', async (req, res) => {
       };
     });
 
+    // Counts, not sums.
+    //
+    // These added amounts from invoices in different currencies, so eight
+    // hundred dollars and eight hundred rupees came to sixteen hundred of
+    // nothing in particular. A number that is not a quantity of anything cannot
+    // be shown, and there is no single currency to state it in.
+    //
+    // How many are unpaid is a count and stays true whatever they were written
+    // in. Each invoice already carries its own value on its own row.
     const totals = withReceipts.reduce((t, r) => ({
-      taxable: t.taxable + Number(r.taxable_amount),
-      tax:     t.tax     + Number(r.cgst_amount) + Number(r.sgst_amount) + Number(r.igst_amount),
-      total:   t.total   + Number(r.total_amount),
-      received: t.received + r.receivedGross,
-      unpaid:  t.unpaid  + (r.settled_at ? 0 : r.outstanding),
-    }), { taxable: 0, tax: 0, total: 0, received: 0, unpaid: 0 });
+      count:       t.count + 1,
+      unpaidCount: t.unpaidCount + (r.settled_at || r.outstanding <= 0 ? 0 : 1),
+    }), { count: 0, unpaidCount: 0 });
 
     res.json({ invoices: withReceipts, totals });
   } catch (err) {
