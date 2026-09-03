@@ -540,6 +540,9 @@ function ReceiptsPanel({ invoice, onChanged }) {
   // raised in. Formatting a two thousand dollar invoice with a rupee sign said
   // ₹2,000 for something worth nearly two lakh.
   const cur = data.currency || 'INR';
+  // Received is what landed in the bank, in rupees, however the invoice was
+  // written. Invoiced and still due are the invoice's own currency, because
+  // that is what was asked for and what remains unasked.
   const own = (n) => (cur === 'INR'
     ? inr(n)
     : `${cur} ${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
@@ -550,10 +553,17 @@ function ReceiptsPanel({ invoice, onChanged }) {
 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
         <Sum label="Invoiced"  value={own(data.invoiced)} />
-        <Sum label="Received"  value={own(data.totals.gross)} tone={colors.success} />
+        <Sum label="Received"  value={inr(data.totals.gross)} tone={colors.success} />
         <Sum label="Still due" value={own(data.outstanding)} tone={data.outstanding > 0 ? '#D9A45C' : colors.muted} />
         {data.totals.charges > 0 && (
           <Sum label="Bank charges" value={inr(data.totals.charges)} sub="claimable expense" />
+        )}
+        {data.totals.withheld > 0 && (
+          /* Kept apart from charges on purpose. One is a cost of being paid,
+             the other is tax already paid on her behalf and claimable against
+             Indian tax under the treaty — but only with the certificate. */
+          <Sum label="Withheld at source" value={inr(data.totals.withheld)}
+               sub="claimable under the treaty" tone="#D9A45C" />
         )}
       </div>
 
@@ -576,7 +586,13 @@ function ReceiptsPanel({ invoice, onChanged }) {
             </div>
             {r.chargesInr > 0 && (
               <div style={{ fontFamily: sans, fontSize: 10, color: colors.muted, marginTop: 2 }}>
-                {inr(r.creditedInr)} credited · {inr(r.chargesInr)} in charges
+                {inr(r.creditedInr)} credited
+                {r.withheldInCurrency > 0 && (
+                  <> · <span style={{ color: '#D9A45C' }}>
+                    {cur} {Number(r.withheldInCurrency).toLocaleString('en-IN')} withheld at source
+                  </span></>
+                )}
+                {' · '}{inr(r.chargesInr)} in bank charges
               </div>
             )}
           </div>
@@ -622,10 +638,33 @@ function ReceiptsPanel({ invoice, onChanged }) {
                        value={form.exchangeRate} onChange={(e) => set('exchangeRate', e.target.value)} />
               </Field>
             )}
+            {/* What the payer kept back before sending.
+                //
+                // Meta bills eight hundred dollars and remits less, with the
+                // difference gone to the IRS in Jinal's name. Without this it
+                // reads as an underpayment, and the withheld amount — which is
+                // claimable against Indian tax under the treaty — is lost. */}
+            {form.currency !== 'INR' && (
+              <Field label={`Withheld at source (${form.currency || 'USD'})`}>
+                <input style={S.input} type="number" step="0.01" placeholder="0.00"
+                       value={form.withheldInCurrency || ''}
+                       onChange={(e) => set('withheldInCurrency', e.target.value)} />
+                <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 4 }}>
+                  Tax the payer deducted. Leave empty if none.
+                </div>
+              </Field>
+            )}
+
             <Field label="Credited to the account (INR)">
               <input style={S.input} type="number" step="0.01"
                      placeholder={gross ? String(Math.round(gross * 100) / 100) : ''}
                      value={form.amountCreditedInr} onChange={(e) => set('amountCreditedInr', e.target.value)} />
+              <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 4 }}>
+                {/* Said out loud, because the difference between what was sent
+                    and what arrived is the bank charge, and somebody entering a
+                    figure should know what it will be taken to mean. */}
+                Whatever is short of the remitted amount is recorded as bank charges.
+              </div>
             </Field>
             <Field label="Method">
               <input style={S.input} value={form.method} placeholder="wire, UPI, cheque"

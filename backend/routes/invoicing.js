@@ -269,28 +269,49 @@ async function receiptsFor(invoiceId) {
     [invoiceId]
   );
   const totals = rows.reduce((t, r) => {
-    const rate   = Number(r.exchange_rate) || 1;
-    const gross  = Number(r.amount_in_currency) * rate;
-    const credit = Number(r.amount_credited_inr);
+    const rate     = Number(r.exchange_rate) || 1;
+    const withheld = Number(r.withheld_in_currency || 0) * rate;
+    // What was actually sent, after the payer kept tax back.
+    //
+    // Charges are the gap between what left and what arrived. Measuring from
+    // the invoice amount instead counted the withheld tax as a bank fee, which
+    // on a two thousand dollar invoice made an eight hundred rupee charge look
+    // like twenty-seven thousand.
+    const remitted = (Number(r.amount_in_currency) * rate) - withheld;
+    const credit   = Number(r.amount_credited_inr);
+    const charges  = r.bank_charges_inr === null || r.bank_charges_inr === undefined
+      ? Math.max(0, remitted - credit)
+      : Number(r.bank_charges_inr);
     return {
-      gross:    t.gross + gross,
+      gross:    t.gross + remitted,
       credited: t.credited + credit,
-      charges:  t.charges + Math.max(0, gross - credit),
+      charges:  t.charges + charges,
+      withheld: t.withheld + withheld,
     };
-  }, { gross: 0, credited: 0, charges: 0 });
+  }, { gross: 0, credited: 0, charges: 0, withheld: 0 });
 
   const round = (n) => Math.round(n * 100) / 100;
   return {
     receipts: rows.map((r) => {
       const rate  = Number(r.exchange_rate) || 1;
-      const gross = round(Number(r.amount_in_currency) * rate);
+      const withheldInr = round(Number(r.withheld_in_currency || 0) * rate);
+      const gross = round((Number(r.amount_in_currency) * rate) - withheldInr);
       return {
         id: r.id, receiptNumber: r.receipt_number, receivedOn: r.received_on,
         currency: r.currency, amount: Number(r.amount_in_currency),
+        // Returned, or the screen can never show what was deducted before the
+        // money left — which is the difference between an invoice underpaid and
+        // one paid in full with tax taken off.
+        withheldInCurrency: Number(r.withheld_in_currency || 0),
+        withheldInr: Number(r.withheld_inr || 0),
+        withholdingNote: r.withholding_note,
+        withholdingFileKey: r.withholding_file_key,
         exchangeRate: r.exchange_rate ? Number(r.exchange_rate) : null,
         grossInr: gross,
         creditedInr: Number(r.amount_credited_inr),
-        chargesInr: round(Math.max(0, gross - Number(r.amount_credited_inr))),
+        chargesInr: r.bank_charges_inr === null || r.bank_charges_inr === undefined
+          ? round(Math.max(0, gross - Number(r.amount_credited_inr)))
+          : round(Number(r.bank_charges_inr)),
         method: r.method, reference: r.reference,
         efircNumber: r.efirc_number, efircFileKey: r.efirc_file_key,
         note: r.note,
