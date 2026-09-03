@@ -83,11 +83,29 @@ export function Invoices() {
     ...f, lineItems: f.lineItems.map((li, n) => n === i ? { ...li, [k]: v } : li),
   }));
 
-  const isDomestic = (form?.recipientCountry || '').trim().toLowerCase() === 'india';
-  const sameState  = isDomestic && (form?.placeOfSupply || '').toLowerCase() === 'maharashtra';
+  const inIndia = (form?.recipientCountry || '').trim().toLowerCase() === 'india';
+  const inRupees = (form?.currency || 'INR').trim().toUpperCase() === 'INR';
+
+  // Three cases, not two.
+  //
+  // The form asked one question — is the client in India — and used the answer
+  // for everything. But being abroad is not enough for an export of services:
+  // the payment has to be in convertible foreign exchange. A client in the
+  // United States paying rupees is an ordinary taxable supply, and the form was
+  // showing them nought per cent while the backend charged eighteen.
+  //
+  //   in India                → taxable, place of supply is a state
+  //   abroad, paid in rupees  → taxable, place of supply is Other Territory
+  //   abroad, foreign currency → a genuine export, zero-rated, no state at all
+  const isExport  = !inIndia && !inRupees;
+  const isTaxable = !isExport;
+
+  // Kept for the CGST/SGST split, which only ever applies within India.
+  const isDomestic = inIndia;
+  const sameState  = inIndia && (form?.placeOfSupply || '').toLowerCase() === 'maharashtra';
   const taxable    = (form?.lineItems || []).reduce(
     (s, li) => s + (parseFloat(li.quantity) || 1) * (parseFloat(li.rate) || 0), 0);
-  const rate       = isDomestic ? (parseFloat(form?.gstRatePct) || 0) : 0;
+  const rate       = isTaxable ? (parseFloat(form?.gstRatePct) || 0) : 0;
   const taxAmount  = Math.round(taxable * rate) / 100;
 
   const submit = async () => {
@@ -292,7 +310,16 @@ export function Invoices() {
                   <input style={S.input} type="date" value={form.invoiceDate} onChange={(e) => setF('invoiceDate', e.target.value)} />
                 </Field>
                 <Field label="Country">
-                  <input style={S.input} value={form.recipientCountry} onChange={(e) => setF('recipientCountry', e.target.value)} />
+                  <input style={S.input} value={form.recipientCountry}
+                         onChange={(e) => {
+                           const v = e.target.value;
+                           setF('recipientCountry', v);
+                           // Moved with the country rather than left behind.
+                           // Maharashtra on an invoice to a client in Malta is
+                           // a place of supply that never made sense.
+                           const abroad = v.trim().toLowerCase() !== 'india';
+                           setF('placeOfSupply', abroad ? 'Other Territory' : 'Maharashtra');
+                         }} />
                 </Field>
                 {/* Chosen rather than inferred from whichever account was
                     picked further down the form. It decides whether GST applies
@@ -313,15 +340,24 @@ export function Invoices() {
                 </Field>
               </div>
 
-              {isDomestic && (
+              {isTaxable && (
                 <div style={{ ...S.formGrid, marginTop: 12 }}>
-                  <Field label={form.kind === 'b2b' ? 'Client GSTIN (required)' : 'Client GSTIN (optional)'}>
-                    <input style={S.input} value={form.recipientGstin} onChange={(e) => setF('recipientGstin', e.target.value.toUpperCase())}
-                           placeholder="27ABCDE1234F1Z5" />
-                  </Field>
+                  {/* A foreign client has no GSTIN to give. */}
+                  {inIndia && (
+                    <Field label={form.kind === 'b2b' ? 'Client GSTIN (required)' : 'Client GSTIN (optional)'}>
+                      <input style={S.input} value={form.recipientGstin} onChange={(e) => setF('recipientGstin', e.target.value.toUpperCase())}
+                             placeholder="27ABCDE1234F1Z5" />
+                    </Field>
+                  )}
                   <Field label="Place of supply">
+                    {/* Other Territory, for a taxable sale to somebody abroad.
+                        //
+                        // The portal accepts states and Other Territory and has
+                        // no row for a country, so a client in the United States
+                        // paying rupees is filed there. Offering the state list
+                        // alone left no honest answer. */}
                     <select style={S.input} value={form.placeOfSupply} onChange={(e) => setF('placeOfSupply', e.target.value)}>
-                      {STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      {(inIndia ? STATES : ['Other Territory']).map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </Field>
                   <Field label="GST rate (%)">
@@ -342,7 +378,7 @@ export function Invoices() {
                   // Said before the invoice is raised rather than discovered
                   // afterwards, because the two go to different places on the
                   // return: 6A for a true export, 5 or 7 for everything else. */}
-              {!isDomestic && (
+              {!inIndia && (
                 <div style={exportNote}>
                   {form.currency === 'INR' ? (
                     <>
@@ -396,16 +432,16 @@ export function Invoices() {
               {/* Running total */}
               <div style={totalBox}>
                 <div style={totalRow}><span>Taxable value</span><span>{rupees(taxable, form.currency)}</span></div>
-                {isDomestic && sameState && (
+                {inIndia && sameState && (
                   <>
                     <div style={totalRow}><span>CGST @ {rate / 2}%</span><span>{rupees(taxAmount / 2, form.currency)}</span></div>
                     <div style={totalRow}><span>SGST @ {rate / 2}%</span><span>{rupees(taxAmount / 2, form.currency)}</span></div>
                   </>
                 )}
-                {isDomestic && !sameState && (
+                {isTaxable && !sameState && (
                   <div style={totalRow}><span>IGST @ {rate}%</span><span>{rupees(taxAmount, form.currency)}</span></div>
                 )}
-                {!isDomestic && <div style={totalRow}><span>GST</span><span>0% — export</span></div>}
+                {isExport && <div style={totalRow}><span>GST</span><span>0% — export</span></div>}
                 <div style={{ ...totalRow, borderTop: `1px solid ${colors.border}`, paddingTop: 8, marginTop: 6, fontSize: 15, color: colors.text }}>
                   <strong>Total</strong><strong>{rupees(taxable + taxAmount, form.currency)}</strong>
                 </div>

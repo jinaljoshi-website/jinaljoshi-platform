@@ -129,6 +129,28 @@ router.post('/issued', async (req, res) => {
     }
   }
 
+  // A taxable sale needs somewhere to have been supplied.
+  //
+  // Three cases and only one of them has no place of supply. A client in India
+  // is supplied in a state; a client abroad paying rupees is a taxable supply
+  // to Other Territory, which is the row the portal offers and the only honest
+  // answer for a country it has never heard of; and a genuine export, paid in
+  // foreign currency, is zero-rated and needs none.
+  //
+  // Without this, the middle case filed as a supply to nowhere.
+  {
+    const abroad     = (recipientCountry || 'India').trim().toLowerCase() !== 'india';
+    const inRupees   = (currency || 'INR').trim().toUpperCase() === 'INR';
+    const trulyExport = abroad && !inRupees;
+    if (!trulyExport && !placeOfSupply?.trim()) {
+      return res.status(400).json({
+        error: abroad
+          ? 'A sale abroad paid in rupees is taxable and needs a place of supply — use Other Territory.'
+          : 'Place of supply is required.',
+      });
+    }
+  }
+
   const clean = lineItems
     .filter((li) => li.description?.trim())
     .map((li) => {
