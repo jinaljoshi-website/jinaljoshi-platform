@@ -9,6 +9,7 @@ const app = express();
 app.use(cors({
   origin: [
     'https://ps.jinaljoshi.in',
+    'https://shop.jinaljoshi.in',
     'https://studio.jinaljoshi.in',
     'https://jinaljoshi.in',
     'https://www.jinaljoshi.in',
@@ -33,6 +34,12 @@ app.use('/api/traffic',      require('./routes/traffic'));
 // an uptime checker cannot sign in — and it says a word and a status code,
 // which is all such a checker reads.
 app.use('/api/health',       require('./routes/health'));
+// shop.jinaljoshi.in. Rupees rather than tokens, because it sells physical
+// things that arrive by courier rather than instantly.
+app.use('/api/shopfront',    require('./routes/shopfront'));
+// GST, arranged the way a return asks for it. Artist only: it is the whole
+// sales ledger with every buyer's email in it.
+app.use('/api/studio/gst',   require('./middleware/auth'), require('./middleware/artistOnly'), require('./routes/gst'));
 
 // Link previews. Not under /api — these are real pages a crawler fetches, and
 // they are reached at ps.jinaljoshi.in/s/... through a rewrite in ps/vercel.json.
