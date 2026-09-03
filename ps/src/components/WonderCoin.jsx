@@ -42,6 +42,16 @@ export function WonderCoinAmount({
   gap = 8,
   fontSize,
   subSize = 12,
+  // Something that belongs to the price rather than after it.
+  //
+  // A rate written as the component followed by "/ min" put those two words
+  // beside the rupee line and attached to neither: 27, then ₹1,782, then
+  // / min, which somebody read as one thousand seven hundred rupees for a
+  // twenty-seven minute call. It is ₹1,782 a minute.
+  //
+  // Given here it is appended to both lines, so each is a complete statement
+  // and there is nothing left to pair up wrongly.
+  suffix = null,
 }) {
   // In whatever currency this fan chose to pay in, falling back to rupees.
   const priceLabel = tokensToMoney(amount);
@@ -71,7 +81,7 @@ export function WonderCoinAmount({
               whiteSpace: 'nowrap',
             }}
           >
-            {amount}
+            {amount}{suffix ? <span style={{ fontSize: '0.72em', opacity: 0.85 }}> {suffix}</span> : null}
           </div>
           {showInr && priceLabel !== null && (
             <div
@@ -86,7 +96,7 @@ export function WonderCoinAmount({
                 whiteSpace: 'nowrap',
               }}
             >
-              {priceLabel}
+              {priceLabel}{suffix ? ` ${suffix}` : ''}
             </div>
           )}
         </div>

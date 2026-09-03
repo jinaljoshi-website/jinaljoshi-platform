@@ -643,10 +643,11 @@ export default function Calls() {
                                          borderColor: on ? C.accent : C.border,
                                          background: on ? 'rgba(193,125,74,0.12)' : 'transparent' }}>
                           <span style={{ fontFamily: F.sans, fontSize: 14, color: C.text }}>{option.label}</span>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <WonderCoinAmount amount={option.coinsPerMin} size={13} fontSize={13} />
-                            <span style={{ fontFamily: F.sans, fontSize: 11, color: C.muted }}>/ min</span>
-                          </span>
+                          {/* The unit goes on both lines rather than after the
+                              pair, or "27" over "₹1,782" followed by "/ min"
+                              reads as a price for twenty-seven minutes. */}
+                          <WonderCoinAmount amount={option.coinsPerMin} size={13} fontSize={13}
+                                            suffix="a minute" />
                         </button>
                       );
                     })}

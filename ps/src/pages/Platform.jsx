@@ -356,7 +356,18 @@ export default function Platform() {
           {isMobile ? (
             <button onClick={() => navigate(-1)} style={backButton} aria-label="Back">←</button>
           ) : (
-            <div style={{ fontFamily: F.display, fontSize: 22 }}>Personal Space</div>
+            // The way out.
+            //
+            // The wordmark was a plain div, so once somebody was inside the
+            // platform there was no route back to the homepage at all — the
+            // one place every site puts it, and the first place anybody looks.
+            <div onClick={() => navigate('/')}
+                 role="link" tabIndex={0}
+                 onKeyDown={(e) => { if (e.key === 'Enter') navigate('/'); }}
+                 title="Back to the homepage"
+                 style={{ fontFamily: F.display, fontSize: 22, cursor: 'pointer' }}>
+              Personal Space
+            </div>
           )}
           <div style={{ fontFamily: isMobile ? F.display : F.sans, fontSize: isMobile ? 17 : 11, color: isMobile ? C.text : C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {isMobile ? (currentNav?.label || 'Personal Space') : user?.email}
