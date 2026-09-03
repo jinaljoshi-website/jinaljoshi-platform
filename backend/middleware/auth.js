@@ -1,14 +1,36 @@
 const jwt = require('jsonwebtoken');
 const pool = require('../db/pool');
 
-module.exports = async (req, res, next) => {
-  const header = req.headers.authorization;
+// Reads a cookie by name without a parser dependency.
+function cookieValue(req, name) {
+  const raw = req.headers.cookie;
+  if (!raw) return null;
+  for (const part of raw.split(';')) {
+    const i = part.indexOf('=');
+    if (i < 0) continue;
+    if (part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return null;
+}
 
-  if (!header || !header.startsWith('Bearer ')) {
+module.exports = async (req, res, next) => {
+  // The header first, then the cookie.
+  //
+  // Personal Space keeps its token in localStorage and sends it as a bearer
+  // header, and that is untouched: changing it would sign everybody out to fix
+  // something that is not broken.
+  //
+  // The shop is a different origin and cannot read that localStorage, so login
+  // is also carried by a cookie scoped to the whole of jinaljoshi.in. One sign
+  // in, both sites, and the same session either way.
+  const header = req.headers.authorization;
+  const token = (header && header.startsWith('Bearer '))
+    ? header.split(' ')[1]
+    : cookieValue(req, 'jj_session');
+
+  if (!token) {
     return res.status(401).json({ error: 'Not logged in' });
   }
-
-  const token = header.split(' ')[1];
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);

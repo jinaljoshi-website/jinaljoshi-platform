@@ -47,6 +47,25 @@ async function createSessionAndRespond(user, req, res, timezone) {
     { expiresIn: '365d' }
   );
 
+  // The same session, in a cookie the whole domain can read.
+  //
+  // Personal Space keeps its copy in localStorage and is untouched. The shop is
+  // a separate origin and cannot see that, so signing in once has to work for
+  // both — a cookie on .jinaljoshi.in is the only thing both sites can read.
+  //
+  // httpOnly, so no script on either site can read it, which makes it a safer
+  // place for a token than localStorage rather than a worse one. SameSite=Lax
+  // still sends it when somebody follows a link from one site to the other,
+  // which is exactly the journey this exists for.
+  res.cookie('jj_session', token, {
+    domain:   '.jinaljoshi.in',
+    httpOnly: true,
+    secure:   true,
+    sameSite: 'lax',
+    maxAge:   365 * 24 * 60 * 60 * 1000,
+    path:     '/',
+  });
+
   if (user.is_artist) {
     // Jinal's account supports multiple concurrent sessions (phone + laptop at once) —
     // each login simply adds a new session row rather than replacing the existing one.
@@ -272,6 +291,8 @@ router.post('/logout', authMid, async (req, res) => {
   // Only this device's session — logging out on one device shouldn't sign out other
   // active sessions on the same account (matters now that Jinal can have several).
   await pool.query('DELETE FROM active_sessions WHERE user_id = $1 AND session_id = $2', [req.user.userId, req.user.sessionId]);
+  // Cleared as well, or signing out of one site leaves the other signed in.
+  res.clearCookie('jj_session', { domain: '.jinaljoshi.in', path: '/' });
   res.json({ ok: true });
 });
 
@@ -505,6 +526,7 @@ router.post('/close-account', authMid, async (req, res) => {
 
     // Signed out everywhere, at once.
     await pool.query(`DELETE FROM active_sessions WHERE user_id = $1`, [req.user.userId]);
+    res.clearCookie('jj_session', { domain: '.jinaljoshi.in', path: '/' });
 
     console.log(`account closed: ${u.email}`);
     res.json({ ok: true, message: 'Your account is closed.' });
