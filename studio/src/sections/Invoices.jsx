@@ -39,6 +39,10 @@ export function Invoices() {
   const [accounts, setAccounts] = useState([]);
   const [issued,   setIssued]   = useState([]);
   const [totals,   setTotals]   = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [voiding,   setVoiding]   = useState(null);
+  const [voidReason, setVoidReason] = useState('');
+  const [voidWarning, setVoidWarning] = useState('');
   const [platform, setPlatform] = useState(null);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');
@@ -61,7 +65,52 @@ export function Invoices() {
     ]).catch((err) => setError(err.message)).finally(() => setLoading(false));
   }, []);
 
+  // Editing loads the invoice back into the same form that made it, so there
+  // is one place where an invoice is described rather than two that can drift.
+  const startEdit = (inv) => {
+    setEditingId(inv.id);
+    setCreating(true);
+    setForm({
+      kind: inv.kind,
+      invoiceDate: (inv.invoice_date || '').slice(0, 10),
+      recipientName: inv.recipient_name || '',
+      recipientEmail: inv.recipient_email || '',
+      recipientAddress: inv.recipient_address || '',
+      recipientGstin: inv.recipient_gstin || '',
+      recipientState: inv.recipient_state || '',
+      recipientCountry: inv.recipient_country || 'India',
+      placeOfSupply: inv.place_of_supply || 'Maharashtra',
+      reverseCharge: !!inv.reverse_charge,
+      currency: inv.currency || 'INR',
+      gstRatePct: String(inv.gst_rate_pct ?? 18),
+      paymentAccountId: inv.payment_account_id || '',
+      notes: inv.notes || '',
+      lineItems: (inv.line_items || []).map((li) => ({
+        description: li.description, quantity: String(li.quantity), rate: String(li.rate),
+      })),
+    });
+  };
+
+  const markSent = async (inv) => {
+    try {
+      await api.post(`/api/studio/invoicing/issued/${inv.id}/sent`, {});
+      loadIssued();
+    } catch (e) { setError(e.message); }
+  };
+
+  const doVoid = async (inv, reason, confirmPaid = false) => {
+    try {
+      await api.post(`/api/studio/invoicing/issued/${inv.id}/void`, { reason, confirmPaid });
+      setVoiding(null);
+      loadIssued();
+    } catch (e) {
+      if (e.code === 'HAS_RECEIPTS') setVoidWarning(e.message);
+      else setError(e.message);
+    }
+  };
+
   const startNew = (kind) => {
+    setEditingId(null);
     const def = accounts.find((a) => a.is_default) || accounts[0];
     setForm({
       kind,
@@ -111,7 +160,11 @@ export function Invoices() {
   const submit = async () => {
     setError(''); setSuccess(''); setBusy(true);
     try {
-      const d = await api.post('/api/studio/invoicing/issued', form);
+      // The same form saves both, because an invoice being edited is the same
+      // thing as one being written — only the destination differs.
+      const d = editingId
+        ? await api.patch(`/api/studio/invoicing/issued/${editingId}`, form)
+        : await api.post('/api/studio/invoicing/issued', form);
       setSuccess(`${d.invoice.invoice_number} created.`);
       setCreating(false); setForm(null);
       loadIssued();
@@ -297,7 +350,7 @@ export function Invoices() {
 
           {creating && form && (
             <Card style={{ marginBottom: 24 }}>
-              <T.sectionTitle>{form.kind === 'b2b' ? 'New tax invoice' : 'New receipt'}</T.sectionTitle>
+              <T.sectionTitle>{editingId ? 'Edit invoice' : form.kind === 'b2b' ? 'New tax invoice' : 'New receipt'}</T.sectionTitle>
 
               <div style={S.formGrid}>
                 <Field label={form.kind === 'b2b' ? 'Client name (legal name)' : 'Received from'}>
@@ -527,7 +580,69 @@ export function Invoices() {
                             style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
                       {openReceipts === inv.id ? 'Hide payments' : `Payments${inv.receiptCount ? ` · ${inv.receiptCount}` : ''}`}
                     </button>
+
+                    {/* Edit while it is a draft, cancel once it is not.
+                        //
+                        // A cancelled invoice is not offered either, because
+                        // there is nothing left to do to it. */}
+                    {!inv.voided_at && (
+                      <>
+                        <button onClick={() => startEdit(inv)}
+                                style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
+                          Edit
+                        </button>
+                        <button onClick={() => setVoiding(inv)}
+                                style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px',
+                                         color: '#D99A9A', borderColor: 'rgba(156,90,90,0.35)' }}>
+                          Cancel invoice
+                        </button>
+                        {!inv.sent_at && (
+                          <button onClick={() => markSent(inv)}
+                                  style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
+                            Mark as sent
+                          </button>
+                        )}
+                      </>
+                    )}
+                    {inv.sent_at && !inv.voided_at && (
+                      <span style={{ fontFamily: mono, fontSize: 10, color: colors.muted, alignSelf: 'center' }}>
+                        sent {new Date(inv.sent_at).toLocaleDateString('en-IN')}
+                      </span>
+                    )}
+                    {inv.voided_at && (
+                      <span style={{ fontFamily: mono, fontSize: 10, color: '#D99A9A', alignSelf: 'center' }}>
+                        cancelled {new Date(inv.voided_at).toLocaleDateString('en-IN')}
+                        {inv.void_reason ? ` · ${inv.void_reason}` : ''}
+                      </span>
+                    )}
                   </div>
+
+                  {/* Asked for, because "cancelled" on its own answers nothing
+                      a year later. */}
+                  {voiding?.id === inv.id && (
+                    <div style={{ marginTop: 12, padding: 12, borderRadius: 8,
+                                  background: 'rgba(217,154,154,0.06)',
+                                  border: '1px solid rgba(217,154,154,0.3)' }}>
+                      <div style={{ fontFamily: sans, fontSize: 12, color: colors.text, marginBottom: 8, lineHeight: 1.5 }}>
+                        {voidWarning || `Cancelling ${inv.invoice_number}. It keeps its number and stays on the record, out of every total and return.`}
+                      </div>
+                      <input style={{ ...S.input, marginBottom: 8 }} autoFocus
+                             placeholder="Why — wrong amount, raised in error, replaced by a new one…"
+                             value={voidReason} onChange={(e) => setVoidReason(e.target.value)} />
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => doVoid(inv, voidReason, !!voidWarning)}
+                                disabled={!voidReason.trim()}
+                                style={{ ...S.btn, fontSize: 12, padding: '6px 14px',
+                                         opacity: voidReason.trim() ? 1 : 0.5 }}>
+                          Cancel it
+                        </button>
+                        <button onClick={() => { setVoiding(null); setVoidReason(''); setVoidWarning(''); }}
+                                style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 14px' }}>
+                          Leave it
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {openReceipts === inv.id && (
                     <ReceiptsPanel invoice={inv} onChanged={loadIssued} />

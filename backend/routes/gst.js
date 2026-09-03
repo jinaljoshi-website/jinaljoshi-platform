@@ -174,6 +174,8 @@ router.get('/month', async (req, res) => {
          FROM issued_invoices i
         WHERE invoice_date >= $1 AND invoice_date < $2
           AND is_export = TRUE
+          -- A cancelled invoice keeps its number and stays out of the return.
+          AND voided_at IS NULL
         ORDER BY invoice_number`,
       [from, to]
     ).catch(() => ({ rows: [] }));
@@ -309,6 +311,7 @@ router.get('/month', async (req, res) => {
          FROM issued_invoices
         WHERE invoice_date >= $1 AND invoice_date < $2
           AND is_export = FALSE
+          AND voided_at IS NULL
         ORDER BY invoice_number`,
       [from, to]
     ).catch(() => ({ rows: [] }));

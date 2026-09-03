@@ -94,7 +94,8 @@ router.get('/issued', async (req, res) => {
     // in. Each invoice already carries its own value on its own row.
     const totals = withReceipts.reduce((t, r) => ({
       count:       t.count + 1,
-      unpaidCount: t.unpaidCount + (r.settled_at || r.outstanding <= 0 ? 0 : 1),
+      // A cancelled invoice is not owed.
+      unpaidCount: t.unpaidCount + (r.voided_at || r.settled_at || r.outstanding <= 0 ? 0 : 1),
     }), { count: 0, unpaidCount: 0 });
 
     res.json({ invoices: withReceipts, totals });
@@ -239,6 +240,172 @@ router.post('/issued', async (req, res) => {
     res.status(500).json({ error: 'Failed to create the invoice' });
   } finally {
     client.release();
+  }
+});
+
+
+// ─────────────────────────────────────────────
+// PATCH  /api/studio/invoicing/issued/:id
+// POST   /api/studio/invoicing/issued/:id/void
+// POST   /api/studio/invoicing/issued/:id/sent
+// ─────────────────────────────────────────────
+//
+// Changing an invoice, and cancelling one.
+//
+// These are different acts and the difference is whether anybody has seen it.
+// An invoice still on the screen is a draft and can be corrected. One that has
+// gone to a client is a document they hold, and quietly changing its figures
+// means two versions of the same number exist with no way to tell which is
+// current.
+//
+// So: edit while it is a draft, void once it is not. A voided invoice keeps its
+// number and its place in the sequence, because a number that vanishes is a gap
+// somebody has to explain, and table 13 of the return reports the range.
+router.patch('/issued/:id', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: cur } = await client.query(
+      `SELECT * FROM issued_invoices WHERE id = $1 FOR UPDATE`, [req.params.id]);
+    if (!cur.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'No such invoice' }); }
+    const inv = cur[0];
+
+    if (inv.voided_at) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'This invoice was cancelled and cannot be changed.' });
+    }
+    if (inv.sent_at && !req.body.confirmSent) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'ALREADY_SENT',
+        sentTo: inv.sent_to,
+        sentAt: inv.sent_at,
+        message: `This was sent to ${inv.sent_to || 'the client'} on ${new Date(inv.sent_at).toLocaleDateString('en-IN')}. They are holding a copy with these figures. Change it anyway, or cancel it and raise a new one?`,
+      });
+    }
+    // Receipts mean money has been matched to these figures. Changing the
+    // amount underneath them would leave the two disagreeing with nobody the
+    // wiser.
+    const { rows: paid } = await client.query(
+      `SELECT count(*)::int AS n FROM invoice_receipts WHERE invoice_id = $1`, [req.params.id]);
+    if (paid[0].n > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'HAS_RECEIPTS',
+        message: `${paid[0].n} payment${paid[0].n === 1 ? ' has' : 's have'} been recorded against this invoice. Cancel it and raise a new one rather than changing what the money was matched to.`,
+      });
+    }
+
+    const {
+      recipientName, recipientEmail, recipientAddress, recipientGstin,
+      recipientState, recipientCountry, placeOfSupply, reverseCharge,
+      lineItems, currency, gstRatePct, isExport, paymentAccountId, notes, invoiceDate,
+    } = req.body;
+
+    const clean = (lineItems || []).filter((li) => li?.description?.trim()).map((li) => ({
+      description: li.description.trim(),
+      quantity: parseFloat(li.quantity) || 1,
+      rate: parseFloat(li.rate) || 0,
+      amount: Math.round((parseFloat(li.quantity) || 1) * (parseFloat(li.rate) || 0) * 100) / 100,
+    }));
+    if (!clean.length) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'At least one line item is required' }); }
+
+    const supplier = await getSupplier();
+    const tax = computeTax({
+      lineItems: clean,
+      recipientCountry: recipientCountry || inv.recipient_country || 'India',
+      placeOfSupply,
+      gstRatePct: gstRatePct ?? inv.gst_rate_pct ?? 18,
+      isExportOverride: isExport,
+      supplierState: supplier.state,
+      currency: currency || inv.currency,
+    });
+
+    const cur2 = (currency || inv.currency || 'INR').trim().toUpperCase();
+    const rate = cur2 === 'INR' ? 1 : null;
+    const toInr = (n) => (rate === null ? null : Math.round(Number(n || 0) * rate * 100) / 100);
+
+    const { rows } = await client.query(
+      `UPDATE issued_invoices SET
+         invoice_date = COALESCE($1, invoice_date),
+         recipient_name = COALESCE($2, recipient_name),
+         recipient_email = $3, recipient_address = $4, recipient_gstin = $5,
+         recipient_state = $6, recipient_country = COALESCE($7, recipient_country),
+         place_of_supply = $8, reverse_charge = COALESCE($9, reverse_charge),
+         line_items = $10, currency = $11,
+         taxable_amount = $12, cgst_amount = $13, sgst_amount = $14, igst_amount = $15,
+         gst_rate_pct = $16, total_amount = $17, is_export = $18,
+         payment_account_id = $19, notes = $20,
+         exchange_rate = $21, taxable_inr = $22, total_inr = $23,
+         cgst_inr = $24, sgst_inr = $25, igst_inr = $26,
+         updated_at = NOW()
+       WHERE id = $27 RETURNING *`,
+      [invoiceDate || null, recipientName?.trim() || null, recipientEmail?.trim() || null,
+       recipientAddress?.trim() || null, recipientGstin?.trim() || null,
+       recipientState?.trim() || null, recipientCountry?.trim() || null,
+       placeOfSupply?.trim() || null, reverseCharge,
+       JSON.stringify(clean), cur2,
+       tax.taxable, tax.cgst, tax.sgst, tax.igst,
+       tax.appliedRate, tax.total, tax.isExport,
+       paymentAccountId || null, notes?.trim() || null,
+       rate, toInr(tax.taxable), toInr(tax.total),
+       toInr(tax.cgst), toInr(tax.sgst), toInr(tax.igst),
+       req.params.id]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true, invoice: rows[0] });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('invoicing/edit error:', err);
+    res.status(500).json({ error: 'Could not save the changes' });
+  } finally {
+    client.release();
+  }
+});
+
+router.post('/issued/:id/void', async (req, res) => {
+  const { reason } = req.body;
+  if (!reason?.trim()) {
+    // Required, because the answer to "what happened to MI/2026004" a year from
+    // now has to be better than "it says cancelled".
+    return res.status(400).json({ error: 'Say why it is being cancelled — it stays on the record.' });
+  }
+  try {
+    const { rows: paid } = await pool.query(
+      `SELECT count(*)::int AS n FROM invoice_receipts WHERE invoice_id = $1`, [req.params.id]);
+    if (paid[0].n > 0 && !req.body.confirmPaid) {
+      return res.status(409).json({
+        error: 'HAS_RECEIPTS',
+        message: `${paid[0].n} payment${paid[0].n === 1 ? '' : 's'} recorded against this. Cancelling it does not unrecord them. Continue?`,
+      });
+    }
+    const { rows } = await pool.query(
+      `UPDATE issued_invoices SET voided_at = NOW(), void_reason = $2
+        WHERE id = $1 AND voided_at IS NULL RETURNING invoice_number, voided_at`,
+      [req.params.id, reason.trim()]
+    );
+    if (!rows.length) return res.status(409).json({ error: 'Already cancelled, or no such invoice' });
+    res.json({ ok: true, ...rows[0] });
+  } catch (err) {
+    console.error('invoicing/void error:', err);
+    res.status(500).json({ error: 'Could not cancel it' });
+  }
+});
+
+// Marking it as gone to the client. After this, editing asks first.
+router.post('/issued/:id/sent', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE issued_invoices
+          SET sent_at = COALESCE(sent_at, NOW()), sent_to = COALESCE($2, sent_to, recipient_email)
+        WHERE id = $1 RETURNING invoice_number, sent_at, sent_to`,
+      [req.params.id, req.body.sentTo?.trim() || null]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'No such invoice' });
+    res.json({ ok: true, ...rows[0] });
+  } catch (err) {
+    console.error('invoicing/sent error:', err);
+    res.status(500).json({ error: 'Could not record that' });
   }
 });
 
