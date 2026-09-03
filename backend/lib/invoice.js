@@ -109,8 +109,26 @@ async function buildInvoiceRecord(client, {
       && String(placeOfSupply).toLowerCase() === supplier.state.toLowerCase();
 
     if (intraState) {
-      cgst = Math.round(gstAmountInr / 2 * 100) / 100;
-      sgst = Math.round((gstAmountInr - cgst) * 100) / 100;
+      // The two halves are always the same number.
+      //
+      // Splitting an odd number of paise cannot be done evenly, and taking the
+      // remainder into one head produced invoices where CGST and SGST differed
+      // by a paisa. Correct arithmetic, and it reads as a mistake on every
+      // document it appears on.
+      //
+      // So the tax is nudged to an even number of paise first and the taxable
+      // value absorbs the paisa. The customer still pays exactly what they were
+      // shown — only the line between tax and taxable moves, by one paisa, and
+      // the two heads come out identical.
+      const gstPaise = Math.round(gstAmountInr * 100);
+      if (gstPaise % 2 !== 0) {
+        // Upward, so the exchequer is never short and the taxable value is the
+        // side that gives way.
+        gstAmountInr = (gstPaise + 1) / 100;
+        taxableAmountInr = Math.round((taxableAmountInr * 100) - 1) / 100;
+      }
+      cgst = gstAmountInr / 2;
+      sgst = gstAmountInr / 2;
     } else {
       igst = gstAmountInr;
     }

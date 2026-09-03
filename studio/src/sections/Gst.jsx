@@ -125,7 +125,14 @@ export function Gst() {
                  empty="Nothing this month."
                  rows={t.t7_b2cOthers}
                  cols={[
-                   ['place_of_supply', 'Place of supply'],
+                   ['place_of_supply', 'Place of supply', null,
+                     // What went into an Other Territory line. The portal has
+                     // one row for it and no way to add another, so several
+                     // countries arrive as one number — and a total nobody can
+                     // take apart is a total nobody can check.
+                     (r) => (r.folded_from?.length
+                       ? `from ${r.folded_from.join(', ')}`
+                       : null)],
                    ['gst_rate_pct', 'Rate', (v) => `${v}%`],
                    ['invoices', 'Invoices'],
                    ['taxable', 'Taxable', rupees],
@@ -207,11 +214,14 @@ function Table({ title, note, rows, cols, empty }) {
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i}>
-                  {cols.map(([k, , fmt]) => (
+                  {cols.map(([k, , fmt, sub]) => (
                     <td key={k} style={{ fontFamily: mono, fontSize: 12, color: colors.text,
                                          padding: '8px 12px 8px 0',
                                          borderBottom: `1px solid ${colors.border}`, whiteSpace: 'nowrap' }}>
                       {fmt ? fmt(r[k]) : (r[k] ?? '—')}
+                      {sub && sub(r) && (
+                        <div style={{ fontSize: 10, color: colors.muted, marginTop: 2 }}>{sub(r)}</div>
+                      )}
                     </td>
                   ))}
                 </tr>

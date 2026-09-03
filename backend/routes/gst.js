@@ -26,6 +26,32 @@
 const router  = require('express').Router();
 const pool    = require('../db/pool');
 
+
+// The thirty-eight places GSTR-1 will accept.
+//
+// Anything else is Other Territory, and that is the whole reason this list
+// exists: a member in the United States paying in rupees is a taxable supply
+// with a place of supply the portal has never heard of. Left alone it would be
+// a row nobody can file — the form offers states and Other Territory, and no
+// way to add a country.
+//
+// Other Territory is also not a bucket for mistakes. A misspelt state name
+// would land there and be filed as an interstate supply to nowhere, so the
+// matching is on the canonical names and anything unrecognised is reported
+// separately rather than swept in.
+const GST_PLACES = new Set([
+  'Jammu and Kashmir', 'Himachal Pradesh', 'Punjab', 'Chandigarh', 'Uttarakhand',
+  'Haryana', 'Delhi', 'Rajasthan', 'Uttar Pradesh', 'Bihar', 'Sikkim',
+  'Arunachal Pradesh', 'Nagaland', 'Manipur', 'Mizoram', 'Tripura', 'Meghalaya',
+  'Assam', 'West Bengal', 'Jharkhand', 'Odisha', 'Chhattisgarh', 'Madhya Pradesh',
+  'Gujarat', 'Dadra and Nagar Haveli and Daman and Diu', 'Maharashtra', 'Karnataka',
+  'Goa', 'Lakshadweep', 'Kerala', 'Tamil Nadu', 'Puducherry',
+  'Andaman and Nicobar Islands', 'Telangana', 'Andhra Pradesh', 'Ladakh',
+  'Other Territory',
+]);
+
+const canonicalPlace = (p) => (p && GST_PLACES.has(p.trim()) ? p.trim() : 'Other Territory');
+
 // A month, as GST reckons them: the first to the last, in Indian time.
 //
 // Stored timestamps are UTC, and a sale at half past eleven on the last night
@@ -133,7 +159,7 @@ router.get('/month', async (req, res) => {
 
     // Table 7 — B2C Others. Everything domestic not already in table 5,
     // summarised per place of supply and rate, which is how the portal wants it.
-    const { rows: b2cs } = await pool.query(
+    const { rows: b2csRaw } = await pool.query(
       `SELECT COALESCE(place_of_supply, 'Unknown') AS place_of_supply,
               gst_rate_pct,
               count(*)::int                          AS invoices,
@@ -150,6 +176,32 @@ router.get('/month', async (req, res) => {
         ORDER BY taxable DESC`,
       [from, to, B2CL_FROM]
     );
+
+    // Folded to what the portal accepts.
+    //
+    // Every country becomes one Other Territory line per rate, because the form
+    // has a single row for it and no way to add another. Summed here rather
+    // than left for somebody to add up by hand at the keyboard, which is where
+    // a figure gets mistyped.
+    const folded = new Map();
+    for (const r of b2csRaw) {
+      const place = canonicalPlace(r.place_of_supply);
+      const key = `${place}|${r.gst_rate_pct}`;
+      const at = folded.get(key) || {
+        place_of_supply: place, gst_rate_pct: r.gst_rate_pct,
+        invoices: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, gross: 0,
+        folded_from: [],
+      };
+      at.invoices += Number(r.invoices);
+      for (const k of ['taxable', 'cgst', 'sgst', 'igst', 'gross']) {
+        at[k] = Math.round((at[k] + Number(r[k])) * 100) / 100;
+      }
+      // Kept so the line can say what went into it. A total nobody can take
+      // apart is a total nobody can check.
+      if (place !== r.place_of_supply) at.folded_from.push(r.place_of_supply);
+      folded.set(key, at);
+    }
+    const b2cs = [...folded.values()].sort((a, b) => b.taxable - a.taxable);
 
     // Table 9B — credit notes to unregistered buyers. Refunds reduce what is
     // owed and are the first thing forgotten when adding up by hand.
