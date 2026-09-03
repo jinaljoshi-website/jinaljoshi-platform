@@ -39,7 +39,9 @@ export function WonderCoinAmount({
   // the price beneath it was not, which is the wrong way round for the number
   // somebody is actually deciding on.
   subColor,
-  gap = 8,
+  // Close enough to read as one price. At eight the coin looked like a button
+  // sitting next to a number rather than part of it.
+  gap = 5,
   fontSize,
   subSize = 12,
   // Something that belongs to the price rather than after it.
@@ -81,13 +83,19 @@ export function WonderCoinAmount({
               whiteSpace: 'nowrap',
             }}
           >
-            {amount}{suffix ? <span style={{ fontSize: '0.72em', opacity: 0.85 }}> {suffix}</span> : null}
+            {/* No space before the unit.
+                //
+                // Written with one, the coin sat away from the number and the
+                // pair read as an icon and a button rather than a price. It is
+                // one thing: a coin, then 27/minute. */}
+            {amount}{suffix ? <span style={{ fontSize: '0.8em' }}>/{suffix}</span> : null}
           </div>
           {showInr && priceLabel !== null && (
             <div
               style={{
                 fontFamily: F.sans,
                 fontSize: subSize,
+                fontStyle: suffix ? 'italic' : 'normal',
                 color: resolvedSub,
                 // Held back from the main figure so the two still read as a
                 // pair rather than one flat block of text.
@@ -96,7 +104,9 @@ export function WonderCoinAmount({
                 whiteSpace: 'nowrap',
               }}
             >
-              {priceLabel}{suffix ? ` ${suffix}` : ''}
+              {/* In brackets and in italics, because it is the same price said
+                  again in another currency rather than a second charge. */}
+              {suffix ? `(${priceLabel}/${suffix})` : priceLabel}
             </div>
           )}
         </div>

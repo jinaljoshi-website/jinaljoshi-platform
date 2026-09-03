@@ -647,7 +647,7 @@ export default function Calls() {
                               pair, or "27" over "₹1,782" followed by "/ min"
                               reads as a price for twenty-seven minutes. */}
                           <WonderCoinAmount amount={option.coinsPerMin} size={13} fontSize={13}
-                                            suffix="a minute" />
+                                            suffix="minute" />
                         </button>
                       );
                     })}
