@@ -72,7 +72,22 @@ router.get('/summary', async (req, res) => {
 // GET /api/studio/gst/month?year=2026&month=8
 // ─────────────────────────────────────────────
 //
-// One month, broken out the way the return asks.
+// A month, in the tables GSTR-1 actually asks for.
+//
+// The portal wants figures under numbered headings, and translating an invoice
+// list into those headings by hand is where the mistakes happen. So the
+// headings are the shape of the answer:
+//
+//   5   B2C (Large)   interstate sales above the threshold, listed one by one
+//   6A  Exports       zero-rated, with the invoice numbers
+//   7   B2C (Others)  everything else, summarised per state and rate
+//   9B  Credit notes  refunds to unregistered buyers
+//   12  HSN summary   by SAC, which for this platform is one line
+//   13  Documents     the invoice numbers issued, and how many
+//
+// Nothing here is a return and none of it is advice about one. It is the
+// arithmetic, laid out so that whoever files can read across rather than
+// recalculate.
 router.get('/month', async (req, res) => {
   const year  = parseInt(req.query.year, 10);
   const month = parseInt(req.query.month, 10);
@@ -80,13 +95,44 @@ router.get('/month', async (req, res) => {
     return res.status(400).json({ error: 'Give a year and a month' });
   }
 
+  // Where B2C Large begins.
+  //
+  // The threshold has moved before and may move again, so it is a setting
+  // rather than a number typed into a query. Only interstate sales above it are
+  // listed individually; everything else is summarised.
+  const B2CL_FROM = parseInt(process.env.GST_B2CL_THRESHOLD_INR, 10) || 100000;
+
   const { from, to } = monthBounds(year, month);
 
   try {
-    // B2CS: domestic supplies, one row per state per rate.
-    //
-    // Grouped rather than listed because every sale here is to an individual
-    // with no GSTIN, and below the threshold those are reported as a summary.
+    // Table 5 — B2C Large. Interstate, above the threshold, one row each.
+    const { rows: b2cl } = await pool.query(
+      `SELECT invoice_number, created_at AT TIME ZONE 'Asia/Kolkata' AS issued_at,
+              place_of_supply, amount_inr_equivalent AS invoice_value,
+              gst_rate_pct, taxable_amount_inr, igst_amount_inr
+         FROM invoices
+        WHERE created_at >= $1 AND created_at < $2
+          AND is_export = FALSE
+          AND igst_amount_inr > 0
+          AND amount_inr_equivalent > $3
+        ORDER BY invoice_number`,
+      [from, to, B2CL_FROM]
+    );
+
+    // Table 6A — Exports.
+    const { rows: exports6a } = await pool.query(
+      `SELECT invoice_number, created_at AT TIME ZONE 'Asia/Kolkata' AS issued_at,
+              amount_inr_equivalent AS invoice_value, currency, amount_in_currency,
+              user_country, taxable_amount_inr, gst_amount_inr,
+              export_with_tax
+         FROM invoices
+        WHERE created_at >= $1 AND created_at < $2 AND is_export = TRUE
+        ORDER BY invoice_number`,
+      [from, to]
+    );
+
+    // Table 7 — B2C Others. Everything domestic not already in table 5,
+    // summarised per place of supply and rate, which is how the portal wants it.
     const { rows: b2cs } = await pool.query(
       `SELECT COALESCE(place_of_supply, 'Unknown') AS place_of_supply,
               gst_rate_pct,
@@ -99,39 +145,49 @@ router.get('/month', async (req, res) => {
          FROM invoices
         WHERE created_at >= $1 AND created_at < $2
           AND is_export = FALSE
+          AND NOT (igst_amount_inr > 0 AND amount_inr_equivalent > $3)
         GROUP BY 1, 2
         ORDER BY taxable DESC`,
-      [from, to]
+      [from, to, B2CL_FROM]
     );
 
-    // Exports, which are zero-rated and belong in their own table.
-    const { rows: exports } = await pool.query(
-      `SELECT COALESCE(user_country, 'Unknown')      AS country,
-              currency,
-              count(*)::int                          AS invoices,
-              COALESCE(SUM(amount_in_currency), 0)   AS in_currency,
-              COALESCE(SUM(amount_inr_equivalent), 0) AS inr,
-              COALESCE(SUM(gst_amount_inr), 0)       AS gst_charged,
-              bool_or(export_with_tax)               AS any_with_tax
-         FROM invoices
-        WHERE created_at >= $1 AND created_at < $2
-          AND is_export = TRUE
-        GROUP BY 1, 2
-        ORDER BY inr DESC`,
-      [from, to]
-    );
-
-    // Refunds and credits, which reduce what is owed and are the thing most
-    // easily forgotten when totalling by hand.
+    // Table 9B — credit notes to unregistered buyers. Refunds reduce what is
+    // owed and are the first thing forgotten when adding up by hand.
     const { rows: credits } = await pool.query(
-      `SELECT count(*)::int AS n,
-              COALESCE(SUM(ABS(payment_amount_inr)), 0) AS amount
+      `SELECT count(*)::int AS notes,
+              COALESCE(SUM(ABS(payment_amount_inr)), 0) AS value
          FROM coin_ledger
         WHERE created_at >= $1 AND created_at < $2
           AND type IN ('refund', 'request_refund', 'call_refund')
           AND payment_amount_inr IS NOT NULL`,
       [from, to]
-    ).catch(() => ({ rows: [{ n: 0, amount: 0 }] }));
+    ).catch(() => ({ rows: [{ notes: 0, value: 0 }] }));
+
+    // Table 12 — HSN/SAC summary. One service, so one line.
+    const { rows: hsn } = await pool.query(
+      `SELECT COALESCE(sac_code, '999599')            AS sac,
+              count(*)::int                           AS invoices,
+              COALESCE(SUM(tokens_purchased), 0)::int AS quantity,
+              COALESCE(SUM(amount_inr_equivalent), 0) AS total_value,
+              COALESCE(SUM(taxable_amount_inr), 0)    AS taxable,
+              COALESCE(SUM(cgst_amount_inr), 0)       AS cgst,
+              COALESCE(SUM(sgst_amount_inr), 0)       AS sgst,
+              COALESCE(SUM(igst_amount_inr), 0)       AS igst
+         FROM invoices
+        WHERE created_at >= $1 AND created_at < $2
+        GROUP BY 1`,
+      [from, to]
+    );
+
+    // Table 13 — documents issued. The portal asks for the range and the count,
+    // which is a check that no invoice number went missing.
+    const { rows: docs } = await pool.query(
+      `SELECT min(invoice_number) AS from_no, max(invoice_number) AS to_no,
+              count(*)::int       AS issued
+         FROM invoices
+        WHERE created_at >= $1 AND created_at < $2`,
+      [from, to]
+    );
 
     const { rows: totals } = await pool.query(
       `SELECT count(*)::int                          AS invoices,
@@ -140,9 +196,7 @@ router.get('/month', async (req, res) => {
               COALESCE(SUM(sgst_amount_inr), 0)      AS sgst,
               COALESCE(SUM(igst_amount_inr), 0)      AS igst,
               COALESCE(SUM(gst_amount_inr), 0)       AS gst,
-              COALESCE(SUM(amount_inr_equivalent), 0) AS gross,
-              min(invoice_number)                    AS first_invoice,
-              max(invoice_number)                    AS last_invoice
+              COALESCE(SUM(amount_inr_equivalent), 0) AS gross
          FROM invoices
         WHERE created_at >= $1 AND created_at < $2`,
       [from, to]
@@ -150,11 +204,16 @@ router.get('/month', async (req, res) => {
 
     res.json({
       period: { year, month, from, to },
+      b2clThreshold: B2CL_FROM,
       totals: totals[0],
-      b2cs,
-      exports,
-      credits: credits[0],
-      sac: process.env.TOKEN_SAC_CODE || '999599',
+      tables: {
+        t5_b2cLarge:   b2cl,
+        t6a_exports:   exports6a,
+        t7_b2cOthers:  b2cs,
+        t9b_creditNotes: credits[0],
+        t12_hsn:       hsn,
+        t13_documents: docs[0],
+      },
     });
   } catch (err) {
     console.error('gst/month error:', err);

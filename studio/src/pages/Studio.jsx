@@ -25,6 +25,7 @@ function Collections(props) {
 import { Merch }         from '../sections/Merch';
 import { Extras }        from '../sections/Extras';
 import { Members }       from '../sections/Members';
+import { Gst } from '../sections/Gst';
 import CollectionsWaiting from '../components/CollectionsWaiting';
 import { Calls }         from '../sections/Calls';
 import { Availability }  from '../sections/Availability';
@@ -68,6 +69,7 @@ const NAV = [
 const ADMIN_NAV = [
   { id: 'members',       label: 'Members'       },
   { id: 'analytics',     label: 'Money'         },
+  { id: 'gst',           label: 'GST'           },
   { id: 'traffic',       label: 'Traffic'       },
   { id: 'invoices',      label: 'Invoices'      },
   { id: 'photographers', label: 'Photographers' },
@@ -143,6 +145,7 @@ function AdminDoor({ open, onToggle, active, onSelect }) {
 const SECTIONS = {
   dashboard:     Dashboard,
   analytics:     Analytics,
+  gst:           Gst,
   traffic:       Traffic,
   messages:      Messages,
   content:       Content,
