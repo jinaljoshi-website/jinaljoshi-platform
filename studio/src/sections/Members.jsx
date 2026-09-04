@@ -1,3 +1,4 @@
+import Invitations from '../components/Invitations';
 // studio/src/sections/Members.jsx
 import { useEffect, useState } from 'react';
 import { api } from '../api';
@@ -307,6 +308,10 @@ export function Members() {
 
       {error   && <div style={S.error}>{error}</div>}
       {success && <div style={S.success}>{success}</div>}
+
+      {/* Memberships approved before the person exists, above the people who
+          already do. It is the same subject and belongs on the same screen. */}
+      <Invitations />
 
       {fans.filter((f) => f.email_verified === false).length > 0 && (
         <div style={unverifiedNote}>

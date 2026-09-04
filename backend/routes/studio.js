@@ -500,6 +500,95 @@ router.get('/fans', async (req, res) => {
 // So spending makes somebody eligible and says so here. She decides. The days
 // they earned start counting from her yes, not from the payment, because
 // nobody should lose a fortnight to the time it took her to read a message.
+
+// ─────────────────────────────────────────────
+// GET/POST/DELETE /api/studio/invitations
+// ─────────────────────────────────────────────
+//
+// An email with a membership already waiting for it.
+//
+// For somebody who supported the work before there was a platform and paid for
+// it some other way. The address is approved; they still register themselves,
+// so they still agree to the terms in the ordinary way and that record stays
+// true. Signup finds the invitation and applies it.
+router.get('/invitations', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT i.email, i.tier, i.months, i.reason, i.invited_at, i.claimed_at,
+              u.display_name AS claimed_name
+         FROM invited_members i
+         LEFT JOIN users u ON u.id = i.claimed_by
+        ORDER BY i.claimed_at IS NOT NULL, i.invited_at DESC`
+    );
+    res.json({ invitations: rows });
+  } catch (err) {
+    console.error('studio/invitations error:', err);
+    res.status(500).json({ error: 'Could not load the invitations' });
+  }
+});
+
+router.post('/invitations', async (req, res) => {
+  const { email, tier, months, reason } = req.body;
+  const addr = (email || '').trim().toLowerCase();
+  if (!addr || !addr.includes('@')) return res.status(400).json({ error: 'An email address is needed' });
+  if (!['community', 'insider', 'premium', 'supreme'].includes(tier)) {
+    return res.status(400).json({ error: 'Choose a tier' });
+  }
+  // Required, because an account with years of Supreme and no payment behind it
+  // will be asked about, possibly by a payment provider, possibly long after
+  // anybody remembers.
+  if (!reason?.trim()) return res.status(400).json({ error: 'Say why — it stays on the record' });
+
+  try {
+    // Somebody already here does not need an invitation, and giving them one
+    // would leave it uncollected for ever.
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM users WHERE email = $1 AND closed_at IS NULL`, [addr]);
+    if (existing.length) {
+      return res.status(409).json({
+        error: 'ALREADY_A_MEMBER',
+        message: 'This address already has an account. Change their tier from Members instead.',
+      });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO invited_members (email, tier, months, reason)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (email) DO UPDATE
+         SET tier = $2, months = $3, reason = $4, invited_at = NOW()
+         WHERE invited_members.claimed_at IS NULL
+       RETURNING *`,
+      [addr, tier, months ? parseInt(months, 10) : null, reason.trim()]
+    );
+    if (!rows.length) {
+      return res.status(409).json({ error: 'That invitation has already been claimed.' });
+    }
+    res.json({ ok: true, invitation: rows[0] });
+  } catch (err) {
+    console.error('studio/invitations create error:', err);
+    res.status(500).json({ error: 'Could not create the invitation' });
+  }
+});
+
+// Only an unclaimed one. Once it has been used the membership belongs to a
+// person, and taking it away is a decision made on their account, not here.
+router.delete('/invitations/:email', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM invited_members
+        WHERE email = $1 AND claimed_at IS NULL RETURNING email`,
+      [decodeURIComponent(req.params.email).toLowerCase()]
+    );
+    if (!rows.length) {
+      return res.status(409).json({ error: 'Already claimed, or no such invitation' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('studio/invitations delete error:', err);
+    res.status(500).json({ error: 'Could not withdraw it' });
+  }
+});
+
 router.get('/collections/waiting', async (req, res) => {
   try {
     const { rows } = await pool.query(

@@ -147,6 +147,48 @@ router.post('/signup', rl.signup, async (req, res) => {
   );
   const user = rows[0];
 
+  // A membership that was waiting for this address.
+  //
+  // For somebody who supported the work before the platform existed and paid
+  // for it another way. The invitation is claimed once and marked, so the same
+  // address cannot collect it twice by closing an account and starting again.
+  //
+  // Deliberately after the account is made rather than instead of it: they
+  // registered themselves and agreed to the terms in the ordinary way, which is
+  // the part that has to stay honest.
+  //
+  // Its failure is swallowed. An invitation that does not apply is a
+  // conversation; a signup that fails because of one is a person locked out of
+  // a platform they were invited to.
+  try {
+    const { rows: inv } = await pool.query(
+      `UPDATE invited_members
+          SET claimed_at = NOW(), claimed_by = $2
+        WHERE email = $1 AND claimed_at IS NULL
+        RETURNING tier, months, reason`,
+      [normalizedEmail, user.id]
+    );
+    if (inv.length) {
+      const { tier, months } = inv[0];
+      // No months means for as long as the account exists. Written as a date far
+      // enough out that nothing has to know it is special: every check asks
+      // whether the membership has expired, and this one has not and will not.
+      const until = months
+        ? `NOW() + INTERVAL '${parseInt(months, 10)} months'`
+        : `TIMESTAMPTZ '2099-12-31'`;
+      await pool.query(
+        `UPDATE users SET tier = $1, membership_started_at = NOW(),
+                          membership_expires_at = ${until}, membership_term = 'invited'
+          WHERE id = $2`,
+        [tier, user.id]
+      );
+      user.tier = tier;
+      console.log(`invitation claimed: ${normalizedEmail} → ${tier}${months ? ` for ${months} months` : ' for life'}`);
+    }
+  } catch (err) {
+    console.error('invitation claim failed:', err.message);
+  }
+
   const { country, countryCode } = await logAccessEvent(user.id, req, 'signup');
   if (country) {
     await pool.query(
