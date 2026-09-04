@@ -43,6 +43,8 @@ export function Invoices() {
   const [voiding,   setVoiding]   = useState(null);
   const [voidReason, setVoidReason] = useState('');
   const [voidWarning, setVoidWarning] = useState('');
+  const [formError, setFormError] = useState('');
+  const [sentWarning, setSentWarning] = useState('');
   const [platform, setPlatform] = useState(null);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');
@@ -157,26 +159,36 @@ export function Invoices() {
   const rate       = isTaxable ? (parseFloat(form?.gstRatePct) || 0) : 0;
   const taxAmount  = Math.round(taxable * rate) / 100;
 
-  const submit = async () => {
+  const submit = async (confirmSent = false) => {
     setError(''); setSuccess(''); setBusy(true);
     try {
       // The same form saves both, because an invoice being edited is the same
       // thing as one being written — only the destination differs.
       const d = editingId
-        ? await api.patch(`/api/studio/invoicing/issued/${editingId}`, form)
+        ? await api.patch(`/api/studio/invoicing/issued/${editingId}`,
+                          { ...form, confirmSent: confirmSent || undefined })
         : await api.post('/api/studio/invoicing/issued', form);
-      setSuccess(`${d.invoice.invoice_number} created.`);
-      setCreating(false); setForm(null);
+      setSuccess(`${d.invoice.invoice_number} ${editingId ? 'saved' : 'created'}.`);
+      setCreating(false); setForm(null); setEditingId(null); setFormError('');
       loadIssued();
-    } catch (err) { setError(err.message); } finally { setBusy(false); }
+    } catch (err) {
+      // Said beside the button that was pressed.
+      //
+      // This went to a banner three hundred lines up the form, so a refusal
+      // looked exactly like a button that did nothing — which is what it looked
+      // like, and was reported as.
+      if (err.code === 'ALREADY_SENT') setSentWarning(err.message);
+      else if (err.code === 'HAS_RECEIPTS') setFormError(err.message);
+      else setFormError(err.message);
+    } finally { setBusy(false); }
   };
 
   // The PDF route needs the auth header, so it cannot simply be a link.
-  const downloadPdf = async (inv) => {
+  const downloadPdf = async (inv, withReceipts = false) => {
     setError('');
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/studio/invoicing/issued/${inv.id}/pdf`,
+        `${import.meta.env.VITE_API_URL}/api/studio/invoicing/issued/${inv.id}/pdf${withReceipts ? '?receipts=1' : ''}`,
         { headers: { Authorization: `Bearer ${localStorage.getItem('jwt')}` } }
       );
       if (!res.ok) throw new Error('Could not generate the PDF');
@@ -522,12 +534,32 @@ export function Invoices() {
                 </label>
               )}
 
+              {/* Said where the button is, not three hundred lines above it.
+                  A refusal shown up there looked exactly like a button that did
+                  nothing, and was reported as one. */}
+              {formError && (
+                <div style={{ ...S.error, fontSize: 12, marginTop: 14 }}>{formError}</div>
+              )}
+              {sentWarning && (
+                <div style={{ marginTop: 14, padding: 12, borderRadius: 8,
+                              background: 'rgba(217,164,92,0.08)', border: '1px solid rgba(217,164,92,0.3)' }}>
+                  <div style={{ fontFamily: sans, fontSize: 12, color: '#D9A45C', marginBottom: 10, lineHeight: 1.5 }}>
+                    {sentWarning}
+                  </div>
+                  <button onClick={() => { setSentWarning(''); submit(true); }}
+                          style={{ ...S.btn, fontSize: 12, padding: '6px 14px' }}>
+                    Change it anyway
+                  </button>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-                <button onClick={submit} disabled={busy || !form.recipientName.trim() || taxable <= 0}
+                <button onClick={() => submit()} disabled={busy || !form.recipientName.trim() || taxable <= 0}
                         style={{ ...S.btn, opacity: (busy || !form.recipientName.trim() || taxable <= 0) ? 0.5 : 1 }}>
-                  {busy ? 'Creating…' : 'Create invoice'}
+                  {busy ? (editingId ? 'Saving…' : 'Creating…')
+                        : (editingId ? 'Save changes' : 'Create invoice')}
                 </button>
-                <button onClick={() => { setCreating(false); setForm(null); }} style={S.ghostBtn}>Cancel</button>
+                <button onClick={() => { setCreating(false); setForm(null); setEditingId(null); setFormError(''); setSentWarning(''); }} style={S.ghostBtn}>Cancel</button>
               </div>
             </Card>
           )}
@@ -574,8 +606,17 @@ export function Invoices() {
 
                   <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', borderTop: `1px solid ${colors.border}`, paddingTop: 10 }}>
                     <button onClick={() => downloadPdf(inv)} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
-                      Download PDF
+                      Download invoice
                     </button>
+                    {/* Offered only when there is something to show. An invoice
+                        with no payments against it would produce a page saying
+                        so, which is not a document anybody wants. */}
+                    {inv.receiptCount > 0 && (
+                      <button onClick={() => downloadPdf(inv, true)}
+                              style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
+                        With payment receipts
+                      </button>
+                    )}
                     <button onClick={() => setOpenReceipts(openReceipts === inv.id ? null : inv.id)}
                             style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
                       {openReceipts === inv.id ? 'Hide payments' : `Payments${inv.receiptCount ? ` · ${inv.receiptCount}` : ''}`}

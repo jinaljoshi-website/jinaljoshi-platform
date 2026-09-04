@@ -337,8 +337,7 @@ router.patch('/issued/:id', async (req, res) => {
          gst_rate_pct = $16, total_amount = $17, is_export = $18,
          payment_account_id = $19, notes = $20,
          exchange_rate = $21, taxable_inr = $22, total_inr = $23,
-         cgst_inr = $24, sgst_inr = $25, igst_inr = $26,
-         updated_at = NOW()
+         cgst_inr = $24, sgst_inr = $25, igst_inr = $26
        WHERE id = $27 RETURNING *`,
       [invoiceDate || null, recipientName?.trim() || null, recipientEmail?.trim() || null,
        recipientAddress?.trim() || null, recipientGstin?.trim() || null,
@@ -421,8 +420,26 @@ router.get('/issued/:id/pdf', async (req, res) => {
       account = a[0] || null;
     }
 
+    // Optionally with what has been paid against it.
+    //
+    // Two different documents from one page. The invoice alone is what goes to
+    // a client who has not paid; the one with receipts is what an accountant or
+    // a bank asks for, because it shows the money as well as the demand.
+    let receipts = null;
+    if (req.query.receipts === '1') {
+      const { rows: r } = await pool.query(
+        `SELECT receipt_number, received_on, currency, amount_in_currency,
+                exchange_rate, amount_credited_inr, withheld_in_currency,
+                bank_charges_inr, method, reference, efirc_number
+           FROM invoice_receipts WHERE invoice_id = $1
+          ORDER BY received_on, receipt_number`,
+        [req.params.id]
+      ).catch(() => ({ rows: [] }));
+      receipts = r;
+    }
+
     const supplier = await getSupplier();
-    const pdf = await generatePdf(inv, account, supplier);
+    const pdf = await generatePdf(inv, account, supplier, receipts);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition',
       `attachment; filename="${inv.invoice_number.replace(/\//g, '-')}.pdf"`);

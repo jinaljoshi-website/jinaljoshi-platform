@@ -153,7 +153,7 @@ function money(n, currency = 'INR') {
   return sym + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function generatePdf(inv, account, SUPPLIER) {
+function generatePdf(inv, account, SUPPLIER, receipts = null) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 44 });
     const chunks = [];
@@ -274,6 +274,69 @@ function generatePdf(inv, account, SUPPLIER) {
 
     doc.fontSize(7).fillColor('#888')
        .text('This is a computer-generated invoice.', L, 790, { width: W, align: 'center' });
+
+    // What was paid against it, on a page of its own.
+    //
+    // Kept separate from the invoice rather than appended to it, because the
+    // invoice is a document in its own right and somebody may have a copy of it
+    // already. Adding rows underneath would make two versions of the same page.
+    if (receipts && receipts.length) {
+      doc.addPage();
+      doc.fontSize(14).fillColor('#111').text('Payments received', L, 60);
+      doc.fontSize(9).fillColor('#666')
+         .text(`Against invoice ${inv.invoice_number}`, L, 82);
+
+      let ry = 118;
+      const line = (label, value, bold) => {
+        doc.fontSize(9).fillColor(bold ? '#111' : '#444')
+           .text(label, L, ry, { width: 200 })
+           .text(value, L + 210, ry, { width: W - 210 });
+        ry += 17;
+      };
+
+      let totalCredited = 0, totalWithheld = 0, totalCharges = 0;
+
+      for (const r of receipts) {
+        const rate = Number(r.exchange_rate) || 1;
+        const withheldInr = Math.round(Number(r.withheld_in_currency || 0) * rate * 100) / 100;
+        const credited = Number(r.amount_credited_inr || 0);
+        const remitted = (Number(r.amount_in_currency) * rate) - withheldInr;
+        const charges = r.bank_charges_inr === null || r.bank_charges_inr === undefined
+          ? Math.max(0, Math.round((remitted - credited) * 100) / 100)
+          : Number(r.bank_charges_inr);
+
+        totalCredited += credited;
+        totalWithheld += withheldInr;
+        totalCharges  += charges;
+
+        doc.fontSize(10).fillColor('#111')
+           .text(`${r.receipt_number} · ${new Date(r.received_on).toLocaleDateString('en-IN')}`, L, ry);
+        ry += 18;
+
+        if (r.currency && r.currency !== 'INR') {
+          line('Sent', `${r.currency} ${Number(r.amount_in_currency).toFixed(2)} at ${rate}`);
+          if (withheldInr > 0) {
+            line('Withheld at source', `${r.currency} ${Number(r.withheld_in_currency).toFixed(2)}  (INR ${withheldInr.toFixed(2)})`);
+          }
+        }
+        line('Credited to the account', `INR ${credited.toFixed(2)}`);
+        if (charges > 0) line('Bank charges', `INR ${charges.toFixed(2)}`);
+        if (r.method || r.reference) line('By', [r.method, r.reference].filter(Boolean).join(' · '));
+        if (r.efirc_number) line('e-FIRC', r.efirc_number);
+        ry += 10;
+      }
+
+      ry += 8;
+      doc.moveTo(L, ry).lineTo(L + W, ry).strokeColor('#DDD').stroke();
+      ry += 14;
+      line('Total credited', `INR ${totalCredited.toFixed(2)}`, true);
+      if (totalWithheld > 0) line('Total withheld at source', `INR ${totalWithheld.toFixed(2)}`, true);
+      if (totalCharges > 0)  line('Total bank charges', `INR ${totalCharges.toFixed(2)}`, true);
+
+      doc.fontSize(7).fillColor('#888')
+         .text('Amounts credited are as realised by the bank. Tax withheld by the payer is shown separately from bank charges.',
+               L, 790, { width: W, align: 'center' });
+    }
 
     doc.end();
   });
