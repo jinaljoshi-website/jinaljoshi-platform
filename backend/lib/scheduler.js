@@ -52,6 +52,7 @@ const pool    = require('../db/pool');
 const { notifyArtist, pushToUser } = require('./notify');
 const fx = require('./fx');
 const { refundByRelated } = require('./tokens');
+const { sendRenewalReminderEmail } = require('./emails');
 const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 
 function getStreamClient() {
@@ -458,10 +459,15 @@ async function checkMembershipExpiry() {
   const client = await pool.connect();
   try {
     const stages = [
+      // The date said, rather than left as an empty gap.
+      //
+      // This read "ends on the ." for as long as it has existed: the template
+      // interpolated an empty string where the date belonged. A reminder that
+      // does not say when is a reminder that asks somebody to go and find out.
       { key: '3day', days: 3, title: 'Your membership ends in 3 days',
-        body: (t) => `Your ${t} membership ends on the ${''}. Renew to keep your allowances and everything you have unlocked with them.` },
+        body: (t, when) => `Your ${t} membership ends on ${when}. Renew to keep your allowances and everything you have unlocked with them.` },
       { key: '1day', days: 1, title: 'Your membership ends tomorrow',
-        body: (t) => `Your ${t} membership ends tomorrow. Renew to keep your allowances and the sets you unlocked with them.` },
+        body: (t, when) => `Your ${t} membership ends tomorrow, ${when}. Renew to keep your allowances and the sets you unlocked with them.` },
     ];
 
     for (const stage of stages) {
@@ -491,6 +497,18 @@ async function checkMembershipExpiry() {
             url:   '/platform/membership',
             tag:   'membership-expiry',
           });
+
+          // And by email, because a push notification reaches a phone that has
+          // the app installed and permission granted, which is a smaller set of
+          // people than have an email address.
+          //
+          // Not awaited: a mail service being slow must not stop the rest of
+          // the run, and the reminder is recorded either way.
+          sendRenewalReminderEmail(u.id, {
+            tier: u.tier,
+            expiresAt: u.membership_expires_at,
+            daysLeft: stage.days,
+          }).catch((e) => console.error('renewal email failed:', e.message));
           await client.query(
             `INSERT INTO membership_reminders (user_id, stage, expires_at) VALUES ($1, $2, $3)
              ON CONFLICT DO NOTHING`,

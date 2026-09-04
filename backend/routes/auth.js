@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const pool     = require('../db/pool');
 const authMid  = require('../middleware/auth');
 const { sendSignupVerificationEmail, sendPasswordResetEmail, consumeToken } = require('../lib/email');
+const { sendWelcomeEmail, sendRenewalReminderEmail } = require('../lib/emails');
 const { lookupIpCountry, getClientIp } = require('../lib/geoip');
 const { getBalances, grantGiftedTokens } = require('../lib/tokens');
 const { sendJoinedWelcome } = require('../lib/welcome');
@@ -223,6 +224,13 @@ router.post('/verify-email', async (req, res) => {
       [userId]
     );
     if (!rows.length) return res.status(404).json({ error: 'Account not found' });
+
+    // Said hello, after the address is confirmed rather than at signup.
+    //
+    // Sending it alongside the verification would put two emails in an inbox at
+    // once and the second would be read as a duplicate of the first. Not
+    // awaited: a slow mail service must not hold up somebody clicking a link.
+    sendWelcomeEmail(userId).catch((e) => console.error('welcome email failed:', e.message));
 
     // Welcome gift. Granted here rather than at signup because an unverified account
     // cannot sign in anyway — so the fan's experience is identical, and abandoned
@@ -458,6 +466,65 @@ router.get('/profile', authMid, async (req, res) => {
 //
 // The current one is asked for because a signed-in session is not proof that
 // the person at the keyboard is the owner. A borrowed laptop is enough.
+
+// ─────────────────────────────────────────────
+// GET /api/auth/emails/stop?t=<token>
+// ─────────────────────────────────────────────
+//
+// Stopping the automatic emails, without signing in.
+//
+// Somebody who wants to stop hearing from a platform should not have to log
+// into it first. The token identifies the account and does nothing else — it
+// grants no session and cannot read anything.
+//
+// It never expires on purpose. A link in a two year old email should still
+// work; that is the whole point of it.
+router.get('/emails/stop', async (req, res) => {
+  const token = (req.query.t || '').trim();
+  if (!token) return res.status(400).send('Nothing to do.');
+  try {
+    const { rows } = await pool.query(
+      `UPDATE users SET emails_unsubscribed_at = COALESCE(emails_unsubscribed_at, NOW())
+        WHERE email_optout_token = $1 AND closed_at IS NULL
+        RETURNING email`,
+      [token]
+    );
+    // The same answer either way. Whether an address is on the list is not
+    // something a stranger with a guessed token should be able to learn.
+    res.type('html').send(`
+      <div style="font-family: sans-serif; max-width: 460px; margin: 80px auto; padding: 24px; color: #1A1714;">
+        <h2 style="font-weight: 500;">That is done</h2>
+        <p style="line-height: 1.7; color: #4A4238;">
+          You will not get reminders or announcements from Personal Space again.
+        </p>
+        <p style="line-height: 1.7; color: #4A4238;">
+          Password resets, email verification and anything you ask for will still
+          reach you — those answer something you have done rather than start a
+          conversation.
+        </p>
+        <p style="line-height: 1.7; color: #8A8178; font-size: 14px;">
+          Changed your mind? Turn them back on in your profile.
+        </p>
+      </div>`);
+    if (rows.length) console.log(`unsubscribed: ${rows[0].email}`);
+  } catch (err) {
+    console.error('emails/stop error:', err);
+    res.status(500).send('Something went wrong. Try again, or reply to any email from us.');
+  }
+});
+
+// And back on again, which needs a login because it is a change to an account.
+router.post('/emails/resume', authMid, async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE users SET emails_unsubscribed_at = NULL WHERE id = $1`, [req.user.userId]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('emails/resume error:', err);
+    res.status(500).json({ error: 'Could not turn them back on' });
+  }
+});
+
 router.post('/change-password', authMid, rl.loginByIp, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
 

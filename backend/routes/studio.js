@@ -11,6 +11,7 @@ const { applyBlock, liftBlock, setMuted, logModerationAction } = require('../lib
 const { notifyArtist } = require('../lib/notify');
 const { approveCollectionsAccess } = require('../lib/collections');
 const { scanInBackground } = require('../lib/moderation-scan');
+const { sendInvitationEmail } = require('../lib/emails');
 const { grantGiftedTokens, refundByRelated, refundLedgerEntry } = require('../lib/tokens');
 const { deleteObjects, findOrphans } = require('../lib/r2');
 const { getBalances } = require('../lib/tokens');
@@ -563,6 +564,14 @@ router.post('/invitations', async (req, res) => {
     if (!rows.length) {
       return res.status(409).json({ error: 'That invitation has already been claimed.' });
     }
+    // Told, because an invitation nobody hears about is a row in a table.
+    //
+    // Not awaited and its failure ignored: the invitation is made either way,
+    // and a mail service being slow should not make it look as though it was
+    // not.
+    sendInvitationEmail({ email: addr, tier, months: rows[0].months, reason: rows[0].reason })
+      .catch((e) => console.error('invitation email failed:', e.message));
+
     res.json({ ok: true, invitation: rows[0] });
   } catch (err) {
     console.error('studio/invitations create error:', err);
