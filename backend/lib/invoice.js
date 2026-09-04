@@ -242,8 +242,11 @@ function generateInvoicePdfBuffer(invoice, supplier) {
     }
 
     doc.moveDown(2);
+    // The same wording as every other invoice raised, on the CA's advice: an
+    // invoice should say plainly that no signature is needed rather than leave
+    // somebody looking for one.
     doc.fontSize(8).fillColor('#999').text(
-      'This is a system-generated invoice for a digital token purchase on Personal Space. J Tokens are a non-refundable, non-transferable digital utility instrument with no cash value outside the platform.',
+      'This is a computerised invoice and does not require a signature. It covers a digital token purchase on Personal Space. J Tokens are a non-refundable, non-transferable digital utility instrument with no cash value outside the platform.',
       { width: 495 }
     );
 

@@ -267,10 +267,14 @@ function generatePdf(inv, account, SUPPLIER, receipts = null) {
       y = doc.y + 8;
     }
 
+    // No signature line, since the footer says none is needed.
+    //
+    // Leaving forty points of blank space above the words "Authorised
+    // signatory" invites somebody to look for a signature and wonder where it
+    // went, on a document that has just told them not to.
     const signY = Math.max(y + 30, 700);
     doc.fontSize(9).fillColor('#111')
-       .text(`For ${SUPPLIER.name}`, 340, signY, { width: 211, align: 'right' })
-       .text('Authorised signatory', 340, signY + 44, { width: 211, align: 'right' });
+       .text(`For ${SUPPLIER.name}`, 340, signY, { width: 211, align: 'right' });
 
     // Written at 790 for as long as this has existed, and a 7pt line there does
     // not fit: the usable area ends at 798 and PDFKit's line height takes it
@@ -280,7 +284,7 @@ function generatePdf(inv, account, SUPPLIER, receipts = null) {
     // Tested rather than reasoned about — 790 gives two pages, 785 gives one.
     // Set at 775 so a font change does not quietly bring it back.
     doc.fontSize(7).fillColor('#888')
-       .text('This is a computer-generated invoice.', L, 775, { width: W, align: 'center' });
+       .text('This is a computerised invoice and does not require a signature.', L, 775, { width: W, align: 'center' });
 
     // What was paid against it, on a page of its own.
     //
