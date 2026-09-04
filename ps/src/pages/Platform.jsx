@@ -555,7 +555,8 @@ export default function Platform() {
                 {/* Custom requests moved into Shop. Request notifications still link
                 here, so this redirects rather than 404s. */}
             <Route path="extras"          element={<Navigate to="/platform/requests" replace />} />
-                <Route path="coins"      element={<Coins />}      />
+                <Route path="notices"    element={<Notices />}    />
+            <Route path="coins"      element={<Coins />}      />
                 <Route path="profile"    element={<Profile />}    />
                 <Route path="*"          element={<Navigate to="chat" replace />} />
               </Routes>
