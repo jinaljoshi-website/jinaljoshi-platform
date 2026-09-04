@@ -272,8 +272,15 @@ function generatePdf(inv, account, SUPPLIER, receipts = null) {
        .text(`For ${SUPPLIER.name}`, 340, signY, { width: 211, align: 'right' })
        .text('Authorised signatory', 340, signY + 44, { width: 211, align: 'right' });
 
+    // Written at 790 for as long as this has existed, and a 7pt line there does
+    // not fit: the usable area ends at 798 and PDFKit's line height takes it
+    // past. So every invoice ever sent has had a second page with nothing on it
+    // but this sentence.
+    //
+    // Tested rather than reasoned about — 790 gives two pages, 785 gives one.
+    // Set at 775 so a font change does not quietly bring it back.
     doc.fontSize(7).fillColor('#888')
-       .text('This is a computer-generated invoice.', L, 790, { width: W, align: 'center' });
+       .text('This is a computer-generated invoice.', L, 775, { width: W, align: 'center' });
 
     // What was paid against it, on a page of its own.
     //
@@ -286,8 +293,28 @@ function generatePdf(inv, account, SUPPLIER, receipts = null) {
       doc.fontSize(9).fillColor('#666')
          .text(`Against invoice ${inv.invoice_number}`, L, 82);
 
+      // A page has a bottom, and this did not know about it.
+      //
+      // ry was tracked by hand and never checked, so once a long list ran past
+      // the paper PDFKit added a page for every single line — nineteen receipts
+      // became six printed and a hundred and forty blank pages, with the totals
+      // somewhere at the end.
+      //
+      // Now the page break is asked for deliberately, before writing rather
+      // than after discovering it.
       let ry = 118;
+      const BOTTOM = 760;
+
+      const room = (needed) => {
+        if (ry + needed <= BOTTOM) return;
+        doc.addPage();
+        ry = 60;
+        doc.fontSize(9).fillColor('#888')
+           .text(`Payments received · ${inv.invoice_number} (continued)`, L, 40);
+      };
+
       const line = (label, value, bold) => {
+        room(17);
         doc.fontSize(9).fillColor(bold ? '#111' : '#444')
            .text(label, L, ry, { width: 200 })
            .text(value, L + 210, ry, { width: W - 210 });
@@ -309,6 +336,9 @@ function generatePdf(inv, account, SUPPLIER, receipts = null) {
         totalWithheld += withheldInr;
         totalCharges  += charges;
 
+        // Enough for the heading and the lines that follow it, so a receipt is
+        // never split across two pages.
+        room(110);
         doc.fontSize(10).fillColor('#111')
            .text(`${r.receipt_number} · ${new Date(r.received_on).toLocaleDateString('en-IN')}`, L, ry);
         ry += 18;
@@ -326,6 +356,7 @@ function generatePdf(inv, account, SUPPLIER, receipts = null) {
         ry += 10;
       }
 
+      room(90);
       ry += 8;
       doc.moveTo(L, ry).lineTo(L + W, ry).strokeColor('#DDD').stroke();
       ry += 14;
@@ -333,9 +364,11 @@ function generatePdf(inv, account, SUPPLIER, receipts = null) {
       if (totalWithheld > 0) line('Total withheld at source', `INR ${totalWithheld.toFixed(2)}`, true);
       if (totalCharges > 0)  line('Total bank charges', `INR ${totalCharges.toFixed(2)}`, true);
 
+      room(30);
+      ry += 10;
       doc.fontSize(7).fillColor('#888')
          .text('Amounts credited are as realised by the bank. Tax withheld by the payer is shown separately from bank charges.',
-               L, 790, { width: W, align: 'center' });
+               L, ry, { width: W, align: 'center' });
     }
 
     doc.end();
