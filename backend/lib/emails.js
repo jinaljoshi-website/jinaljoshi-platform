@@ -21,6 +21,7 @@
 
 const pool = require('../db/pool');
 const { sendTransactionalEmail } = require('./email');
+const { notice } = require('./notices');
 
 const SITE = process.env.PS_URL || 'https://ps.jinaljoshi.in';
 
@@ -40,7 +41,7 @@ const shell = (body, optoutToken) => `
         <a href="${SITE}/emails/stop?t=${optoutToken}" style="color: #8A8178;">
           Stop receiving emails like this
         </a>
-        — you will still get invoices and anything you ask for.
+        — password resets and anything you ask for will still reach you.
       </p>` : ''}
     </div>
   </div>`;
@@ -58,13 +59,26 @@ async function sendOptional(userId, { subject, body }) {
   );
   if (!rows.length) return { sent: false, reason: 'no such account' };
   const u = rows[0];
-  if (u.emails_unsubscribed_at) return { sent: false, reason: 'unsubscribed' };
+  if (u.emails_unsubscribed_at) {
+    // Written anyway, and deliberately.
+    //
+    // Turning off emails should cost somebody the delivery, not the message.
+    // A membership ending is worth knowing about whether or not they wanted a
+    // letter about it, and this is where they will look.
+    notice(userId, { kind: 'letter', title: subject, url: '/platform/notices' }).catch(() => {});
+    return { sent: false, reason: 'unsubscribed' };
+  }
 
   await sendTransactionalEmail({
     to: u.email,
     subject,
     html: shell(body(u.display_name || 'there'), u.email_optout_token),
   });
+
+  // And kept where they can read it again. No push — this rings nothing.
+  notice(userId, { kind: 'letter', title: subject, url: '/platform/notices',
+                   delivered: ['email'] }).catch(() => {});
+
   return { sent: true };
 }
 

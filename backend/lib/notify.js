@@ -68,9 +68,24 @@ async function pushToUser(userId, payload) {
       `SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1`,
       [userId]
     );
-    return await sendToSubscriptions(rows, {
+    const result = await sendToSubscriptions(rows, {
       icon: '/wonder-coin-192.png', badge: '/wonder-coin-192.png', ...payload,
     });
+
+    // Kept, whether or not a phone was listening.
+    //
+    // This adds no notification — it records the one that just went, or would
+    // have gone. Somebody who never granted permission, or missed it, or read
+    // it on a bus and wanted it again, now has somewhere to look.
+    notice(userId, {
+      kind: payload.tag || 'notice',
+      title: payload.title,
+      body: payload.body,
+      url: payload.url,
+      delivered: result.sent > 0 ? ['push'] : null,
+    }).catch(() => {});
+
+    return result;
   } catch (err) {
     // Push is best effort. A notification failing must never break the thing
     // that triggered it.

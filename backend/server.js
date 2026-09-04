@@ -34,6 +34,8 @@ app.use('/api/traffic',      require('./routes/traffic'));
 // an uptime checker cannot sign in — and it says a word and a status code,
 // which is all such a checker reads.
 app.use('/api/health',       require('./routes/health'));
+// Everything the platform has told somebody, kept where they can read it again.
+app.use('/api/notices',      require('./routes/notices'));
 // shop.jinaljoshi.in. Rupees rather than tokens, because it sells physical
 // things that arrive by courier rather than instantly.
 app.use('/api/shopfront',    require('./routes/shopfront'));

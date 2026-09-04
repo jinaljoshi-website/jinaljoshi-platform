@@ -1,3 +1,4 @@
+import Notices from './Notices';
 // ps/src/pages/Platform.jsx
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
@@ -45,6 +46,7 @@ const navItems = [
   { to: '/platform/community',  label: 'Public Corner' },
   { to: '/platform/membership', label: 'Membership'    },
   { to: '/platform/coins',      label: 'Coins'         },
+  { to: '/platform/notices',    label: 'Notices'       },
   { to: '/platform/profile',    label: 'Profile'       },
 ];
 
@@ -502,6 +504,7 @@ export default function Platform() {
             <Route path="shop/:itemId"    element={<Shop />} />
             <Route path="outfits/:itemId" element={<Shop />} />
             <Route path="extras"          element={<Navigate to="/platform/requests" replace />} />
+            <Route path="notices"    element={<Notices />}    />
             <Route path="coins"      element={<Coins />}      />
             <Route path="profile"    element={<Profile />}    />
             <Route path="*"          element={<Navigate to="chat" replace />} />
