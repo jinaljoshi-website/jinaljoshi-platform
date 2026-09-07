@@ -2356,68 +2356,16 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
     (byTier[key] ||= []).push(i);
   });
 
-  // What is in a photograph, as a way of working through them.
+  // One pile, in the order it was uploaded.
   //
-  // Rekognition answers in a hierarchy, so one bikini comes back as "Swimwear
-  // or Underwear" and again as "Female Swimwear or Underwear" — the same
-  // finding stated broadly and then precisely. Grouping on every label would
-  // put one photograph in five places; grouping on the most specific one puts
-  // it where it is actually described.
+  // This was split into groups by what a classifier thought it saw, which was
+  // exactly wrong: a shoot arrives as one look, and the machine scattered it
+  // across four headings by neckline. Selecting the shoot became impossible,
+  // and selecting the shoot is the whole job.
   //
-  // And each appears once, under whatever it scored highest on. A photograph
-  // reviewed is reviewed, and seeing it twice spends attention for nothing.
-  const groupOfItem = (i) => {
-    const labels = i.moderation?.labels || [];
-    if (!labels.length) return i.moderation ? '__nothing' : '__unchecked';
-    // The deepest label available is the useful one: "Partially Exposed Female
-    // Breast" describes a photograph, "Non-Explicit Nudity of Intimate parts
-    // and Kissing" names a filing cabinet.
-    const deepest = labels.filter((l) => l.parent);
-    const pool = deepest.length ? deepest : labels;
-    return pool.reduce((a, b) => (b.confidence > a.confidence ? b : a)).name;
-  };
-
-  // Only for the pile still to sort. Once a photograph has a tier the tier is
-  // what matters about it, and a second way of grouping the same things is a
-  // second thing to read.
-  const unsortedByLabel = {};
-  (byTier.__unsorted || []).forEach((i) => {
-    (unsortedByLabel[groupOfItem(i)] ||= []).push(i);
-  });
-
-  // Most numerous first, with the two housekeeping groups last wherever they
-  // fall: "nothing detected" and "not checked" are answers about the process
-  // rather than about the photographs.
-  const labelGroups = Object.entries(unsortedByLabel)
-    .sort((a, b) => {
-      const rank = (k) => (k === '__unchecked' ? 2 : k === '__nothing' ? 1 : 0);
-      return rank(a[0]) - rank(b[0]) || b[1].length - a[1].length;
-    });
-  // The pile, split by what is in each photograph.
-  //
-  // Rather than one Unsorted heap of two hundred, a run of smaller ones with a
-  // name each. Sorting a set becomes going through "Female Swimwear or
-  // Underwear · 34" and giving them all the same tier, which is usually what
-  // happens anyway and is done in one selection rather than thirty.
-  //
-  // Written into the section list so the rendering below needs no idea any of
-  // this happened.
-  const SECTIONS = [];
-  for (const cat of REVIEW_SECTIONS) {
-    if (cat.key !== '__unsorted' || labelGroups.length <= 1) { SECTIONS.push(cat); continue; }
-    for (const [label, group] of labelGroups) {
-      const key = `__unsorted::${label}`;
-      byTier[key] = group;
-      SECTIONS.push({
-        key,
-        label: label === '__nothing'   ? 'Unsorted · nothing detected'
-             : label === '__unchecked' ? 'Unsorted · not checked'
-             :                           `Unsorted · ${label}`,
-        color: cat.color,
-        unsorted: true,
-      });
-    }
-  }
+  // What came up together stays together. The badge still marks the two worth a
+  // second look, which is all it was ever good for.
+  const SECTIONS = REVIEW_SECTIONS;
 
   // Unsorted first, so opening the first photo starts where the work is.
   const ordered = SECTIONS.flatMap((cat) => byTier[cat.key] || []);
@@ -2832,10 +2780,10 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
           <div key={cat.key} style={{ marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <span style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase',
-                             color: (cat.unsorted || cat.key === '__unsorted') ? '#D9A45C' : colors.muted }}>
+                             color: cat.key === '__unsorted' ? '#D9A45C' : colors.muted }}>
                 {cat.label} · {byTier[cat.key].length}
               </span>
-              {(cat.key === '__unsorted' || (cat.unsorted && cat === SECTIONS.find((x) => x.unsorted))) && (
+              {cat.key === '__unsorted' && (
                 <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
                   {/* The same sentence as above, and for a while not the same
                       sentence at all: this one was written before there were two

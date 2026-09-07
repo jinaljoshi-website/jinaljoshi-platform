@@ -3060,12 +3060,12 @@ router.post('/content/item', async (req, res) => {
        req.body.quality ? JSON.stringify(req.body.quality) : null]
     );
 
-    // A second opinion, fetched afterwards and never waited for.
+    // No scan here, and deliberately none.
     //
-    // The answer reaches the screen the next time the set is opened, which is
-    // when anybody would look at it. An upload must not be slower, or fail,
-    // because a moderation service was.
-    scanInBackground(rows[0].id, r2Key, type);
+    // Checking every upload cost money on sets that never needed it — a
+    // landscape or a fully clothed portrait answers a question nobody asked —
+    // and it is not promised to anybody, so there is nothing to keep it running
+    // for. It is asked for per set instead, from the review panel.
 
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
