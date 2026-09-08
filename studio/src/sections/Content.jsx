@@ -2963,6 +2963,41 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                       </div>
                     );
                   })()}
+
+                  {/* Selecting a photograph, and removing one.
+                      //
+                      // Both were lost when the moderation chip above was
+                      // rewritten — they sat immediately after it and went with
+                      // the replacement. Without the first, nothing in a set can
+                      // be selected at all. */}
+                  <button onClick={(e) => { e.stopPropagation(); toggle(item, e.shiftKey); }}
+                          title={isSelected(item.id) ? 'Deselect' : 'Select'}
+                          style={{ ...selectDot, background: isSelected(item.id) ? colors.accent : 'rgba(0,0,0,0.55)',
+                                   color: isSelected(item.id) ? '#1A1714' : '#fff' }}>
+                    {isSelected(item.id) ? '✓' : ''}
+                  </button>
+                  <button onClick={() => onDelete(item)} disabled={deletingItem === item.id}
+                          title="Remove this item"
+                          style={{ ...itemDeleteBtn, opacity: deletingItem === item.id ? 0.5 : 1 }}>
+                    {deletingItem === item.id ? '…' : '×'}
+                  </button>
+
+                  {/* A select given a null value shows its first option instead,
+                      which here is Free — so every untiered photo read as free
+                      while the data said it had no tier at all. The placeholder
+                      gives null something of its own to display, and being
+                      disabled it cannot be chosen back. */}
+                  {!collection && (
+                  <select value={item.tier_category || ''}
+                          onChange={(e) => onRetier(item, e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          style={tierSelect}>
+                    {!item.tier_category && <option value="" disabled>— no tier —</option>}
+                    {categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>)}
+                    {/* A way back, for a tier set by mistake. */}
+                    {item.tier_category && <option value="__unsorted">— unsorted —</option>}
+                  </select>
+                  )}
                 </div>
               ))}
             </div>
