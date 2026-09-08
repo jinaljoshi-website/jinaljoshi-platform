@@ -123,7 +123,19 @@ export function Activity({ openWith }) {
           {runs.map((run, ri) => {
             const first = run.items[0];
             const k = KINDS[first.kind] || { label: first.kind, colour: colors.muted };
-            const tokens = run.items.reduce((a, x) => a + (x.tokens || 0), 0);
+            // Tokens in and tokens out are not the same number.
+            //
+            // This summed everything in the run, so a member who bought
+            // thirty-five tokens and spent them on a membership showed as
+            // seventy — the same thirty-five counted once arriving and once
+            // leaving. Told separately, they are both true.
+            const bought = run.items
+              .filter((x) => x.kind === 'recharge')
+              .reduce((a, x) => a + (x.tokens || 0), 0);
+            const spent = run.items
+              .filter((x) => x.kind !== 'recharge')
+              .reduce((a, x) => a + (x.tokens || 0), 0);
+            const tokens = spent;
 
             // One thing happened: show it plainly, as before.
             if (run.items.length === 1) {
@@ -140,8 +152,10 @@ export function Activity({ openWith }) {
                     </div>
                   </div>
                   {first.tokens > 0 && (
-                    <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted, flexShrink: 0 }}>
-                      {first.tokens} tokens
+                    <span style={{ fontFamily: sans, fontSize: 12, flexShrink: 0,
+                                   color: first.kind === 'recharge' ? '#8FC88F' : colors.muted }}>
+                      {/* Which way the tokens went, said on the row itself. */}
+                      {first.kind === 'recharge' ? `+${first.tokens} bought` : `${first.tokens} spent`}
                     </span>
                   )}
                 </div>
@@ -175,7 +189,19 @@ export function Activity({ openWith }) {
                           <div key={i}>
                             <div style={{ fontFamily: sans, fontSize: 12, color: colors.text }}>
                               <span style={{ color: rk.colour }}>{rk.label}</span>
-                              {r.tokens > 0 && <span style={{ color: colors.muted }}>{` · ${r.tokens} tokens`}</span>}
+                              {r.tokens > 0 && (
+                                <span style={{ color: r.kind === 'recharge' ? '#8FC88F' : colors.muted }}>
+                                  {r.kind === 'recharge' ? ` · +${r.tokens} bought` : ` · ${r.tokens} spent`}
+                                </span>
+                              )}
+                              {/* A set opened on the membership costs nothing,
+                                  and saying so is the difference between a
+                                  member who is using it and one who is not. */}
+                              {r.kind === 'unlock' && !r.tokens && r.how && (
+                                <span style={{ color: colors.muted, opacity: 0.7 }}>
+                                  {r.how === 'membership' ? ' · on membership' : ' · free set'}
+                                </span>
+                              )}
                             </div>
                             <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
                               {when(r.at)}{r.detail && ` · ${r.detail}`}
@@ -186,9 +212,14 @@ export function Activity({ openWith }) {
                     </div>
                   )}
                 </div>
-                {tokens > 0 && (
-                  <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted, flexShrink: 0 }}>
-                    {tokens} tokens
+                {(spent > 0 || bought > 0) && (
+                  <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted, flexShrink: 0,
+                                 textAlign: 'right' }}>
+                    {bought > 0 && (
+                      <span style={{ color: '#8FC88F' }}>+{bought} bought</span>
+                    )}
+                    {bought > 0 && spent > 0 && <br />}
+                    {spent > 0 && <span>{spent} spent</span>}
                   </span>
                 )}
               </div>
