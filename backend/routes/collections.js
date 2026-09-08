@@ -75,6 +75,12 @@ router.get('/sets', async (req, res) => {
                   AND media_type <> 'video' ORDER BY position ASC, created_at ASC LIMIT 1)
               ) AS cover_key,
               (SELECT count(*)::int FROM set_items WHERE set_id = s.id) AS item_count,
+              -- What this person has already paid to see, so the screen can
+              -- offer the next step rather than the first one again.
+              (SELECT level FROM collection_previews p
+                WHERE p.set_id = s.id AND p.user_id = $1)                AS preview_level,
+              (SELECT coins_paid FROM collection_previews p
+                WHERE p.set_id = s.id AND p.user_id = $1)                AS preview_paid,
               (SELECT count(*)::int FROM set_items
                 WHERE set_id = s.id AND media_type = 'video')          AS video_count,
               (SELECT string_agg(p.name, ', ' ORDER BY p.name)
@@ -98,6 +104,14 @@ router.get('/sets', async (req, res) => {
       itemCount: s.item_count,
       price: s.price_coins,
       unlocked: s.unlocked,
+      // Where they have got to, and what the next step costs after crediting
+      // what has already gone in.
+      previewLevel: Number(s.preview_level || 0),
+      previewOptions: s.unlocked ? [] : optionsFor({
+        setPriceCoins: s.price_coins,
+        itemCount: s.item_count,
+        preview: s.preview_level ? { level: s.preview_level, coins_paid: s.preview_paid } : null,
+      }),
       // The real cover once it is bought; the reduced one until then. The
       // reduced one is a 24px image scaled back up, so there is no detail in it
       // to recover — the blur is the file, not a filter over the file.
@@ -129,6 +143,12 @@ router.get('/sets/:id', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT s.id, s.title, s.description, s.price_coins, s.cover_blur, s.cover_key,
               (SELECT count(*)::int FROM set_items WHERE set_id = s.id) AS item_count,
+              -- What this person has already paid to see, so the screen can
+              -- offer the next step rather than the first one again.
+              (SELECT level FROM collection_previews p
+                WHERE p.set_id = s.id AND p.user_id = $1)                AS preview_level,
+              (SELECT coins_paid FROM collection_previews p
+                WHERE p.set_id = s.id AND p.user_id = $1)                AS preview_paid,
               (SELECT string_agg(p.name, ', ' ORDER BY p.name)
                  FROM set_photographers spx JOIN photographers p ON p.id = spx.photographer_id
                 WHERE spx.set_id = s.id) AS photographer,
@@ -163,6 +183,14 @@ router.get('/sets/:id', async (req, res) => {
       itemCount: s.item_count,
       price: s.price_coins,
       unlocked: s.unlocked,
+      // Where they have got to, and what the next step costs after crediting
+      // what has already gone in.
+      previewLevel: Number(s.preview_level || 0),
+      previewOptions: s.unlocked ? [] : optionsFor({
+        setPriceCoins: s.price_coins,
+        itemCount: s.item_count,
+        preview: s.preview_level ? { level: s.preview_level, coins_paid: s.preview_paid } : null,
+      }),
       coverUrl: s.unlocked ? toUrl(s.cover_key) : (s.cover_blur || null),
       coverBlurred: !s.unlocked,
       items,

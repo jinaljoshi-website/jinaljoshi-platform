@@ -145,6 +145,27 @@ export default function Collections() {
   // then throws the moment somebody actually follows such a link.
   useEffect(() => { if (setId && data) openSet(setId); }, [setId, !!data]);
 
+  // Buying a look at one or two.
+  //
+  // The same shape as unlocking, because it is the same act at a smaller size:
+  // tokens go, something opens, and what was paid counts towards the rest.
+  const takePreview = async (id, level) => {
+    setError('');
+    setBusy(true);
+    try {
+      await api.post('/api/collections/preview', { setId: id, level });
+      await load();
+      // Reopened through the same door it was opened by, so the photographs
+      // just paid for are on the screen rather than one tap away — and with the
+      // same seed, so nothing reshuffles underneath.
+      const d = await api.get(`/api/collections/sets/${id}?seed=${seedRef.current || ''}`);
+      setOpen(d);
+    } catch (err) {
+      if (err.code === 'INSUFFICIENT_TOKENS') setPending({ id, level });
+      else setError(err.message);
+    } finally { setBusy(false); }
+  };
+
   const unlock = async (id) => {
     setError('');
     setBusy(true);
@@ -204,10 +225,40 @@ export default function Collections() {
               <div style={{ fontFamily: T.body, fontSize: 12, color: V.quiet, marginTop: 6 }}>
                 {open.itemCount} {open.itemCount === 1 ? 'piece' : 'pieces'}
               </div>
-              {/* Asked before the tokens go, as in the gallery and the chat.
+              {/* A look at one or two, before the whole thing.
                   //
-                  // The most expensive thing on the platform was also the one
-                  // that opened on a single tap. */}
+                  // A collection shows a blurred cover and a title, which is
+                  // very little to decide on at these prices. Each step credits
+                  // what came before, so previewing and then buying costs the
+                  // price of the set and nothing more — said plainly, because
+                  // otherwise it reads as paying twice. */}
+              {!confirming && (open.previewOptions || []).some((o) => o.kind === 'preview') && (
+                <div style={{ marginTop: 18, display: 'grid', gap: 10, justifyItems: 'center' }}>
+                  {open.previewLevel > 0 && (
+                    <div style={{ fontFamily: T.body, fontSize: 12, color: V.quiet }}>
+                      You have seen {open.previewLevel === 1 ? 'one photograph' : 'two photographs'} of this set.
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+                    {(open.previewOptions || []).filter((o) => o.kind === 'preview').map((o) => (
+                      <button key={o.level} onClick={() => takePreview(open.id, o.level)} disabled={busy}
+                              style={{ fontFamily: T.body, fontSize: 13, padding: '10px 18px', borderRadius: 999,
+                                       background: 'transparent', border: `1px solid ${V.edge}`,
+                                       color: V.ink, cursor: 'pointer' }}>
+                        {busy ? '…' : (
+                          <>See {o.photos === 1 ? 'one photograph' : 'two photographs'} for{' '}
+                            <WonderCoinAmount amount={o.due} size={12} fontSize={13} /></>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ fontFamily: T.body, fontSize: 11, color: V.quiet, maxWidth: 380, textAlign: 'center', lineHeight: 1.6 }}>
+                    Whatever you spend on a preview comes off the price of the set.
+                    Opening it later costs only the difference.
+                  </div>
+                </div>
+              )}
+
               {confirming ? (
                 <div style={{ marginTop: 18, display: 'grid', gap: 12, justifyItems: 'center' }}>
                   <div style={{ fontFamily: T.body, fontSize: 13, color: V.ink, lineHeight: 1.6, maxWidth: 360 }}>
