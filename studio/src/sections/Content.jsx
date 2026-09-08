@@ -2382,15 +2382,27 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   // As a thing you turn on it is useful, because sometimes the question really
   // is "show me everything it called swimwear". So the pile is in upload order
   // until somebody asks otherwise, and asking is one click away.
-  const groupOfItem = (i) => {
+  // The strongest specific finding on a photograph, whatever it was.
+  //
+  // score holds only the explicit number, so a photograph the classifier called
+  // "Partially Exposed Female Breast" at ninety-six per cent had a score of
+  // nought and landed under "Nothing found" — which is how a set full of
+  // findings came out looking unsorted.
+  const strongest = (i) => {
     const labels = i.moderation?.labels || [];
-    if (!labels.length) return i.moderation ? 'Nothing found' : 'Not checked';
-    // The most specific label, at its highest confidence. Rekognition answers
-    // in a hierarchy — one bikini comes back broad and again precise — so
-    // grouping on every label would put one photograph in five places.
+    if (!labels.length) return null;
+    // Rekognition answers in a hierarchy: one photograph comes back broad and
+    // again precise. The deepest label is the one that describes it, so that is
+    // what the group is named for.
     const deepest = labels.filter((l) => l.parent);
     const pool = deepest.length ? deepest : labels;
-    return pool.reduce((a, b) => (b.confidence > a.confidence ? b : a)).name;
+    return pool.reduce((a, b) => (b.confidence > a.confidence ? b : a));
+  };
+
+  const groupOfItem = (i) => {
+    if (!i.moderation) return 'Not checked';
+    const top = strongest(i);
+    return top ? top.name : 'Nothing found';
   };
 
   const unsortedItems = byTier.__unsorted || [];
@@ -2406,15 +2418,14 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
     // second look. Sorting purely by how many are in each group buries them
     // under the eighty ordinary ones, which is the opposite of what was asked
     // for.
-    const worstOf = (items) => Math.max(0, ...items.map((i) => i.moderation?.score || 0));
+    const worstOf = (items) => Math.max(0, ...items.map((i) => strongest(i)?.confidence || 0));
     const ordered = Object.entries(groups).sort((a, b) => {
       // The housekeeping groups last, whatever their size: they are answers
       // about the process rather than about the photographs.
       const rank = (k) => (k === 'Not checked' ? 2 : k === 'Nothing found' ? 1 : 0);
       if (rank(a[0]) !== rank(b[0])) return rank(a[0]) - rank(b[0]);
-      const wa = worstOf(a[1]), wb = worstOf(b[1]);
-      if ((wa >= 60) !== (wb >= 60)) return wb - wa;
-      return b[1].length - a[1].length;
+      // Strongest finding first, so the ones worth looking at are at the top.
+      return worstOf(b[1]) - worstOf(a[1]) || b[1].length - a[1].length;
     });
     SECTIONS = [];
     for (const cat of REVIEW_SECTIONS) {
@@ -2422,12 +2433,12 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
       for (const [label, group] of ordered) {
         const key = `__unsorted::${label}`;
         byTier[key] = group;
-        const flagged = group.filter((i) => (i.moderation?.score || 0) >= 60).length;
+        // How confident it was, on the heading. Seventy-five and above is the
+        // line worth looking at, so the group says how many cross it.
+        const high = group.filter((i) => (strongest(i)?.confidence || 0) >= 75).length;
         SECTIONS.push({
           key,
-          label: flagged > 0
-            ? `Unsorted · ${label} · ${flagged} worth a look`
-            : `Unsorted · ${label}`,
+          label: high > 0 ? `${label} · ${high} above 75%` : label,
           color: cat.color,
         });
       }
@@ -2904,81 +2915,42 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                       //
                       // Worded as an opinion for that reason. "Explicit 92%"
                       // reads as a finding; "worth a look" reads as what it is. */}
-                  {/* What the check made of it, whichever way it went.
+                  {/* What was found, and how sure it was.
                       //
-                      // The badge only appeared when something scored as
-                      // explicit, which on this library is almost never — so a
-                      // scan that ran correctly looked exactly like one that had
-                      // not run at all.
+                      // The chip named nothing useful before: it showed the
+                      // explicit score, which is nought on almost everything
+                      // here, so a photograph the classifier called Partially
+                      // Exposed Female Breast at ninety-six per cent read as
+                      // "checked · nothing".
                       //
-                      // Now a checked photograph always says so: amber and named
-                      // when there is something to look at, quiet and grey when
-                      // there is not. */}
-                  {item.moderation && (
-                    /* flagChip carries an amber background of its own, and the
-                       text was set amber on top of it. Dark text on the amber,
-                       pale text on the dark — each legible against what is
-                       actually behind it. */
-                    item.moderation.score >= 60 ? (
-                      <div title={(item.moderation.labels || [])
-                                    .map((l) => `${l.name} ${l.confidence}%`).join('\n')}
-                           style={{ ...flagChip, cursor: 'help', pointerEvents: 'auto' }}>
-                        worth a look · {item.moderation.score}%
-                      </div>
-                    ) : (
-                      <div title={(item.moderation.labels || []).length
-                                    ? (item.moderation.labels || []).map((l) => `${l.name} ${l.confidence}%`).join('\n')
-                                    : 'Nothing detected'}
+                      // Now it names the finding and the number. Amber past
+                      // seventy-five, quiet below it. */}
+                  {item.moderation && (() => {
+                    const labels = item.moderation.labels || [];
+                    const deep = labels.filter((l) => l.parent);
+                    const top = (deep.length ? deep : labels)
+                      .reduce((a, b) => (!a || b.confidence > a.confidence ? b : a), null);
+                    if (!top) {
+                      return (
+                        <div title="Nothing detected"
+                             style={{ ...flagChip, cursor: 'help', pointerEvents: 'auto',
+                                      background: 'rgba(0,0,0,0.62)', color: 'rgba(255,255,255,0.75)' }}>
+                          nothing found
+                        </div>
+                      );
+                    }
+                    const high = top.confidence >= 75;
+                    return (
+                      <div title={labels.map((l) => `${l.name} ${l.confidence}%`).join('\n')}
                            style={{ ...flagChip, cursor: 'help', pointerEvents: 'auto',
-                                    background: 'rgba(0,0,0,0.62)', color: 'rgba(255,255,255,0.88)' }}>
-                        {(item.moderation.labels || []).length
-                          ? (item.moderation.labels[0].name.length > 24
-                              ? item.moderation.labels[0].name.slice(0, 24) + '…'
-                              : item.moderation.labels[0].name)
-                          : 'nothing found'}
+                                    maxWidth: 'calc(100% - 8px)',
+                                    background: high ? 'rgba(217,164,92,0.92)' : 'rgba(0,0,0,0.62)',
+                                    color: high ? '#1A1714' : 'rgba(255,255,255,0.85)',
+                                    fontWeight: high ? 600 : 400 }}>
+                        {top.name.length > 26 ? top.name.slice(0, 26) + '…' : top.name} · {top.confidence}%
                       </div>
-                    )
-                  )}
-                  {/* Something to show for a good photograph.
-                      //
-                      // A removed one says so and a tiered one shows its tier,
-                      // but in a collection a kept photograph had no tier to
-                      // show and no chip either — so pressing 1 changed nothing
-                      // visible and the only way to tell a reviewed photograph
-                      // from an untouched one was to count what was left. */}
-                  {collection && item.review_flag !== 'remove' && item.reviewed_at && (
-                    <div style={{ ...flagChip, color: '#8FC88F', borderColor: 'rgba(143,200,143,0.45)' }}>keeping</div>
-                  )}
-                  {groupOf[item.id] !== undefined && (
-                    <div style={{ ...groupChip, background: GROUP_COLOURS[groupOf[item.id] % GROUP_COLOURS.length] }}>
-                      {nearGroups[groupOf[item.id]].length} alike
-                    </div>
-                  )}
-                  <button onClick={(e) => { e.stopPropagation(); toggle(item, e.shiftKey); }}
-                          title={isSelected(item.id) ? 'Deselect' : 'Select'}
-                          style={{ ...selectDot, background: isSelected(item.id) ? colors.accent : 'rgba(0,0,0,0.55)',
-                                   color: isSelected(item.id) ? '#1A1714' : '#fff' }}>
-                    {isSelected(item.id) ? '✓' : ''}
-                  </button>
-                  <button onClick={() => onDelete(item)} disabled={deletingItem === item.id}
-                          title="Remove this item"
-                          style={{ ...itemDeleteBtn, opacity: deletingItem === item.id ? 0.5 : 1 }}>
-                    {deletingItem === item.id ? '…' : '×'}
-                  </button>
-                  {/* A select given a null value shows its first option instead,
-                      which here is Free — so every untiered photo read as free
-                      while the data said it had no tier at all. The placeholder
-                      gives null something of its own to display, and being
-                      disabled it cannot be chosen back. */}
-                  {!collection && (
-                  <select value={item.tier_category || ''} onChange={(e) => onRetier(item, e.target.value)} style={tierSelect}>
-                    {!item.tier_category && <option value="" disabled>— no tier —</option>}
-                    {categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>)}
-                  </select>
-                  )}
-                  {/* Under the control that refused, where somebody who has
-                      just used it is already looking. */}
-                  <ActionError>{itemErrors?.[item.id]}</ActionError>
+                    );
+                  })()}
                 </div>
               ))}
             </div>
@@ -3121,6 +3093,39 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                 {at + 1} of {walk.length} · {current.tier_category ? tierLabel(current.tier_category) : 'unsorted'}
                 {current.review_flag === 'remove' && ' · marked for removal'}
               </span>
+
+              {/* What the check made of this one, on the bar rather than on the
+                  photograph.
+                  //
+                  // Looking closely at a photograph is exactly when the finding
+                  // matters, and it is also exactly when nothing should be
+                  // covering it. So it sits in the bar above, where it can be
+                  // read without being in the way. */}
+              {(() => {
+                const labels = current.moderation?.labels || [];
+                const deep = labels.filter((l) => l.parent);
+                const top = (deep.length ? deep : labels)
+                  .reduce((a, b) => (!a || b.confidence > a.confidence ? b : a), null);
+                if (!current.moderation) return null;
+                if (!top) {
+                  return (
+                    <span style={{ fontFamily: mono, fontSize: 11, color: '#7A736B' }}>
+                      checked · nothing found
+                    </span>
+                  );
+                }
+                const high = top.confidence >= 75;
+                return (
+                  <span title={labels.map((l) => `${l.name} ${l.confidence}%`).join('\n')}
+                        style={{ fontFamily: mono, fontSize: 11, cursor: 'help',
+                                 color: high ? '#E0B76A' : '#8A8178',
+                                 fontWeight: high ? 600 : 400 }}>
+                    {top.name} · {top.confidence}%
+                  </span>
+                );
+              })()}
+
+              <span style={{ flex: 1 }} />
               <button onClick={() => setLightbox(null)} style={lbClose}>✕</button>
             </div>
 
@@ -3195,7 +3200,10 @@ const bulkBar   = { position: 'sticky', bottom: 0, display: 'flex', alignItems: 
 const itemDeleteBtn = { position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,0.7)', color: '#D99A9A', fontSize: 14, lineHeight: 1, cursor: 'pointer', padding: 0 };
 const tierSelect    = { width: '100%', marginTop: 4, background: '#100F0C', border: `1px solid ${colors.border}`, color: colors.muted, fontFamily: sans, fontSize: 10, padding: '3px 4px', borderRadius: 4, outline: 'none' };
 const lightboxOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.94)', zIndex: 400, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '16px 20px' };
-const lbBar        = { width: '100%', maxWidth: 900, display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
+// Three things on this bar now, not two: the counter, what the check found, and
+// the close button. Gap and a spacer rather than space-between, which would
+// push the finding into the middle and away from what it describes.
+const lbBar        = { width: '100%', maxWidth: 900, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' };
 const lbClose      = { background: 'transparent', border: '1px solid rgba(255,255,255,0.18)', color: '#E8E1D8', fontSize: 14, padding: '5px 11px', borderRadius: 8, cursor: 'pointer' };
 const lbStage      = { position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', flex: 1, minHeight: 0 };
 const lbArrow      = { position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.12)', color: '#fff', fontSize: 24, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, zIndex: 2 };
