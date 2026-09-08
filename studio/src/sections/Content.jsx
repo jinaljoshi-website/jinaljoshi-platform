@@ -405,6 +405,17 @@ export function Content({ openWith, collection = false, upload = false }) {
     : visFilter === 'hidden' ? sets.filter((x) => !x.visible)
     : sets;
 
+  // Declared above loadSets, which reads it.
+  //
+  // It sat three hundred lines further down, so the effect that calls loadSets
+  // on mount reached it before the const existed and the whole section went
+  // blank on "cannot access before initialization".
+  //
+  // Arranged by default, because that is what fans see and arranging here is
+  // arranging there. Newest-first is for finding something, not for changing
+  // anything.
+  const [setOrder, setSetOrder] = useState('arranged');
+
   const loadSets = () => api.get(
     upload ? '/api/studio/content/queue'
            : `/api/studio/content?${new URLSearchParams({
@@ -584,10 +595,6 @@ export function Content({ openWith, collection = false, upload = false }) {
   const [moveWarning, setMoveWarning] = useState(null);
   const [moveTarget, setMoveTarget] = useState('');
   const [allSets, setAllSets] = useState([]);
-  // Arranged by default, because that is what fans see and arranging here is
-  // arranging there. Newest-first is for finding something, not for changing
-  // anything.
-  const [setOrder, setSetOrder] = useState('arranged');
 
 
   const loadAllSets = () => Promise.all([
