@@ -2435,10 +2435,18 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
         byTier[key] = group;
         // How confident it was, on the heading. Seventy-five and above is the
         // line worth looking at, so the group says how many cross it.
+        // Still Unsorted, still one pile — divided by what was found in it.
+        //
+        // The prefix went missing and the groups read as bare label names, as
+        // though the categories had replaced the section rather than living
+        // inside it. These are all photographs waiting to be sorted; the label
+        // says which kind.
         const high = group.filter((i) => (strongest(i)?.confidence || 0) >= 75).length;
         SECTIONS.push({
           key,
-          label: high > 0 ? `${label} · ${high} above 75%` : label,
+          label: high > 0
+            ? `Unsorted · ${label} · ${high} above 75%`
+            : `Unsorted · ${label}`,
           color: cat.color,
         });
       }
@@ -2802,11 +2810,17 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
               </button>
             )}
             {/* Offered only once there is something to group by. */}
+            {/* One way back, not a toggle in both directions.
+                //
+                // Once a set has been checked the categories are how it is
+                // arranged, and offering to turn that on when it is already on
+                // reads as though nothing happened. The only useful question is
+                // whether to see the shoot in the order it was uploaded. */}
             {items.some((i) => i.moderation) && (
               <button onClick={() => setByLabel(!byLabel)}
                       style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
-                               ...(byLabel ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
-                {byLabel ? 'Back to upload order' : 'Group by what was found'}
+                               ...(byLabel ? {} : { color: colors.accent, borderColor: colors.accent }) }}>
+                {byLabel ? 'Back to upload order' : 'Back to what was found'}
               </button>
             )}
 
