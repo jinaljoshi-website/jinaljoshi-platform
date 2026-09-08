@@ -2254,6 +2254,33 @@ router.post('/content/:id/delete-marked', async (req, res) => {
 
 const MAX_PINNED = 3;
 
+
+// ─────────────────────────────────────────────
+// POST /api/studio/content/sets/reset-order
+// ─────────────────────────────────────────────
+//
+// Throwing away a hand-made arrangement and going back to when things went
+// live.
+//
+// An arrangement is a hundred and sixty-eight decisions, and undoing them one
+// drag at a time is not undoing them. This clears display_order entirely, which
+// leaves the ordering to fall through to published_at — the sequence fans saw
+// in the first place.
+router.post('/content/sets/reset-order', async (req, res) => {
+  const wantCollection = req.body.collection === true || req.body.collection === '1';
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE sets SET display_order = NULL
+        WHERE is_collection = $1 AND display_order IS NOT NULL`,
+      [wantCollection]
+    );
+    res.json({ ok: true, reset: rowCount });
+  } catch (err) {
+    console.error('studio/reset-order error:', err);
+    res.status(500).json({ error: 'Could not reset the order' });
+  }
+});
+
 router.post('/content/sets/reorder', async (req, res) => {
   const { orderedIds } = req.body;
   if (!Array.isArray(orderedIds) || !orderedIds.length) {

@@ -1469,6 +1469,29 @@ export function Content({ openWith, collection = false, upload = false }) {
           </button>
         )}
 
+        {/* Undoing a hundred and sixty-eight decisions.
+            //
+            // Dragging them back one at a time is not undoing them. This drops
+            // the arrangement altogether and lets the order fall through to
+            // when each set went live, which is where it started. */}
+        {arranging && sets.some((st) => st.display_order != null) && (
+          <button onClick={async () => {
+                    if (!window.confirm('Drop the arrangement and go back to the order things went live in? This cannot be undone.')) return;
+                    setArrangeBusy(true);
+                    try {
+                      await api.post('/api/studio/content/sets/reset-order', { collection });
+                      await loadSets();
+                      setArranging(false);
+                    } catch (e) { setError(e.message); }
+                    finally { setArrangeBusy(false); }
+                  }}
+                  disabled={arrangeBusy}
+                  style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
+                           color: '#D99A9A', borderColor: 'rgba(156,90,90,0.35)' }}>
+            Reset to when they went live
+          </button>
+        )}
+
         {/* Two ways of looking at the same shelf.
             //
             // The arranged order is what fans see. Finding the set uploaded on
@@ -1527,8 +1550,13 @@ export function Content({ openWith, collection = false, upload = false }) {
                             aspectRatio: '3 / 4', background: colors.surface,
                             border: `1px solid ${dragIdx === i ? colors.accent : colors.border}`,
                             opacity: dragIdx === i ? 0.55 : 1 }}>
-                {st.coverUrl || st.cover_url ? (
-                  <img src={st.coverUrl || st.cover_url} alt="" draggable={false}
+                {/* cover_key on this endpoint, and it already holds a full URL.
+                    //
+                    // I reached for coverUrl, which is what a different route
+                    // returns — so every tile fell through to the title and the
+                    // grid was a wall of text with nothing to arrange by. */}
+                {(st.cover_key || st.coverUrl || st.cover_url) ? (
+                  <img src={st.cover_key || st.coverUrl || st.cover_url} alt="" draggable={false}
                        style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />
                 ) : (
                   <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center',
