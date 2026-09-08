@@ -1067,12 +1067,19 @@ router.get('/content', async (req, res) => {
        -- arranged by hand is its own problem, and the newest-first view answers
        -- it without disturbing anything.
        ORDER BY
-         CASE WHEN $2::text = 'uploaded' THEN 0 ELSE 1 END,   -- keeps the planner honest
-         CASE WHEN $2::text = 'uploaded' THEN s.created_at END DESC,
+         -- Pinned first in either order. A set pinned to the top is pinned to
+         -- the top, and having that hold in one view and not the other would
+         -- make the pin mean two different things.
          (s.pinned_at IS NULL), s.pinned_at DESC,
+         -- When it went live, not when it was uploaded.
+         --
+         -- created_at is when the photographs arrived, which can be weeks
+         -- before anybody saw them and is not an order anybody thinks in. The
+         -- useful sequence is the one fans experienced: what appeared first.
+         CASE WHEN $2::text = 'published' THEN COALESCE(s.published_at, s.created_at) END DESC,
          s.display_order ASC NULLS LAST,
          COALESCE(s.published_at, s.created_at) DESC`,
-      [wantCollection, req.query.order === 'uploaded' ? 'uploaded' : 'arranged']
+      [wantCollection, req.query.order === 'published' ? 'published' : 'arranged']
     );
     const { rows: itemCounts } = await pool.query(
       `SELECT set_id, tier_category, COUNT(*) AS count FROM set_items GROUP BY set_id, tier_category`

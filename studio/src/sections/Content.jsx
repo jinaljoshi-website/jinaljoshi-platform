@@ -420,7 +420,7 @@ export function Content({ openWith, collection = false, upload = false }) {
     upload ? '/api/studio/content/queue'
            : `/api/studio/content?${new URLSearchParams({
                ...(collection ? { collection: '1' } : {}),
-               ...(setOrder === 'uploaded' ? { order: 'uploaded' } : {}),
+               ...(setOrder === 'published' ? { order: 'published' } : {}),
              })}`
   ).then((d) => setSets(d.sets || []));
   // Reloaded from the server rather than re-sorted here, because the arranged
@@ -1477,10 +1477,13 @@ export function Content({ openWith, collection = false, upload = false }) {
             // arranging is disabled while looking that way, so nothing can be
             // reordered by accident against a sequence that is not the real one. */}
         {sets.length > 1 && !arranging && (
-          <button onClick={() => setSetOrder(setOrder === 'uploaded' ? 'arranged' : 'uploaded')}
+          <button onClick={() => setSetOrder(setOrder === 'published' ? 'arranged' : 'published')}
                   style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
-                           ...(setOrder === 'uploaded' ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
-            {setOrder === 'uploaded' ? 'Showing newest first' : 'Show newest first'}
+                           ...(setOrder === 'published' ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
+            {/* When it went live, which is the sequence fans experienced —
+                not when the photographs were uploaded, which can be weeks
+                earlier and is an order nobody thinks in. */}
+            {setOrder === 'published' ? 'By when it went live' : 'Order by when it went live'}
           </button>
         )}
       </div>
@@ -1494,7 +1497,17 @@ export function Content({ openWith, collection = false, upload = false }) {
             Drag to reorder. Pinned sets stay at the top whatever this order is —
             up to three, and the most recently pinned leads.
           </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 420, overflowY: 'auto' }}>
+          {/* Covers, not a list of titles.
+              //
+              // Arranging a gallery is deciding what it looks like, and a column
+              // of set names is the one view that cannot answer that. Small
+              // covers in a grid say at a glance what will sit next to what.
+              //
+              // The whole grid moving was the other half of the problem: the
+              // page reflowed under the hand on every drag. These are a fixed
+              // size, so only the thing being carried moves. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))',
+                        gap: 10, maxHeight: 440, overflowY: 'auto', padding: '4px 2px' }}>
             {arrangeList.map((st, i) => (
               <div key={st.id}
                    draggable
@@ -1509,11 +1522,43 @@ export function Content({ openWith, collection = false, upload = false }) {
                      setArrangeList(next);
                    }}
                    onDragEnd={() => setDragIdx(null)}
-                   style={arrangeRow}>
-                <span style={{ fontFamily: mono, fontSize: 10, color: colors.muted, width: 26 }}>{i + 1}</span>
-                <span style={{ flex: 1, fontFamily: sans, fontSize: 13, color: colors.text }}>{st.title}</span>
-                {st.pinned_at && <span style={pinTag}>Pinned</span>}
-                {!st.visible && <span style={{ fontFamily: sans, fontSize: 10, color: colors.muted }}>Hidden</span>}
+                   title={st.title}
+                   style={{ position: 'relative', cursor: 'grab', borderRadius: 8, overflow: 'hidden',
+                            aspectRatio: '3 / 4', background: colors.surface,
+                            border: `1px solid ${dragIdx === i ? colors.accent : colors.border}`,
+                            opacity: dragIdx === i ? 0.55 : 1 }}>
+                {st.coverUrl || st.cover_url ? (
+                  <img src={st.coverUrl || st.cover_url} alt="" draggable={false}
+                       style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />
+                ) : (
+                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center',
+                                justifyContent: 'center', fontFamily: sans, fontSize: 10,
+                                color: colors.muted, textAlign: 'center', padding: 6 }}>
+                    {st.title}
+                  </div>
+                )}
+
+                {/* The position, because the point of arranging is the order. */}
+                <span style={{ position: 'absolute', top: 4, left: 4, fontFamily: mono, fontSize: 10,
+                               background: 'rgba(0,0,0,0.6)', color: '#fff',
+                               padding: '1px 5px', borderRadius: 4 }}>{i + 1}</span>
+
+                {st.pinned_at && (
+                  <span style={{ position: 'absolute', top: 4, right: 4, fontSize: 11 }} title="Pinned">📌</span>
+                )}
+                {!st.visible && (
+                  <span style={{ position: 'absolute', bottom: 4, left: 4, fontFamily: sans, fontSize: 9,
+                                 background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.85)',
+                                 padding: '1px 5px', borderRadius: 4 }}>hidden</span>
+                )}
+
+                <span style={{ position: 'absolute', bottom: 0, left: 0, right: 0,
+                               fontFamily: sans, fontSize: 10, color: '#fff',
+                               background: 'linear-gradient(transparent, rgba(0,0,0,0.75))',
+                               padding: '14px 5px 4px', whiteSpace: 'nowrap',
+                               overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {st.title}
+                </span>
               </div>
             ))}
           </div>
