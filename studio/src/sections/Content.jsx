@@ -548,8 +548,17 @@ export function Content({ openWith, collection = false, upload = false }) {
   // already owns the obvious name.
   const [checkingPhotos, setCheckingPhotos] = useState(false);
   const [scanNote, setScanNote] = useState('');
-  // Off by default: what came up together stays together until asked otherwise.
-  const [byLabel, setByLabel] = useState(false);
+  // On by default, now that the check is something you ask for.
+  //
+  // Grouping automatically was wrong when every upload was scanned: a shoot
+  // arrived as one look and the machine scattered it across four headings
+  // before anybody had asked it to.
+  //
+  // Once running the check is a deliberate act, the reverse holds — you ran it
+  // to find out what is in there, and having the answers scattered through two
+  // hundred photographs in upload order is no use at all. The toggle puts them
+  // back in upload order for the sorting itself.
+  const [byLabel, setByLabel] = useState(true);
 
   const runScan = async (setId) => {
     if (!setId || checkingPhotos) return;
@@ -2391,11 +2400,21 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   if (byLabel && anyChecked) {
     const groups = {};
     unsortedItems.forEach((i) => { (groups[groupOfItem(i)] ||= []).push(i); });
+    // Anything questionable first, then the rest by size.
+    //
+    // The point of running the check is finding the two photographs worth a
+    // second look. Sorting purely by how many are in each group buries them
+    // under the eighty ordinary ones, which is the opposite of what was asked
+    // for.
+    const worstOf = (items) => Math.max(0, ...items.map((i) => i.moderation?.score || 0));
     const ordered = Object.entries(groups).sort((a, b) => {
       // The housekeeping groups last, whatever their size: they are answers
       // about the process rather than about the photographs.
       const rank = (k) => (k === 'Not checked' ? 2 : k === 'Nothing found' ? 1 : 0);
-      return rank(a[0]) - rank(b[0]) || b[1].length - a[1].length;
+      if (rank(a[0]) !== rank(b[0])) return rank(a[0]) - rank(b[0]);
+      const wa = worstOf(a[1]), wb = worstOf(b[1]);
+      if ((wa >= 60) !== (wb >= 60)) return wb - wa;
+      return b[1].length - a[1].length;
     });
     SECTIONS = [];
     for (const cat of REVIEW_SECTIONS) {
@@ -2403,7 +2422,14 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
       for (const [label, group] of ordered) {
         const key = `__unsorted::${label}`;
         byTier[key] = group;
-        SECTIONS.push({ key, label: `Unsorted · ${label}`, color: cat.color });
+        const flagged = group.filter((i) => (i.moderation?.score || 0) >= 60).length;
+        SECTIONS.push({
+          key,
+          label: flagged > 0
+            ? `Unsorted · ${label} · ${flagged} worth a look`
+            : `Unsorted · ${label}`,
+          color: cat.color,
+        });
       }
     }
   }
