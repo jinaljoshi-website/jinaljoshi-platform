@@ -2441,14 +2441,11 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
         // though the categories had replaced the section rather than living
         // inside it. These are all photographs waiting to be sorted; the label
         // says which kind.
-        const high = group.filter((i) => (strongest(i)?.confidence || 0) >= 75).length;
-        SECTIONS.push({
-          key,
-          label: high > 0
-            ? `Unsorted · ${label} · ${high} above 75%`
-            : `Unsorted · ${label}`,
-          color: cat.color,
-        });
+        // The heading names the finding and nothing else.
+        //
+        // Every photograph under it carries its own score, so counting them in
+        // the heading repeats what is already visible three inches below.
+        SECTIONS.push({ key, label: `Unsorted · ${label}`, color: cat.color });
       }
     }
   }
@@ -2929,39 +2926,30 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                       //
                       // Worded as an opinion for that reason. "Explicit 92%"
                       // reads as a finding; "worth a look" reads as what it is. */}
-                  {/* What was found, and how sure it was.
+                  {/* Just the number.
                       //
-                      // The chip named nothing useful before: it showed the
-                      // explicit score, which is nought on almost everything
-                      // here, so a photograph the classifier called Partially
-                      // Exposed Female Breast at ninety-six per cent read as
-                      // "checked · nothing".
+                      // The finding is the heading above these photographs, so
+                      // repeating it on each one says nothing and covers a
+                      // corner of every picture in the set. What the eye wants
+                      // here is how sure it was, and only that.
                       //
-                      // Now it names the finding and the number. Amber past
-                      // seventy-five, quiet below it. */}
+                      // Amber past seventy-five, quiet below. The full labels
+                      // are still on hover and on the full-screen bar. */}
                   {item.moderation && (() => {
                     const labels = item.moderation.labels || [];
                     const deep = labels.filter((l) => l.parent);
                     const top = (deep.length ? deep : labels)
                       .reduce((a, b) => (!a || b.confidence > a.confidence ? b : a), null);
-                    if (!top) {
-                      return (
-                        <div title="Nothing detected"
-                             style={{ ...flagChip, cursor: 'help', pointerEvents: 'auto',
-                                      background: 'rgba(0,0,0,0.62)', color: 'rgba(255,255,255,0.75)' }}>
-                          nothing found
-                        </div>
-                      );
-                    }
+                    if (!top) return null;
                     const high = top.confidence >= 75;
                     return (
                       <div title={labels.map((l) => `${l.name} ${l.confidence}%`).join('\n')}
                            style={{ ...flagChip, cursor: 'help', pointerEvents: 'auto',
-                                    maxWidth: 'calc(100% - 8px)',
-                                    background: high ? 'rgba(217,164,92,0.92)' : 'rgba(0,0,0,0.62)',
-                                    color: high ? '#1A1714' : 'rgba(255,255,255,0.85)',
+                                    padding: '2px 5px',
+                                    background: high ? 'rgba(217,164,92,0.92)' : 'rgba(0,0,0,0.55)',
+                                    color: high ? '#1A1714' : 'rgba(255,255,255,0.82)',
                                     fontWeight: high ? 600 : 400 }}>
-                        {top.name.length > 26 ? top.name.slice(0, 26) + '…' : top.name} · {top.confidence}%
+                        {top.confidence}%
                       </div>
                     );
                   })()}
