@@ -548,6 +548,8 @@ export function Content({ openWith, collection = false, upload = false }) {
   // already owns the obvious name.
   const [checkingPhotos, setCheckingPhotos] = useState(false);
   const [scanNote, setScanNote] = useState('');
+  // Off by default: what came up together stays together until asked otherwise.
+  const [byLabel, setByLabel] = useState(false);
 
   const runScan = async (setId) => {
     if (!setId || checkingPhotos) return;
@@ -2068,6 +2070,8 @@ export function Content({ openWith, collection = false, upload = false }) {
           onScan={() => runScan(reviewSet?.id)}
           scanning={checkingPhotos}
           scanNote={scanNote}
+          byLabel={byLabel}
+          setByLabel={setByLabel}
           onLoadSets={loadAllSets}
           moveTarget={moveTarget}
           onMoveTargetChange={setMoveTarget}
@@ -2311,7 +2315,7 @@ function PhotographerPicker({ names, onChange, options }) {
 
 function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItemsChanged, onDeleteMarked, removingMarked, deletingItem, collection = false, lightbox, setLightbox, mediaUrl, categories, itemErrors, onKeepFailed,
                        selected, setSelected, onBulkMove, onBulkDelete, bulkBusy,
-                       onScan, scanning, scanNote,
+                       onScan, scanning, scanNote, byLabel, setByLabel,
                        pile, carving, onStartCarve, onCarveChange, onCancelCarve, onConfirmCarve, carveBusy, carveError,
                        allSets, onLoadSets, moveTarget, onMoveTargetChange, onConfirmMove,
                        moveWarning, onConfirmMoveAnyway, onDismissMoveWarning,
@@ -2360,16 +2364,49 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
     (byTier[key] ||= []).push(i);
   });
 
-  // One pile, in the order it was uploaded.
+  // Grouped by what was found, but only when asked for.
   //
-  // This was split into groups by what a classifier thought it saw, which was
-  // exactly wrong: a shoot arrives as one look, and the machine scattered it
-  // across four headings by neckline. Selecting the shoot became impossible,
-  // and selecting the shoot is the whole job.
+  // Doing this automatically was wrong: a shoot arrives as one look and the
+  // machine scattered it across four headings by neckline, so selecting the
+  // shoot — the whole job — became impossible.
   //
-  // What came up together stays together. The badge still marks the two worth a
-  // second look, which is all it was ever good for.
-  const SECTIONS = REVIEW_SECTIONS;
+  // As a thing you turn on it is useful, because sometimes the question really
+  // is "show me everything it called swimwear". So the pile is in upload order
+  // until somebody asks otherwise, and asking is one click away.
+  const groupOfItem = (i) => {
+    const labels = i.moderation?.labels || [];
+    if (!labels.length) return i.moderation ? 'Nothing found' : 'Not checked';
+    // The most specific label, at its highest confidence. Rekognition answers
+    // in a hierarchy — one bikini comes back broad and again precise — so
+    // grouping on every label would put one photograph in five places.
+    const deepest = labels.filter((l) => l.parent);
+    const pool = deepest.length ? deepest : labels;
+    return pool.reduce((a, b) => (b.confidence > a.confidence ? b : a)).name;
+  };
+
+  const unsortedItems = byTier.__unsorted || [];
+  const anyChecked = unsortedItems.some((i) => i.moderation);
+
+  let SECTIONS = REVIEW_SECTIONS;
+  if (byLabel && anyChecked) {
+    const groups = {};
+    unsortedItems.forEach((i) => { (groups[groupOfItem(i)] ||= []).push(i); });
+    const ordered = Object.entries(groups).sort((a, b) => {
+      // The housekeeping groups last, whatever their size: they are answers
+      // about the process rather than about the photographs.
+      const rank = (k) => (k === 'Not checked' ? 2 : k === 'Nothing found' ? 1 : 0);
+      return rank(a[0]) - rank(b[0]) || b[1].length - a[1].length;
+    });
+    SECTIONS = [];
+    for (const cat of REVIEW_SECTIONS) {
+      if (cat.key !== '__unsorted') { SECTIONS.push(cat); continue; }
+      for (const [label, group] of ordered) {
+        const key = `__unsorted::${label}`;
+        byTier[key] = group;
+        SECTIONS.push({ key, label: `Unsorted · ${label}`, color: cat.color });
+      }
+    }
+  }
 
   // Unsorted first, so opening the first photo starts where the work is.
   const ordered = SECTIONS.flatMap((cat) => byTier[cat.key] || []);
@@ -2727,6 +2764,15 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                 {scanning ? 'Looking…' : 'Check these photographs'}
               </button>
             )}
+            {/* Offered only once there is something to group by. */}
+            {items.some((i) => i.moderation) && (
+              <button onClick={() => setByLabel(!byLabel)}
+                      style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
+                               ...(byLabel ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
+                {byLabel ? 'Back to upload order' : 'Group by what was found'}
+              </button>
+            )}
+
             {scanNote && (
               <span style={{ fontFamily: sans, fontSize: 11, color: colors.accent, alignSelf: 'center', flexBasis: '100%' }}>
                 {scanNote}
@@ -2843,24 +2889,27 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                       // when there is something to look at, quiet and grey when
                       // there is not. */}
                   {item.moderation && (
+                    /* flagChip carries an amber background of its own, and the
+                       text was set amber on top of it. Dark text on the amber,
+                       pale text on the dark — each legible against what is
+                       actually behind it. */
                     item.moderation.score >= 60 ? (
                       <div title={(item.moderation.labels || [])
                                     .map((l) => `${l.name} ${l.confidence}%`).join('\n')}
-                           style={{ ...flagChip, color: '#E0B76A', borderColor: 'rgba(224,183,106,0.5)',
-                                    cursor: 'help' }}>
+                           style={{ ...flagChip, cursor: 'help', pointerEvents: 'auto' }}>
                         worth a look · {item.moderation.score}%
                       </div>
                     ) : (
                       <div title={(item.moderation.labels || []).length
                                     ? (item.moderation.labels || []).map((l) => `${l.name} ${l.confidence}%`).join('\n')
                                     : 'Nothing detected'}
-                           style={{ ...flagChip, color: colors.muted, borderColor: colors.border,
-                                    cursor: 'help', opacity: 0.7 }}>
+                           style={{ ...flagChip, cursor: 'help', pointerEvents: 'auto',
+                                    background: 'rgba(0,0,0,0.62)', color: 'rgba(255,255,255,0.88)' }}>
                         {(item.moderation.labels || []).length
-                          ? `checked · ${item.moderation.labels[0].name.length > 22
-                              ? item.moderation.labels[0].name.slice(0, 22) + '…'
-                              : item.moderation.labels[0].name}`
-                          : 'checked · nothing'}
+                          ? (item.moderation.labels[0].name.length > 24
+                              ? item.moderation.labels[0].name.slice(0, 24) + '…'
+                              : item.moderation.labels[0].name)
+                          : 'nothing found'}
                       </div>
                     )
                   )}
