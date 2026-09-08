@@ -2319,7 +2319,13 @@ router.post('/content/:id/pin', async (req, res) => {
 // change that would put the set on both sides at once.
 router.patch('/content/item/:itemId', async (req, res) => {
   const { tierCategory } = req.body;
-  if (!VALID_TIER_CATEGORIES.includes(tierCategory)) {
+  // Null is allowed, and means unsorted.
+  //
+  // A tier assigned by a mistaken keystroke had no way back: every value was
+  // another tier, so the photograph could be moved anywhere except back to the
+  // pile it came from. Clearing it puts it where it was before somebody's
+  // finger slipped.
+  if (tierCategory !== null && !VALID_TIER_CATEGORIES.includes(tierCategory)) {
     return res.status(400).json({ error: 'Invalid tier category' });
   }
   try {
@@ -2363,8 +2369,16 @@ router.patch('/content/item/:itemId', async (req, res) => {
     // reviewed and clears any earlier mark. Without this the unsorted count
     // never falls and the set can never be published.
     const { rows } = await pool.query(
+      // Clearing the tier clears the review with it.
+      //
+      // reviewed_at was set unconditionally, so sending it back to unsorted
+      // would have marked it reviewed at the same moment — leaving a photograph
+      // with no tier and a review date, which is invisible to fans and
+      // invisible in the queue. Gone from both places at once.
       `UPDATE set_items
-          SET tier_category = $1, reviewed_at = NOW(), review_flag = NULL
+          SET tier_category = $1,
+              reviewed_at = CASE WHEN $1::text IS NULL THEN NULL ELSE NOW() END,
+              review_flag = NULL
         WHERE id = $2 RETURNING *`,
       [tierCategory, req.params.itemId]
     );
@@ -2383,7 +2397,9 @@ router.post('/content/items/move', async (req, res) => {
   if (!Array.isArray(itemIds) || !itemIds.length) {
     return res.status(400).json({ error: 'Nothing selected' });
   }
-  if (!VALID_TIER_CATEGORIES.includes(tierCategory)) {
+  // Null is allowed here too, and means unsorted. Selecting thirty by mistake
+  // should be as undoable as selecting one.
+  if (tierCategory !== null && !VALID_TIER_CATEGORIES.includes(tierCategory)) {
     return res.status(400).json({ error: 'Invalid tier category' });
   }
 
@@ -2436,7 +2452,10 @@ router.post('/content/items/move', async (req, res) => {
     }
 
     const { rowCount } = await client.query(
-      `UPDATE set_items SET tier_category = $1 WHERE id = ANY($2)`, [tierCategory, itemIds]
+      `UPDATE set_items
+          SET tier_category = $1,
+              reviewed_at = CASE WHEN $1::text IS NULL THEN NULL ELSE COALESCE(reviewed_at, NOW()) END
+        WHERE id = ANY($2)`, [tierCategory, itemIds]
     );
     await client.query('COMMIT');
     res.json({ ok: true, moved: rowCount, tierCategory });

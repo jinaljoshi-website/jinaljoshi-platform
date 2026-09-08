@@ -661,9 +661,17 @@ export function Content({ openWith, collection = false, upload = false }) {
         setReviewItems((prev) => prev.map((i) => selected.includes(i.id) ? { ...i, ...patch } : i));
         setSuccess(`Moved ${d.updated} item${d.updated === 1 ? '' : 's'}.`);
       } else {
-        const d = await api.post('/api/studio/content/items/move', { itemIds: selected, tierCategory: target });
+        // The dropdown cannot carry a null, so it carries a word that means
+        // one: back to the pile, for a selection made by mistake.
+        const tierCategory = target === '__unsorted' ? null : target;
+        const d = await api.post('/api/studio/content/items/move', { itemIds: selected, tierCategory });
         setReviewItems((prev) => prev.map((i) =>
-          selected.includes(i.id) ? { ...i, tier_category: target } : i));
+          // The value that was sent, not the word that stood for it — or the
+          // screen would show a tier called __unsorted until the next reload.
+          selected.includes(i.id)
+            ? { ...i, tier_category: tierCategory,
+                      reviewed_at: tierCategory === null ? null : i.reviewed_at }
+            : i));
         setSuccess(`Moved ${d.moved} item${d.moved === 1 ? '' : 's'}.`);
       }
       clearSelection();
@@ -785,7 +793,9 @@ export function Content({ openWith, collection = false, upload = false }) {
     setError('');
     setItemErrors((prev) => ({ ...prev, [item.id]: null }));
     try {
-      const d = await api.patch(`/api/studio/content/item/${item.id}`, { tierCategory });
+      // The dropdown cannot carry a null, so it carries a word that means one.
+      const d = await api.patch(`/api/studio/content/item/${item.id}`,
+        { tierCategory: tierCategory === '__unsorted' ? null : tierCategory });
       setReviewItems((prev) => prev.map((i) => i.id === item.id ? d.item : i));
       // No toast. This now fires once per keystroke through a whole set, and a
       // message that appears several hundred times says nothing.
@@ -2974,7 +2984,13 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
               {collection
                 ? [<option key="keep" value="__keep">Keeping</option>,
                    <option key="rm"   value="__remove">To be removed</option>]
-                : categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>)}
+                : [
+                    ...categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>),
+                    /* Back to the pile, for a selection made by mistake. Every
+                       other value was another tier, so a slipped finger could
+                       send photographs anywhere except where they came from. */
+                    <option key="__unsorted" value="__unsorted">Unsorted</option>,
+                  ]}
             </select>
             <button onClick={onBulkDelete} disabled={bulkBusy}
                     style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A',
@@ -3154,6 +3170,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                         style={lbSelect}>
                   {!current.tier_category && <option value="" disabled>— no tier —</option>}
                   {categories.map((c2) => <option key={c2.key} value={c2.key}>{c2.label}</option>)}
+                  {current.tier_category && <option value="__unsorted">Back to unsorted</option>}
                 </select>
               </label>
               )}
