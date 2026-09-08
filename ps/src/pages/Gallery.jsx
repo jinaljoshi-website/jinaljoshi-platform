@@ -139,6 +139,7 @@ export default function Gallery() {
   const [viewerError, setViewerError] = useState('');
   const [sort, setSort] = useState('newest');
 
+  const [mediaFilter, setMediaFilter] = useState('all');
   const [activeTab, setActiveTab] = useState(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     return TABS.some((x) => x.key === t) ? t : 'all';
@@ -592,11 +593,28 @@ export default function Gallery() {
   }
 
   // ── Grid view ───────────────────────────────────────────────────────────────
-  const activeItems = activeTab === 'unlocked'
+  const byCategory = activeTab === 'unlocked'
     ? unlockedSets
     : activeTab === 'all'
       ? allSets
       : allSets.filter((s) => s.category === activeTab);
+
+  // Photographs or video, across whichever category is showing.
+  //
+  // A separate question from what a set is about, so a separate control: a set
+  // can hold both, and somebody who came looking for video should not have to
+  // open six photo sets to find the one that has any.
+  const activeItems = mediaFilter === 'all'
+    ? byCategory
+    : mediaFilter === 'video'
+      ? byCategory.filter((s) => (s.videoCount || 0) > 0)
+      : byCategory.filter((s) => (s.photoCount || 0) > 0);
+
+  // Offered only where there is a choice to make. A gallery of nothing but
+  // photographs does not need a control that says so.
+  const hasVideo  = byCategory.some((s) => (s.videoCount || 0) > 0);
+  const hasPhoto  = byCategory.some((s) => (s.photoCount || 0) > 0);
+  const showMediaFilter = hasVideo && hasPhoto;
 
   return (
     <div>
@@ -675,7 +693,23 @@ export default function Gallery() {
       )}
 
       {activeTab !== 'selfies' && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+          {/* Photographs or video, in whichever category is showing. */}
+          {showMediaFilter ? (
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[['all', 'All'], ['photo', 'Photos'], ['video', 'Videos']].map(([k, label]) => (
+                <button key={k} onClick={() => setMediaFilter(k)}
+                        style={{ fontFamily: F.sans, fontSize: 12, padding: '6px 14px', borderRadius: 999,
+                                 cursor: 'pointer',
+                                 background: mediaFilter === k ? 'rgba(193,125,74,0.12)' : 'transparent',
+                                 border: `1px solid ${mediaFilter === k ? C.accent : C.border}`,
+                                 color: mediaFilter === k ? C.accent : C.muted }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : <span />}
           <select value={sort}
                   onChange={(e) => { setSort(e.target.value); load(e.target.value); }}
                   style={sortSelect}>

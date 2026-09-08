@@ -1060,11 +1060,19 @@ router.get('/content', async (req, res) => {
              )
            )
          )
-       -- The same order the fans see, so arranging here is arranging there.
-       ORDER BY (s.pinned_at IS NULL), s.pinned_at DESC,
-                s.display_order ASC NULLS LAST,
-                COALESCE(s.published_at, s.created_at) DESC`,
-      [wantCollection]
+       -- Two ways of looking at the same shelf.
+       --
+       -- The arranged order is what fans see, so arranging here is arranging
+       -- there. But finding a set you uploaded on Tuesday among a hundred
+       -- arranged by hand is its own problem, and the newest-first view answers
+       -- it without disturbing anything.
+       ORDER BY
+         CASE WHEN $2::text = 'uploaded' THEN 0 ELSE 1 END,   -- keeps the planner honest
+         CASE WHEN $2::text = 'uploaded' THEN s.created_at END DESC,
+         (s.pinned_at IS NULL), s.pinned_at DESC,
+         s.display_order ASC NULLS LAST,
+         COALESCE(s.published_at, s.created_at) DESC`,
+      [wantCollection, req.query.order === 'uploaded' ? 'uploaded' : 'arranged']
     );
     const { rows: itemCounts } = await pool.query(
       `SELECT set_id, tier_category, COUNT(*) AS count FROM set_items GROUP BY set_id, tier_category`

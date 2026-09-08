@@ -407,8 +407,20 @@ export function Content({ openWith, collection = false, upload = false }) {
 
   const loadSets = () => api.get(
     upload ? '/api/studio/content/queue'
-           : `/api/studio/content${collection ? '?collection=1' : ''}`
+           : `/api/studio/content?${new URLSearchParams({
+               ...(collection ? { collection: '1' } : {}),
+               ...(setOrder === 'uploaded' ? { order: 'uploaded' } : {}),
+             })}`
   ).then((d) => setSets(d.sets || []));
+  // Reloaded from the server rather than re-sorted here, because the arranged
+  // order is a database column and only the database knows it.
+  const firstOrderRender = useRef(true);
+  useEffect(() => {
+    if (firstOrderRender.current) { firstOrderRender.current = false; return; }
+    loadSets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setOrder]);
+
   const loadPhotographers = () => api.get('/api/studio/photographers')
     .then((d) => setPhotographers(d.photographers || [])).catch(() => {});
 
@@ -572,6 +584,11 @@ export function Content({ openWith, collection = false, upload = false }) {
   const [moveWarning, setMoveWarning] = useState(null);
   const [moveTarget, setMoveTarget] = useState('');
   const [allSets, setAllSets] = useState([]);
+  // Arranged by default, because that is what fans see and arranging here is
+  // arranging there. Newest-first is for finding something, not for changing
+  // anything.
+  const [setOrder, setSetOrder] = useState('arranged');
+
 
   const loadAllSets = () => Promise.all([
     api.get('/api/studio/content'),
@@ -1442,6 +1459,21 @@ export function Content({ openWith, collection = false, upload = false }) {
           <button onClick={() => { setArranging(!arranging); setArrangeList(sets); }}
                   style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>
             {arranging ? 'Done arranging' : 'Arrange order'}
+          </button>
+        )}
+
+        {/* Two ways of looking at the same shelf.
+            //
+            // The arranged order is what fans see. Finding the set uploaded on
+            // Tuesday among a hundred arranged by hand is a different problem,
+            // and newest-first answers it without disturbing anything —
+            // arranging is disabled while looking that way, so nothing can be
+            // reordered by accident against a sequence that is not the real one. */}
+        {sets.length > 1 && !arranging && (
+          <button onClick={() => setSetOrder(setOrder === 'uploaded' ? 'arranged' : 'uploaded')}
+                  style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
+                           ...(setOrder === 'uploaded' ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
+            {setOrder === 'uploaded' ? 'Showing newest first' : 'Show newest first'}
           </button>
         )}
       </div>
