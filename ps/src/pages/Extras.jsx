@@ -1,3 +1,4 @@
+import { tokenRateInr } from '../data';
 import { useEffect, useRef, useState } from 'react';
 import { C, F } from '../tokens';
 import { WonderCoinAmount } from '../components/WonderCoin';
@@ -28,6 +29,7 @@ export default function Extras() {
   const [refImagePreview, setRefImagePreview] = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
   const [offeredPrice, setOfferedPrice] = useState('');
+  const [offeredInr, setOfferedInr] = useState('');
   const [deliveryChannel, setDeliveryChannel] = useState('email');
   const [deliveryEmail, setDeliveryEmail] = useState('');
   const [deliveryWhatsapp, setDeliveryWhatsapp] = useState('');
@@ -204,10 +206,38 @@ export default function Extras() {
           <div style={fieldLabel}>Expected delivery date (optional)</div>
           <input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} style={{ ...urlInput, marginBottom: 16 }} />
 
-          <div style={fieldLabel}>Your offered price (tokens)</div>
-          <input type="number" min={1} value={offeredPrice} onChange={(e) => setOfferedPrice(e.target.value)} style={urlInput} />
+          {/* Offered in rupees, charged in tokens.
+              //
+              // Nobody thinks in tokens when deciding what a thing is worth to
+              // them; they think in money. So the amount is typed in rupees and
+              // the tokens follow, rounded up — a token is the smallest thing
+              // that can be spent, so 12.4 of them cannot be offered and asking
+              // for 13 is the only honest rounding. */}
+          <div style={fieldLabel}>What you would like to offer</div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontFamily: F.sans, fontSize: 15, color: C.muted }}>₹</span>
+              <input type="number" min={1} inputMode="numeric"
+                     value={offeredInr}
+                     onChange={(e) => {
+                       const inr = e.target.value;
+                       setOfferedInr(inr);
+                       // From the shared pricing config, which is where every
+                       // other rupee figure on the platform comes from.
+                       const rate = tokenRateInr() || 0;
+                       setOfferedPrice(inr && rate ? String(Math.ceil(Number(inr) / rate)) : '');
+                     }}
+                     style={{ ...urlInput, width: 160, marginBottom: 0 }} />
+            </div>
+            {offeredPrice > 0 && (
+              <span style={{ fontFamily: F.sans, fontSize: 13, color: C.accent }}>
+                = {offeredPrice} token{offeredPrice === '1' ? '' : 's'}
+              </span>
+            )}
+          </div>
           <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 6 }}>
-            Jinal will review your offer — she may approve it, decline it, or counter with a different price.
+            Rounded up to the next whole token. Jinal will review your offer — she may
+            approve it, decline it, or counter with a different price.
           </div>
 
           <div style={fieldLabel}>Where should this be delivered?</div>

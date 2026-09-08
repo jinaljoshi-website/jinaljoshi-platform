@@ -30,6 +30,7 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { hasCollectionsAccess } = require('../lib/collections');
 const { spendTokens } = require('../lib/tokens');
+const { dueFor, optionsFor } = require('../lib/collectionPreview');
 const { roundTokensUp } = require('../lib/pricing');
 const { shuffleWithinBands } = require('../lib/shuffle');
 
@@ -173,6 +174,104 @@ router.get('/sets/:id', async (req, res) => {
 });
 
 // ── Buying one ────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
+// POST /api/collections/preview
+// ─────────────────────────────────────────────
+//
+// Buying a look at one or two photographs before the set.
+//
+// Collections carry the highest prices here and the least to go on. Every step
+// credits what came before, so previewing and then buying costs exactly the
+// price of the set.
+router.post('/preview', async (req, res) => {
+  const { setId, level } = req.body;
+  const want = Number(level) === 2 ? 2 : 1;
+  if (!setId) return res.status(400).json({ error: 'Which set?' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: sets } = await client.query(
+      `SELECT id, title, price_coins FROM sets
+        WHERE id = $1 AND is_collection = TRUE AND visible = TRUE`,
+      [setId]
+    );
+    if (!sets.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'That set is not available' }); }
+    const set = sets[0];
+
+    // Already bought outright — there is nothing left to preview.
+    const { rows: owned } = await client.query(
+      `SELECT 1 FROM access_grants WHERE user_id = $1 AND set_id = $2`, [req.user.userId, setId]);
+    if (owned.length) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'You already have this set.' }); }
+
+    const { rows: items } = await client.query(
+      `SELECT id FROM set_items WHERE set_id = $1 AND review_flag IS DISTINCT FROM 'remove'
+        ORDER BY position ASC, created_at ASC`,
+      [setId]
+    );
+    if (items.length < 2) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'Too small to preview.' }); }
+
+    const { rows: existing } = await client.query(
+      `SELECT * FROM collection_previews WHERE user_id = $1 AND set_id = $2 FOR UPDATE`,
+      [req.user.userId, setId]
+    );
+    const prior = existing[0] || null;
+    if (prior && Number(prior.level) >= want) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'You have already seen that much.' });
+    }
+
+    const due = dueFor(want, set.price_coins, items.length, prior ? prior.coins_paid : 0);
+    if (due > 0) {
+      try {
+        await spendTokens(client, {
+          userId: req.user.userId,
+          amount: due,
+          type: 'content_unlock',
+          label: `${set.title}: preview of ${want} photograph${want === 1 ? '' : 's'}`,
+          relatedId: setId,
+          // Gifted tokens do not open collections, and a preview is a piece of
+          // one rather than an exception to it.
+          allowGifted: false,
+        });
+      } catch (err) {
+        await client.query('ROLLBACK');
+        if (err.code === 'INSUFFICIENT_TOKENS') return res.status(402).json(err.httpBody);
+        throw err;
+      }
+    }
+
+    // The same photographs each time, with the second added to the first.
+    //
+    // A preview that shuffles is a preview nobody trusts, and somebody who paid
+    // to see a particular photograph should find it there tomorrow.
+    const chosen = prior
+      ? [...prior.item_ids, ...items.map((i) => i.id).filter((id) => !prior.item_ids.includes(id)).slice(0, want - prior.item_ids.length)]
+      : items.slice(0, want).map((i) => i.id);
+
+    const paidTotal = (prior ? Number(prior.coins_paid) : 0) + due;
+
+    await client.query(
+      `INSERT INTO collection_previews (user_id, set_id, level, coins_paid, item_ids)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id, set_id) DO UPDATE
+         SET level = $3, coins_paid = $4, item_ids = $5`,
+      [req.user.userId, setId, want, paidTotal, chosen]
+    );
+
+    await client.query('COMMIT');
+    res.json({ ok: true, level: want, paid: due, paidTotal, itemIds: chosen });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('collections/preview error:', err);
+    res.status(500).json({ error: 'Could not open that preview' });
+  } finally {
+    client.release();
+  }
+});
+
 router.post('/unlock', async (req, res) => {
   const { setId } = req.body;
   if (!setId) return res.status(400).json({ error: 'A set is required' });
@@ -201,7 +300,18 @@ router.post('/unlock', async (req, res) => {
       return res.status(409).json({ error: 'Already unlocked' });
     }
 
-    const price = roundTokensUp(set.price_coins);
+    // Credit whatever a preview already took.
+    //
+    // Without this, somebody who paid to see two photographs and then bought
+    // the set would pay a third more than its price — which would make a
+    // preview a toll for looking rather than the first part of buying.
+    const { rows: prev } = await client.query(
+      `SELECT coins_paid FROM collection_previews WHERE user_id = $1 AND set_id = $2`,
+      [req.user.userId, setId]
+    ).catch(() => ({ rows: [] }));
+    const alreadyPaid = prev.length ? Number(prev[0].coins_paid) : 0;
+
+    const price = Math.max(0, roundTokensUp(set.price_coins) - alreadyPaid);
     let spend = null;
     if (price > 0) {
       try {
