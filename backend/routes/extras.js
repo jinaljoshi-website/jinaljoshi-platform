@@ -8,6 +8,7 @@ const { roundTokensUp } = require('../lib/pricing');
 const { postSystemMessage } = require('./community');
 const { assertNotBlocked } = require('../lib/moderation');
 const { spendTokens, refundByRelated } = require('../lib/tokens');
+const { depositFor, checkPayment, recordPayment, outstanding, limits } = require('../lib/requestPayments');
 
 // ─────────────────────────────────────────────
 // GET /api/extras/options
@@ -127,23 +128,47 @@ router.post('/request', authMid, async (req, res) => {
       `INSERT INTO custom_requests
          (user_id, type, topic, details, reference_url, reference_image_key, expected_delivery_date,
           offered_price_coins, coins_charged, extra_item_id, consent_agreed,
-          delivery_channel, delivery_email, delivery_whatsapp)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, TRUE, $10, $11, $12) RETURNING *`,
+          delivery_channel, delivery_email, delivery_whatsapp, agreed_price_coins)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9, TRUE, $10, $11, $12, $8) RETURNING *`,
       [req.user.userId, itemTitle, topic.trim(), details.trim(), referenceUrl?.trim() || null,
        referenceImageUrl || null, expectedDeliveryDate || null, price, extraItemId || null,
        deliveryChannel, deliveryEmail?.trim() || null, deliveryWhatsapp?.trim() || null]
     );
+
+    // A tenth to place it, not the whole thing.
+    //
+    // The full price used to go at once, so anything expensive had to be
+    // affordable in one payment or not asked for at all. It is also the shape
+    // that gets a merchant account looked at — a single very large payment from
+    // one member is what put this platform under a risk audit.
+    //
+    // The deposit reserves her time. Nothing is made until it is settled.
+    const deposit = depositFor(price);
+
+    const allowed = await checkPayment(client, req.user.userId, deposit);
+    if (!allowed.ok) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: allowed.code, message: allowed.message, maxCoins: allowed.maxCoins });
+    }
 
     // A personalised request is Jinal's own work, so it takes purchased tokens.
     let spend;
     try {
       spend = await spendTokens(client, {
         userId:      req.user.userId,
-        amount:      price,
+        amount:      deposit,
         type:        'custom_request',
-        label:       `${itemTitle}: ${topic.trim()}`,
+        label:       `${itemTitle}: ${topic.trim()} (deposit)`,
         relatedId:   requestRows[0].id,
         allowGifted: false,
+      });
+      // Logged as the first instalment, so what is owed is always the agreed
+      // price less what these add up to, with no separate counter to drift.
+      await recordPayment(client, {
+        requestId: requestRows[0].id,
+        userId: req.user.userId,
+        coins: deposit,
+        valueInr: allowed.valueInr,
       });
     } catch (err) {
       if (err.code === 'INSUFFICIENT_TOKENS') {
@@ -195,6 +220,138 @@ router.post('/request', authMid, async (req, res) => {
 // Lower counters never reach here — they auto-apply server-side the moment Jinal sets them.
 // ─────────────────────────────────────────────
 
+
+// ─────────────────────────────────────────────
+// GET  /api/extras/requests/:id/balance
+// POST /api/extras/requests/:id/pay
+// ─────────────────────────────────────────────
+//
+// Paying off a commission.
+//
+// A tenth placed it; this is the rest, in whatever amounts suit, until it is
+// settled. Nothing is made before then — the deposit reserved her time, not the
+// work.
+router.get('/requests/:id/balance', authMid, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, topic, type, agreed_price_coins, offered_price_coins,
+              coins_charged, paid_in_full_at, status
+         FROM custom_requests WHERE id = $1 AND user_id = $2`,
+      [req.params.id, req.user.userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'No such request' });
+    const r = rows[0];
+    const { perDayInr, perPaymentInr, tokenRate } = await limits();
+
+    const { rows: today } = await pool.query(
+      `SELECT COALESCE(SUM(inr_value), 0) AS spent FROM request_payments
+        WHERE user_id = $1 AND created_at > NOW() - INTERVAL '24 hours'`,
+      [req.user.userId]
+    );
+    const { rows: history } = await pool.query(
+      `SELECT coins, inr_value, created_at FROM request_payments
+        WHERE request_id = $1 ORDER BY created_at`,
+      [req.params.id]
+    );
+
+    const owed = outstanding(r);
+    const leftToday = Math.max(0, perDayInr - Number(today[0].spent));
+
+    res.json({
+      agreed: Number(r.agreed_price_coins ?? r.offered_price_coins ?? 0),
+      paid: Number(r.coins_charged || 0),
+      outstanding: owed,
+      settled: owed === 0,
+      payments: history.map((h) => ({ coins: h.coins, at: h.created_at })),
+      // What can go in right now, so the screen can offer a sensible maximum
+      // rather than letting somebody type a number that will be refused.
+      maxNow: Math.max(0, Math.min(
+        owed,
+        Math.floor(perPaymentInr / tokenRate),
+        Math.floor(leftToday / tokenRate),
+      )),
+      dailyLeftInr: leftToday,
+    });
+  } catch (err) {
+    console.error('extras/balance error:', err);
+    res.status(500).json({ error: 'Could not work out the balance' });
+  }
+});
+
+router.post('/requests/:id/pay', authMid, async (req, res) => {
+  const coins = parseInt(req.body.coins, 10);
+  if (!coins || coins <= 0) return res.status(400).json({ error: 'How many tokens?' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT id, topic, agreed_price_coins, offered_price_coins, coins_charged, status
+         FROM custom_requests WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+      [req.params.id, req.user.userId]
+    );
+    if (!rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'No such request' }); }
+    const r = rows[0];
+
+    if (['cancelled', 'declined'].includes(r.status)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'This request is closed. Nothing more is owed on it.' });
+    }
+
+    const owed = outstanding(r);
+    if (owed === 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'This one is already paid in full.' });
+    }
+    // Never more than is owed. Somebody typing a large number should not end up
+    // with a credit against a commission they cannot spend anywhere else.
+    const amount = Math.min(coins, owed);
+
+    const allowed = await checkPayment(client, req.user.userId, amount);
+    if (!allowed.ok) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: allowed.code, message: allowed.message, maxCoins: allowed.maxCoins });
+    }
+
+    try {
+      await spendTokens(client, {
+        userId:      req.user.userId,
+        amount,
+        type:        'custom_request',
+        label:       `${r.topic}: instalment`,
+        relatedId:   r.id,
+        allowGifted: false,
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      if (err.code === 'INSUFFICIENT_TOKENS') return res.status(402).json(err.httpBody);
+      throw err;
+    }
+
+    const out = await recordPayment(client, {
+      requestId: r.id, userId: req.user.userId, coins: amount, valueInr: allowed.valueInr,
+    });
+    await client.query('COMMIT');
+
+    if (out.settled) {
+      notifyArtist({
+        title: 'A request is paid in full',
+        body:  `${r.topic} has been settled and is ready to make.`,
+        url:   '/requests',
+        tag:   'request-settled',
+      }).catch(() => {});
+    }
+
+    res.json({ ok: true, paid: amount, ...out });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('extras/pay error:', err);
+    res.status(500).json({ error: 'Could not take that payment' });
+  } finally {
+    client.release();
+  }
+});
+
 router.post('/requests/:id/respond-to-counter', authMid, async (req, res) => {
   const { action } = req.body;
   if (!['accept', 'decline'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
@@ -237,7 +394,14 @@ router.post('/requests/:id/respond-to-counter', authMid, async (req, res) => {
     }
 
     // Accept — charge the difference between what's already held and the counter price
-    const additionalDue = request.counter_price_coins - request.coins_charged;
+    // Accepting a counter changes what is owed, not what must be paid today.
+    //
+    // The difference used to be taken there and then, which put the whole
+    // point of instalments back where it started: agree a higher price and be
+    // asked for all of it at once. The agreed price moves; the balance follows;
+    // it is paid off the same way as the rest.
+    const additionalDue = 0;
+    const newAgreed = request.counter_price_coins;
     const { rows: userRows } = await client.query(`SELECT coin_balance FROM users WHERE id = $1 FOR UPDATE`, [req.user.userId]);
     const user = userRows[0];
 
@@ -261,8 +425,14 @@ router.post('/requests/:id/respond-to-counter', authMid, async (req, res) => {
     }
 
     await client.query(
-      `UPDATE custom_requests SET status = 'confirmed', coins_charged = $1 WHERE id = $2`,
-      [request.counter_price_coins, request.id]
+      // The agreed price is what changed. coins_charged is what has actually
+      // been taken and is left alone, so the two together still say what is
+      // owed.
+      `UPDATE custom_requests
+          SET status = 'confirmed', agreed_price_coins = $1,
+              paid_in_full_at = CASE WHEN COALESCE(coins_charged, 0) >= $1 THEN COALESCE(paid_in_full_at, NOW()) ELSE NULL END
+        WHERE id = $2`,
+      [newAgreed, request.id]
     );
 
     await client.query('COMMIT');

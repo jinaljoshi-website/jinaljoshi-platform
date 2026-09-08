@@ -186,10 +186,10 @@ export default function Extras() {
           )}
 
           <div style={fieldLabel}>Topic</div>
-          <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. My mom's 50th birthday" style={urlInput} />
+          <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="" style={urlInput} />
 
           <div style={fieldLabel}>Description</div>
-          <textarea value={details} onChange={(e) => setDetails(e.target.value)} placeholder="Names, dates, occasion, any special message." style={detailsInput} rows={4} />
+          <textarea value={details} onChange={(e) => setDetails(e.target.value)} placeholder="" style={detailsInput} rows={4} />
 
           <div style={fieldLabel}>Reference image (optional)</div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16 }}>
@@ -199,7 +199,7 @@ export default function Extras() {
           </div>
 
           <div style={fieldLabel}>Reference link (optional)</div>
-          <input value={referenceUrl} onChange={(e) => setReferenceUrl(e.target.value)} placeholder="A link to a look, style, or example you have in mind" style={{ ...urlInput, marginBottom: 16 }} />
+          <input value={referenceUrl} onChange={(e) => setReferenceUrl(e.target.value)} placeholder="" style={{ ...urlInput, marginBottom: 16 }} />
 
           <div style={fieldLabel}>Expected delivery date (optional)</div>
           <input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} style={{ ...urlInput, marginBottom: 16 }} />
