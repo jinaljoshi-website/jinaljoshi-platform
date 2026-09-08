@@ -1741,11 +1741,15 @@ export function Content({ openWith, collection = false, upload = false }) {
                           : 'Ready'}
                         {/* Said before the set is opened, which is when knowing
                             is worth anything. */}
-                        {set.worthALook > 0 && (
+                        {set.worthALook > 0 ? (
                           <span style={{ color: '#E0B76A' }}>
                             {' · '}{set.worthALook} worth a look
                           </span>
-                        )}
+                        ) : set.checkedCount > 0 ? (
+                          <span style={{ opacity: 0.6 }}>
+                            {' · '}{set.checkedCount} checked, nothing flagged
+                          </span>
+                        ) : null}
                       </div>
                     )}
                   </div>
@@ -2828,13 +2832,37 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                       //
                       // Worded as an opinion for that reason. "Explicit 92%"
                       // reads as a finding; "worth a look" reads as what it is. */}
-                  {item.moderation?.score >= 60 && (
-                    <div title={(item.moderation.labels || [])
-                                  .map((l) => `${l.name} ${l.confidence}%`).join('\n')}
-                         style={{ ...flagChip, color: '#E0B76A', borderColor: 'rgba(224,183,106,0.5)',
-                                  cursor: 'help' }}>
-                      worth a look · {item.moderation.score}%
-                    </div>
+                  {/* What the check made of it, whichever way it went.
+                      //
+                      // The badge only appeared when something scored as
+                      // explicit, which on this library is almost never — so a
+                      // scan that ran correctly looked exactly like one that had
+                      // not run at all.
+                      //
+                      // Now a checked photograph always says so: amber and named
+                      // when there is something to look at, quiet and grey when
+                      // there is not. */}
+                  {item.moderation && (
+                    item.moderation.score >= 60 ? (
+                      <div title={(item.moderation.labels || [])
+                                    .map((l) => `${l.name} ${l.confidence}%`).join('\n')}
+                           style={{ ...flagChip, color: '#E0B76A', borderColor: 'rgba(224,183,106,0.5)',
+                                    cursor: 'help' }}>
+                        worth a look · {item.moderation.score}%
+                      </div>
+                    ) : (
+                      <div title={(item.moderation.labels || []).length
+                                    ? (item.moderation.labels || []).map((l) => `${l.name} ${l.confidence}%`).join('\n')
+                                    : 'Nothing detected'}
+                           style={{ ...flagChip, color: colors.muted, borderColor: colors.border,
+                                    cursor: 'help', opacity: 0.7 }}>
+                        {(item.moderation.labels || []).length
+                          ? `checked · ${item.moderation.labels[0].name.length > 22
+                              ? item.moderation.labels[0].name.slice(0, 22) + '…'
+                              : item.moderation.labels[0].name}`
+                          : 'checked · nothing'}
+                      </div>
+                    )
                   )}
                   {/* Something to show for a good photograph.
                       //

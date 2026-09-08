@@ -1665,6 +1665,11 @@ router.get('/content/queue', async (req, res) => {
               -- which is when it is useful.
               (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
                 AND (i.moderation->>'score')::int >= 60)                                          AS worth_a_look,
+              -- How many have been looked at at all, so a set that was checked
+              -- and came back clean can say so. Without this a clean result and
+              -- a scan that never ran are the same silence.
+              (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
+                AND i.moderation IS NOT NULL)                                                     AS checked_count,
               (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
                 AND i.tier_category = 'purchase_only')                                            AS purchase,
               (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
@@ -1711,6 +1716,7 @@ router.get('/content/queue', async (req, res) => {
         photographer: r.photographer,
         visible: false,
         worthALook: r.worth_a_look || 0,
+        checkedCount: r.checked_count || 0,
         priceCoins: r.price_coins, createdAt: r.created_at,
         // Both names. The library returns cover_key and the row reads that or
         // cover_url; returning only a camelCase coverUrl meant every set in the
