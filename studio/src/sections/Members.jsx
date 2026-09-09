@@ -78,6 +78,96 @@ function relativeTime(ts) {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
+function Delivered({ fanId }) {
+  const [d, setD] = useState(null);
+  useEffect(() => {
+    api.get(`/api/studio/fans/${fanId}/delivered`).then(setD).catch(() => setD({}));
+  }, [fanId]);
+
+  if (!d) return <T.muted>Loading…</T.muted>;
+
+  const nothing = !(d.bought?.length || d.previews?.length || d.opened?.length);
+  if (nothing) return <T.muted>Nothing has been delivered to this member yet.</T.muted>;
+
+  return (
+    <div style={{ display: 'grid', gap: 18 }}>
+      {d.previews?.length > 0 && (
+        <div>
+          <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.1em',
+                        textTransform: 'uppercase', color: colors.accent, marginBottom: 8 }}>
+            Previews — the exact photographs
+          </div>
+          {d.previews.map((p) => (
+            <div key={p.setId} style={{ marginBottom: 14 }}>
+              <div style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+                {p.title}
+                <span style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginLeft: 8 }}>
+                  {p.photos.length} of {p.ofItems} · {p.coins} tokens ·{' '}
+                  {new Date(p.at).toLocaleDateString('en-IN')}
+                  {p.boughtSince && ' · bought the set since'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                {p.photos.map((ph) => (
+                  ph.mediaType === 'video'
+                    ? <video key={ph.id} src={ph.url} style={thumb64} muted />
+                    : <img key={ph.id} src={ph.url} alt="" style={thumb64} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {d.bought?.length > 0 && (
+        <div>
+          <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.1em',
+                        textTransform: 'uppercase', color: colors.muted, marginBottom: 8 }}>
+            Bought outright
+          </div>
+          <div style={{ display: 'grid', gap: 4 }}>
+            {d.bought.map((b) => (
+              <div key={b.setId + b.at} style={{ fontFamily: sans, fontSize: 12, color: colors.text }}>
+                {b.title}
+                <span style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginLeft: 8 }}>
+                  {b.items} photographs · {b.coins || 0} tokens ·{' '}
+                  {new Date(b.at).toLocaleDateString('en-IN')}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {d.opened?.length > 0 && (
+        <div>
+          <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.1em',
+                        textTransform: 'uppercase', color: colors.muted, marginBottom: 8 }}>
+            Actually opened
+          </div>
+          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 8, lineHeight: 1.5 }}>
+            Photographs they have looked at, which is not the same as what they
+            were given access to.
+          </div>
+          <div style={{ display: 'grid', gap: 3 }}>
+            {d.opened.map((o) => (
+              <div key={o.setId} style={{ fontFamily: sans, fontSize: 12, color: colors.text }}>
+                {o.title}
+                <span style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginLeft: 8 }}>
+                  {o.seen} seen
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const thumb64 = { width: 64, height: 64, objectFit: 'cover', borderRadius: 6,
+                  border: `1px solid ${colors.border}` };
+
 function ConsentLine({ label, value, tone }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
@@ -404,7 +494,7 @@ export function Members() {
               {historyFor === fan.id && (
                 <div style={historyBox}>
                   <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-                    {[{ k: 'summary', l: 'Summary' }, { k: 'history', l: 'Everything they did' }].map((t) => (
+                    {[{ k: 'summary', l: 'Summary' }, { k: 'history', l: 'Everything they did' }, { k: 'delivered', l: 'What they have' }].map((t) => (
                       <button key={t.k} onClick={() => setHistTab(t.k)}
                         style={{
                           fontFamily: sans, fontSize: 11, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
@@ -479,6 +569,17 @@ export function Members() {
                         )}
                       </div>
                     </div>
+                  )}
+
+                  {/* Exactly what has reached this person.
+                      //
+                      // All of it was recorded and none of it was visible: what
+                      // they bought, what they paid to preview, and which
+                      // individual photographs those were. The preview list is
+                      // the one that matters — somebody who paid to see two saw
+                      // those two, and this is the only record of which. */}
+                  {histTab === 'delivered' && (
+                    <Delivered fanId={fan.id} />
                   )}
 
                   {histTab === 'history' && (!history ? <T.muted>Loading…</T.muted>

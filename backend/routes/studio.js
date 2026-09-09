@@ -19,6 +19,10 @@ const { getDmConfigForTier, getConfigNumber } = require('../lib/config');
 const { render: renderTemplate, inspect: inspectTemplate, FIELDS: BROADCAST_FIELDS } = require('../lib/broadcast');
 const { getLocalDateStr, getAllotmentPeriodKey } = require('../lib/time');
 
+// Defined here rather than halfway down the file: a const arrow is not hoisted,
+// so a route above it would throw the moment it was called.
+const toPublicUrl = (k) => (!k ? null : String(k).startsWith('http') ? k : `${process.env.R2_PUBLIC_URL}/${k}`);
+
 router.use(authMid, artistOnly);
 
 // ─────────────────────────────────────────────
@@ -512,6 +516,91 @@ router.get('/fans', async (req, res) => {
 // it some other way. The address is approved; they still register themselves,
 // so they still agree to the terms in the ordinary way and that record stays
 // true. Signup finds the invitation and applies it.
+
+// ─────────────────────────────────────────────
+// GET /api/studio/fans/:id/delivered
+// ─────────────────────────────────────────────
+//
+// Exactly which photographs have reached one person.
+//
+// All of it was recorded and none of it was visible: what they bought, what
+// they paid to preview, and which individual photographs they have actually
+// opened. Three different questions that had the same answer of "somewhere in
+// the database".
+//
+// The preview list matters most. A member who paid to see two photographs saw
+// those two and not any others, and when they ask which — or when something
+// turns up somewhere it should not — this is the only record of it.
+router.get('/fans/:id/delivered', async (req, res) => {
+  try {
+    const [bought, previews, seen] = await Promise.all([
+      // Sets bought outright.
+      pool.query(
+        `SELECT s.id, s.title, s.is_collection, g.coins_paid, g.granted_at,
+                (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id) AS items
+           FROM access_grants g JOIN sets s ON s.id = g.set_id
+          WHERE g.user_id = $1
+          ORDER BY g.granted_at DESC`,
+        [req.params.id]
+      ),
+      // Previews, with the actual photographs.
+      pool.query(
+        `SELECT p.set_id, s.title, p.level, p.coins_paid, p.created_at, p.item_ids,
+                (SELECT count(*)::int FROM set_items i WHERE i.set_id = p.set_id) AS items,
+                EXISTS (SELECT 1 FROM access_grants g
+                         WHERE g.user_id = p.user_id AND g.set_id = p.set_id) AS bought_since
+           FROM collection_previews p JOIN sets s ON s.id = p.set_id
+          WHERE p.user_id = $1
+          ORDER BY p.created_at DESC`,
+        [req.params.id]
+      ).catch(() => ({ rows: [] })),
+      // How many photographs of each set they have actually opened, which is a
+      // different thing from what they were given access to.
+      pool.query(
+        `SELECT i.set_id, s.title, count(*)::int AS seen
+           FROM item_views v JOIN set_items i ON i.id = v.item_id
+           JOIN sets s ON s.id = i.set_id
+          WHERE v.user_id = $1
+          GROUP BY i.set_id, s.title
+          ORDER BY seen DESC LIMIT 40`,
+        [req.params.id]
+      ).catch(() => ({ rows: [] })),
+    ]);
+
+    // The previewed photographs themselves, so they can be looked at rather
+    // than listed as identifiers.
+    const allIds = previews.rows.flatMap((p) => p.item_ids || []);
+    let byId = {};
+    if (allIds.length) {
+      const { rows } = await pool.query(
+        `SELECT id, set_id, r2_key, media_type FROM set_items WHERE id = ANY($1)`,
+        [allIds]
+      );
+      byId = Object.fromEntries(rows.map((r) => [r.id, r]));
+    }
+
+    res.json({
+      bought: bought.rows.map((b) => ({
+        setId: b.id, title: b.title, isCollection: b.is_collection,
+        coins: b.coins_paid, at: b.granted_at, items: b.items,
+      })),
+      previews: previews.rows.map((p) => ({
+        setId: p.set_id, title: p.title, level: p.level,
+        coins: p.coins_paid, at: p.created_at,
+        ofItems: p.items,
+        boughtSince: p.bought_since,
+        photos: (p.item_ids || []).map((id) => byId[id]).filter(Boolean).map((i) => ({
+          id: i.id, mediaType: i.media_type, url: toPublicUrl(i.r2_key),
+        })),
+      })),
+      opened: seen.rows.map((r) => ({ setId: r.set_id, title: r.title, seen: r.seen })),
+    });
+  } catch (err) {
+    console.error('studio/delivered error:', err);
+    res.status(500).json({ error: 'Could not work out what has been delivered' });
+  }
+});
+
 router.get('/invitations', async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -987,7 +1076,6 @@ router.post('/dms/:fanId/send-locked-media', async (req, res) => {
 // forever with no way to notice from the list.
 // A stored key to the URL a browser can fetch. Was defined inside one route
 // and nowhere else, so anything needing it had to redeclare it.
-const toPublicUrl = (k) => (!k ? null : String(k).startsWith('http') ? k : `${process.env.R2_PUBLIC_URL}/${k}`);
 
 const COVER_FALLBACK = `COALESCE(s.cover_key,
   (SELECT r2_key FROM set_items WHERE set_id = s.id
