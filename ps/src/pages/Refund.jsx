@@ -71,6 +71,29 @@ export default function Refund() {
           <p><strong style={{ color: C.text }}>Cash refunds are not available under any circumstances,</strong> including technical issues. Token credits are the only form of remedy available for digital purchases.</p>
         </Section>
 
+        {/* Back, because the one-of-ones are back.
+            //
+            // These sections were removed when all physical goods came off the
+            // platform. The outfits have returned and a policy that says
+            // everything here is digital is now untrue — which matters more on a
+            // refund page than on most.
+            //
+            // Printed merchandise is still gone, so nothing here mentions it. */}
+        <Section title="One-of-one outfits">
+          <p>An outfit sold here was worn by Jinal on a shoot published on this platform. There is one of each, and once it is sold it is gone.</p>
+          <p>Because each piece is unique and personal, an outfit cannot be returned or exchanged once dispatched, except where it arrives damaged or is not the item ordered.</p>
+        </Section>
+
+        <Section title="Damage or the wrong item — unboxing video required">
+          <p>If an outfit arrives damaged, or is not what was ordered, tell us within <strong style={{ color: C.text }}>48 hours</strong> of delivery with a continuous unboxing video showing the sealed parcel being opened.</p>
+          <p>The video is the only way to tell damage in transit from damage afterwards, on an item there is only one of. Without it we cannot assess a claim.</p>
+          <p>Approved claims are settled in J Tokens credited to your account.</p>
+        </Section>
+
+        <Section title="Cancelling an outfit order">
+          <p>An outfit order can be cancelled before it is dispatched. Once it has been handed to the courier it cannot be cancelled, and the sections above apply.</p>
+        </Section>
+
         <Section title="Processing time">
           <p>Approved token credits are applied to your account balance within <strong style={{ color: C.text }}>7 business days</strong> of approval.</p>
         </Section>

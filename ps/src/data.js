@@ -6,21 +6,26 @@ export const PLATFORM_NAME      = 'Personal Space';
 export const PLATFORM_NAME_FULL = "Jinal Joshi's Personal Space";
 export const ARTIST_NAME        = 'Jinal Joshi';
 
-// Physical goods do not live here.
+// Two kinds of physical thing, and they are not the same business.
 //
-// An RBI merchant category covers one kind of business, and digital content and
-// physical retail are two. Carrying both on one account is what a payment
-// provider will eventually ask about, and the account worth protecting is the
-// one the platform runs on.
+// An RBI merchant category covers one kind of trade, and digital content and
+// physical retail are two — which is why both were switched off when a payment
+// provider raised it.
 //
-// So the outfits and the merchandise move to their own subdomain, with their
-// own merchant account, priced in rupees rather than tokens: a courier is not
-// an instant delivery, and a token exists because everything else here is.
+// But a one-of-one outfit is not retail. There is a single one of each, it was
+// worn on a shoot that is already on the platform, and it is bought by somebody
+// who saw it there. It is closer to a signed print than to a shop, and it
+// belongs beside the custom requests rather than in a catalogue.
 //
-// Nothing is deleted. The pages, the routes and the backend all remain, switched
-// off behind this one flag, so turning them back on is a single line rather than
-// a rebuild.
-export const PHYSICAL_GOODS = false;
+// Printed merchandise is the other thing: made to order, unlimited, and never
+// touched by her. That is a shop, and it is going to its own subdomain with its
+// own merchant account.
+export const OUTFITS = true;
+export const MERCH   = false;
+
+// Kept so the pages and routes that ask about physical goods in general still
+// have an answer. True when either kind is on.
+export const PHYSICAL_GOODS = OUTFITS || MERCH;
 // ─────────────────────────────────────────────
 // LIVE PRICING — hydrated from /api/public/config before the app renders.
 // Nothing below defines a price. If config is unavailable we render nothing

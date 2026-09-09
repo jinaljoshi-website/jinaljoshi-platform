@@ -48,7 +48,7 @@ export default function Terms() {
 
         <Section title="What is Personal Space?">
           <p>Personal Space (ps.jinaljoshi.in) is an independent digital platform run and managed personally by Jinal Joshi, operating as a sole proprietorship registered under GSTIN {gstin}, with its registered office at {address} (referred to in these Terms as "Platform Owner," "we," "us," or "our"). It is not a multi-artist platform or a fan aggregator. This is Jinal's own space, built for people who want to experience her journey more closely.</p>
-          <p>The platform offers exclusive content, direct messaging, calls, community interaction, personalised video requests, behind-the-scenes access, and early access to upcoming work. Everything on Personal Space is delivered digitally, and is accessed using J Tokens, the platform's internal currency.</p>
+          <p>The platform offers exclusive content, direct messaging, calls, community interaction, personalised video requests, behind-the-scenes access, and early access to upcoming work. Almost everything on Personal Space is delivered digitally, and is accessed using J Tokens, the platform's internal currency.</p>
           <p>This platform is independently operated. It is not affiliated with any talent agency, management company, or third-party creator network.</p>
           <p>By accessing, browsing, or otherwise using the Platform, you agree to be bound by these Terms of Use in their entirety. If you do not agree, please do not access or use the Platform.</p>
         </Section>
@@ -94,6 +94,13 @@ export default function Terms() {
           <p>Tokens cannot be refunded once purchased. Memberships cannot be cancelled for a refund once activated.</p>
           <p><strong style={{ color: C.text }}>Technical issues:</strong> If a purchase fails due to a verifiable technical error on the platform's side, you may write to <a href="mailto:billing@jinaljoshi.in" style={link}>billing@jinaljoshi.in</a>. Token credits may be issued at the platform's discretion. Cash refunds are not available under any circumstances.</p>
           <p>By making any purchase, you confirm that the transaction is voluntary and made of your own free will for your own benefit. You agree to pay all charges associated with your use of the Platform's services.</p>
+        </Section>
+
+        {/* The one-of-ones are back, so the terms say so again. Printed
+            merchandise is not, so nothing here mentions it. */}
+        <Section title="One-of-one outfits">
+          <p>Outfits offered on Personal Space are pieces Jinal wore on shoots published here. There is a single one of each item.</p>
+          <p>Outfits are shipped to the address given at purchase; delivery is covered by our <a href="/shipping" style={link}>Shipping Policy</a>. Because each piece is unique, returns and exchanges are not offered except for damage in transit or an incorrect item, as set out in the <a href="/refund" style={link}>Refund &amp; Cancellation Policy</a>.</p>
         </Section>
 
         <Section title="Content and intellectual property">

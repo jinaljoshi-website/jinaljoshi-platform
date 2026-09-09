@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { C, F } from '../tokens';
-import { bestMemberPrice, bestDiscountPct, guestMultiplier, PHYSICAL_GOODS } from '../data';
+import { bestMemberPrice, bestDiscountPct, guestMultiplier, OUTFITS, MERCH } from '../data';
 import GuestNudge from '../components/GuestNudge';
 import { WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
@@ -35,9 +35,14 @@ export default function Shop() {
   const merchFocusRef = useRef(null);
 
   const [tab, setTab] = useState(() => {
-    if (itemId) return onOutfitPath ? 'outfits' : 'merch';
+    // Requests by default, because that is the page. Outfits are beside them,
+    // not in front of them.
+    if (itemId) return onOutfitPath ? 'outfits' : 'requests';
     const t = new URLSearchParams(window.location.search).get('tab');
-    return ['merch', 'outfits', 'requests'].includes(t) ? t : 'outfits';
+    // A link to a tab that is switched off lands on the page rather than on
+    // nothing — old messages and emails still point at ?tab=merch.
+    const open = ['requests', ...(OUTFITS ? ['outfits'] : []), ...(MERCH ? ['merch'] : [])];
+    return open.includes(t) ? t : 'requests';
   });
 
   const load = () => api.get('/api/shop/items')
@@ -73,10 +78,10 @@ export default function Shop() {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <div style={eyebrow}>{PHYSICAL_GOODS ? 'Shop' : 'Made for you'}</div>
-        <h1 style={title}>{PHYSICAL_GOODS ? 'Official shop' : 'Custom requests'}</h1>
+        <div style={eyebrow}>Made for you</div>
+        <h1 style={title}>{OUTFITS ? 'Requests & one-of-ones' : 'Custom requests'}</h1>
         <p style={text}>
-          {PHYSICAL_GOODS ? (
+          {OUTFITS ? (
             <>
               One-of-one pieces from set, limited merchandise drops, and things made just for you.
               All purchases in J Tokens.
@@ -95,11 +100,16 @@ export default function Shop() {
           pieces sold through the wardrobe. Keeping them apart stops the shop grid
           implying an outfit can be restocked. */}
       {/* One tab is not a choice, so it is not shown as one. */}
-      <div style={{ display: PHYSICAL_GOODS ? 'flex' : 'none', gap: 8, marginBottom: 20 }}>
+      {/* Requests first, because that is what this page is for.
+          //
+          // The outfits sit beside them rather than in front: a one-of-one is
+          // something she wore on a shoot the member has already seen, which is
+          // closer to a commission than to a catalogue. */}
+      <div style={{ display: OUTFITS ? 'flex' : 'none', gap: 8, marginBottom: 20 }}>
         {[
-          { key: 'outfits',  label: 'Outfits' },
-          { key: 'merch',    label: 'Merchandise' },
           { key: 'requests', label: 'Custom Requests' },
+          { key: 'outfits',  label: 'One-of-One Outfits' },
+          ...(MERCH ? [{ key: 'merch', label: 'Merchandise' }] : []),
         ].map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)}
             style={{
@@ -113,10 +123,10 @@ export default function Shop() {
         ))}
       </div>
 
-      {PHYSICAL_GOODS && tab === 'outfits'  && <Outfits focusId={onOutfitPath ? itemId : null} />}
-      {(!PHYSICAL_GOODS || tab === 'requests') && <Extras />}
+      {OUTFITS && tab === 'outfits'  && <Outfits focusId={onOutfitPath ? itemId : null} />}
+      {(!OUTFITS || tab === 'requests') && <Extras />}
 
-      {PHYSICAL_GOODS && tab === 'merch' && <MerchDrop>
+      {MERCH && tab === 'merch' && <MerchDrop>
       {/* A top-up only helps when the problem is actually a shortage of tokens.
           Offering it beside "you were signed in on another device" is noise at
           best and misleading at worst. */}
