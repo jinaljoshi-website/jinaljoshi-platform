@@ -3376,11 +3376,18 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                    }}
                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
                             flex: 1, minWidth: 0, minHeight: 0 }}>
+                {/* Narrow enough to leave the columns their room.
+                    //
+                    // At 92vw the picture plus two columns was wider than the
+                    // screen, so the centred row overflowed and the left column
+                    // — one to four — fell off the edge entirely. */}
                 {current.media_type === 'video' || current.type === 'video'
-                  ? <video key={current.id} src={mediaUrl(current.r2_key)} controls style={lightboxMedia} />
+                  ? <video key={current.id} src={mediaUrl(current.r2_key)} controls
+                           style={{ ...lightboxMedia, ...(narrow ? { maxWidth: 'calc(100vw - 116px)' } : {}) }} />
                   : <img key={current.id} src={mediaUrl(current.r2_key)} alt=""
                          onLoad={(e) => { e.target.style.opacity = 1; }}
-                         style={{ ...lightboxMedia, opacity: 0, transition: 'opacity 0.15s' }} />}
+                         style={{ ...lightboxMedia, opacity: 0, transition: 'opacity 0.15s',
+                                  ...(narrow ? { maxWidth: 'calc(100vw - 116px)' } : {}) }} />}
               </div>
 
               <button onClick={() => go(1)} disabled={at >= walk.length - 1}
@@ -3412,7 +3419,12 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
               )}
             </div>
 
-            <div style={lbActions}>
+            {/* The desk controls, on a desk.
+                //
+                // A dropdown and a Remove button underneath the picture do the
+                // same job as the columns beside it, and on a phone they cost
+                // the photograph the bottom third of the screen. */}
+            <div style={{ ...lbActions, display: narrow ? 'none' : lbActions.display }}>
               {!collection && (
               <label style={{ fontFamily: sans, fontSize: 12, color: '#B8AFA4', display: 'flex', alignItems: 'center', gap: 8 }}>
                 Access level
@@ -3431,10 +3443,15 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
               </button>
             </div>
 
-            <div style={{ fontFamily: sans, fontSize: 11, color: '#7C736A' }}>
-              {collection
-                ? '1 keep · 0 remove · Arrows to move · Esc to close'
-                : '1 Free · 2 Community · 3 Insider · 4 Premium · 5 Supreme · 6 Purchase · 7 Exclusive · 0 remove · Arrows · Esc'}
+            <div style={{ fontFamily: sans, fontSize: 11, color: '#7C736A', textAlign: 'center',
+                          padding: narrow ? '0 12px' : 0 }}>
+              {narrow
+                ? (collection
+                    ? '✓ keep · ✕ remove · swipe to move on'
+                    : '1 Free · 2 Community · 3 Insider · 4 Premium · 5 Supreme · 6 Purchase · 7 Exclusive · 0 remove')
+                : collection
+                  ? '1 keep · 0 remove · Arrows to move · Esc to close'
+                  : '1 Free · 2 Community · 3 Insider · 4 Premium · 5 Supreme · 6 Purchase · 7 Exclusive · 0 remove · Arrows · Esc'}
             </div>
           </div>
         )}
@@ -3476,7 +3493,14 @@ const lightboxOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0
 const lbBar        = { width: '100%', maxWidth: 900, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' };
 const lbClose      = { background: 'transparent', border: '1px solid rgba(255,255,255,0.18)', color: '#E8E1D8', fontSize: 14, padding: '5px 11px', borderRadius: 8, cursor: 'pointer' };
 // A column of tiers down one side, sized for a thumb.
-const sideCol      = { display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0, justifyContent: 'center' };
+// Spread down the side, not bunched.
+//
+// Four buttons within a thumb's width of each other is four chances to tag the
+// wrong tier, and a mis-tag is silent — the photograph simply ends up somewhere
+// nobody meant. Spaced out and spread over the height of the picture, so
+// reaching for 2 cannot land on 3.
+const sideCol      = { display: 'flex', flexDirection: 'column', gap: 22, flexShrink: 0,
+                       justifyContent: 'center', padding: '0 2px' };
 // Numbers, not names.
 //
 // Seven word-buttons left the photograph a strip down the middle, which defeats
