@@ -32,6 +32,7 @@ function isCurrentlyBlocked(blockedUntil) {
 // paid set with no buyers ends up looking popular.
 const HISTORY_KINDS = {
   unlock:     { label: 'Unlocked',              colour: '#8FC88F' },
+  preview:    { label: 'Paid for a preview',     colour: '#D9A45C' },
   viewed:     { label: 'Looked, did not unlock', colour: null     },
   recharge:   { label: 'Bought tokens',          colour: '#8FC88F' },
   membership: { label: 'Membership',             colour: '#C17D4A' },
@@ -594,6 +595,19 @@ export function Members() {
                               <div style={{ fontFamily: sans, fontSize: 12, color: colors.text }}>
                                 <span style={{ color: k.colour || colors.muted }}>{k.label}</span>
                                 {h.detail && <span style={{ color: colors.muted }}> · {h.detail}</span>}
+                                {/* Which photographs, for a preview.
+                                    //
+                                    // A row saying somebody paid for a preview
+                                    // does not answer the question anybody
+                                    // actually has, which is which two they
+                                    // saw. This opens that tab rather than
+                                    // repeating the thumbnails on every row. */}
+                                {h.kind === 'preview' && (
+                                  <span onClick={() => setHistTab('delivered')}
+                                        style={{ color: colors.accent, cursor: 'pointer', marginLeft: 6 }}>
+                                    · see which
+                                  </span>
+                                )}
                               </div>
                               <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, marginTop: 2 }}>
                                 {new Date(h.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}

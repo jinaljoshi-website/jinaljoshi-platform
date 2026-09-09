@@ -323,6 +323,15 @@ router.get('/fans/:id/history', async (req, res) => {
          WHERE g.user_id = $1
 
          UNION ALL
+         -- Paid to see one or two, which is not a grant and so appeared nowhere
+         -- in this history at all — a payment with no trace on the one screen
+         -- that is meant to account for them.
+         SELECT p.created_at, 'preview', s.title, p.coins_paid,
+                p.level::text, NULL, NULL
+         FROM collection_previews p JOIN sets s ON s.id = p.set_id
+         WHERE p.user_id = $1
+
+         UNION ALL
          -- Looked but did not unlock. Only where no grant exists, so a set they
          -- later paid for shows once, as the purchase.
          SELECT v.first_seen, 'viewed', s.title, 0, NULL, NULL, NULL
