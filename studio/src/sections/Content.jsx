@@ -2801,6 +2801,19 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
   // ladder — it is leaving this set entirely when the sort is finished, for one
   // of its own. Sitting on the same row of keys because they are decided in the
   // same pass, at the same speed, looking at the same photograph.
+  // Whether there is room for a keyboard.
+  //
+  // Followed rather than read once, because a phone turned sideways is a
+  // different screen and the layout should notice.
+  const touchX = useRef(null);
+  const [narrow, setNarrow] = useState(
+    typeof window !== 'undefined' ? window.innerWidth < 900 : false);
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth < 900);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   const TIER_KEYS = {
     1: 'free', 2: 'community', 3: 'insider', 4: 'premium', 5: 'supreme',
     6: 'purchase_only', 7: 'collection',
@@ -3290,22 +3303,113 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                 );
               })()}
 
+              {/* What the numbers mean, once, on the bar.
+                  //
+                  // The buttons carry digits so the photograph keeps the room,
+                  // and this is here for the first few sets. It says the current
+                  // tier in words, which is the one thing a digit cannot. */}
+              {narrow && !collection && current.tier_category && (
+                <span style={{ fontFamily: mono, fontSize: 11, color: colors.accent }}>
+                  {KEY_LABELS[current.tier_category] || current.tier_category}
+                </span>
+              )}
+
               <span style={{ flex: 1 }} />
               <button onClick={() => setLightbox(null)} style={lbClose}>✕</button>
             </div>
 
-            <div style={lbStage}>
-              <button onClick={() => go(-1)} disabled={at === 0}
-                      style={{ ...lbArrow, left: 8, opacity: at === 0 ? 0.25 : 1 }} aria-label="Previous">‹</button>
+            <div style={{ ...lbStage, gap: narrow ? 6 : 0 }}>
+              {/* Sorting a set with a thumb.
+                  //
+                  // On a desk this is done with the number keys and the arrows,
+                  // and a phone has neither — so it was a grid and a dropdown,
+                  // which is a slow way to look at two hundred photographs.
+                  //
+                  // The tiers become a column down each side with the picture
+                  // between them: whichever hand is holding it can reach four of
+                  // them without moving. Same keys, same order, so the habit
+                  // carries between the two. */}
+              {narrow && collection && (
+                <div style={sideCol}>
+                  <button onClick={keepHere} title="Keep"
+                          style={{ ...sideBtn, ...(current.reviewed_at && current.review_flag !== 'remove'
+                            ? { background: colors.accent, color: '#1A1714', borderColor: colors.accent } : {}) }}>
+                    ✓
+                  </button>
+                  <button onClick={markRemove} title="Remove"
+                          style={{ ...sideBtn, color: '#D99A9A', borderColor: 'rgba(156,90,90,0.4)',
+                                   ...(current.review_flag === 'remove' ? { background: '#D99A9A', color: '#1A1714' } : {}) }}>
+                    ✕
+                  </button>
+                </div>
+              )}
 
-              {current.media_type === 'video' || current.type === 'video'
-                ? <video key={current.id} src={mediaUrl(current.r2_key)} controls style={lightboxMedia} />
-                : <img key={current.id} src={mediaUrl(current.r2_key)} alt=""
-                       onLoad={(e) => { e.target.style.opacity = 1; }}
-                       style={{ ...lightboxMedia, opacity: 0, transition: 'opacity 0.15s' }} />}
+              {narrow && !collection && (
+                <div style={sideCol}>
+                  {[1, 2, 3, 4].map((n) => (
+                    <button key={n} onClick={() => sortHere(TIER_KEYS[n])}
+                            title={KEY_LABELS[TIER_KEYS[n]]}
+                            style={{ ...sideBtn,
+                                     ...(current.tier_category === TIER_KEYS[n]
+                                         ? { background: colors.accent, color: '#1A1714', borderColor: colors.accent }
+                                         : {}) }}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <button onClick={() => go(-1)} disabled={at === 0}
+                      style={{ ...lbArrow, left: 8, opacity: at === 0 ? 0.25 : 1,
+                               display: narrow ? 'none' : undefined }} aria-label="Previous">‹</button>
+
+              {/* Swipe to move on, since the arrows are gone on a phone and a
+                  thumb reaching across the picture to a chevron is the thing
+                  this layout exists to avoid. */}
+              <div onTouchStart={(e) => { touchX.current = e.touches[0].clientX; }}
+                   onTouchEnd={(e) => {
+                     if (touchX.current === null) return;
+                     const dx = e.changedTouches[0].clientX - touchX.current;
+                     touchX.current = null;
+                     if (Math.abs(dx) < 45) return;   // a tap, or a hand resettling
+                     go(dx < 0 ? 1 : -1);
+                   }}
+                   style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            flex: 1, minWidth: 0, minHeight: 0 }}>
+                {current.media_type === 'video' || current.type === 'video'
+                  ? <video key={current.id} src={mediaUrl(current.r2_key)} controls style={lightboxMedia} />
+                  : <img key={current.id} src={mediaUrl(current.r2_key)} alt=""
+                         onLoad={(e) => { e.target.style.opacity = 1; }}
+                         style={{ ...lightboxMedia, opacity: 0, transition: 'opacity 0.15s' }} />}
+              </div>
 
               <button onClick={() => go(1)} disabled={at >= walk.length - 1}
-                      style={{ ...lbArrow, right: 8, opacity: at >= walk.length - 1 ? 0.25 : 1 }} aria-label="Next">›</button>
+                      style={{ ...lbArrow, right: 8, opacity: at >= walk.length - 1 ? 0.25 : 1,
+                               display: narrow ? 'none' : undefined }} aria-label="Next">›</button>
+
+              {narrow && !collection && (
+                <div style={sideCol}>
+                  {[5, 6, 7].map((n) => (
+                    <button key={n} onClick={() => sortHere(TIER_KEYS[n])}
+                            title={KEY_LABELS[TIER_KEYS[n]]}
+                            style={{ ...sideBtn,
+                                     ...(current.tier_category === TIER_KEYS[n]
+                                         ? { background: colors.accent, color: '#1A1714', borderColor: colors.accent }
+                                         : {}) }}>
+                      {n}
+                    </button>
+                  ))}
+                  {/* Bottom right, apart from the tiers, because it is not one
+                      of them — it takes the photograph out rather than filing
+                      it. */}
+                  <button onClick={markRemove} title="Remove"
+                          style={{ ...sideBtn, color: '#D99A9A', borderColor: 'rgba(156,90,90,0.4)',
+                                   ...(current.review_flag === 'remove'
+                                       ? { background: '#D99A9A', color: '#1A1714' } : {}) }}>
+                    0
+                  </button>
+                </div>
+              )}
             </div>
 
             <div style={lbActions}>
@@ -3371,6 +3475,19 @@ const lightboxOverlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0
 // push the finding into the middle and away from what it describes.
 const lbBar        = { width: '100%', maxWidth: 900, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' };
 const lbClose      = { background: 'transparent', border: '1px solid rgba(255,255,255,0.18)', color: '#E8E1D8', fontSize: 14, padding: '5px 11px', borderRadius: 8, cursor: 'pointer' };
+// A column of tiers down one side, sized for a thumb.
+const sideCol      = { display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0, justifyContent: 'center' };
+// Numbers, not names.
+//
+// Seven word-buttons left the photograph a strip down the middle, which defeats
+// the point of looking at it. The reviewer knows the order — it is the same one
+// the number keys have always used — so the number is enough, and the name is
+// on the label for anybody who wants it.
+const sideBtn      = { fontFamily: mono, fontSize: 15, width: 40, height: 40, borderRadius: 8,
+                       background: 'rgba(255,255,255,0.08)', border: `1px solid ${colors.border}`,
+                       color: '#E8E2DA', cursor: 'pointer', lineHeight: 1,
+                       display: 'flex', alignItems: 'center', justifyContent: 'center' };
+
 const lbStage      = { position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', flex: 1, minHeight: 0 };
 const lbArrow      = { position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.12)', color: '#fff', fontSize: 24, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, zIndex: 2 };
 const lbActions    = { display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' };
