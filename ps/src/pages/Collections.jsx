@@ -206,6 +206,26 @@ export default function Collections() {
         {open.photographer && <div style={credit}>Photographed by {open.photographer}</div>}
         {open.description && <p style={caption}>{open.description}</p>}
 
+        {/* The photographs paid for, above the offer to buy the rest.
+            //
+            // A preview took the tokens and showed nothing, because the page
+            // asked only whether the whole set had been bought. What was paid
+            // for should be on the screen. */}
+        {!open.unlocked && open.previewing && (
+          <div style={{ marginBottom: 22 }}>
+            <div style={{ fontFamily: T.body, fontSize: 12, color: V.quiet, marginBottom: 10 }}>
+              {open.previewCount === 1 ? 'The photograph you asked to see' : 'The photographs you asked to see'}
+            </div>
+            <div style={grid}>
+              {(open.items || []).map((it, i) => (
+                it.mediaType === 'video'
+                  ? <video key={it.id} src={it.mediaUrl} controls style={tile} />
+                  : <img key={it.id} src={it.mediaUrl} alt="" style={tile} onClick={() => setLightbox(i)} />
+              ))}
+            </div>
+          </div>
+        )}
+
         {open.unlocked ? (
           <div style={grid}>
             {open.items.map((it, i) => (

@@ -161,18 +161,36 @@ router.get('/sets/:id', async (req, res) => {
     if (!rows.length) return res.status(404).json({ error: 'NOT_FOUND' });
     const s = rows[0];
 
+    // What this person may see: all of it, or the one or two they paid to
+    // preview.
+    //
+    // This asked only whether the set had been bought, so a preview took the
+    // tokens and returned nothing — the worst possible outcome, and entirely my
+    // omission: the payment was built and the delivery never was.
+    const { rows: prevRows } = await pool.query(
+      `SELECT item_ids FROM collection_previews WHERE user_id = $1 AND set_id = $2`,
+      [req.user.userId, req.params.id]
+    ).catch(() => ({ rows: [] }));
+    const previewIds = prevRows.length ? prevRows[0].item_ids : [];
+
     let items = [];
-    if (s.unlocked) {
+    if (s.unlocked || previewIds.length) {
       const { rows: itemRows } = await pool.query(
         `SELECT id, r2_key, media_type, position FROM set_items
-          WHERE set_id = $1 ORDER BY position ASC, created_at ASC`,
-        [req.params.id]
+          WHERE set_id = $1 ${s.unlocked ? '' : 'AND id = ANY($2)'}
+          ORDER BY position ASC, created_at ASC`,
+        s.unlocked ? [req.params.id] : [req.params.id, previewIds]
       );
-      // A collection set has no tier bands, so this shuffles the whole of it —
-      // and only ever runs once it has been bought, since an unbought set
-      // returns no items at all.
-      items = shuffleWithinBands(itemRows, req.query.seed, { coverKey: s.cover_key })
-        .map((i) => ({ id: i.id, mediaType: i.media_type, mediaUrl: toUrl(i.r2_key) }));
+
+      // A bought set is shuffled, because there are no bands in a collection
+      // and the order should not give away the sequence they were shot in.
+      //
+      // A preview is not: two photographs paid for individually should be in
+      // the order they were chosen, and shuffling two things is theatre.
+      items = (s.unlocked
+        ? shuffleWithinBands(itemRows, req.query.seed, { coverKey: s.cover_key })
+        : itemRows
+      ).map((i) => ({ id: i.id, mediaType: i.media_type, mediaUrl: toUrl(i.r2_key) }));
     }
 
     res.json({
@@ -183,6 +201,10 @@ router.get('/sets/:id', async (req, res) => {
       itemCount: s.item_count,
       price: s.price_coins,
       unlocked: s.unlocked,
+      // Said plainly, so the page shows two photographs as two photographs
+      // rather than as the whole set arriving short.
+      previewing: !s.unlocked && previewIds.length > 0,
+      previewCount: previewIds.length,
       // Where they have got to, and what the next step costs after crediting
       // what has already gone in.
       previewLevel: Number(s.preview_level || 0),
