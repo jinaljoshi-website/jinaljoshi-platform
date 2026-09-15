@@ -3863,11 +3863,14 @@ router.post('/bonus-offers', async (req, res) => {
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO bonus_offers (code, bonus_pct, label, ends_at, min_tokens, max_uses)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      `INSERT INTO bonus_offers (code, bonus_pct, label, ends_at, min_tokens, max_uses, announced)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
       [code?.trim().toUpperCase() || null, pct, label?.trim() || null,
        ends.toISOString(), parseInt(minTokens, 10) || 0,
-       maxUses ? parseInt(maxUses, 10) : null]
+       maxUses ? parseInt(maxUses, 10) : null,
+       // Announced unless said otherwise, because most offers are meant to be
+       // seen and a coupon nobody knows about helps nobody.
+       req.body.announced !== false]
     );
 
     // Told to everyone, because an offer nobody knows about is not an offer.

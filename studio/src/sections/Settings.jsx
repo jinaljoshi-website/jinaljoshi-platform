@@ -305,6 +305,8 @@ function OffersSection() {
   const [pct,     setPct]     = useState('20');
   const [hours,   setHours]   = useState(4);
   const [code,    setCode]    = useState('');
+  // Announced by default: most offers exist to be seen.
+  const [announced, setAnnounced] = useState(true);
   const [label,   setLabel]   = useState('');
   const [minTok,  setMinTok]  = useState('');
   const [saving,  setSaving]  = useState(false);
@@ -323,9 +325,16 @@ function OffersSection() {
       await api.post('/api/studio/bonus-offers', {
         bonusPct: pct, hours, code: code.trim() || undefined,
         label: label.trim() || undefined, minTokens: minTok || 0,
+        announced,
       });
-      setSuccess(code.trim() ? `Code ${code.trim().toUpperCase()} is live.` : 'Offer is live and announced.');
-      setCode(''); setLabel(''); setMinTok('');
+      setSuccess(
+        !announced
+          ? `Code ${code.trim().toUpperCase()} works, and nobody has been told. Give it out yourself.`
+          : code.trim()
+            ? `Code ${code.trim().toUpperCase()} is live and shown to everybody.`
+            : 'Offer is live and announced.'
+      );
+      setCode(''); setLabel(''); setMinTok(''); setAnnounced(true);
       load();
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
@@ -367,6 +376,27 @@ function OffersSection() {
                    onChange={(e) => setCode(e.target.value.toUpperCase())} />
           </Field>
           <Field label="What to call it" full>
+            {/* Whether to tell anybody.
+                //
+                // Every active code was shown to everybody with the code
+                // itself attached, so an offer meant for one person — an
+                // apology, an email, a single member — went platform-wide the
+                // moment it was made. A quiet one still works when typed. */}
+            {code.trim() && (
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, margin: '10px 0 14px',
+                              cursor: 'pointer' }}>
+                <input type="checkbox" checked={!announced}
+                       onChange={(e) => setAnnounced(!e.target.checked)}
+                       style={{ marginTop: 3 }} />
+                <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+                  Keep this one quiet
+                  <span style={{ display: 'block', fontSize: 11, color: colors.muted, marginTop: 2 }}>
+                    Nobody is shown the code. It still works for anyone you give it to.
+                  </span>
+                </span>
+              </label>
+            )}
+
             <input style={S.input} value={label} placeholder={`e.g. ${pct}% bonus tokens tonight`}
                    onChange={(e) => setLabel(e.target.value)} />
           </Field>

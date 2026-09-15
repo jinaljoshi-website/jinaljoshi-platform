@@ -650,6 +650,13 @@ router.get('/bonus-offer', authMid, async (req, res) => {
       const { rows } = await pool.query(
         `SELECT * FROM bonus_offers
           WHERE active = TRUE AND code IS NOT NULL
+            -- Only the ones meant to be seen.
+            --
+            -- This handed out every active code to everybody, so a coupon made
+            -- for one person — an apology, an email, a single member — was
+            -- platform-wide the moment it existed. A quiet one still works when
+            -- typed; it is simply not advertised.
+            AND announced = TRUE
             AND starts_at <= NOW() AND ends_at >= NOW()
             AND (max_uses IS NULL OR uses < max_uses)
           ORDER BY bonus_pct DESC LIMIT 1`
@@ -665,8 +672,10 @@ router.get('/bonus-offer', authMid, async (req, res) => {
         endsAt:    offer.ends_at,
         minTokens: offer.min_tokens || 0,
         hasCode:   !!offer.code,
-        // The code itself, so it can be offered rather than guessed at.
-        code:      offer.code || null,
+        // The code itself, so an announced one can be offered rather than
+        // guessed at. A quiet one is echoed back only because the person
+        // already typed it — it is never volunteered.
+        code:      offer.announced === false ? (req.query.code || null) : (offer.code || null),
       },
     });
   } catch (err) {
