@@ -108,9 +108,46 @@ async function createSessionAndRespond(user, req, res, timezone) {
 
 // ── SIGNUP ────────────────────────────────────
 
+
+// What an email address can actually look like.
+//
+// The field accepted anything at all, so a vulnerability scanner wrote
+// fifty-two accounts with its payloads in it — "#set ($a=276*422) m7t27${a}z43qn"
+// is not an address and should never have reached the database. None of them
+// worked, but each one cost a row.
+//
+// Deliberately not a complete RFC 5322 implementation. That specification
+// permits quoted strings, comments and escapes that no real address uses, and
+// the permissive reading is exactly what let the payloads through. This asks
+// for the shape every genuine address has and refuses the rest.
+//
+// The excluded characters do most of the work: $ { } [ ] ( ) < > and the double
+// quote and backtick cover template injection and script tags between them, and
+// none of them belongs in an address.
+//
+// The apostrophe is allowed, deliberately. It is legal in a local part and
+// o'brien@example.com is somebody's actual address — refusing a real person to
+// block a quote character would be the wrong trade, and injection is stopped by
+// parameterised queries rather than by this. That the scanner's payloads were
+// stored literally is the proof it works.
+const EMAIL_RE = /^[^\s@<>"`;(){}[\]\\$]+@[^\s@<>"'`;(){}[\]\\$]+\.[a-z]{2,24}$/i;
+
+function looksLikeEmail(raw) {
+  const e = String(raw || '').trim();
+  if (e.length < 6 || e.length > 254) return false;
+  if (!EMAIL_RE.test(e)) return false;
+  // No doubled dots, and none against the @ or at either end.
+  if (/\.\./.test(e) || /^\./.test(e) || /\.@/.test(e) || /@\./.test(e) || /\.$/.test(e)) return false;
+  return true;
+}
+
+
 router.post('/signup', rl.signup, async (req, res) => {
   const { email, password, dob, displayName, consentTerms, consentNoRefund, timezone } = req.body;
 
+  if (!looksLikeEmail(email)) {
+    return res.status(400).json({ error: 'That does not look like an email address.' });
+  }
   if (!email || !password || !dob) {
     return res.status(400).json({ error: 'Email, password and date of birth are required' });
   }
@@ -286,7 +323,7 @@ router.post('/verify-email', async (req, res) => {
 
 router.post('/resend-verification', rl.resendVerification, async (req, res) => {
   const { email } = req.body;
-  if (!email) return res.status(400).json({ error: 'Email is required' });
+  if (!looksLikeEmail(email)) return res.status(400).json({ error: 'That does not look like an email address.' });
 
   const normalizedEmail = email.toLowerCase().trim();
   const { rows } = await pool.query('SELECT * FROM users WHERE email = $1 AND closed_at IS NULL', [normalizedEmail]);
@@ -388,7 +425,9 @@ router.post('/verify-phone/confirm', authMid, async (req, res) => {
 
 router.post('/forgot/request', rl.forgotPassword, async (req, res) => {
   const { email } = req.body;
-  if (!email) return res.status(400).json({ error: 'Email is required' });
+  // Checked here too. This one sends an email, so a malformed address is a
+  // request to post a letter to an attack payload.
+  if (!looksLikeEmail(email)) return res.status(400).json({ error: 'That does not look like an email address.' });
 
   const normalizedEmail = email.toLowerCase().trim();
   const { rows } = await pool.query('SELECT * FROM users WHERE email = $1 AND closed_at IS NULL', [normalizedEmail]);
