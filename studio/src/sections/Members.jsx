@@ -245,8 +245,27 @@ export function Members() {
   const [tab,     setTab]     = useState('people');
   const [sortBy,  setSortBy]  = useState('joined');
 
-  const isPaying = (f) => f.membership_expires_at && new Date(f.membership_expires_at) > new Date();
-  const payingFans = fans.filter(isPaying);
+  // Three different questions, and one tab was answering the wrong one.
+  //
+  // "Paying" meant "holds a membership today", so a guest who spent forty
+  // thousand rupees on tokens did not appear on it — which is the opposite of
+  // what the word says. Money and membership are separate facts here: anything
+  // can be bought without a membership, so plenty of the best customers have
+  // never held one.
+  //
+  //   Spent      — anybody who has ever paid, whatever their tier
+  //   Memberships — anybody who has ever taken one, live or lapsed
+  //
+  // Lapsed members stay on the second list on purpose. Somebody whose
+  // membership ended last week is the most interesting person on it, and a list
+  // that hides them is a list that cannot answer why they left.
+  const hasSpent   = (f) => Number(f.paid_inr || 0) > 0;
+  const everMember = (f) => !!f.membership_expires_at;
+  const liveMember = (f) => f.membership_expires_at && new Date(f.membership_expires_at) > new Date();
+
+  const spentFans  = fans.filter(hasSpent);
+  const memberFans = fans.filter(everMember);
+  const liveCount  = memberFans.filter(liveMember).length;
 
   const SORTS = {
     joined:  { label: 'Newest',        fn: (a, b) => new Date(b.created_at) - new Date(a.created_at) },
@@ -262,7 +281,19 @@ export function Members() {
                  String(a.display_name || a.email).localeCompare(String(b.display_name || b.email)) },
   };
 
-  const visibleFans = [...(tab === 'paying' ? payingFans : fans)].sort(SORTS[sortBy].fn);
+  // Each list sorted by the thing it is about, unless it has been changed by
+  // hand. Opening Spent to see the newest signups first answers a question
+  // nobody asked of that tab.
+  useEffect(() => {
+    if (tab === 'spent') setSortBy('spend');
+    else if (tab === 'members') setSortBy('expiry');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  const forTab = tab === 'spent'   ? spentFans
+               : tab === 'members' ? memberFans
+               :                     fans;
+  const visibleFans = [...forTab].sort(SORTS[sortBy].fn);
 
   const loadFans = () => api.get('/api/studio/fans').then((d) => setFans(d.fans || []));
   const loadModLog = () => api.get('/api/studio/moderation-log').then((d) => setModLog(d.log || [])).catch(() => {});
@@ -418,7 +449,10 @@ export function Members() {
         // was a second way to reach what is one tap away.
         tabs={[
           { key: 'people',  label: `Everyone (${fans.length})` },
-          { key: 'paying',  label: `Paying (${payingFans.length})` },
+          { key: 'spent',   label: `Spent (${spentFans.length})` },
+          // Live out of total, because a membership list where a third have
+          // lapsed is a different thing from one where none have.
+          { key: 'members', label: `Memberships (${liveCount}/${memberFans.length})` },
         ]}
         active={tab} onChange={setTab}
       />
@@ -470,7 +504,28 @@ export function Members() {
                         {fan.gifted_expires_at && ` (until ${new Date(fan.gifted_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })})`}
                       </span>
                     )}
-                    {isActive && ` · expires ${new Date(fan.membership_expires_at).toLocaleDateString()}`}
+                    {/* Live, or when it ended.
+                        //
+                        // A date only appeared while a membership was running,
+                        // so a lapsed one looked identical to somebody who never
+                        // took one — and the person who left last week is the
+                        // most interesting name on the list. */}
+                    {isActive
+                      ? ` · expires ${new Date(fan.membership_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                      : fan.membership_expires_at && (
+                          <span style={{ color: '#D9A45C' }}>
+                            {' · lapsed '}
+                            {new Date(fan.membership_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </span>
+                        )}
+                    {/* Money, on every row, because spending and membership are
+                        separate facts and the list is now sorted by one of
+                        them. */}
+                    {Number(fan.paid_inr || 0) > 0 && (
+                      <span style={{ color: colors.muted }}>
+                        {' · '}₹{Number(fan.paid_inr).toLocaleString('en-IN')} spent
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
