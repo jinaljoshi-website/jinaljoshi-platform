@@ -53,25 +53,57 @@ export default function Invitations() {
     } catch (err) { setError(err.message); }
   };
 
+  // Shut unless there is something to see.
+  //
+  // This sat open above the member list explaining itself at length, and it is
+  // a thing used perhaps twice a year. The explanation is worth having the
+  // first time and in the way every time after.
+  //
+  // Opens itself when an invitation is waiting, because an unclaimed one is
+  // something outstanding and a closed row would hide it.
+  const waiting = (list || []).filter((i) => !i.claimed_at).length;
+  const [open, setOpen] = useState(false);
+  useEffect(() => { if (waiting > 0) setOpen(true); }, [waiting]);
+
+  const shut = !open && !adding;
+
   return (
-    <Card style={{ marginBottom: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+    <Card style={{ marginBottom: 20, padding: shut ? '10px 14px' : undefined }}>
+      <div onClick={() => shut && setOpen(true)}
+           style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    gap: 12, flexWrap: 'wrap', cursor: shut ? 'pointer' : 'default' }}>
         <div>
           <div style={{ fontFamily: mono, fontSize: 10, letterSpacing: '0.12em',
                         textTransform: 'uppercase', color: colors.muted }}>
-            Waiting to be claimed
+            Invitations
+            {waiting > 0 && (
+              <span style={{ color: colors.accent }}> · {waiting} waiting</span>
+            )}
           </div>
-          <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 4, maxWidth: 520, lineHeight: 1.6 }}>
-            An address approved for a membership before it registers. They sign up
-            as anybody does and it applies itself.
-          </div>
+          {!shut && (
+            <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginTop: 4, maxWidth: 520, lineHeight: 1.6 }}>
+              An address approved for a membership before it registers. They sign up
+              as anybody does and it applies itself.
+            </div>
+          )}
         </div>
-        {!adding && (
-          <button onClick={() => setAdding(true)} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 14px' }}>
-            Invite someone
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {!adding && !shut && (
+            <button onClick={() => setAdding(true)} style={{ ...S.ghostBtn, fontSize: 12, padding: '7px 14px' }}>
+              Invite someone
+            </button>
+          )}
+          <button onClick={() => { setOpen(!open); setAdding(false); }}
+                  aria-label={shut ? 'Open' : 'Close'}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer',
+                           color: colors.muted, fontSize: 14, padding: 4 }}>
+            {shut ? '+' : '−'}
           </button>
-        )}
+        </div>
       </div>
+
+      {shut ? null : (
+      <>
 
       {error && (
         <div style={{ fontFamily: sans, fontSize: 12, color: '#D99A9A', marginTop: 12 }}>{error}</div>
@@ -141,6 +173,8 @@ export default function Invitations() {
             </div>
           ))}
         </div>
+      )}
+      </>
       )}
     </Card>
   );
