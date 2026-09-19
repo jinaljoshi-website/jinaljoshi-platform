@@ -375,28 +375,34 @@ function OffersSection() {
             <input style={S.input} value={code} placeholder="e.g. WEEKEND"
                    onChange={(e) => setCode(e.target.value.toUpperCase())} />
           </Field>
-          <Field label="What to call it" full>
-            {/* Whether to tell anybody.
-                //
-                // Every active code was shown to everybody with the code
-                // itself attached, so an offer meant for one person — an
-                // apology, an email, a single member — went platform-wide the
-                // moment it was made. A quiet one still works when typed. */}
-            {code.trim() && (
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, margin: '10px 0 14px',
-                              cursor: 'pointer' }}>
-                <input type="checkbox" checked={!announced}
-                       onChange={(e) => setAnnounced(!e.target.checked)}
-                       style={{ marginTop: 3 }} />
-                <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
-                  Keep this one quiet
-                  <span style={{ display: 'block', fontSize: 11, color: colors.muted, marginTop: 2 }}>
-                    Nobody is shown the code. It still works for anyone you give it to.
-                  </span>
-                </span>
-              </label>
-            )}
+          {/* Whether to tell anybody.
+              //
+              // Every active code was shown to everybody with the code itself
+              // attached, so an offer meant for one person — an apology, an
+              // email, a single member — went platform-wide the moment it was
+              // made. A quiet one still works when typed.
+              //
+              // Always on screen, dimmed until there is a code: hidden until
+              // one was typed, nobody would learn it existed, and wanting an
+              // offer to be quiet is often the reason to use a code at all. */}
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8,
+                          gridColumn: '1 / -1', margin: '2px 0 14px',
+                          cursor: code.trim() ? 'pointer' : 'default',
+                          opacity: code.trim() ? 1 : 0.45 }}>
+            <input type="checkbox" checked={!announced} disabled={!code.trim()}
+                   onChange={(e) => setAnnounced(!e.target.checked)}
+                   style={{ marginTop: 3 }} />
+            <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+              Keep this one quiet
+              <span style={{ display: 'block', fontSize: 11, color: colors.muted, marginTop: 2 }}>
+                {code.trim()
+                  ? 'Nobody is shown the code. It still works for anyone you give it to.'
+                  : 'Give it a code above to make it a private one.'}
+              </span>
+            </span>
+          </label>
 
+          <Field label="What to call it" full>
             <input style={S.input} value={label} placeholder={`e.g. ${pct}% bonus tokens tonight`}
                    onChange={(e) => setLabel(e.target.value)} />
           </Field>
