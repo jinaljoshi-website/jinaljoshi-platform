@@ -1777,6 +1777,15 @@ router.get('/content/queue', async (req, res) => {
               -- which is when it is useful.
               (SELECT count(*)::int FROM set_items i WHERE i.set_id = s.id
                 AND (i.moderation->>'score')::int >= 60)                                          AS worth_a_look,
+              -- How the fit check went.
+              --
+              -- The votes were recorded and never read here, so the one
+              -- question a fit check exists to answer had no answer on the
+              -- screen that manages it.
+              (SELECT count(*) FILTER (WHERE verdict = 'keep')::int
+                 FROM fit_votes fv WHERE fv.set_id = s.id)                                        AS fit_keep,
+              (SELECT count(*) FILTER (WHERE verdict = 'return')::int
+                 FROM fit_votes fv WHERE fv.set_id = s.id)                                        AS fit_return,
               -- How many have been looked at at all, so a set that was checked
               -- and came back clean can say so. Without this a clean result and
               -- a scan that never ran are the same silence.
@@ -1828,6 +1837,8 @@ router.get('/content/queue', async (req, res) => {
         photographer: r.photographer,
         visible: false,
         worthALook: r.worth_a_look || 0,
+        fitKeep: r.fit_keep || 0,
+        fitReturn: r.fit_return || 0,
         checkedCount: r.checked_count || 0,
         priceCoins: r.price_coins, createdAt: r.created_at,
         // Both names. The library returns cover_key and the row reads that or

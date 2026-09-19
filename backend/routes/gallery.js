@@ -909,6 +909,10 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
       fitCheck = {
         open: Date.now() <= closes.getTime(),
         closesAt: closes,
+        // When the look was posted, so the card can date itself. A fit check is
+        // about a particular day, and one from last Tuesday reads differently
+        // from one from this morning.
+        postedAt: opened,
         keep: v[0].keep,
         return: v[0].ret,
         yours: v[0].yours || null,

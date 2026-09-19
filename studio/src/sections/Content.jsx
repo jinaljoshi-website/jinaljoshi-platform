@@ -1861,6 +1861,27 @@ export function Content({ openWith, collection = false, upload = false }) {
                       Base price {set.price_coins} tokens
                       {summary && ` · ${summary}`}
                     </div>
+
+                    {/* How the fit check went.
+                        //
+                        // The votes were recorded and never shown, so the one
+                        // question a fit check exists to answer had no answer
+                        // on the screen that manages it. */}
+                    {set.category === 'fit_check' && (set.fitKeep > 0 || set.fitReturn > 0) && (
+                      <div style={S.rowSub}>
+                        <span style={{ color: '#8FC88F' }}>{set.fitKeep} slaying it</span>
+                        {' · '}
+                        <span style={{ color: '#D99A9A' }}>{set.fitReturn} could be better</span>
+                        {(() => {
+                          const total = set.fitKeep + set.fitReturn;
+                          const pct = Math.round((set.fitKeep / total) * 100);
+                          return <span style={{ color: colors.muted }}>{` · ${pct}% in favour of ${total}`}</span>;
+                        })()}
+                      </div>
+                    )}
+                    {set.category === 'fit_check' && !set.fitKeep && !set.fitReturn && (
+                      <div style={{ ...S.rowSub, opacity: 0.6 }}>No votes yet</div>
+                    )}
                     {/* What this one is waiting on, beside the set it describes
                         rather than in a list of eighty-six above it. */}
                     {upload && (

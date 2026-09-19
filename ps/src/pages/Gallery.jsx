@@ -28,6 +28,16 @@ const TABS = [
 ];
 
 
+// How long is left, in words. "Closes at 14:32" asks somebody to work out how
+// long that is; "4 hours left" does not.
+function closesIn(at) {
+  const mins = Math.round((new Date(at).getTime() - Date.now()) / 60000);
+  if (mins <= 0)  return 'closing now';
+  if (mins < 60)  return `${mins} minutes left`;
+  const hrs = Math.round(mins / 60);
+  return `${hrs} hour${hrs === 1 ? '' : 's'} left`;
+}
+
 // The result, once voting has closed.
 //
 // A bar rather than two numbers, because the split is the interesting part and
@@ -43,7 +53,12 @@ function FitResult({ keep, ret, yours }) {
     );
   }
   const keepPct = Math.round((keep / total) * 100);
-  const verdict = keep > ret ? 'It stays.' : keep < ret ? 'Back it goes.' : 'A dead heat — I will decide.';
+  // Softer than it was, to match the buttons. "Back it goes" answered a vote
+  // about whether to return a garment; these are answering whether a look
+  // worked, which is a gentler question and deserves a gentler answer.
+  const verdict = keep > ret ? 'Slaying it, apparently.'
+                : keep < ret ? 'Could be better, you reckon.'
+                :              'A dead heat — I will decide.';
 
   return (
     <div>
@@ -56,13 +71,13 @@ function FitResult({ keep, ret, yours }) {
         <div style={{ width: `${100 - keepPct}%`, background: '#D99A9A' }} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: F.mono, fontSize: 11, color: C.muted }}>
-        <span style={{ color: '#8FC88F' }}>Love it · {keep}</span>
+        <span style={{ color: '#8FC88F' }}>Slaying it · {keep}</span>
         <span>{total} {total === 1 ? 'vote' : 'votes'}</span>
-        <span style={{ color: '#D99A9A' }}>{ret} · Return it</span>
+        <span style={{ color: '#D99A9A' }}>{ret} · Could be better</span>
       </div>
       {yours && (
         <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginTop: 10 }}>
-          You said {yours === 'keep' ? 'love it' : 'return it'}.
+          You said {yours === 'keep' ? 'slaying it' : 'it could be better'}.
         </div>
       )}
     </div>
@@ -369,14 +384,28 @@ export default function Gallery() {
               {fitCheck.open ? 'Fit check — vote now' : 'Fit check — closed'}
             </div>
 
+            {/* The day it was worn, on the card.
+                //
+                // A fit check is about a particular outfit on a particular day,
+                // and one from last Tuesday reads differently from one from this
+                // morning. While voting is open it also says when it closes,
+                // because a day is not long and nobody can see the clock. */}
+            <div style={{ fontFamily: F.mono, fontSize: 10, color: C.muted, marginBottom: 10 }}>
+              {fitCheck.postedAt && new Date(fitCheck.postedAt).toLocaleDateString('en-IN', {
+                weekday: 'long', day: 'numeric', month: 'long',
+              })}
+              {fitCheck.open && fitCheck.closesAt && (
+                <> · {closesIn(fitCheck.closesAt)}</>
+              )}
+            </div>
+
             {fitCheck.open ? (
               <>
                 <div style={{ fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6, marginBottom: 14 }}>
-                  You decide what stays in my wardrobe. Tell me honestly whether this one
-                  earns its place, or goes back to the shop.
+                  How do you rate this fit?
                 </div>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                  {[['keep', 'Love it', '#8FC88F'], ['return', 'Return it', '#D99A9A']].map(([v, label, colour]) => (
+                  {[['keep', 'Slaying it', '#8FC88F'], ['return', 'Could be better', '#D99A9A']].map(([v, label, colour]) => (
                     <button key={v} onClick={() => castVote(v)} disabled={voting}
                             style={{ fontFamily: F.sans, fontSize: 14, padding: '10px 20px', borderRadius: 999,
                                      cursor: voting ? 'default' : 'pointer',
