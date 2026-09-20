@@ -156,6 +156,21 @@ async function quote(amountInr, currency) {
 async function resolveForUser({ preferredCurrency, country }) {
   const abroad = isForeignCountry(country);
 
+  // What they chose beats what the network guessed.
+  //
+  // This asked the IP first and returned home currency before ever reading the
+  // preference — so somebody who had picked pounds, but whose address resolved
+  // to India or failed to resolve at all, was quietly charged in rupees with
+  // their choice discarded unread. A lookup failure returns null, which reads
+  // as "not abroad", so a member travelling or behind a VPN or simply unlucky
+  // lost the setting they had deliberately made.
+  //
+  // A stated preference is evidence about a person. A geolocation is a guess
+  // about a connection, and the person is the better source.
+  if (preferredCurrency && preferredCurrency !== HOME && isChargeable(preferredCurrency)) {
+    return { currency: preferredCurrency, isForeign: true, shouldAsk: false };
+  }
+
   if (!abroad) {
     return { currency: HOME, isForeign: false, shouldAsk: false };
   }

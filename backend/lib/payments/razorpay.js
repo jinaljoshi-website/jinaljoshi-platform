@@ -45,11 +45,17 @@ async function createOrder({ amountInr, tokens, discountPct, userId, clientIp, u
     },
   });
 
+  // What was actually ordered, not what it is worth here.
+  //
+  // The order above is created in the fan's own currency, and this returned
+  // rupees regardless — so somebody paying in pounds watched the checkout
+  // convert their total to INR in front of them. The order and the screen
+  // disagreed, and the screen is the part they can see.
   return {
     orderId:     order.id,
     providerKey: process.env.RAZORPAY_KEY_ID,
-    amount:      amountInr * 100,
-    currency:    'INR',
+    amount:      Math.round(charge * 100),
+    currency,
   };
 }
 
