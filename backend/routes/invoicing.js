@@ -6,6 +6,8 @@ const pool       = require('../db/pool');
 const authMid    = require('../middleware/auth');
 const artistOnly = require('../middleware/artistOnly');
 const { getNextNumber, computeTax, generatePdf, getSupplier } = require('../lib/issuedInvoice');
+const { notice } = require('../lib/notices');
+const { getConfigNumber } = require('../lib/config');
 
 router.use(authMid, artistOnly);
 
@@ -109,7 +111,7 @@ router.post('/issued', async (req, res) => {
   const {
     kind, invoiceDate, recipientName, recipientEmail, recipientAddress,
     recipientGstin, recipientState, recipientCountry, placeOfSupply,
-    reverseCharge, lineItems, currency, gstRatePct, isExport,
+    reverseCharge, lineItems, currency, gstRatePct, isExport, grantTokens, tokenCount,
     paymentAccountId, notes,
   } = req.body;
 
@@ -232,8 +234,69 @@ router.post('/issued', async (req, res) => {
         fx.rate, fx.taxable, fx.total, fx.cgst, fx.sgst, fx.igst,
       ]
     );
+    // Tokens for money that arrived some other way.
+    //
+    // Wise, a bank transfer, cash — the money is real and the invoice records
+    // it; this is the row that puts the tokens where the member can spend them.
+    // Tied to the invoice rather than done separately, so there can never be
+    // tokens without a document or a document without the tokens.
+    //
+    // Recorded as a purchase, not a gift: gifted tokens cannot buy collections,
+    // auctions, calls or custom requests, and somebody who sent thirty thousand
+    // rupees should not find half the platform shut to them.
+    let credited = null;
+    if (grantTokens && recipientEmail?.trim()) {
+      const { rows: member } = await client.query(
+        `SELECT id, email FROM users WHERE email = $1 AND closed_at IS NULL`,
+        [recipientEmail.trim().toLowerCase()]
+      );
+      if (!member.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({
+          error: 'NO_SUCH_MEMBER',
+          message: `No account here uses ${recipientEmail.trim()}. Raise it without tokens, or check the address.`,
+        });
+      }
+
+      // Worked out from the rupee value, or typed.
+      //
+      // The rate gives a sensible default, but a transfer rarely divides neatly
+      // and the number that matters is the one that was agreed — rounded up a
+      // little for somebody who sent money the hard way, or matching a figure
+      // already promised in a conversation.
+      const rate = await getConfigNumber('token_rate_inr').catch(() => 66);
+      const inrValue = Number(tax.total);
+      const typed = parseInt(tokenCount, 10);
+      const tokens = Number.isFinite(typed) && typed > 0
+        ? typed
+        : Math.floor(inrValue / (rate || 66));
+
+      if (tokens > 0) {
+        const { rows: led } = await client.query(
+          `INSERT INTO coin_ledger (user_id, type, direction, amount, label, payment_id, payment_amount_inr)
+           VALUES ($1, 'recharge', 'credit', $2, $3, $4, $5) RETURNING id`,
+          [member[0].id, tokens, `Paid outside the platform — invoice ${invoiceNumber}`,
+           invoiceNumber, inrValue]
+        );
+        await client.query(
+          `UPDATE users SET coin_balance = coin_balance + $1 WHERE id = $2`,
+          [tokens, member[0].id]
+        );
+        credited = { userId: member[0].id, email: member[0].email, tokens };
+      }
+    }
+
     await client.query('COMMIT');
-    res.json({ ok: true, invoice: rows[0] });
+    if (credited) {
+      notice(credited.userId, {
+        kind: 'tokens',
+        title: `${credited.tokens} tokens added to your account`,
+        body: 'Thank you — your payment has been received.',
+        url: '/platform/coins',
+      }).catch(() => {});
+    }
+
+    res.json({ ok: true, invoice: rows[0], credited });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('invoicing/create error:', err);

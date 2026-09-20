@@ -3,6 +3,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { T, S, Card, Eyebrow, Field, colors } from '../ui';
 
+// What a token costs, for working an invoice total back into tokens.
+const TOKEN_RATE_INR = 66;
+
 const sans = "'DM Sans', system-ui, sans-serif";
 const mono = "'DM Mono', 'Courier New', monospace";
 
@@ -119,6 +122,7 @@ export function Invoices() {
       invoiceDate: new Date().toISOString().slice(0, 10),
       recipientName: '', recipientEmail: '', recipientAddress: '',
       recipientGstin: '', recipientCountry: 'India', placeOfSupply: 'Maharashtra',
+      grantTokens: false, tokenCount: '',
       reverseCharge: false,
       lineItems: [blankLine()],
       currency: 'INR', gstRatePct: '18',
@@ -159,6 +163,18 @@ export function Invoices() {
   const rate       = isTaxable ? (parseFloat(form?.gstRatePct) || 0) : 0;
   const taxAmount  = Math.round(taxable * rate) / 100;
 
+  // What the invoice total comes to in tokens, as a suggestion.
+  //
+  // Placed after the figures it depends on: written above them it read a
+  // taxable value that did not exist yet.
+  //
+  // Rounded down, because a fraction of a token cannot be credited and rounding
+  // up hands over value nobody paid for. A starting number only — a transfer
+  // rarely divides neatly and the figure that matters is the one agreed.
+  const suggestedTokens = (taxable + taxAmount) > 0
+    ? Math.floor((taxable + taxAmount) / (TOKEN_RATE_INR || 66))
+    : 0;
+
   const submit = async (confirmSent = false) => {
     setError(''); setSuccess(''); setBusy(true);
     try {
@@ -168,7 +184,12 @@ export function Invoices() {
         ? await api.patch(`/api/studio/invoicing/issued/${editingId}`,
                           { ...form, confirmSent: confirmSent || undefined })
         : await api.post('/api/studio/invoicing/issued', form);
-      setSuccess(`${d.invoice.invoice_number} ${editingId ? 'saved' : 'created'}.`);
+      // Said plainly, because tokens landing in somebody's account is the part
+      // worth confirming — an invoice number alone would not tell you whether
+      // the credit went through.
+      setSuccess(d.credited
+        ? `${d.invoice.invoice_number} created, and ${d.credited.tokens} tokens credited to ${d.credited.email}.`
+        : `${d.invoice.invoice_number} ${editingId ? 'saved' : 'created'}.`);
       setCreating(false); setForm(null); setEditingId(null); setFormError('');
       loadIssued();
     } catch (err) {
@@ -537,6 +558,58 @@ export function Invoices() {
               {/* Said where the button is, not three hundred lines above it.
                   A refusal shown up there looked exactly like a button that did
                   nothing, and was reported as one. */}
+              {/* Tokens for money that arrived some other way.
+                  //
+                  // Wise, a bank transfer, cash — the invoice records what was
+                  // paid, and this is the row that puts the tokens where the
+                  // member can spend them. Tied to the invoice so there is never
+                  // one without the other.
+                  //
+                  // Only on a B2C invoice: a company paying for a campaign is
+                  // not a member with a balance. */}
+              {form.kind !== 'b2b' && (
+                <div style={{ marginTop: 16, padding: 14, borderRadius: 8,
+                              border: `1px solid ${form.grantTokens ? colors.accent : colors.border}`,
+                              background: form.grantTokens ? 'rgba(193,125,74,0.06)' : 'transparent' }}>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={!!form.grantTokens}
+                           onChange={(e) => setF('grantTokens', e.target.checked)}
+                           style={{ marginTop: 3 }} />
+                    <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
+                      Also credit tokens to their account
+                      <span style={{ display: 'block', fontSize: 11, color: colors.muted, marginTop: 2, lineHeight: 1.5 }}>
+                        For money that came by Wise or bank transfer. They spend like
+                        bought tokens, not gifted ones.
+                      </span>
+                    </span>
+                  </label>
+
+                  {form.grantTokens && (
+                    <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Field label="Tokens">
+                        <input style={{ ...S.input, width: 130, marginBottom: 0 }} type="number" min={1}
+                               placeholder={suggestedTokens || ''}
+                               value={form.tokenCount || ''}
+                               onChange={(e) => setF('tokenCount', e.target.value)} />
+                      </Field>
+                      <span style={{ fontFamily: sans, fontSize: 12, color: colors.muted, alignSelf: 'flex-end', paddingBottom: 10 }}>
+                        {/* Said rather than silently applied, so a number typed
+                            over it is a decision rather than an accident. */}
+                        {suggestedTokens
+                          ? `Leave empty for ${suggestedTokens}, from the invoice total.`
+                          : 'Add a line item to work out a suggestion.'}
+                      </span>
+                    </div>
+                  )}
+
+                  {form.grantTokens && !form.recipientEmail?.trim() && (
+                    <div style={{ fontFamily: sans, fontSize: 12, color: '#D9A45C', marginTop: 10 }}>
+                      An email address is needed — it is how the account is found.
+                    </div>
+                  )}
+                </div>
+              )}
+
               {formError && (
                 <div style={{ ...S.error, fontSize: 12, marginTop: 14 }}>{formError}</div>
               )}
