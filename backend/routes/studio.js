@@ -348,6 +348,14 @@ router.get('/fans/:id/history', async (req, res) => {
          WHERE l.user_id = $1 AND l.type = 'recharge' AND l.direction = 'credit'
 
          UNION ALL
+         -- Bonus tokens given, which appeared nowhere in the history. A gift
+         -- recorded in the ledger and absent from the one screen meant to account
+         -- for a member is a gift nobody can later confirm was made.
+         SELECT l.created_at, 'bonus', l.label, l.amount, NULL, NULL, NULL
+         FROM coin_ledger l
+         WHERE l.user_id = $1 AND l.type = 'bonus' AND l.direction = 'credit'
+
+         UNION ALL
          SELECT l.created_at, 'membership', l.label, l.amount, NULL, l.id::text, l.refunded_at
          FROM coin_ledger l
          WHERE l.user_id = $1 AND l.direction = 'debit'
@@ -441,6 +449,10 @@ router.get('/fans', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT u.id, u.email, u.display_name, u.tier, u.membership_expires_at,
               u.coin_balance, u.created_at, u.is_muted, u.blocked_until, u.block_count,
+              -- Bonus tokens, which were credited and never shown. A grant
+              -- landed in the account and the one screen that manages accounts
+              -- had no way to say so — indistinguishable from it having failed.
+              COALESCE(u.bonus_balance, 0) AS bonus_balance,
               -- What was agreed, and when. Recorded at registration and never
               -- shown anywhere, which made it useless for the one purpose it
               -- exists for: answering a question about it afterwards.

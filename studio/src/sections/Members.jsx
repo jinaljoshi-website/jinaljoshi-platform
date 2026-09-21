@@ -35,6 +35,7 @@ const HISTORY_KINDS = {
   preview:    { label: 'Paid for a preview',     colour: '#D9A45C' },
   viewed:     { label: 'Looked, did not unlock', colour: null     },
   recharge:   { label: 'Bought tokens',          colour: '#8FC88F' },
+  bonus:      { label: 'Bonus tokens given',     colour: '#D9A45C' },
   membership: { label: 'Membership',             colour: '#C17D4A' },
   spend:      { label: 'Spent tokens',           colour: null     },
   message:    { label: 'Sent a message',         colour: '#C17D4A' },
@@ -517,6 +518,16 @@ export function Members() {
                       <span style={{ color: '#8FC88F' }}>
                         {' + '}{fan.gifted_balance} gifted
                         {fan.gifted_expires_at && ` (until ${new Date(fan.gifted_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })})`}
+                      </span>
+                    )}
+                    {/* Bonus tokens, beside the gifted ones.
+                        //
+                        // A grant was credited and nothing here said so, which
+                        // made it impossible to tell a successful gift from a
+                        // failed one. No expiry to show, because they have none. */}
+                    {fan.bonus_balance > 0 && (
+                      <span style={{ color: '#D9A45C' }}>
+                        {' + '}{fan.bonus_balance} bonus
                       </span>
                     )}
                     {/* Live, or when it ended.
