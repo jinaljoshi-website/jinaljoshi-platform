@@ -11,8 +11,10 @@ const { applyBlock, liftBlock, setMuted, logModerationAction } = require('../lib
 const { notifyArtist } = require('../lib/notify');
 const { approveCollectionsAccess } = require('../lib/collections');
 const { scanInBackground } = require('../lib/moderation-scan');
+const { issueInvoiceForPurchase } = require('../lib/invoice');
+const { notice } = require('../lib/notices');
 const { sendInvitationEmail } = require('../lib/emails');
-const { grantGiftedTokens, refundByRelated, refundLedgerEntry } = require('../lib/tokens');
+const { grantGiftedTokens, grantBonusTokens, refundByRelated, refundLedgerEntry } = require('../lib/tokens');
 const { deleteObjects, findOrphans } = require('../lib/r2');
 const { getBalances } = require('../lib/tokens');
 const { getDmConfigForTier, getConfigNumber } = require('../lib/config');
@@ -540,6 +542,67 @@ router.get('/fans', async (req, res) => {
 // The preview list matters most. A member who paid to see two photographs saw
 // those two and not any others, and when they ask which — or when something
 // turns up somewhere it should not — this is the only record of it.
+
+
+// ─────────────────────────────────────────────
+// POST /api/studio/fans/:id/bonus-tokens
+// ─────────────────────────────────────────────
+//
+// A thank-you, in tokens.
+//
+// For somebody worth keeping — a long-standing member, somebody who has been
+// generous, somebody who had a bad experience. No invoice, no justification, no
+// revenue: it is a gift from the artist and should be recorded as exactly that.
+//
+// Bonus tokens rather than gifted ones, deliberately. Gifted tokens expire and
+// reach only messages and gallery sets; a thank-you that lapses in a month, or
+// cannot open the collection a member actually wanted, is not much of one. Bonus
+// tokens never expire and spend like bought ones.
+//
+// And they are never revenue. They sit in their own pot and their own ledger
+// rows, so they cannot reach a photographer's earnings, a charity's share, or
+// the GST return — the platform gave them, it did not sell them.
+router.post('/fans/:id/bonus-tokens', async (req, res) => {
+  const amount = parseInt(req.body.amount, 10);
+  if (!amount || amount <= 0) return res.status(400).json({ error: 'How many tokens?' });
+  // A ceiling, because a typo here is money given away with no way to see it
+  // happening. Ten thousand is far above any thank-you and well below a mistake.
+  if (amount > 10000) return res.status(400).json({ error: 'That is more than ten thousand — check the number.' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: who } = await client.query(
+      `SELECT id FROM users WHERE id = $1 AND closed_at IS NULL FOR UPDATE`, [req.params.id]);
+    if (!who.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'No such member' }); }
+
+    await grantBonusTokens(client, {
+      userId: req.params.id,
+      amount,
+      offer: null,
+      label: `${amount} bonus tokens from Jinal`,
+    });
+    await client.query('COMMIT');
+
+    // Told, because tokens that appear with no word about why read as a mistake
+    // somebody might quietly correct.
+    notice(req.params.id, {
+      kind: 'tokens',
+      title: `${amount} tokens, from me`,
+      body: req.body.message?.trim() || 'A little something, with thanks.',
+      url: '/platform/coins',
+    }).catch(() => {});
+
+    res.json({ ok: true, amount });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('studio/bonus-tokens error:', err);
+    res.status(500).json({ error: 'Could not give those tokens' });
+  } finally {
+    client.release();
+  }
+});
+
 router.get('/fans/:id/delivered', async (req, res) => {
   try {
     const [bought, previews, seen] = await Promise.all([

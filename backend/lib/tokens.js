@@ -251,7 +251,11 @@ async function grantBonusTokens(client, { userId, amount, offer, label = null })
                               from_gifted, from_purchased, from_bonus, bonus_offer_id)
      VALUES ($1, 'bonus', 'credit', $2, $3, 0, 0, $2, $4)`,
     [userId, amount,
-     label || `${offer?.label || `${parseFloat(offer.bonus_pct)}% bonus`} — ${amount} extra tokens`,
+     // A manual grant carries no offer, and reading offer.bonus_pct off an
+     // undefined offer would throw before the label was ever used.
+     label || (offer
+       ? `${offer.label || `${parseFloat(offer.bonus_pct)}% bonus`} — ${amount} extra tokens`
+       : `${amount} bonus tokens`),
      offer?.id || null]
   );
   if (offer?.id) {

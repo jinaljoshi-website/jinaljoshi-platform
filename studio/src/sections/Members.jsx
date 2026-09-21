@@ -354,10 +354,25 @@ export function Members() {
     setGiftAmt(''); setGiftNote(''); setError(''); setSuccess('');
   };
 
+  // Which kind of token, because the difference is large and invisible.
+  //
+  // Gifted tokens expire and reach only messages and gallery sets — right for a
+  // welcome, a nudge, a small apology. Bonus tokens never expire and spend like
+  // bought ones — right for somebody worth keeping, who should be able to open
+  // the collection they actually wanted. Neither is revenue.
+  const [tokenKind, setTokenKind] = useState('gifted');
+
   const sendGift = async (fan) => {
     setGiftBusy(true); setError(''); setSuccess('');
     try {
-      if (giftKind === 'tokens') {
+      if (giftKind === 'tokens' && tokenKind === 'bonus') {
+        // Kept, and spendable anywhere.
+        await api.post(`/api/studio/fans/${fan.id}/bonus-tokens`, {
+          amount:  parseInt(giftAmt, 10),
+          message: giftNote.trim() || undefined,
+        });
+        setSuccess(`${giftAmt} bonus tokens given to ${fan.display_name || fan.email}. They never expire.`);
+      } else if (giftKind === 'tokens') {
         const d = await api.post('/api/studio/grant-tokens', {
           email:  fan.email,
           amount: parseInt(giftAmt, 10),
@@ -702,9 +717,24 @@ export function Members() {
                 <div style={giftBox}>
                   {giftKind === 'tokens' ? (
                     <>
+                      {/* Which kind. The difference is large and nothing on
+                          the member's side shows it until they try to spend. */}
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                        {[['gifted', 'Gift'], ['bonus', 'Bonus — keeps them']].map(([k, label]) => (
+                          <button key={k} onClick={() => setTokenKind(k)}
+                                  style={{ fontFamily: sans, fontSize: 11, padding: '5px 12px', borderRadius: 999,
+                                           cursor: 'pointer',
+                                           background: tokenKind === k ? 'rgba(193,125,74,0.12)' : 'transparent',
+                                           border: `1px solid ${tokenKind === k ? colors.accent : colors.border}`,
+                                           color: tokenKind === k ? colors.accent : colors.muted }}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                       <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 10, lineHeight: 1.6 }}>
-                        A gift goes into their gifted pot — spendable on messages and content,
-                        and it expires. It never counts as earnings.
+                        {tokenKind === 'bonus'
+                          ? 'Never expires and spends like bought tokens — collections, calls, requests, anything. For somebody worth keeping. Never counts as earnings or revenue.'
+                          : 'Spendable on messages and gallery sets only, and it expires. For a welcome or a small apology. Never counts as earnings.'}
                       </div>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                         <div style={{ width: 110 }}>
@@ -713,7 +743,7 @@ export function Members() {
                                  value={giftAmt} onChange={(e) => setGiftAmt(e.target.value)} />
                         </div>
                         <div style={{ flex: 1, minWidth: 160 }}>
-                          <div style={giftLabel}>Why — they will see this</div>
+                          <div style={giftLabel}>{tokenKind === 'bonus' ? 'A note — optional, they will see it' : 'Why — they will see this'}</div>
                           <input style={{ ...S.input, width: '100%', boxSizing: 'border-box' }}
                                  value={giftNote} placeholder="e.g. sorry about the call"
                                  onChange={(e) => setGiftNote(e.target.value)} />
