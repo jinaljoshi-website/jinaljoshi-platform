@@ -154,43 +154,44 @@ async function quote(amountInr, currency) {
 // honoured only while the person it belongs to is abroad; a fan who set USD
 // while travelling and is now home pays rupees again.
 async function resolveForUser({ preferredCurrency, country }) {
-  const abroad = isForeignCountry(country);
-
-  // What they chose beats what the network guessed.
+  // Where they are now decides what is offered.
   //
-  // This asked the IP first and returned home currency before ever reading the
-  // preference — so somebody who had picked pounds, but whose address resolved
-  // to India or failed to resolve at all, was quietly charged in rupees with
-  // their choice discarded unread. A lookup failure returns null, which reads
-  // as "not abroad", so a member travelling or behind a VPN or simply unlucky
-  // lost the setting they had deliberately made.
+  // Not where they registered, and not what they chose last time somewhere
+  // else. A member who signed up in India and is in London today is paying from
+  // London; a member who signed up abroad and is in Mumbai today is paying from
+  // Mumbai. Both get what their current location implies.
   //
-  // A stated preference is evidence about a person. A geolocation is a guess
-  // about a connection, and the person is the better source.
-  if (preferredCurrency && preferredCurrency !== HOME && isChargeable(preferredCurrency)) {
-    return { currency: preferredCurrency, isForeign: true, shouldAsk: false };
-  }
+  // Three states, not two, and the third is the one that went wrong:
+  //
+  //   in India      → rupees, and nothing to choose
+  //   abroad        → their local currency, with the choice to change it
+  //   unknown       → not a guess. A failed lookup used to read as India, which
+  //                   charged a member in London in rupees because the lookup
+  //                   service was throttled at the moment he paid.
+  const known  = Boolean(country && country !== 'Unknown');
+  const abroad = known && isForeignCountry(country);
 
-  if (!abroad) {
+  // In India right now. Rupees, whatever was saved elsewhere — a pound price
+  // chosen in London should not follow somebody home and turn a domestic sale
+  // into a claimed export.
+  if (known && !abroad) {
     return { currency: HOME, isForeign: false, shouldAsk: false };
   }
-  // Somebody abroad who has expressed a preference for rupees gets rupees.
-  if (preferredCurrency === HOME) {
-    return { currency: HOME, isForeign: false, shouldAsk: false };
-  }
 
-  // Somebody abroad who has said nothing gets what they would have picked:
-  // their own currency where it can be priced, US dollars otherwise, and rupees
-  // only when neither can be.
-  //
-  // This used to hand them rupees and set shouldAsk, leaving the choice to a
-  // prompt in the browser. A prompt that is missed, dismissed or never shown
-  // then means paying in a foreign country's currency — and it costs more than
-  // the awkwardness. Local and dollars are both convertible foreign exchange,
-  // which makes the sale a zero-rated export; rupees make it a taxable
-  // inter-state supply. So the default was quietly the one option that adds tax
-  // the fan need not have paid.
-  if (!preferredCurrency) {
+  // Abroad right now. Always offered the choice.
+  if (abroad) {
+    // A foreign currency they picked before stands, since they picked it from
+    // abroad and it still fits.
+    if (preferredCurrency && preferredCurrency !== HOME && isChargeable(preferredCurrency)
+        && await getRate(preferredCurrency)) {
+      return { currency: preferredCurrency, isForeign: true, shouldAsk: true };
+    }
+    // Otherwise their own local currency, even if rupees were saved — a rupee
+    // preference from a visit to India is not an answer about London.
+    //
+    // Local or dollars both count as convertible foreign exchange, which makes
+    // the sale a zero-rated export. Rupees would make it a taxable supply, so
+    // they are the fallback only when nothing else can be priced.
     const local = localCurrencyFor(country);
     if (local && local !== HOME && await getRate(local)) {
       return { currency: local, isForeign: true, shouldAsk: true, defaulted: true };
@@ -200,11 +201,19 @@ async function resolveForUser({ preferredCurrency, country }) {
     }
     return { currency: HOME, isForeign: false, shouldAsk: true, rateUnavailable: true };
   }
-  const rate = await getRate(preferredCurrency);
-  // A preference we can no longer price falls back to INR rather than failing
-  // the purchase outright.
-  if (!rate) return { currency: HOME, isForeign: false, shouldAsk: false, rateUnavailable: true };
-  return { currency: preferredCurrency, isForeign: true, shouldAsk: false };
+
+  // Unknown. The lookup failed or was throttled.
+  //
+  // No picker, because offering foreign currencies to somebody who might be in
+  // India would let a domestic sale be recorded as an export. A foreign currency
+  // they already chose is honoured — it is the best evidence left — and anybody
+  // else pays in rupees, which is correct if they are in India and merely a
+  // little more tax if they are not.
+  if (preferredCurrency && preferredCurrency !== HOME && isChargeable(preferredCurrency)
+      && await getRate(preferredCurrency)) {
+    return { currency: preferredCurrency, isForeign: true, shouldAsk: false, locationUnknown: true };
+  }
+  return { currency: HOME, isForeign: false, shouldAsk: false, locationUnknown: true };
 }
 
 function isForeignCountry(country) {

@@ -189,15 +189,16 @@ router.get('/currencies', authMid, async (req, res) => {
     // Only where none exists. A stored preference is an answer, and an answer
     // is never overridden by a guess from an IP address -- including a
     // deliberate choice of INR while abroad.
+    // Suggested, not saved.
+    //
+    // This wrote the local currency to the account as though it had been
+    // chosen, so a member who visited London had pounds recorded against them —
+    // and on a later trip to Germany the saved pounds beat the local euros.
+    // resolveForUser now offers the local currency from the location each time,
+    // so there is nothing to store until somebody actually picks one.
     let autoSelected = null;
-    if (!rows[0]?.preferred_currency && fx.isForeignCountry(country)) {
-      const local = fx.localCurrencyFor(country);
-      if (local && await fx.getRate(local)) {
-        await pool.query(`UPDATE users SET preferred_currency = $1 WHERE id = $2`,
-                         [local, req.user.userId]);
-        autoSelected = local;
-        resolved = await fx.resolveForUser({ preferredCurrency: local, country });
-      }
+    if (!rows[0]?.preferred_currency && fx.isForeignCountry(country) && resolved.defaulted) {
+      autoSelected = resolved.currency;
     }
 
     // Nothing is offered while the feature is off — showing a currency picker
