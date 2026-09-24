@@ -1066,6 +1066,10 @@ router.get('/dms/:fanId', async (req, res) => {
         overageCost:     cfg.overageCost,
         purchasedBalance: fan.coin_balance,
         giftedBalance:    bal.gifted,
+        // The third pot, which was already loaded and never passed on — so the
+        // chat panel showed what a member had bought and what they had been
+        // gifted, and nothing of what they had been given as a bonus.
+        bonusBalance:     bal.bonus,
         spendableBalance: bal.total,
         giftedExpiresInDays: bal.giftedExpiresInDays,
       };
@@ -1174,7 +1178,22 @@ router.get('/content', async (req, res) => {
       `SELECT s.*, ${COVER_FALLBACK} AS cover_key,
               (SELECT string_agg(p.name, ', ' ORDER BY p.name)
                FROM set_photographers sp JOIN photographers p ON p.id = sp.photographer_id
-               WHERE sp.set_id = s.id) AS photographer
+               WHERE sp.set_id = s.id) AS photographer,
+              -- What fans made of it.
+              --
+              -- The gallery showed every set with no sign of whether anybody had
+              -- looked: fans could see views and likes on each one and the
+              -- artist could not. And the fit check votes were added to the
+              -- upload queue by mistake, so a published fit check — the only
+              -- kind anybody votes on — showed no tally at all.
+              (SELECT count(*)::int FROM item_views v
+                 JOIN set_items i ON i.id = v.item_id WHERE i.set_id = s.id)       AS view_count,
+              (SELECT count(*)::int FROM item_likes l
+                 JOIN set_items i ON i.id = l.item_id WHERE i.set_id = s.id)       AS like_count,
+              (SELECT count(*) FILTER (WHERE verdict = 'keep')::int
+                 FROM fit_votes fv WHERE fv.set_id = s.id)                        AS fit_keep,
+              (SELECT count(*) FILTER (WHERE verdict = 'return')::int
+                 FROM fit_votes fv WHERE fv.set_id = s.id)                        AS fit_return
        FROM sets s
        WHERE s.is_collection = $1
          -- Only what has been through review.

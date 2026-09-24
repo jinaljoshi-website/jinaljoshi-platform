@@ -1867,21 +1867,39 @@ export function Content({ openWith, collection = false, upload = false }) {
                         // The votes were recorded and never shown, so the one
                         // question a fit check exists to answer had no answer
                         // on the screen that manages it. */}
-                    {set.category === 'fit_check' && (set.fitKeep > 0 || set.fitReturn > 0) && (
-                      <div style={S.rowSub}>
-                        <span style={{ color: '#8FC88F' }}>{set.fitKeep} slaying it</span>
-                        {' · '}
-                        <span style={{ color: '#D99A9A' }}>{set.fitReturn} could be better</span>
-                        {(() => {
-                          const total = set.fitKeep + set.fitReturn;
-                          const pct = Math.round((set.fitKeep / total) * 100);
-                          return <span style={{ color: colors.muted }}>{` · ${pct}% in favour of ${total}`}</span>;
-                        })()}
-                      </div>
-                    )}
-                    {set.category === 'fit_check' && !set.fitKeep && !set.fitReturn && (
-                      <div style={{ ...S.rowSub, opacity: 0.6 }}>No votes yet</div>
-                    )}
+                    {/* What fans made of it — the same numbers fans see.
+                        //
+                        // Fans could see views and likes on every set and the
+                        // artist could not. Both names are read because the
+                        // gallery and the upload queue return them differently. */}
+                    {(() => {
+                      const views = Number(set.view_count ?? set.viewCount ?? 0);
+                      const likes = Number(set.like_count ?? set.likeCount ?? 0);
+                      const keep  = Number(set.fit_keep ?? set.fitKeep ?? 0);
+                      const ret   = Number(set.fit_return ?? set.fitReturn ?? 0);
+                      const votes = keep + ret;
+                      if (!views && !likes && !votes && set.category !== 'fit_check') return null;
+                      return (
+                        <div style={{ ...S.rowSub, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                          {views > 0 && <span>👁 {views.toLocaleString('en-IN')}</span>}
+                          {likes > 0 && <span style={{ color: '#E4A0A0' }}>♥ {likes.toLocaleString('en-IN')}</span>}
+                          {set.category === 'fit_check' && (
+                            votes > 0 ? (
+                              <span>
+                                <span style={{ color: '#8FC88F' }}>{keep} slaying it</span>
+                                {' · '}
+                                <span style={{ color: '#D99A9A' }}>{ret} could be better</span>
+                                <span style={{ color: colors.muted }}>
+                                  {` · ${Math.round((keep / votes) * 100)}% of ${votes}`}
+                                </span>
+                              </span>
+                            ) : (
+                              <span style={{ opacity: 0.6 }}>No votes yet</span>
+                            )
+                          )}
+                        </div>
+                      );
+                    })()}
                     {/* What this one is waiting on, beside the set it describes
                         rather than in a list of eighty-six above it. */}
                     {upload && (

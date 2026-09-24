@@ -930,6 +930,13 @@ export function Messages({ openWith }) {
                     {fan && !isMobile && (
                       <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: colors.muted }}>
                         {quota ? quota.purchasedBalance : fan.coin_balance} tokens
+                        {/* All three pots, because all three can be spent here.
+                            Bonus tokens were credited and invisible, so a member
+                            who had been given some looked short of what they
+                            actually had. */}
+                        {(quota?.bonusBalance ?? fan.bonus_balance) > 0 && (
+                          <span style={{ color: '#D9A45C' }}> + {quota?.bonusBalance ?? fan.bonus_balance} bonus</span>
+                        )}
                         {quota?.giftedBalance > 0 && (
                           <span style={{ color: '#8FC88F' }}> + {quota.giftedBalance} gifted</span>
                         )}
