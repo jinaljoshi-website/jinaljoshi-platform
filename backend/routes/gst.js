@@ -60,7 +60,22 @@ const canonicalPlace = (p) => (p && GST_PLACES.has(p.trim()) ? p.trim() : 'Other
 function monthBounds(year, month) {
   const from = new Date(Date.UTC(year, month - 1, 1, -5, -30));
   const to   = new Date(Date.UTC(year, month,     1, -5, -30));
-  return { from, to };
+
+  // And the same month as plain dates, for the columns that are plain dates.
+  //
+  // issued_invoices.invoice_date is a DATE. The driver sends these bounds as
+  // untyped strings and Postgres infers their type from the column, so a
+  // timestamp of 2026-09-30T18:30:00Z was truncated to the date 2026-09-30 —
+  // turning "up to midnight on the 30th, Indian time" into "before the 30th".
+  //
+  // Every invoice dated the last day of a month therefore failed the test and
+  // landed in the next month's return. It was invisible because it still
+  // appeared somewhere, just not where anybody looked.
+  const pad = (n) => String(n).padStart(2, '0');
+  const fromDate = `${year}-${pad(month)}-01`;
+  const toDate   = month === 12 ? `${year + 1}-01-01` : `${year}-${pad(month + 1)}-01`;
+
+  return { from, to, fromDate, toDate };
 }
 
 // ─────────────────────────────────────────────
@@ -128,7 +143,7 @@ router.get('/month', async (req, res) => {
   // listed individually; everything else is summarised.
   const B2CL_FROM = parseInt(process.env.GST_B2CL_THRESHOLD_INR, 10) || 100000;
 
-  const { from, to } = monthBounds(year, month);
+  const { from, to, fromDate, toDate } = monthBounds(year, month);
 
   try {
     // Table 5 — B2C Large. Interstate, above the threshold, one row each.
@@ -172,12 +187,12 @@ router.get('/month', async (req, res) => {
               (SELECT COALESCE(SUM(r.amount_credited_inr), 0)
                  FROM invoice_receipts r WHERE r.invoice_id = i.id) AS realised_inr
          FROM issued_invoices i
-        WHERE invoice_date >= $1 AND invoice_date < $2
+        WHERE invoice_date >= $1::date AND invoice_date < $2::date
           AND is_export = TRUE
           -- A cancelled invoice keeps its number and stays out of the return.
           AND voided_at IS NULL
         ORDER BY invoice_number`,
-      [from, to]
+      [fromDate, toDate]
     ).catch(() => ({ rows: [] }));
 
     const { rows: exports6a } = await pool.query(
@@ -309,11 +324,11 @@ router.get('/month', async (req, res) => {
               COALESCE(total_inr, total_amount)     AS gross,
               currency
          FROM issued_invoices
-        WHERE invoice_date >= $1 AND invoice_date < $2
+        WHERE invoice_date >= $1::date AND invoice_date < $2::date
           AND is_export = FALSE
           AND voided_at IS NULL
         ORDER BY invoice_number`,
-      [from, to]
+      [fromDate, toDate]
     ).catch(() => ({ rows: [] }));
 
     res.json({
@@ -353,7 +368,7 @@ router.get('/invoices.csv', async (req, res) => {
   const month = parseInt(req.query.month, 10);
   if (!year || !month) return res.status(400).json({ error: 'Give a year and a month' });
 
-  const { from, to } = monthBounds(year, month);
+  const { from, to, fromDate, toDate } = monthBounds(year, month);
 
   try {
     const { rows } = await pool.query(
