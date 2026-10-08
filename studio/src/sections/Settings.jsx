@@ -1,5 +1,5 @@
 // studio/src/sections/Settings.jsx
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { T, S, Card, Eyebrow, Field, TokenField, colors } from '../ui';
 import CropTool from '../components/CropTool';
@@ -560,15 +560,44 @@ function GallerySection({ draft, set, config, setConfig }) {
     'tier_open_band3_until', 'tier_open_band3_cost',
   ];
 
-  const n = (k, d) => {
+  // null, not a default. A blank field is a real problem that needs saying out
+  // loud, and substituting 15 for it is how it stays invisible.
+  const n = (k) => {
     const v = parseInt(draft[k], 10);
-    return Number.isNaN(v) ? d : v;
+    return Number.isNaN(v) ? null : v;
   };
-  const cap   = n('tier_open_cap_premium', 15);
-  const b2To  = n('tier_open_band2_until', 30);
-  const b2    = n('tier_open_band2_cost', 1);
-  const b3To  = n('tier_open_band3_until', 50);
-  const b3    = n('tier_open_band3_cost', 3);
+  const caps  = Object.fromEntries(TIERS.map((t) => [t, n(`tier_open_cap_${t}`)]));
+  const b2To  = n('tier_open_band2_until');
+  const b2    = n('tier_open_band2_cost');
+  const b3To  = n('tier_open_band3_until');
+  const b3    = n('tier_open_band3_cost');
+
+  const bandsReady  = [b2To, b2, b3To, b3].every((v) => v !== null);
+  const missingCaps = TIERS.filter((t) => caps[t] === null);
+
+  // The bands are absolute set numbers shared by every tier — they are not
+  // measured from each tier's cap. A tier only decides where "included" stops.
+  // This panel used to show a single row built from the Premium cap with no
+  // tier named on it, which is how you end up reading Premium's ladder and
+  // thinking it is Community's.
+  const rowFor = (cap) => {
+    if (cap === null || !bandsReady) return null;
+    if (cap === 0) return { included: 'everything', band2: '—', band3: '—', beyond: '—' };
+    const thirdFrom  = Math.max(cap, b2To) + 1;
+    const beyondFrom = Math.max(cap, b2To, b3To) + 1;
+    return {
+      included: `1–${cap}`,
+      band2:  cap < b2To        ? `${cap + 1}–${b2To}` : '—',
+      band3:  thirdFrom <= b3To ? `${thirdFrom}–${b3To}` : '—',
+      beyond: `${beyondFrom}+`,
+    };
+  };
+
+  const grid4   = { display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr 1fr 1fr', gap: '6px 10px', alignItems: 'baseline' };
+  const headCell = { fontFamily: mono, fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#6F675E' };
+  const tierCell = { fontFamily: sans, fontSize: 12, color: colors.text };
+  const valCell  = { fontFamily: mono, fontSize: 12, color: '#9B8F83' };
+  const warnText = { fontFamily: sans, fontSize: 12, color: '#D99A9A', lineHeight: 1.6, marginTop: 10 };
 
   return (
     <div>
@@ -588,6 +617,15 @@ function GallerySection({ draft, set, config, setConfig }) {
             </Field>
           ))}
         </div>
+        {missingCaps.length > 0 && (
+          <p style={warnText}>
+            No cap set for {missingCaps.join(', ')}. Leave it blank and the backend cannot tell
+            "unlimited" from "not configured" — it now charges full price rather than guessing,
+            so members at {missingCaps.length === 1 ? 'that tier' : 'those tiers'} would be
+            billed for sets their membership is meant to include. Enter a number, or 0 for
+            no limit.
+          </p>
+        )}
       </Card>
 
       <Card style={{ marginBottom: 20 }}>
@@ -616,24 +654,59 @@ function GallerySection({ draft, set, config, setConfig }) {
           </Field>
         </div>
 
-        {/* Worked out rather than described. Four numbers do not read as a
-            ladder until you see what somebody actually pays at each step. */}
+        {/* Worked out rather than described, and worked out for every tier.
+            Four numbers do not read as a ladder until you see what somebody
+            actually pays at each step \u2014 and which somebody. */}
         <div style={ladderBox}>
-          <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
-            What a member pays
+          <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
+            Which sets cost what, by tier
           </div>
-          {[
-            [`Sets 1 to ${cap}`, 'included'],
-            [`Sets ${cap + 1} to ${b2To}`, `${b2} token${b2 === 1 ? '' : 's'} each`],
-            [`Sets ${b2To + 1} to ${b3To}`, `${b3} token${b3 === 1 ? '' : 's'} each`],
-            [`Beyond ${b3To}`, 'the set\u2019s own price'],
-          ].map(([band, cost]) => (
-            <div key={band} style={ladderRow}>
-              <span style={{ color: colors.text }}>{band}</span>
-              <span>{cost}</span>
+
+          {bandsReady ? (
+            <div style={grid4}>
+              <span style={headCell} />
+              <span style={headCell}>Included</span>
+              <span style={headCell}>{b2} token{b2 === 1 ? '' : 's'}</span>
+              <span style={headCell}>{b3} token{b3 === 1 ? '' : 's'}</span>
+              <span style={headCell}>Own price</span>
+
+              {TIERS.map((tier) => {
+                const r = rowFor(caps[tier]);
+                const name = tier.charAt(0).toUpperCase() + tier.slice(1);
+                return (
+                  <Fragment key={tier}>
+                    <span style={tierCell}>{name}</span>
+                    {r ? (
+                      <>
+                        <span style={valCell}>{r.included}</span>
+                        <span style={valCell}>{r.band2}</span>
+                        <span style={valCell}>{r.band3}</span>
+                        <span style={valCell}>{r.beyond}</span>
+                      </>
+                    ) : (
+                      <span style={{ ...valCell, color: '#D99A9A', gridColumn: 'span 4' }}>cap not set</span>
+                    )}
+                  </Fragment>
+                );
+              })}
             </div>
-          ))}
-          <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 10, lineHeight: 1.6 }}>
+          ) : (
+            <div style={{ fontFamily: sans, fontSize: 12, color: '#D99A9A', lineHeight: 1.6 }}>
+              Fill in all four band numbers above to see what each tier pays.
+            </div>
+          )}
+
+          {bandsReady && b3To <= b2To && (
+            <p style={warnText}>
+              The third band ends at {b3To}, on or before the second ends at {b2To}, so the
+              {' '}{b3}-token step never applies \u2014 a member goes straight from {b2} token to the
+              set's own price.
+            </p>
+          )}
+
+          <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 12, lineHeight: 1.6 }}>
+            The bands are the same set numbers for everyone. A tier only decides where
+            "included" stops \u2014 so a higher tier always pays less, never more, for the same set.
             Resets on each member's own renewal date, not the 1st.
           </div>
         </div>

@@ -78,18 +78,65 @@ function isEffectivelyUnlocked(grantType, membershipCurrentlyActive) {
   return true;
 }
 
+// Reads one ladder number, treating "missing" and "unreadable" the same way.
+//
+// getConfigNumber does not throw for these keys — they are not in
+// REQUIRED_PRICING — it returns undefined, so the .catch() that used to guard
+// these reads never fired. The fallback has to happen here instead.
+async function ladderNumber(key, fallback) {
+  try {
+    const v = await getConfigNumber(key);
+    return Number.isFinite(v) ? v : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+// The per-tier cap, or null when it cannot be read. Null is deliberately not
+// zero: zero means "deliberately uncapped" and null means "we do not know",
+// and those two must never collapse into each other — see nextOpenCost.
+async function readOpenCap(userTier) {
+  const key = `tier_open_cap_${userTier}`;
+  const cap = await ladderNumber(key, null);
+  if (cap === null) console.error(`gallery: ${key} is missing or unreadable — charging full price for sets at this tier`);
+  return cap;
+}
+
+// Every ladder number in one go, in the shape nextOpenCost expects.
+async function readBands(userTier, { isGuest = false } = {}) {
+  const [openCap, band2Until, band2Cost, band3Until, band3Cost] = await Promise.all([
+    isGuest ? 0 : readOpenCap(userTier),
+    ladderNumber('tier_open_band2_until', 30),
+    ladderNumber('tier_open_band2_cost',   1),
+    ladderNumber('tier_open_band3_until', 50),
+    ladderNumber('tier_open_band3_cost',   3),
+  ]);
+  return { openCap, band2Until, band2Cost, band3Until, band3Cost };
+}
+
 // What the next set at your own level costs, given how many you have already
 // opened this period. A ladder rather than a cliff: generous where nearly
 // everybody is, a little where somebody is reading a lot, and full price only
 // where the membership has plainly stopped being a membership.
 //
 // A cap of 0 means uncapped, which is how a tier is exempted entirely.
+//
+// The guard on the first line matters more than it looks. This used to open
+// with `if (!openCap) return 0`, and a cap that was missing from
+// platform_config arrives here as undefined, which is falsy — so a missing
+// config key did not fail, it handed every member in that tier the entire
+// gallery for nothing, silently and indefinitely. "Not known" now costs full
+// price: a member querying a charge is recoverable, a library given away is
+// not.
 function nextOpenCost(opened, bands, fullTierPrice) {
   const { openCap, band2Until, band2Cost, band3Until, band3Cost } = bands;
-  if (!openCap)                 return 0;              // uncapped
-  if (opened < openCap)         return 0;              // included
-  if (opened < band2Until)      return band2Cost;
-  if (opened < band3Until)      return band3Cost;
+
+  if (!Number.isFinite(openCap)) return fullTierPrice;   // cap unknown
+  if (openCap === 0)             return 0;               // deliberately uncapped
+  if (opened < openCap)          return 0;               // included
+
+  if (Number.isFinite(band2Until) && Number.isFinite(band2Cost) && opened < band2Until) return band2Cost;
+  if (Number.isFinite(band3Until) && Number.isFinite(band3Cost) && opened < band3Until) return band3Cost;
   return fullTierPrice;                                 // no longer a membership
 }
 
@@ -315,14 +362,8 @@ router.get('/sets', authMid, async (req, res) => {
     // is a ceiling high enough that no ordinary month reaches it, and low
     // enough that a single month cannot be used to take the whole library.
     const monthKey = getAllotmentPeriodKey(user.membership_started_at);
-    const [openCap, band2Until, band2Cost, band3Until, band3Cost] = await Promise.all([
-      isGuest ? 0 : getConfigNumber(`tier_open_cap_${userTier}`).catch(() => 0),
-      getConfigNumber('tier_open_band2_until').catch(() => 30),
-      getConfigNumber('tier_open_band2_cost').catch(() => 1),
-      getConfigNumber('tier_open_band3_until').catch(() => 50),
-      getConfigNumber('tier_open_band3_cost').catch(() => 3),
-    ]);
-    const bands = { openCap, band2Until, band2Cost, band3Until, band3Cost };
+    const bands = await readBands(userTier, { isGuest });
+    const { openCap, band2Until, band2Cost, band3Until, band3Cost } = bands;
 
     let opensUsed = 0;
     if (!isGuest) {
@@ -643,14 +684,7 @@ router.post('/unlock', authMid, async (req, res) => {
     // zero every time: the gallery quoted a token and the unlock took nothing.
     // Every set opened past the monthly allowance has been free.
     const monthKeyForCap = getAllotmentPeriodKey(user.membership_started_at);
-    const [openCap, band2Until, band2Cost, band3Until, band3Cost] = await Promise.all([
-      isGuest ? 0 : getConfigNumber(`tier_open_cap_${userTier}`).catch(() => 0),
-      getConfigNumber('tier_open_band2_until').catch(() => 30),
-      getConfigNumber('tier_open_band2_cost').catch(() => 1),
-      getConfigNumber('tier_open_band3_until').catch(() => 50),
-      getConfigNumber('tier_open_band3_cost').catch(() => 3),
-    ]);
-    const bandsForCap = { openCap, band2Until, band2Cost, band3Until, band3Cost };
+    const bandsForCap = await readBands(userTier, { isGuest });
 
     const { rows: capRows } = await client.query(
       `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2`,
@@ -691,13 +725,7 @@ router.post('/unlock', authMid, async (req, res) => {
     // separately and has nothing to do with the allowance.
     if (scope === 'tier' && segments.tierPortionCount > 0 && !isGuest) {
       const monthKey = getAllotmentPeriodKey(user.membership_started_at);
-      const [openCap, band2Until, band2Cost, band3Until, band3Cost] = await Promise.all([
-        getConfigNumber(`tier_open_cap_${userTier}`).catch(() => 0),
-        getConfigNumber('tier_open_band2_until').catch(() => 30),
-        getConfigNumber('tier_open_band2_cost').catch(() => 1),
-        getConfigNumber('tier_open_band3_until').catch(() => 50),
-        getConfigNumber('tier_open_band3_cost').catch(() => 3),
-      ]);
+      const chargeBands = await readBands(userTier);
 
       const { rows: allotRows } = await client.query(
         `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2 FOR UPDATE`,
@@ -707,8 +735,7 @@ router.post('/unlock', authMid, async (req, res) => {
 
       // Recomputed here rather than trusting what the gallery sent, so the
       // charge cannot be influenced by a stale page.
-      price = nextOpenCost(used, { openCap, band2Until, band2Cost, band3Until, band3Cost },
-                           segments.tierFullPrice);
+      price = nextOpenCost(used, chargeBands, segments.tierFullPrice);
       useCredit = price === 0;
 
       // Recorded either way — what it cost does not change the fact that they
