@@ -89,15 +89,24 @@ function SetComposition({ composition }) {
 
   const photos = Object.values(byCategory).reduce((n, c) => n + c.photos, 0);
   const videos = Object.values(byCategory).reduce((n, c) => n + c.videos, 0);
+
+  // "Includes", because the number underneath it is a total and the row below
+  // is a breakdown of that total. A bare "49 items" sitting above five more
+  // numbers reads as a sixth number rather than the sum of them.
+  //
+  // Both forms count the same total. Splitting it into photographs and video
+  // instead would quietly exclude purchase-only and unsorted items, which are
+  // in the total but have no media type recorded — so the headline would stop
+  // agreeing with the chips beneath it.
   const totalLabel = videos > 0
-    ? `${photos} ${photos === 1 ? 'photo' : 'photos'} · ${videos} ${videos === 1 ? 'video' : 'videos'}`
-    : `${total} ${total === 1 ? 'item' : 'items'}`;
+    ? `Includes ${total} items, ${videos} of them ${videos === 1 ? 'video' : 'video'}`
+    : `Includes ${total} ${total === 1 ? 'item' : 'items'}`;
 
   return (
-    <div style={{ margin: '0 0 16px' }}>
+    <div style={{ margin: '18px 0 16px' }}>
       <div style={{ fontFamily: F.mono, fontSize: 11, color: C.muted, letterSpacing: '0.06em' }}>
         {totalLabel}
-        {single && <> · all {parts[0][0].toLowerCase()}</>}
+        {single && <>, all {parts[0][0].toLowerCase()}</>}
       </div>
       {!single && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 8px', marginTop: 8 }}>
@@ -469,20 +478,17 @@ export default function Gallery() {
           </div>
         </div>
 
-        {openSet.photographer && (
-          <div style={{ fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.08em', marginBottom: 12 }}>
-            Photographed by {openSet.photographer}
-          </div>
-        )}
+        {/* Title, then what the set has drawn, then her words about it, then
+            what is in it. The inventory had worked its way in between the
+            title and the caption, so the first thing under the name of a set
+            was an audit of it rather than the line she wrote. */}
 
-        {/* What the set has drawn.
-            //
-            // Both counts are per photograph, so they can sit beside each other
-            // and mean something together. Shown only once there is something
-            // to show: a set announcing nought views has been seen by the one
-            // person reading it, which is a strange thing to tell them. */}
+        {/* Both counts are per photograph, so they can sit beside each other
+            and mean something together. Shown only once there is something to
+            show: a set announcing nought views has been seen by the one person
+            reading it, which is a strange thing to tell them. */}
         {(setViews > 0 || setLikes > 0) && (
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 14,
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 10,
                         fontFamily: F.mono, fontSize: 11, color: C.muted, letterSpacing: '0.06em' }}>
             {setViews > 0 && <span>{setViews.toLocaleString('en-IN')} {setViews === 1 ? 'view' : 'views'}</span>}
             {setLikes > 0 && (
@@ -492,6 +498,15 @@ export default function Gallery() {
             )}
           </div>
         )}
+
+        {openSet.photographer && (
+          <div style={{ fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.08em', marginBottom: 12 }}>
+            Photographed by {openSet.photographer}
+          </div>
+        )}
+
+        <Clamped text={openSet.description} lines={3}
+                 style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.7, maxWidth: 600 }} />
 
         {/* What the set is made of.
             //
@@ -503,9 +518,6 @@ export default function Gallery() {
             // contain are left out entirely — a row of zeroes reads as
             // something withheld. */}
         <SetComposition composition={openSet.composition} />
-
-        <Clamped text={openSet.description} lines={3}
-                 style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.7, maxWidth: 600 }} />
 
         {/* The verdict on something newly bought.
             //
