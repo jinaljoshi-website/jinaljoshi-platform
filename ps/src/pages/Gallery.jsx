@@ -63,12 +63,24 @@ const COMPOSITION_ORDER = [
 
 function SetComposition({ composition }) {
   if (!composition) return null;
-  const { byCategory = {}, purchaseOnly = 0, unsorted = 0, total = 0 } = composition;
+  const { byCategory = {}, opensByTier = {}, purchaseOnly = 0, unsorted = 0, total = 0 } = composition;
   if (!total) return null;
 
+  // Cumulative, not per-level. "Community 9" answers the only question a fan
+  // has — how much of this set would I see — where a per-level count answers
+  // how Jinal graded it, which is Studio's question, not theirs. Each level
+  // therefore includes everything below it.
+  //
+  // A level still only appears if the set actually contains something at it.
+  // Otherwise a set graded no higher than Community would print the same
+  // number three times over for Insider, Premium and Supreme.
   const parts = COMPOSITION_ORDER
     .filter(([key]) => (byCategory[key]?.total || 0) > 0)
-    .map(([key, label]) => [label, byCategory[key].total]);
+    .map(([key, label]) => [label, key === 'free' ? byCategory.free.total : (opensByTier[key] || 0)]);
+
+  // Neither of these is a level, so neither accumulates. Purchase-only items
+  // sit outside membership at every tier, which is why the top level can read
+  // lower than the total.
   if (purchaseOnly > 0) parts.push(['Purchase only', purchaseOnly]);
   if (unsorted > 0)     parts.push(['Not yet sorted', unsorted]);
 
