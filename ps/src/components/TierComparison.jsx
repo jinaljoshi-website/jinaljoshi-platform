@@ -101,7 +101,11 @@ export default function TierComparison({
                 <div style={{ ...tierName, color: TIERS[tierId]?.color || C.accent }}>
                   {TIERS[tierId]?.name || tierId}
                 </div>
-                <div style={tierBlurb}>{tierDescription(tierId)}</div>
+                {/* tierDescription returns { line, sub }, not a string. Rendering
+                    the object itself threw "Objects are not valid as a React
+                    child" and took the whole Membership page blank. The short
+                    line is the one that belongs in a column this narrow. */}
+                <div style={tierBlurb}>{tierDescription(tierId)?.line || ''}</div>
 
                 <div style={priceBlock}>
                   <div style={priceTokens}>{cost === null ? '—' : `${cost} tokens`}</div>

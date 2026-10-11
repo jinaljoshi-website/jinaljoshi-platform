@@ -103,15 +103,18 @@ function SetComposition({ composition }) {
   );
 }
 
-// The line on the second button.
-//
-// The cheapest membership that opens more of THIS set than the reader has
-// now, and how much of it that would be. Not "free with a membership": that
-// is only true while the monthly allowance lasts, and only for a tier high
-// enough to cover the set. A count and a price are both true all the time.
 const PAID_TIERS = ['community', 'insider', 'premium', 'supreme'];
 
-function membershipPitch(set, userTier) {
+// Which membership opens this set outright, and what the cheaper ones get.
+//
+// The button says one thing — "free access with membership" — and the
+// asterisk carries the rest, because the condition is real: a membership
+// only covers a set up to its own level, and only while the month's
+// allowance lasts. Counting on the button itself ("9 of these 49") made a
+// reader do arithmetic and reach the wrong conclusion about a membership
+// that would in fact open everything at its own level across the whole
+// gallery.
+function membershipTerms(set, userTier) {
   const comp = set?.composition;
   if (!comp?.opensByTier) return null;
   const total = comp.total || 0;
@@ -122,22 +125,35 @@ function membershipPitch(set, userTier) {
     ? (comp.opensByTier[userTier] || 0)
     : (comp.byCategory?.free?.total || 0);
 
-  let best = null;
+  // The cheapest tier that covers the whole set, and the cheapest that opens
+  // any more of it than they have now. Usually different, and the gap is what
+  // the asterisk is for.
+  let covers = null, cheapest = null;
   for (const t of PAID_TIERS) {
     const opens = comp.opensByTier[t] || 0;
-    if (opens <= nowOpen) continue;            // buys them nothing here
-    const cost = cfgNum(`${t}_monthly_cost`);
+    const cost  = cfgNum(`${t}_monthly_cost`);
     if (cost === null) continue;
-    if (!best || cost < best.cost) best = { tier: t, cost, opens };
+    if (opens >= total && (!covers || cost < covers.cost)) covers = { tier: t, cost, opens };
+    if (opens > nowOpen && (!cheapest || cost < cheapest.cost)) cheapest = { tier: t, cost, opens };
   }
-  if (!best) return null;
+  if (!covers && !cheapest) return null;
 
-  const rate  = cfgNum('token_rate_inr');
-  const price = rate !== null ? `${money(best.cost * rate)} a month` : `${best.cost} tokens a month`;
+  const name = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 
-  return best.opens >= total
-    ? `Members see all ${total} — from ${price}`
-    : `Members see ${best.opens} of these ${total} — from ${price}`;
+  // No price here on purpose. Quoting the tier that covers a top-heavy set
+  // puts the largest number on the platform back on the lock screen, which is
+  // the thing this panel was changed to stop doing. The condition belongs
+  // here; the prices belong in the table a tap away, next to what they buy.
+  let note;
+  if (covers && cheapest && covers.tier !== cheapest.tier) {
+    note = `Sets open free up to your own level, within your monthly allowance. This one opens in full with ${name(covers.tier)}.`;
+  } else if (covers) {
+    note = `Free with ${name(covers.tier)} and above, within your monthly allowance.`;
+  } else {
+    note = `No membership opens all of this set — ${name(cheapest.tier)} and above open ${cheapest.opens} of the ${total}.`;
+  }
+
+  return { note, covers, cheapest };
 }
 
 function FitResult({ keep, ret, yours }) {
@@ -677,11 +693,26 @@ export default function Gallery() {
                       // anything, and says what the cheapest membership would
                       // actually open rather than promising "free", which is
                       // only true until the monthly allowance runs out. */}
-                  {offer && (
-                    <button onClick={() => !busy && setShowMemberships(true)} disabled={busy} style={lockedSecondary}>
-                      {membershipPitch(openSet, data?.userTier) || 'See membership options'}
-                    </button>
-                  )}
+                  {offer && (() => {
+                    const terms = membershipTerms(openSet, data?.userTier);
+                    return (
+                      <>
+                        <button onClick={() => !busy && setShowMemberships(true)} disabled={busy} style={lockedSecondary}>
+                          Get free access with membership* (See Details)
+                        </button>
+                        {/* The asterisk has to resolve to something, or it is
+                            decoration on a promise. This is the condition, in
+                            one line, before anybody spends anything. */}
+                        {terms && (
+                          <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted,
+                                        lineHeight: 1.6, marginTop: 2, maxWidth: 440,
+                                        marginLeft: 'auto', marginRight: 'auto' }}>
+                            *{terms.note}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
 
                   {/* Their tier already covers this set and the month's
                       allowance is simply spent. No upgrade is worth suggesting
@@ -760,9 +791,8 @@ export default function Gallery() {
           open={showMemberships}
           onClose={() => setShowMemberships(false)}
           heading="Memberships"
-          subheading={membershipPitch(openSet, data?.userTier)
-            ? `${membershipPitch(openSet, data?.userTier)}. Everything at your own level opens without spending tokens.`
-            : 'Everything at your own level opens without spending tokens.'}
+          subheading={membershipTerms(openSet, data?.userTier)?.note
+            || 'Everything at your own level opens without spending tokens.'}
           onChanged={async () => {
             if (openSet) await refreshOpenSet(openSet.id);
             setShowMemberships(false);
