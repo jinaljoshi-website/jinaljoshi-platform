@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { C, F } from '../tokens';
-import { tierPerks, tierDescription, MEMBERSHIP_NOTES, cfgNum, money } from '../data';
+import { tierPerks, tierDescription, MEMBERSHIP_NOTES, cfgNum, money,
+         termMultiplier, termMonths, termSaving } from '../data';
 import { WonderCoin, WonderCoinAmount } from '../components/WonderCoin';
 import { api } from '../api';
 import TopUpModal from '../components/TopUpModal';
+import TierComparison from '../components/TierComparison';
 
 
 const TIER_ORDER = ['community', 'insider', 'premium', 'supreme'];
@@ -54,25 +56,9 @@ const TIER_META = {
 
 
 // Billing months are Studio-configurable — see Settings → Pricing & Discounts.
-function termMultiplier(termId) {
-  if (termId === 'quarterly') return cfgNum('quarterly_billing_months');
-  if (termId === 'annual')    return cfgNum('annual_billing_months');
-  return 1;
-}
-
-// "Save 17%" style labels derived from the same numbers, never written by hand.
-function termSaving(termId) {
-  const charged = termMultiplier(termId);
-  const months  = termMonths(termId);
-  if (charged === null || months <= 1) return null;
-  return `Save ${Math.round((1 - charged / months) * 100)}%`;
-}
-
-function termMonths(termId) {
-  if (termId === 'quarterly') return 3;
-  if (termId === 'annual')    return 12;
-  return 1;
-}
+// termMultiplier, termMonths and termSaving now live in data.js, because the
+// comparison table sells a membership too and a second copy of a multiplier is
+// how one screen comes to quote a saving the server does not give.
 
 export default function Membership() {
   const [selectedTerm,  setSelectedTerm]  = useState('monthly');
@@ -213,18 +199,25 @@ export default function Membership() {
       {error   && <div style={{ ...errorBox,   display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}><span>{error}</span></div>}
       {success && <div style={successBox}>{success}</div>}
 
-      {/* Term selector */}
-      <div style={termSelector}>
-        {[
-          { id: 'monthly',   label: 'Monthly',   saving: null },
-          { id: 'quarterly', label: 'Quarterly', saving: termSaving('quarterly') },
-          { id: 'annual',    label: 'Annual',    saving: termSaving('annual') },
-        ].map((t) => (
-          <button key={t.id} onClick={() => setSelectedTerm(t.id)} style={{ ...termBtn, background: selectedTerm === t.id ? C.accent : 'transparent', color: selectedTerm === t.id ? '#1A1714' : C.muted, border: selectedTerm === t.id ? 'none' : `1px solid ${C.border}` }}>
-            {t.label}
-            {t.saving && <span style={savingBadge}>{t.saving}</span>}
-          </button>
-        ))}
+      {/* All four at once, before the cards.
+          //
+          // The cards below are the long read — who each tier is for, in her
+          // own words. This is the short one: the same values in rows, so a
+          // reader compares by looking rather than by remembering. Both are
+          // built from tierEconomics(), so neither can drift from the other.
+          //
+          // Its term selector is the page's only one — the cards underneath
+          // follow the same choice. */}
+      <div style={{ marginBottom: 28 }}>
+        <TierComparison
+          currentTierId={currentTierId}
+          isActive={isActive}
+          term={selectedTerm}
+          onTermChange={setSelectedTerm}
+          onChoose={(tierId) => (isActive ? handleUpgrade(tierId) : handlePurchase(tierId))}
+          busyTier={actionLoading}
+          options={status?.options || {}}
+        />
       </div>
 
       {/* Tier cards */}

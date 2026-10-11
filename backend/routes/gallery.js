@@ -52,9 +52,14 @@ function applyDiscount(price, discountPct) {
 // would leave the set still shut is worse than offering nothing.
 //
 // Where somebody already holds the tier and is only paying because the month's
-// allowance is spent, the sole thing that changes that is a tier with no cap.
-function membershipTierFor(items, userTier, tierPriceNow) {
-  const graded = items.filter((i) => i.tier_category !== 'free' && i.tier_category !== 'purchase_only');
+// allowance is spent, no step up is offered at all. It used to offer Supreme,
+// on the reasoning that an uncapped tier is the only thing that removes a cap —
+// true, and a terrible thing to say to somebody looking at a one-token charge.
+// A Premium member who has opened their twenty-five sets was being shown a
+// four-hundred-token upgrade to avoid spending one. The set itself now reports
+// that the allowance is spent, and the screen says so in a sentence instead.
+function membershipTierFor(items, userTier) {
+  const graded = items.filter((i) => i.tier_category !== 'free' && i.tier_category !== 'purchase_only' && TIER_ORDER.includes(i.tier_category));
   if (!graded.length) return null;
 
   const highest = graded
@@ -62,14 +67,48 @@ function membershipTierFor(items, userTier, tierPriceNow) {
     .reduce((a, b) => (TIER_ORDER.indexOf(b) > TIER_ORDER.indexOf(a) ? b : a));
 
   if (TIER_ORDER.indexOf(highest) > TIER_ORDER.indexOf(userTier)) return highest;
-
-  // Already high enough, so this is the allowance running out rather than the
-  // tier being short. Only an uncapped tier answers that.
-  if (tierPriceNow > 0) {
-    const uncapped = 'supreme';
-    if (TIER_ORDER.indexOf(uncapped) > TIER_ORDER.indexOf(userTier)) return uncapped;
-  }
   return null;
+}
+
+// What the set is actually made of, and what each membership would open.
+//
+// Both halves of the same answer. The lock screen used to name one tier — the
+// highest the set contained — and quote its price, so a single Supreme photo
+// among forty-eight made Supreme the only membership a guest ever saw. The
+// breakdown is what makes a cheaper tier arguable: a reader can see that most
+// of the set sits at Community long before they see what Community costs.
+const CATEGORY_ORDER = ['free', 'community', 'insider', 'premium', 'supreme'];
+
+function setComposition(items) {
+  const byCategory = {};
+  let unsorted = 0, purchaseOnly = 0;
+
+  for (const i of items) {
+    const isVideo = i.media_type === 'video';
+    const cat = i.tier_category;
+
+    // A photo with no category is seen by nobody until it is reviewed. It is
+    // still in the set, so it is still counted — otherwise the parts do not
+    // add up to the whole and the header looks broken.
+    if (cat === 'purchase_only') { purchaseOnly++; continue; }
+    if (!CATEGORY_ORDER.includes(cat)) { unsorted++; continue; }
+
+    byCategory[cat] = byCategory[cat] || { photos: 0, videos: 0, total: 0 };
+    byCategory[cat][isVideo ? 'videos' : 'photos']++;
+    byCategory[cat].total++;
+  }
+
+  // How many items a member at each tier would have included. Cumulative:
+  // Premium covers everything at Premium and below. Free counts for everyone.
+  const opensByTier = {};
+  for (const tier of CATEGORY_ORDER) {
+    if (tier === 'free') continue;
+    opensByTier[tier] = CATEGORY_ORDER
+      .slice(0, CATEGORY_ORDER.indexOf(tier) + 1)
+      .reduce((sum, c) => sum + (byCategory[c]?.total || 0), 0);
+  }
+
+  return { byCategory, unsorted, purchaseOnly, opensByTier, total: items.length };
 }
 
 function isEffectivelyUnlocked(grantType, membershipCurrentlyActive) {
@@ -536,10 +575,20 @@ router.get('/sets', authMid, async (req, res) => {
         // purchase-only set, or somebody already on the top tier — and the
         // gallery shows nothing rather than something untrue.
         membershipOffer: (() => {
-          const t = membershipTierFor(items, userTier, segments.tierPrice);
+          const t = membershipTierFor(items, userTier);
           if (!t || !tierOpts[t]) return null;
           return { tier: t, ...tierOpts[t] };
         })(),
+
+        // What the set holds, by category, and how far each tier would get.
+        composition: setComposition(items),
+
+        // Their tier already covers this set; they are paying because the
+        // month's allowance is spent. Distinct from "your tier is too low",
+        // and the two need different sentences on screen.
+        capExhausted: !isGuest && segments.tierPortionCount > 0
+                      && segments.tierPrice > 0
+                      && !membershipTierFor(items, userTier),
 
         tierPrice: segments.tierPrice,
         upsellPrice: segments.upsellPrice,

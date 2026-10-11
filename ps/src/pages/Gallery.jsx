@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { api } from '../api';
+import { cfgNum, money } from '../data';
 import { track } from '../lib/traffic';
 import TopUpModal from '../components/TopUpModal';
+import MembershipSheet from '../components/MembershipSheet';
 import Clamped from '../components/Clamped';
 import Selfies from './Selfies';
 import HowUnlocking from '../components/HowUnlocking';
@@ -43,6 +45,101 @@ function closesIn(at) {
 // A bar rather than two numbers, because the split is the interesting part and
 // a reader should not have to do the arithmetic. The winning side is named in
 // words as well, since a bar alone leaves somebody squinting at which is longer.
+// What a set holds, by level.
+//
+// Only levels that are actually in the set appear. A set with nothing at
+// Supreme does not say "Supreme 0" — a zero reads as something being held
+// back, when the truth is the level simply is not part of this set.
+//
+// Photographs and video are counted separately where both are present, since
+// "48 media" hides that three of them are films.
+const COMPOSITION_ORDER = [
+  ['free',       'Free'],
+  ['community',  'Community'],
+  ['insider',    'Insider'],
+  ['premium',    'Premium'],
+  ['supreme',    'Supreme'],
+];
+
+function SetComposition({ composition }) {
+  if (!composition) return null;
+  const { byCategory = {}, purchaseOnly = 0, unsorted = 0, total = 0 } = composition;
+  if (!total) return null;
+
+  const parts = COMPOSITION_ORDER
+    .filter(([key]) => (byCategory[key]?.total || 0) > 0)
+    .map(([key, label]) => [label, byCategory[key].total]);
+  if (purchaseOnly > 0) parts.push(['Purchase only', purchaseOnly]);
+  if (unsorted > 0)     parts.push(['Not yet sorted', unsorted]);
+
+  // One level and nothing else is a sentence, not a table.
+  const single = parts.length === 1;
+
+  const photos = Object.values(byCategory).reduce((n, c) => n + c.photos, 0);
+  const videos = Object.values(byCategory).reduce((n, c) => n + c.videos, 0);
+  const totalLabel = videos > 0
+    ? `${photos} ${photos === 1 ? 'photo' : 'photos'} · ${videos} ${videos === 1 ? 'video' : 'videos'}`
+    : `${total} ${total === 1 ? 'item' : 'items'}`;
+
+  return (
+    <div style={{ margin: '0 0 16px' }}>
+      <div style={{ fontFamily: F.mono, fontSize: 11, color: C.muted, letterSpacing: '0.06em' }}>
+        {totalLabel}
+        {single && <> · all {parts[0][0].toLowerCase()}</>}
+      </div>
+      {!single && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 8px', marginTop: 8 }}>
+          {parts.map(([label, n]) => (
+            <span key={label}
+                  style={{ fontFamily: F.sans, fontSize: 12, color: C.muted,
+                           border: `1px solid ${C.border}`, borderRadius: 999,
+                           padding: '4px 11px', whiteSpace: 'nowrap' }}>
+              {label} <strong style={{ color: C.text, fontWeight: 500 }}>{n}</strong>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The line on the second button.
+//
+// The cheapest membership that opens more of THIS set than the reader has
+// now, and how much of it that would be. Not "free with a membership": that
+// is only true while the monthly allowance lasts, and only for a tier high
+// enough to cover the set. A count and a price are both true all the time.
+const PAID_TIERS = ['community', 'insider', 'premium', 'supreme'];
+
+function membershipPitch(set, userTier) {
+  const comp = set?.composition;
+  if (!comp?.opensByTier) return null;
+  const total = comp.total || 0;
+  if (!total) return null;
+
+  // What they can already see of this set without paying anything.
+  const nowOpen = PAID_TIERS.includes(userTier)
+    ? (comp.opensByTier[userTier] || 0)
+    : (comp.byCategory?.free?.total || 0);
+
+  let best = null;
+  for (const t of PAID_TIERS) {
+    const opens = comp.opensByTier[t] || 0;
+    if (opens <= nowOpen) continue;            // buys them nothing here
+    const cost = cfgNum(`${t}_monthly_cost`);
+    if (cost === null) continue;
+    if (!best || cost < best.cost) best = { tier: t, cost, opens };
+  }
+  if (!best) return null;
+
+  const rate  = cfgNum('token_rate_inr');
+  const price = rate !== null ? `${money(best.cost * rate)} a month` : `${best.cost} tokens a month`;
+
+  return best.opens >= total
+    ? `Members see all ${total} — from ${price}`
+    : `Members see ${best.opens} of these ${total} — from ${price}`;
+}
+
 function FitResult({ keep, ret, yours }) {
   const total = (keep || 0) + (ret || 0);
   if (!total) {
@@ -96,6 +193,8 @@ export default function Gallery() {
   const [pendingJoin,  setPendingJoin]  = useState(false);
   const [joining,      setJoining]      = useState(false);
   const [openSet,   setOpenSet]   = useState(null);
+  // The comparison, over the set rather than instead of it.
+  const [showMemberships, setShowMemberships] = useState(false);
 
   const { setId } = useParams();
   const [setItems,  setSetItems]  = useState([]);
@@ -366,6 +465,17 @@ export default function Gallery() {
           </div>
         )}
 
+        {/* What the set is made of.
+            //
+            // A locked set used to be a number and a price, which tells a
+            // reader what it costs and nothing about what it is. The split by
+            // level is the honest version and it is also the argument: most
+            // sets sit mostly at one tier, and seeing that is what makes a
+            // cheaper membership worth considering. Levels the set does not
+            // contain are left out entirely — a row of zeroes reads as
+            // something withheld. */}
+        <SetComposition composition={openSet.composition} />
+
         <Clamped text={openSet.description} lines={3}
                  style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.7, maxWidth: 600 }} />
 
@@ -554,12 +664,37 @@ export default function Gallery() {
                     </button>
                   )}
 
+                  {/* The second way in.
+                      //
+                      // This used to name one tier and quote its price —
+                      // whichever tier the set's most exclusive photograph
+                      // happened to sit at. A single Supreme frame among forty
+                      // eight meant a guest was shown Supreme's price as
+                      // though it were the price of joining, and Community was
+                      // never mentioned on the screen at all.
+                      //
+                      // It now opens the comparison instead of buying
+                      // anything, and says what the cheapest membership would
+                      // actually open rather than promising "free", which is
+                      // only true until the monthly allowance runs out. */}
                   {offer && (
-                    <button onClick={() => !busy && handleMembership()} disabled={busy} style={lockedSecondary}>
-                      {joining ? 'One moment…'
-                        : `Upgrade membership — ${offer.tier.charAt(0).toUpperCase() + offer.tier.slice(1)}`
-                          + `${offer.route === 'trial' ? ` (${offer.days} days)` : ''} (access more) — ${offer.cost} tokens`}
+                    <button onClick={() => !busy && setShowMemberships(true)} disabled={busy} style={lockedSecondary}>
+                      {membershipPitch(openSet, data?.userTier) || 'See membership options'}
                     </button>
+                  )}
+
+                  {/* Their tier already covers this set and the month's
+                      allowance is simply spent. No upgrade is worth suggesting
+                      against a one-token charge, so this says what happened
+                      instead of selling. */}
+                  {openSet.capExhausted && (
+                    <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted,
+                                  lineHeight: 1.7, marginTop: 4, maxWidth: 440,
+                                  marginLeft: 'auto', marginRight: 'auto' }}>
+                      This one is at your level — you have used the sets included with your
+                      membership this month, so it is {price} {price === 1 ? 'token' : 'tokens'} until
+                      your allowance resets.
+                    </div>
                   )}
                 </div>
               </div>
@@ -617,6 +752,22 @@ export default function Gallery() {
                       onClose={() => { setTopUp(null); setPendingScope(null); setPendingJoin(false); }}
                       onSuccess={finishAfterTopUp} />
         )}
+
+        {/* Over the set, not instead of it. Taking a membership refreshes the
+            set underneath, so closing the sheet lands on photographs rather
+            than on the same locked panel. */}
+        <MembershipSheet
+          open={showMemberships}
+          onClose={() => setShowMemberships(false)}
+          heading="Memberships"
+          subheading={membershipPitch(openSet, data?.userTier)
+            ? `${membershipPitch(openSet, data?.userTier)}. Everything at your own level opens without spending tokens.`
+            : 'Everything at your own level opens without spending tokens.'}
+          onChanged={async () => {
+            if (openSet) await refreshOpenSet(openSet.id);
+            setShowMemberships(false);
+          }}
+        />
       </div>
     );
   }

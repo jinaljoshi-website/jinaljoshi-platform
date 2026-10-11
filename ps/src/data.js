@@ -219,6 +219,89 @@ export function tierPerks(tierId) {
   return perks;
 }
 
+// Term maths, in one place. These lived inside Membership.jsx, which was fine
+// while that page was the only thing selling a membership. The comparison
+// table sells one too, and two copies of a multiplier is how a page comes to
+// quote a saving the server does not give.
+export function termMultiplier(termId) {
+  if (termId === 'quarterly') return cfgNum('quarterly_billing_months');
+  if (termId === 'annual')    return cfgNum('annual_billing_months');
+  return 1;
+}
+
+export function termMonths(termId) {
+  if (termId === 'quarterly') return 3;
+  if (termId === 'annual')    return 12;
+  return 1;
+}
+
+export function termSaving(termId) {
+  const charged = termMultiplier(termId);
+  const months  = termMonths(termId);
+  if (charged === null || months <= 1) return null;
+  return `Save ${Math.round((1 - charged / months) * 100)}%`;
+}
+
+// The same four memberships as a grid rather than four cards.
+//
+// Cards are read one at a time, so a reader compares by memory and usually
+// doesn't bother. A row compares for them. Every value here comes from the
+// same tierEconomics() the cards use, so the table and the cards cannot say
+// different things — which is the only reason this is worth having rather
+// than a second hand-written list.
+//
+// A value is either a string to print, true for a tick, or false for a dash.
+export function tierComparisonRows(tiers = ['community', 'insider', 'premium', 'supreme']) {
+  const econ = Object.fromEntries(tiers.map((t) => [t, tierEconomics(t)]));
+  if (tiers.some((t) => !econ[t])) return [];
+
+  const uncapped = (t) => econ[t].openCap === 0;
+  const tok      = (n) => `${n} token${n === 1 ? '' : 's'}`;
+  const row      = (key, label, help, fn) => ({
+    key, label, help,
+    values: Object.fromEntries(tiers.map((t) => [t, fn(t)])),
+  });
+
+  const b2Until = cfgNum('tier_open_band2_until') ?? 30;
+  const b2Cost  = cfgNum('tier_open_band2_cost')  ?? 1;
+  const b3Until = cfgNum('tier_open_band3_until') ?? 50;
+  const b3Cost  = cfgNum('tier_open_band3_cost')  ?? 3;
+
+  return [
+    row('sets', 'Sets included each month',
+        'Everything at your own level opens without spending anything, up to this many a month. It resets on your own renewal date, not the 1st.',
+        (t) => (uncapped(t) ? 'Unlimited' : `${econ[t].openCap}`)),
+
+    row('beyond', 'Once that runs out',
+        'The price climbs in steps rather than jumping to the full one, so a busy month is not punished.',
+        (t) => (uncapped(t) ? 'Never does' : `${tok(b2Cost)} to ${b2Until}, ${tok(b3Cost)} to ${b3Until}`)),
+
+    row('messages', 'Messages each month',
+        'Included messages, and how many of them you can send in a single day.',
+        (t) => (econ[t].freeDMs === null ? false : `${econ[t].freeDMs} · ${econ[t].dailyDMCap} a day`)),
+
+    row('extraMessages', 'Messages after that',
+        'Messages are priced by tier already, so the gallery discount does not apply here.',
+        (t) => (econ[t].overageDM === null ? false : `${tok(econ[t].overageDM)} each`)),
+
+    row('discount', 'Off the gallery and calls',
+        'Applies to anything you buy outright — sets above your level, purchase-only sets, and call minutes.',
+        (t) => (econ[t].discountPct ? `${econ[t].discountPct}%` : false)),
+
+    row('selfies', 'Selfie of the Day',
+        'The daily selfie, free rather than a token.',
+        (t) => tierGetsSelfies(t)),
+
+    row('chat', 'Community Chat Centre',
+        'The shared room, open to every member.',
+        () => true),
+
+    row('fairUsage', 'Fair usage limit',
+        'Whether a monthly ceiling applies to you at all.',
+        (t) => (uncapped(t) ? 'None' : 'Applies')),
+  ];
+}
+
 export const SUPPORT_EMAIL      = 'support@jinaljoshi.in';
 
 // ─────────────────────────────────────────────
