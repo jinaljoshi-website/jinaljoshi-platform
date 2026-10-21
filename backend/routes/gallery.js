@@ -437,12 +437,29 @@ router.get('/sets', authMid, async (req, res) => {
       opensResetOn = next.toISOString();
     }
 
-    // Price sorting stopped meaning anything once membership became access —
-    // a member pays nothing for their own level, so most sets cost the same and
-    // the order came out identical to newest. What a fan actually wants to know
-    // is which sets are open to them.
-    const sortBy = ['newest', 'free_for_all', 'free_for_me', 'locked'].includes(req.query.sort)
-      ? req.query.sort : 'newest';
+    // Two questions that used to share one parameter. `sort` held both an
+    // ordering (newest) and three filters (free_for_all, free_for_me, locked),
+    // so choosing a filter silently threw away the ordering and there was no way
+    // to ask for the free sets newest first.
+    //
+    // Now `sort` only orders and `show` only filters. The filter names are still
+    // honoured when they arrive on `sort`, so a bundle sitting in a cache keeps
+    // working through the deploy.
+    //
+    // Price ordering is by the set's own price, not by what this fan pays. A
+    // member pays nothing for their own level, so ordering by their price would
+    // collapse most of the library to one value and come out looking like date
+    // order — which is why an earlier attempt at a price sort was dropped.
+    const SORTS = ['newest', 'oldest', 'price_high', 'price_low'];
+    const SHOWS = ['all', 'free_for_all', 'free_for_me', 'locked', 'purchase_only'];
+
+    const rawSort = String(req.query.sort || '');
+    const rawShow = String(req.query.show || '');
+
+    const sortBy = SORTS.includes(rawSort) ? rawSort : 'newest';
+    const showBy = SHOWS.includes(rawShow)                        ? rawShow
+                 : SHOWS.includes(rawSort) && rawSort !== 'all'   ? rawSort
+                 : 'all';
 
     const { rows: sets } = await pool.query(
       `SELECT s.id, s.title, s.description, s.type, s.category, s.price_coins,
@@ -482,8 +499,14 @@ router.get('/sets', authMid, async (req, res) => {
                 COALESCE(s.published_at, s.created_at) DESC`
     );
 
+    // Scoped to the sets just fetched. This read every media row on the platform
+    // and then threw away the ones that did not belong to a visible set, which
+    // cost nothing while the library was small and would have cost everything
+    // later.
     const { rows: allItems } = await pool.query(
-      `SELECT set_id, r2_key, media_type, tier_category FROM set_items`
+      `SELECT set_id, r2_key, media_type, tier_category
+         FROM set_items WHERE set_id = ANY($1::uuid[])`,
+      [sets.map((s) => s.id)]
     );
     const itemsBySet = {};
     allItems.forEach((item) => {
@@ -545,6 +568,10 @@ router.get('/sets', authMid, async (req, res) => {
         photographer: s.photographer,
         // Carried through so the price sort can fall back to date on a tie.
         publishedAt: s.published_at || s.created_at,
+        // The set's own price, before anything about this fan is applied. What
+        // the price sort orders by, and the only price that is the same for
+        // everybody looking at the library.
+        basePrice: Number(s.price_coins) || 0,
         type: s.type,
         category: s.category,
         // A locked cover never sends the real image. Blurring it in CSS meant
@@ -599,16 +626,35 @@ router.get('/sets', authMid, async (req, res) => {
       };
     });
 
-    // Price sorting happens here rather than in SQL, because what a fan pays
-    // depends on their tier and is only known after the per-fan calculation
-    // above. The query's own ordering stands for 'newest'.
+    // Filter down to what was asked for, then order what is left. Both happen
+    // here rather than in SQL because what a fan pays depends on their tier and
+    // is only known after the per-fan calculation above.
+    //
     // Open to them without paying: free to everyone, or within their tier.
     const freeToThem = (s) => s.isFreeForAll || (s.tierPortionCount > 0 && s.tierPrice === 0);
-    if (sortBy === 'free_for_me')  setsWithData = setsWithData.filter(freeToThem);
-    if (sortBy === 'free_for_all') setsWithData = setsWithData.filter((s) => s.isFreeForAll);
+
+    if (showBy === 'free_for_me')   setsWithData = setsWithData.filter(freeToThem);
+    if (showBy === 'free_for_all')  setsWithData = setsWithData.filter((s) => s.isFreeForAll);
     // Anything with something still behind a wall for this fan — either the set
     // itself, or an exclusive portion of it they have not bought.
-    if (sortBy === 'locked')       setsWithData = setsWithData.filter((s) => !freeToThem(s) || s.upsellPrice > 0);
+    if (showBy === 'locked')        setsWithData = setsWithData.filter((s) => !freeToThem(s) || s.upsellPrice > 0);
+    // Sets holding something no membership ever covers, at any tier.
+    if (showBy === 'purchase_only') setsWithData = setsWithData.filter((s) => (s.composition?.purchaseOnly || 0) > 0);
+
+    // 'newest' is the order the query already returned — pinned first, then the
+    // arranged sequence — so it is left alone.
+    //
+    // The other three re-sort the whole list, which costs a pinned set its
+    // place. That is deliberate: pinning says "look at this first", and somebody
+    // who has just asked for the cheapest set has said something more specific.
+    const at = (s) => new Date(s.publishedAt || 0).getTime();
+    if (sortBy === 'oldest') {
+      setsWithData.sort((a, b) => at(a) - at(b));
+    } else if (sortBy === 'price_high') {
+      setsWithData.sort((a, b) => (b.basePrice - a.basePrice) || (at(b) - at(a)));
+    } else if (sortBy === 'price_low') {
+      setsWithData.sort((a, b) => (a.basePrice - b.basePrice) || (at(b) - at(a)));
+    }
 
     // One sequence, as arranged.
     //
@@ -649,6 +695,7 @@ router.get('/sets', authMid, async (req, res) => {
         seenPct:   lib.total_sets ? Math.round((lib.seen_sets / lib.total_sets) * 100) : 0,
       },
       sort: sortBy,
+      show: showBy,
       // One list, already in the requested order. freeForAll and unlockable are
       // kept for anything still reading them, but concatenating those two is
       // what put free sets last regardless of sort.

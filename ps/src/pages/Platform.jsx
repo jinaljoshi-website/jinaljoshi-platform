@@ -34,10 +34,20 @@ const Collections = lazy(() => import('./Collections'));
 import Coins      from './Coins';
 import Profile    from './Profile';
 
+// Gallery first. It holds nearly everything there is to look at, it is where
+// most visits end up, and it was third.
+//
+// Calls is no longer here. It is one destination with one purpose, reached from
+// the chat header instead — somebody who wants a call is already in the
+// conversation, and the tab spent a slot saying so a second time. The route is
+// unchanged, so every existing link to it still works.
+//
+// `badge` marks the two that can carry a count. It replaces an older `live`
+// property that did double duty: it drove these counts and also a green
+// "available now" dot beside Chat and Calls, which has gone.
 const navItems = [
-  { to: '/platform/chat',       label: 'Chat',           live: 'chat'  },
-  { to: '/platform/calls',      label: 'Calls',          live: 'calls' },
-  { to: '/platform/gallery',    label: 'Gallery',        live: 'gallery' },
+  { to: '/platform/gallery',    label: 'Gallery',        badge: 'gallery' },
+  { to: '/platform/chat',       label: 'Chat',           badge: 'chat'    },
   // Named for what it now holds. With the outfits and merchandise gone to their
   // own subdomain, what remains is custom requests, and calling that a shop
   // promises a catalogue that is not there.
@@ -56,6 +66,13 @@ const navItems = [
 // No label here. A name in the bundle is a name everybody can read, so it comes
 // from the server with the access check — and only to somebody who has access.
 const collectionsNav = { to: '/platform/collections', gilt: true };
+
+// Reachable, but not in the list — so the mobile header still has a name for
+// them. The title used to be read off the nav item, which meant a page that was
+// not in the nav was headed "Personal Space".
+const OFF_NAV_TITLES = {
+  '/platform/calls': 'Calls',
+};
 
 // The one nav item that is not the same as the others, because getting to it
 // was not the same as getting to the others.
@@ -98,12 +115,11 @@ function GiltMark() {
 const FULLSCREEN_PAGES = ['/platform/chat', '/platform/community'];
 
 function useReachable() {
-  const [state, setState] = useState({ chatLive: false, callsAvailable: false, unread: 0, unseenSets: 0 });
+  const [state, setState] = useState({ unread: 0, unseenSets: 0 });
   useEffect(() => {
     let alive = true;
     const check = () => api.get('/api/landing')
       .then((d) => { if (alive) setState({
-        chatLive: !!d.chatLive, callsAvailable: !!d.callsAvailable,
         unread: d.unreadMessages || 0, unseenSets: d.unseenSets || 0,
       }); })
       .catch(() => {});
@@ -114,12 +130,6 @@ function useReachable() {
   return state;
 }
 
-// A dot beside the label rather than a second line — the sidebar is a list of
-// destinations, and a status line under two of them would break its rhythm.
-function LiveDot({ show }) {
-  if (!show) return null;
-  return <span style={navDot} title="Available now" />;
-}
 const TOP_BAR_H = 56;
 const PROFILE_POLL_MS = 20000;
 
@@ -312,9 +322,14 @@ export default function Platform() {
 
   const isFullscreen = FULLSCREEN_PAGES.includes(location.pathname);
   const reachable    = useReachable();
-  const isLive = (item) =>
-    (item.live === 'chat'  && reachable.chatLive) ||
-    (item.live === 'calls' && reachable.callsAvailable);
+
+  // The count beside a nav item, or nothing. Returned as a number so the two
+  // render sites below cannot disagree about which item carries which figure,
+  // which is what happened when each spelled the condition out for itself.
+  const badgeCount = (item) =>
+    item.badge === 'chat'    ? reachable.unread
+  : item.badge === 'gallery' ? reachable.unseenSets
+  : 0;
 
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
 
@@ -372,7 +387,7 @@ export default function Platform() {
             </div>
           )}
           <div style={{ fontFamily: isMobile ? F.display : F.sans, fontSize: isMobile ? 17 : 11, color: isMobile ? C.text : C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {isMobile ? (currentNav?.label || 'Personal Space') : user?.email}
+            {isMobile ? (currentNav?.label || OFF_NAV_TITLES[location.pathname] || 'Personal Space') : user?.email}
           </div>
         </div>
 
@@ -416,11 +431,7 @@ export default function Platform() {
                 >
                   {item.gilt && <GiltMark />}
                   <span className={item.gilt ? 'ps-gilt' : undefined}>{item.label}</span>
-                  {item.live === 'chat'    && reachable.unread > 0
-                    ? <span style={unreadPill}>{reachable.unread}</span>
-                    : item.live === 'gallery' && reachable.unseenSets > 0
-                    ? <span style={unreadPill}>{reachable.unseenSets}</span>
-                    : <LiveDot show={isLive(item)} />}
+                  {badgeCount(item) > 0 && <span style={unreadPill}>{badgeCount(item)}</span>}
                 </Link>
               );
             })}
@@ -526,11 +537,7 @@ export default function Platform() {
                   >
                     {item.gilt && <GiltMark />}
                     <span className={item.gilt ? 'ps-gilt' : undefined}>{item.label}</span>
-                    {item.live === 'chat'    && reachable.unread > 0
-                      ? <span style={unreadPill}>{reachable.unread}</span>
-                      : item.live === 'gallery' && reachable.unseenSets > 0
-                      ? <span style={unreadPill}>{reachable.unseenSets}</span>
-                      : <LiveDot show={isLive(item)} />}
+                    {badgeCount(item) > 0 && <span style={unreadPill}>{badgeCount(item)}</span>}
                   </Link>
                 );
               })}
@@ -571,10 +578,9 @@ export default function Platform() {
   );
 }
 
-// A count where there is one, the availability dot otherwise — the same slot,
-// so the nav keeps its shape either way.
+// A count where there is one, and nothing where there isn't. The green
+// availability dot that used to share this slot has gone.
 const unreadPill = { background: C.accent, color: '#1A1714', fontFamily: F.sans, fontSize: 10, fontWeight: 700, minWidth: 17, height: 17, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px', flexShrink: 0 };
-const navDot = { width: 6, height: 6, borderRadius: '50%', background: '#8FC88F', flexShrink: 0, boxShadow: '0 0 0 3px rgba(143,200,143,0.18)' };
 
 const offerBanner = { display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', flexShrink: 0, background: C.accent, color: '#1A1714', fontFamily: F.sans, fontSize: 13, lineHeight: 1.5, padding: '10px 16px', cursor: 'pointer' };
 

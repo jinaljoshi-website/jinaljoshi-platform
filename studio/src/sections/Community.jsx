@@ -2,12 +2,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import BackgroundPicker from '../components/BackgroundPicker';
-import { T, S, Card, Eyebrow, colors } from '../ui';
+import { T, S, Eyebrow, colors } from '../ui';
 
 // The composer sits under the conversation and does not scroll with it.
 const composerBar = { flexShrink: 0, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}` };
-const utilityRow  = { flexShrink: 0, display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 };
-const utilityBtn  = { fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 11, padding: '5px 11px', borderRadius: 999, cursor: 'pointer', background: 'transparent', border: `1px solid ${colors.border}`, color: colors.muted };
+const utilityRow  = { flexShrink: 0, display: 'flex', gap: 16, alignItems: 'center', marginBottom: 10 };
 
 const sans = "'DM Sans', system-ui, sans-serif";
 const mono    = "'DM Mono', 'Courier New', monospace";
@@ -21,8 +20,38 @@ const msgBubble = { maxWidth: '72%', fontFamily: sans, fontSize: 14, color: colo
 const quoteBox  = { borderLeft: `2px solid ${colors.accent}`, paddingLeft: 8, marginBottom: 6, opacity: 0.85 };
 const modBtn    = { background: 'none', border: 'none', color: colors.muted, fontFamily: sans, fontSize: 11, cursor: 'pointer', padding: 0 };
 
-const updatesPanel  = { background: 'rgba(255,255,255,0.02)', border: `1px solid ${colors.border}`, borderRadius: 10, padding: '12px 16px', margin: '16px 0 20px' };
-const updatesToggle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: sans, fontSize: 12, color: colors.muted, textAlign: 'left' };
+// Whatever is open, laid over the conversation rather than stacked above it.
+//
+// Taking its own height is what caused the trouble: the reports queue used to
+// grow without limit, and even capped at a fraction of the screen it pushed the
+// reply box off the bottom with no scroll to reach it. Floating it leaves the
+// layout alone — the conversation and the reply box never move.
+const trayBox = {
+  position: 'absolute', inset: 0, zIndex: 4, overflowY: 'auto',
+  // Opaque. At 97% the conversation showed through behind the reports and both
+  // were hard to read.
+  background: colors.bg || '#0D0C0A',
+  border: `1px solid ${colors.border}`,
+  borderRadius: 10, padding: '14px 16px',
+  // The section centres its own heading, and the tray inherited it — every
+  // report came out centred like a notice.
+  textAlign: 'left',
+};
+
+// Text, not a button with a box around it. Three boxed controls in a row read
+// as a toolbar, and this screen is for reading a conversation and answering it.
+function TrayLink({ active, tone, onClick, children }) {
+  return (
+    <button onClick={onClick}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                     fontFamily: sans, fontSize: 12, textAlign: 'left',
+                     color: active ? colors.accent : (tone || colors.muted),
+                     textDecoration: 'underline', textUnderlineOffset: 3,
+                     textDecorationColor: 'rgba(255,255,255,0.18)' }}>
+      {children}
+    </button>
+  );
+}
 
 export function Community() {
   const [posts,       setPosts]       = useState([]);
@@ -40,8 +69,12 @@ export function Community() {
   // is the reason to open this screen, and reading past the platform's own
   // noise to do it made a simple job slower than it needed to be.
   const [updates, setUpdates] = useState([]);
-  const [updatesOpen, setUpdatesOpen] = useState(false);
-  const [bgOpen,      setBgOpen]      = useState(false);
+  // One tray at a time: 'bg' | 'updates' | 'reports' | null. These were three
+  // separate open flags, and all three could be open at once on top of a
+  // reports queue that had no height limit — which is how the conversation
+  // ended up a sliver a few messages tall.
+  const [tray, setTray] = useState(null);
+  const toggleTray = (which) => setTray((cur) => (cur === which ? null : which));
   const scrollRef = useRef(null);
 
   // The newest message is at the bottom, so that is where the view starts and
@@ -194,45 +227,110 @@ export function Community() {
         <T.title>Public Corner</T.title>
       </div>
 
-      {/* Wallpaper and system updates, both demoted to one quiet row. Neither
-          is what somebody opens this screen to do. */}
+      {/* Background, system updates and the reports queue, as three pieces of
+          text on one line.
+          //
+          // All three used to stack above the conversation, each with its own
+          // panel, heading and margins, and the reports queue had no height
+          // limit at all — so with a few reports pending the conversation was a
+          // sliver three messages tall, which is unusable for the one thing this
+          // screen exists to do.
+          //
+          // Now one opens at a time, and it opens *over* the conversation
+          // rather than above it. A tray that takes its own height, however
+          // capped, still pushes everything below it down — the first attempt
+          // at this put the reply box off the bottom of the screen with no
+          // scroll to reach it, which is worse than what it replaced. Floating
+          // it means the layout never changes height: the conversation and the
+          // reply box stay exactly where they are. */}
       <div style={utilityRow}>
-        <button onClick={() => setBgOpen(!bgOpen)} style={utilityBtn}>
-          {bgOpen ? 'Hide background' : 'Background'}
-        </button>
-        {communityBg && (
-          <span style={{ fontFamily: sans, fontSize: 11, color: colors.muted }}>
-            Members see this behind the conversation.
-          </span>
+        <TrayLink active={tray === 'bg'} onClick={() => toggleTray('bg')}>
+          Background
+        </TrayLink>
+        {updates.length > 0 && (
+          <TrayLink active={tray === 'updates'} onClick={() => toggleTray('updates')}>
+            {updates.length} system update{updates.length === 1 ? '' : 's'}
+          </TrayLink>
+        )}
+        {reports.length > 0 && (
+          <TrayLink active={tray === 'reports'} tone="#D99A9A" onClick={() => toggleTray('reports')}>
+            {reports.length} report{reports.length === 1 ? '' : 's'} to review
+          </TrayLink>
+        )}
+        <span style={{ flex: 1 }} />
+        {tray && (
+          <TrayLink onClick={() => setTray(null)}>Close</TrayLink>
         )}
       </div>
 
-      {bgOpen && (
-        <div style={{ flexShrink: 0, marginBottom: 12 }}>
-          <BackgroundPicker
-            type="community"
-            current={communityBg}
-            onChange={setCommunityBg}
-            label="Public Corner background"
-          />
-        </div>
-      )}
+      {/* The conversation, and whatever is laid over it. */}
+      <div style={{ position: 'relative', borderRadius: communityBg ? 10 : 0, overflow: 'hidden',
+                    flex: 1, minHeight: 240, display: 'flex', flexDirection: 'column' }}>
+        {communityBg && (
+          <>
+            <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', zIndex: 0 }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
+          </>
+        )}
 
-      {updates.length > 0 && (
-        <div style={updatesPanel}>
-          <button onClick={() => setUpdatesOpen(!updatesOpen)} style={updatesToggle}>
-            <span>{updates.length} system update{updates.length === 1 ? '' : 's'} in the last two days</span>
-            <span style={{ color: colors.accent }}>{updatesOpen ? 'Hide' : 'See them'}</span>
-          </button>
-          {updatesOpen && (
-            <div style={{ maxHeight: 200, overflowY: 'auto', marginTop: 10 }}>
-              {updates.map((u) => (
-                <div key={u.id} style={{ padding: '7px 0', borderBottom: `1px solid ${colors.border}` }}>
-                  <div style={{ fontFamily: sans, fontSize: 12, color: u.kind === 'news' ? colors.text : colors.muted, lineHeight: 1.55 }}>
-                    {u.content}
+      {tray && (
+        <div style={tray === 'reports'
+          ? { ...trayBox, border: '1px solid rgba(156,90,90,0.3)' }
+          : trayBox}>
+
+          {tray === 'bg' && (
+            <>
+              <BackgroundPicker
+                type="community"
+                current={communityBg}
+                onChange={setCommunityBg}
+                label="Public Corner background"
+              />
+              {communityBg && (
+                <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 8 }}>
+                  Members see this behind the conversation.
+                </div>
+              )}
+            </>
+          )}
+
+          {tray === 'updates' && updates.map((u) => (
+            <div key={u.id} style={{ padding: '7px 0', borderBottom: `1px solid ${colors.border}` }}>
+              <div style={{ fontFamily: sans, fontSize: 12, color: u.kind === 'news' ? colors.text : colors.muted, lineHeight: 1.55 }}>
+                {u.content}
+              </div>
+              <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, opacity: 0.7, marginTop: 2 }}>
+                {new Date(u.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+          ))}
+
+          {tray === 'reports' && (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {reports.map((r) => (
+                <div key={r.id} style={{ background: 'rgba(156,90,90,0.06)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: 14 }}>
+                  <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 6 }}>
+                    Reported by {r.reporter_name || r.reporter_email} · post by {r.author_name || r.author_email} · {new Date(r.created_at).toLocaleString()}
                   </div>
-                  <div style={{ fontFamily: mono, fontSize: 10, color: colors.muted, opacity: 0.7, marginTop: 2 }}>
-                    {new Date(u.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  {r.reason && (
+                    <div style={{ fontFamily: sans, fontSize: 12, color: '#D99A9A', marginBottom: 8, fontStyle: 'italic' }}>
+                      Reason given: "{r.reason}"
+                    </div>
+                  )}
+                  <div style={{ fontFamily: sans, fontSize: 14, color: colors.text, background: 'rgba(0,0,0,0.2)', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
+                    {r.post_content}
+                  </div>
+                  <input
+                    value={reportReasons[r.id] || ''}
+                    onChange={(e) => setReportReasons((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                    placeholder="Internal note for this decision (optional)"
+                    style={{ ...S.input, width: '100%', boxSizing: 'border-box', fontSize: 16, marginBottom: 10 }}
+                  />
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button onClick={() => resolveReport(r.id, 'dismiss')} disabled={resolvingId === r.id} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Dismiss</button>
+                    <button onClick={() => resolveReport(r.id, 'remove')} disabled={resolvingId === r.id} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A' }}>Remove post</button>
+                    <button onClick={() => resolveReport(r.id, 'remove_and_mute')} disabled={resolvingId === r.id} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D9A45C' }}>Remove + Mute author</button>
+                    <button onClick={() => resolveReport(r.id, 'remove_and_block')} disabled={resolvingId === r.id} style={{ ...S.btn, fontSize: 12, padding: '6px 12px', background: '#9C5A5A', border: 'none' }}>Remove + Restrict author</button>
                   </div>
                 </div>
               ))}
@@ -241,51 +339,6 @@ export function Community() {
         </div>
       )}
 
-      {/* Reports queue */}
-      {reports.length > 0 && (
-        <Card style={{ marginBottom: 24, border: '1px solid rgba(156,90,90,0.3)' }}>
-          <T.sectionTitle>Pending reports ({reports.length})</T.sectionTitle>
-          <div style={{ display: 'grid', gap: 12 }}>
-            {reports.map((r) => (
-              <div key={r.id} style={{ background: 'rgba(156,90,90,0.06)', border: `1px solid ${colors.border}`, borderRadius: 8, padding: 14 }}>
-                <div style={{ fontFamily: sans, fontSize: 12, color: colors.muted, marginBottom: 6 }}>
-                  Reported by {r.reporter_name || r.reporter_email} · post by {r.author_name || r.author_email} · {new Date(r.created_at).toLocaleString()}
-                </div>
-                {r.reason && (
-                  <div style={{ fontFamily: sans, fontSize: 12, color: '#D99A9A', marginBottom: 8, fontStyle: 'italic' }}>
-                    Reason given: "{r.reason}"
-                  </div>
-                )}
-                <div style={{ fontFamily: sans, fontSize: 14, color: colors.text, background: 'rgba(0,0,0,0.2)', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
-                  {r.post_content}
-                </div>
-                <input
-                  value={reportReasons[r.id] || ''}
-                  onChange={(e) => setReportReasons((prev) => ({ ...prev, [r.id]: e.target.value }))}
-                  placeholder="Internal note for this decision (optional)"
-                  style={{ ...S.input, width: '100%', boxSizing: 'border-box', fontSize: 12, marginBottom: 10 }}
-                />
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button onClick={() => resolveReport(r.id, 'dismiss')} disabled={resolvingId === r.id} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px' }}>Dismiss</button>
-                  <button onClick={() => resolveReport(r.id, 'remove')} disabled={resolvingId === r.id} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D99A9A' }}>Remove post</button>
-                  <button onClick={() => resolveReport(r.id, 'remove_and_mute')} disabled={resolvingId === r.id} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px', color: '#D9A45C' }}>Remove + Mute author</button>
-                  <button onClick={() => resolveReport(r.id, 'remove_and_block')} disabled={resolvingId === r.id} style={{ ...S.btn, fontSize: 12, padding: '6px 12px', background: '#9C5A5A', border: 'none' }}>Remove + Restrict author</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-
-      <div style={{ position: 'relative', borderRadius: communityBg ? 10 : 0, overflow: 'hidden',
-                    flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        {communityBg && (
-          <>
-            <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${communityBg})`, backgroundSize: 'cover', backgroundPosition: 'center', zIndex: 0 }} />
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,9,8,0.55)', zIndex: 1 }} />
-          </>
-        )}
         <div style={{ position: 'relative', zIndex: 2, padding: communityBg ? 14 : 0,
                       flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {posts.length === 0 && <T.muted>Nothing said yet.</T.muted>}
@@ -409,22 +462,21 @@ export function Community() {
 
         {/* Three ways to start something, in one place. A poll and a question
             window are both just a post with a shape, so they belong beside the
-            box rather than behind a menu somewhere else. */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+            box rather than behind a menu somewhere else.
+            //
+            // Text rather than three pills: the pills were the same size and
+            // weight as the send button underneath them, so the row read as
+            // four equal things to press and the one that actually posts did
+            // not stand out. */}
+        <div style={{ display: 'flex', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
           {[
             { key: 'say',   label: 'Say something' },
             { key: 'poll',  label: 'Run a poll' },
             { key: 'ask',   label: 'Open questions' },
           ].map((m) => (
-            <button key={m.key} onClick={() => setMode(m.key)}
-              style={{
-                fontFamily: sans, fontSize: 12, padding: '6px 14px', borderRadius: 999, cursor: 'pointer',
-                background: mode === m.key ? 'rgba(193,125,74,0.12)' : 'transparent',
-                border:     mode === m.key ? `1px solid ${colors.accent}` : `1px solid ${colors.border}`,
-                color:      mode === m.key ? colors.accent : colors.muted,
-              }}>
+            <TrayLink key={m.key} active={mode === m.key} onClick={() => setMode(m.key)}>
               {m.label}
-            </button>
+            </TrayLink>
           ))}
         </div>
 

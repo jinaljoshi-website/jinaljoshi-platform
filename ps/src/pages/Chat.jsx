@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { api } from '../api';
 import { WonderCoinAmount } from '../components/WonderCoin';
@@ -8,6 +9,19 @@ import GuestNudge from '../components/GuestNudge';
 import { StreamChat } from 'stream-chat';
 
 const MAX_VOICE_SECONDS = 60;
+
+// Calls left the navigation, so this is now the way to them. Drawn rather than
+// set as a character: the camera glyphs render as something different in every
+// font, and one of them is a filled black box on Android.
+function VideoCallIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden
+         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2.5" y="6" width="12.5" height="12" rx="2.5" />
+      <path d="M15 11.2 L21.5 7.6 v8.8 L15 12.8 Z" />
+    </svg>
+  );
+}
 
 function rectsEqual(a, b) {
   if (!a || !b) return false;
@@ -26,6 +40,7 @@ function collapseDeleted(list) {
 }
 
 export default function Chat() {
+  const navigate = useNavigate();
   const [messages,   setMessages]   = useState([]);
   // The photograph being looked at full size. Nothing opened before — an
   // unlocked set stayed at the width of a chat bubble, which is a poor way to
@@ -330,40 +345,63 @@ export default function Chat() {
 
   // Always at the bottom, never travelling there.
   //
-  // scrollIntoView used smooth behaviour and ran on every change to the list,
-  // and a thread is filled more than once as it opens — Stream and the database
-  // each in turn — so opening a chat meant watching it glide down from wherever
-  // it happened to be.
+  // Opening a chat still landed part-way up and then visibly slid down, and the
+  // reason was the walk below running at the wrong moment. The scrolling
+  // element is found by walking up from the marker — in Studio's markup it is
+  // not the parent — but on the first render the thread is empty, so nothing is
+  // taller than its own box, the walk ran off the top of the document and
+  // returned nothing, and the observer that corrects for late-loading
+  // photographs was never attached to anything. The one jump that did happen
+  // came from the effect below, at the moment the thread was still half built.
   //
-  // The scrolling element is found by walking up from the marker rather than
-  // assumed to be its parent: in Studio's markup it is not, and that assumption
-  // left the thread sitting at the very top.
-  const bottomPane = () => {
+  // So the walk is repeated as the thread grows, and the result is kept.
+  const paneRef = useRef(null);
+  const findPane = () => {
     let el = bottomRef.current?.parentElement;
     while (el && el.scrollHeight <= el.clientHeight + 4) el = el.parentElement;
-    return el;
+    if (el) paneRef.current = el;
+    return paneRef.current;
   };
 
-  useEffect(() => {
-    const pane = bottomPane();
+  const jumpToBottom = () => {
+    const pane = findPane();
     if (pane) pane.scrollTop = pane.scrollHeight;
-  }, [messages, typing]);
+  };
+
+  // Pinned to the bottom until they scroll away from it. A thread is filled
+  // more than once as it opens — Stream first, then the database — and each
+  // fill used to send somebody who had started reading something older back
+  // down again.
+  const pinnedRef = useRef(true);
 
   useEffect(() => {
-    const pane = bottomPane();
-    if (!pane || typeof ResizeObserver === 'undefined') return;
-    // Images inside a message finish loading after the message does, which
-    // grows the thread underneath somebody who was put at the bottom. Only
-    // corrected while they are still near it — anybody who has scrolled up to
-    // read something older should stay where they are.
-    const ob = new ResizeObserver(() => {
-      if (pane.scrollHeight - pane.scrollTop - pane.clientHeight < 260) {
-        pane.scrollTop = pane.scrollHeight;
-      }
-    });
-    ob.observe(pane);
-    return () => ob.disconnect();
-  }, []);
+    const pane = findPane();
+    if (!pane) return;
+
+    const onScroll = () => {
+      pinnedRef.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 120;
+    };
+    pane.addEventListener('scroll', onScroll, { passive: true });
+
+    // A photograph finishes loading after the message holding it, which grows
+    // the thread under somebody who was just put at the bottom.
+    let ob;
+    if (typeof ResizeObserver !== 'undefined') {
+      ob = new ResizeObserver(() => { if (pinnedRef.current) jumpToBottom(); });
+      ob.observe(pane);
+    }
+
+    return () => {
+      pane.removeEventListener('scroll', onScroll);
+      ob?.disconnect();
+    };
+    // Re-run as the thread grows: until there is enough in it to scroll, there
+    // is no pane to attach any of this to.
+  }, [messages.length]);
+
+  useEffect(() => {
+    if (pinnedRef.current) jumpToBottom();
+  }, [messages, typing]);
 
   useEffect(() => {
     if (!loading) recomputeFeedRect();
@@ -598,6 +636,19 @@ export default function Chat() {
                            border: `1px solid ${showMedia ? C.accent : C.border}`,
                            color: showMedia ? C.accent : C.muted }}>
             Media
+          </button>
+          {/* The way to a call, now that it is not in the navigation. Here
+              rather than in the composer: booking a call is not something done
+              in the middle of typing a message, and the composer row is
+              already three controls wide on a narrow phone. */}
+          <button onClick={() => navigate('/platform/calls')}
+                  title="Book a video call"
+                  aria-label="Book a video call"
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                           width: 44, height: 44, borderRadius: 999,
+                           background: 'transparent', cursor: 'pointer',
+                           border: `1px solid ${C.border}`, color: C.muted, flexShrink: 0 }}>
+            <VideoCallIcon />
           </button>
         </div>
 

@@ -288,7 +288,12 @@ export default function Gallery() {
   const [lightbox,  setLightbox]  = useState(null);
   const [unlockingScope, setUnlockingScope] = useState(null);
   const [viewerError, setViewerError] = useState('');
+  // Two controls, not one. These used to share a dropdown, so choosing "free
+  // for all" silently discarded "newest first" — a fan could have an order or a
+  // filter but never both. `sort` orders what is shown; `show` decides what that
+  // is.
   const [sort, setSort] = useState('newest');
+  const [show, setShow] = useState('all');
 
   const [mediaFilter, setMediaFilter] = useState('all');
   const [activeTab, setActiveTab] = useState(() => {
@@ -296,7 +301,7 @@ export default function Gallery() {
     return TABS.some((x) => x.key === t) ? t : 'all';
   }); // 'all' | 'selfies' | 'unlocked' | a content-category key
 
-  const load = (s = sort) => api.get(`/api/gallery/sets?sort=${s}`)
+  const load = (s = sort, w = show) => api.get(`/api/gallery/sets?sort=${s}&show=${w}`)
     .then(setData)
     .catch((err) => setError(err.message))
     .finally(() => setLoading(false));
@@ -360,7 +365,7 @@ export default function Gallery() {
   };
 
   const refreshOpenSet = async (setId) => {
-    const freshData = await api.get(`/api/gallery/sets?sort=${sort}`);
+    const freshData = await api.get(`/api/gallery/sets?sort=${sort}&show=${show}`);
     setData(freshData);
     const updated = (freshData.sets
       || [...(freshData.unlockable || []), ...(freshData.freeForAll || [])]).find((s) => s.id === setId);
@@ -944,21 +949,46 @@ export default function Gallery() {
               ))}
             </div>
           ) : <span />}
-          <select value={sort}
-                  onChange={(e) => { setSort(e.target.value); load(e.target.value); }}
-                  style={sortSelect}>
-            <option value="newest">Newest first</option>
-            <option value="free_for_all">Free for all</option>
-            <option value="free_for_me">Free for me</option>
-            <option value="locked">Locked media</option>
-          </select>
+          {/* Order on the left, what is being ordered on the right. Labelled,
+              because two unlabelled dropdowns side by side say nothing about
+              which does what. 16px on the control itself: anything smaller and
+              iOS zooms the page when it is tapped. */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap',
+                        flex: '1 1 260px', minWidth: 0, paddingRight: 56 }}>
+            <label style={controlWrap}>
+              <span style={controlLabel}>Sort</span>
+              <select value={sort}
+                      onChange={(e) => { setSort(e.target.value); load(e.target.value, show); }}
+                      style={sortSelect}>
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="price_high">Price: high to low</option>
+                <option value="price_low">Price: low to high</option>
+              </select>
+            </label>
+            <label style={controlWrap}>
+              <span style={controlLabel}>Show</span>
+              <select value={show}
+                      onChange={(e) => { setShow(e.target.value); load(sort, e.target.value); }}
+                      style={sortSelect}>
+                <option value="all">Everything</option>
+                <option value="free_for_all">Free for all</option>
+                <option value="free_for_me">Free for me</option>
+                <option value="locked">Locked media</option>
+                <option value="purchase_only">Purchase only</option>
+              </select>
+            </label>
+          </div>
         </div>
       )}
 
-      {activeTab === 'selfies' ? <Selfies /> : activeItems.length === 0 && sort !== 'newest' ? (
+      {activeTab === 'selfies' ? <Selfies /> : activeItems.length === 0 && show !== 'all' ? (
         <div style={{ fontFamily: F.sans, fontSize: 14, color: C.muted, lineHeight: 1.7 }}>
-          {sort === 'locked' ? 'Nothing is locked for you — you can already open everything here. '
-           : sort === 'free_for_all' ? 'No sets are free to everyone right now. '
+          {/* Keyed on the filter, because the filter is what emptied the grid.
+              Sorting cannot: it rearranges what is there. */}
+          {show === 'locked' ? 'Nothing is locked for you — you can already open everything here. '
+           : show === 'free_for_all' ? 'No sets are free to everyone right now. '
+           : show === 'purchase_only' ? 'Nothing here is purchase-only — every set is covered by a membership at some level. '
            : 'Nothing here is open to you at the moment. '}
           {data?.isGuest ? 'Members see everything at their level without paying.' : 'New sets appear here as Jinal posts them.'}
         </div>
@@ -1071,7 +1101,16 @@ const capBar   = { display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wr
 const capTrack = { flex: '0 0 120px', height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 2, overflow: 'hidden' };
 const capFill  = { height: 4, background: C.accent, borderRadius: 2, transition: 'width 0.3s' };
 
-const sortSelect = { background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 12, padding: '7px 12px', borderRadius: 8, outline: 'none', cursor: 'pointer' };
+// A label above each control rather than beside it, so the pair still fits on a
+// narrow phone without wrapping into two rows. They share the row evenly and
+// wrap only on a very narrow screen; sized to their longest option they ran to
+// both edges, where the help bubble sits on top of the right-hand one.
+const controlWrap  = { display: 'flex', flexDirection: 'column', gap: 3, flex: '1 1 140px', minWidth: 0 };
+const controlLabel = { fontFamily: F.sans, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: C.muted, paddingLeft: 2 };
+// 16px, not 12. Below 16 iOS zooms the whole page in when the control is
+// tapped and leaves it zoomed, which on the gallery meant the grid came back
+// twice its size and off-centre. The small text is on the label above instead.
+const sortSelect = { background: C.surface, border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 16, padding: '6px 10px', borderRadius: 8, outline: 'none', cursor: 'pointer', width: '100%', maxWidth: '100%', boxSizing: 'border-box' };
 
 const eyebrow     = { fontFamily: F.mono, fontSize: 11, color: C.accent, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 12 };
 const title       = { fontFamily: F.display, fontWeight: 300, fontSize: 'clamp(28px,5vw,52px)', margin: '0 0 10px' };
