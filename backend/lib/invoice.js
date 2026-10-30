@@ -228,8 +228,40 @@ function generateInvoicePdfBuffer(invoice, supplier) {
     if (invoice.sac_code) doc.text(`SAC: ${invoice.sac_code}`);
     doc.text(`Payment Method: ${invoice.payment_method_display}`);
     doc.text(`Currency: ${invoice.currency}`);
-    if (invoice.exchange_rate_used) {
-      doc.text(`Exchange Rate Applied: 1 INR = ${Number(invoice.exchange_rate_used).toFixed(4)} ${invoice.currency}`);
+    // Worked out from the two amounts on this very invoice rather than read
+    // from the stored column.
+    //
+    // That column held the rate upside down — rupees per foreign unit, printed
+    // as though it were foreign units per rupee. A £5.00 sale worth ₹660 came
+    // out as "1 INR = 132.0000 GBP", wrong by a factor of about 17,000. Storing
+    // it the right way up fixes new invoices, but every invoice already raised
+    // keeps its bad number, and these PDFs are generated on download — so the
+    // wrong line would still be printed today, on demand, forever.
+    //
+    // The amounts beside it are correct and always have been, so the rate is
+    // derived from them. It agrees with the figures a reader can see: £5.00 and
+    // ₹660.00 are on the same page.
+    const fxRate = (() => {
+      const foreign = Number(invoice.amount_in_currency);
+      const inr     = Number(invoice.amount_inr_equivalent);
+      if (invoice.currency && invoice.currency !== 'INR' && foreign > 0 && inr > 0) return foreign / inr;
+      return Number(invoice.exchange_rate_used) || null;
+    })();
+    if (fxRate) {
+      // Printed to whatever precision reproduces the invoice.
+      //
+      // Four decimal places is not enough for a rate expressed per rupee: USD
+      // 7.95 against ₹660 is 0.012045, and printing 0.0120 multiplies back to
+      // 7.92 — a figure that contradicts the Total Paid three lines below it.
+      // So the shortest precision that round-trips is used, which for an
+      // ordinary rate is four or five places and never more than eight.
+      const inr = Number(invoice.amount_inr_equivalent);
+      const foreign = Number(invoice.amount_in_currency);
+      let places = 4;
+      if (inr > 0 && foreign > 0) {
+        while (places < 8 && (inr * Number(fxRate.toFixed(places))).toFixed(2) !== foreign.toFixed(2)) places++;
+      }
+      doc.text(`Exchange Rate Applied: 1 INR = ${fxRate.toFixed(places)} ${invoice.currency}`);
     }
     doc.moveDown(1);
 
