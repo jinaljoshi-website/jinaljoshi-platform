@@ -939,12 +939,26 @@ export default function Gallery() {
             </div>
             <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 3 }}>
               {data.opensUsed} of {data.openCap} used · then {data.bands?.band2Cost ?? 1} token
-              to {data.bands?.band2Until ?? 30}, {data.bands?.band3Cost ?? 3} tokens
-              to {data.bands?.band3Until ?? 50}, full price after that.
+              to {data.bands?.band2Until ?? 42}, {data.bands?.band3Cost ?? 3} tokens
+              to {data.bands?.band3Until ?? 60}, full price after that.
               {/* The period runs from the day they joined, not the 1st, so the
                   date is stated rather than implied. */}
               {data.opensResetOn && ` Resets ${new Date(data.opensResetOn).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}.`}
             </div>
+            {/* Why their number is what it is.
+                The figures above come from the server with the bonus already
+                in them, so this only explains them — it never does the sum
+                itself. Two copies of that arithmetic would eventually disagree,
+                and the one on the screen is the one people quote back. */}
+            {data.renewalBonus && (
+              <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginTop: 3 }}>
+                {data.renewalBonus.renewals > 0
+                  ? data.renewalBonus.atCeiling
+                    ? `Includes the full ${data.renewalBonus.bonusPct}% for renewing early.`
+                    : `Includes ${data.renewalBonus.bonusPct}% for renewing early — renew again before it expires for more.`
+                  : 'Renew before your membership expires and this goes up 10%.'}
+              </div>
+            )}
           </div>
           <div style={capTrack}>
             <div style={{ ...capFill, width: `${Math.min(100, (data.opensUsed / data.openCap) * 100)}%` }} />

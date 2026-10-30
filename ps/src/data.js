@@ -168,7 +168,7 @@ function fairUsageText() {
     .filter((c) => c.n > 0);
 
   if (!caps.length) {
-    return 'Each membership includes a number of sets a month at your own level. Beyond that they are a token or two each, and it resets on your membership date. Supreme has no limit at all.';
+    return 'Each membership includes a number of sets a month at your own level. Beyond that they are a token or two each, and it resets on your membership date. Renewing before it expires raises your allowance by 10% each time, up to 30%. Supreme has no limit at all.';
   }
 
   const named = caps
@@ -178,13 +178,19 @@ function fairUsageText() {
   // The bands, read rather than written down. These were 1 and 3 in the
   // sentence and configurable in the settings, which is how a sentence and a
   // price quietly disagree.
-  const b2Until = cfgNum('tier_open_band2_until') ?? 30;
+  const b2Until = cfgNum('tier_open_band2_until') ?? 42;
   const b2Cost  = cfgNum('tier_open_band2_cost')  ?? 1;
-  const b3Until = cfgNum('tier_open_band3_until') ?? 50;
+  const b3Until = cfgNum('tier_open_band3_until') ?? 60;
   const b3Cost  = cfgNum('tier_open_band3_cost')  ?? 3;
   const tok = (n) => `${n} token${n === 1 ? '' : 's'}`;
 
-  return `Each membership includes a number of sets a month at your own level — ${named}, and Supreme as many as you like. Past your allowance it is ${tok(b2Cost)} a set up to ${b2Until}, ${tok(b3Cost)} a set up to ${b3Until}, and the set's own price beyond that. It resets on your membership date.`;
+  // These are the tier's figures, not any one member's, and that is right
+  // here: this sentence is read on the homepage by people who have no tier
+  // yet. A signed-in member's own raised numbers come from the gallery and
+  // membership responses, which know who is asking — the public config
+  // endpoint cannot, and a page that guessed would contradict their own
+  // gallery.
+  return `Each membership includes a number of sets a month at your own level — ${named}, and Supreme as many as you like. Past your allowance it is ${tok(b2Cost)} a set up to ${b2Until}, ${tok(b3Cost)} a set up to ${b3Until}, and the set's own price beyond that. It resets on your membership date, and renewing before it expires raises your allowance by 10% each time, up to 30%.`;
 }
 
 export const MEMBERSHIP_NOTES = [

@@ -18,11 +18,13 @@ const {
   getDiscountForTier, getGuestMultiplier,
 } = require('../lib/config');
 const { getAllotmentPeriodKey, getLocalDateStr } = require('../lib/time');
+const { effectiveAllowances, renewalSummary } = require('../lib/allowance');
 
 router.get('/context', authMid, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT tier, membership_expires_at, membership_started_at, coin_balance, timezone
+      `SELECT tier, membership_expires_at, membership_started_at, coin_balance, timezone,
+              renewal_streak
        FROM users WHERE id = $1`,
       [req.user.userId]
     );
@@ -30,11 +32,21 @@ router.get('/context', authMid, async (req, res) => {
     const isActive = u.membership_expires_at && new Date(u.membership_expires_at) > new Date();
     const tier = isActive ? u.tier : 'guest';
 
-    const [bal, dm, unlockAllowance, discountPct, guestMult, tokenRate, selfieTiers,
+    // The member's own allowances, not the tier's.
+    //
+    // The cap used to be read here with getConfigNumber(...).catch(() => 0),
+    // which looks safe and is not: these ladder keys are not in
+    // REQUIRED_PRICING, so a missing one comes back undefined rather than
+    // throwing and the catch never fires. The help panel would then print an
+    // undefined allowance while the gallery charged full price for every set.
+    // Routed through the shared helper, which returns finite or null and
+    // nothing in between, and which applies the early-renewal bonus so this
+    // page agrees with the gallery.
+    const [bal, dm, allowances, discountPct, guestMult, tokenRate, selfieTiers,
            selfieCost, selfiePass] = await Promise.all([
       getBalances(pool, req.user.userId),
       getDmConfigForTier(tier),
-      tier === 'guest' ? 0 : getConfigNumber(`tier_open_cap_${tier}`).catch(() => 0),
+      effectiveAllowances(u, tier),
       getDiscountForTier(tier),
       getGuestMultiplier(),
       getConfigNumber('token_rate_inr'),
@@ -80,19 +92,29 @@ router.get('/context', authMid, async (req, res) => {
         giftedExpiresInDays: bal.giftedExpiresInDays,
       },
 
-      unlocks: {
-        allowance: unlockAllowance,
-        used: unlocksUsed,
-        remaining: Math.max(0, unlockAllowance - unlocksUsed),
-      },
+      // A cap of 0 is uncapped and null is unreadable — neither is a number of
+      // sets, so neither gets subtracted into a misleading "remaining".
+      unlocks: (() => {
+        const cap = allowances ? allowances.openCap : null;
+        const known = Number.isFinite(cap) && cap > 0;
+        return {
+          allowance: cap,
+          used: unlocksUsed,
+          remaining: known ? Math.max(0, cap - unlocksUsed) : null,
+          unlimited: cap === 0,
+        };
+      })(),
 
       messages: {
-        freePerMonth: dm.freeDMsPerMonth,
-        freeRemaining: Math.max(0, dm.freeDMsPerMonth - dmsUsed),
+        freePerMonth: allowances ? allowances.dmFreePerMonth : dm.freeDMsPerMonth,
+        freeRemaining: Math.max(0, (allowances ? allowances.dmFreePerMonth : dm.freeDMsPerMonth) - dmsUsed),
         dailyCap: dm.dailyDMCap,
         dailyRemaining: Math.max(0, dm.dailyDMCap - dmsToday),
         costAfterFree: dm.overageCost,
       },
+
+      // Why those two numbers are what they are, so the panel can say so.
+      renewalBonus: tier === 'guest' ? null : renewalSummary(u),
 
       selfies: { free: selfiesFree, unlockCost: selfieCost, passCost: selfiePass },
     });

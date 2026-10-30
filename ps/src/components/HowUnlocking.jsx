@@ -85,9 +85,9 @@ export default function HowUnlocking({ tier, opensRemaining, opensUsed, openCap,
                 After that the price climbs gently rather than jumping:
               </p>
               <div style={{ ...sub, marginBottom: 10 }}>
-                · Sets {openCap + 1} to {bands?.band2Until ?? 30} — {bands?.band2Cost ?? 1} token each<br />
-                · Sets {(bands?.band2Until ?? 30) + 1} to {bands?.band3Until ?? 50} — {bands?.band3Cost ?? 3} tokens each<br />
-                · Beyond {bands?.band3Until ?? 50} — the set's own price for your tier
+                · Sets {openCap + 1} to {bands?.band2Until ?? 42} — {bands?.band2Cost ?? 1} token each<br />
+                · Sets {(bands?.band2Until ?? 42) + 1} to {bands?.band3Until ?? 60} — {bands?.band3Cost ?? 3} tokens each<br />
+                · Beyond {bands?.band3Until ?? 60} — the set's own price for your tier
               </div>
               <p style={{ ...sub, marginBottom: 10 }}>
                 It resets on your membership date each month.

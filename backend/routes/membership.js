@@ -15,6 +15,7 @@ const { hasCollectionsAccess } = require('../lib/collections');
 // the base term. Ten copies of that rule was nine chances for them to disagree.
 const { effectiveMembership, unusedValue, daysRemaining: termDaysLeft } = require('../lib/membership');
 const { addMonthsClamped } = require('../lib/time');
+const { effectiveAllowances, renewalSummary } = require('../lib/allowance');
 
 // The date a fan is shown, decided here rather than recomputed in the browser.
 // Two copies of the same month arithmetic will drift, and the browser works in
@@ -140,7 +141,7 @@ router.get('/status', authMid, async (req, res) => {
       `SELECT tier, membership_expires_at, membership_started_at,
               membership_paid_tokens, membership_term_days,
               trial_tier, trial_started_at, trial_ends_at, coin_balance, timezone,
-              collections_until
+              collections_until, renewal_streak, last_renewed_at
          FROM users WHERE id = $1`,
       [req.user.userId]
     );
@@ -177,6 +178,18 @@ router.get('/status', authMid, async (req, res) => {
       // charged the new. Whatever is offered now comes from the same code that
       // takes the money.
       options: await upgradeOptions(user, state, now),
+      // What this member's allowances actually are, rather than what their
+      // tier's are.
+      //
+      // The membership page used to read these from the public, unauthenticated
+      // config endpoint, which by definition cannot know who is asking. Left
+      // that way it would promise a renewing Community member 30 sets while
+      // their own gallery page showed 33. Served from here, signed in, it is
+      // the member's own number; the page keeps the public figures as the
+      // fallback for signed-out visitors.
+      allowances: state.isActive ? await effectiveAllowances(user, state.tier) : null,
+      renewalBonus: state.isActive ? renewalSummary(user) : null,
+      lastRenewedAt: user.last_renewed_at || null,
     });
   } catch (err) {
     console.error('membership/status error:', err);
@@ -239,13 +252,18 @@ router.post('/purchase', authMid, async (req, res) => {
       // rate actually paid rather than the tier's list price. An annual term is
       // nine months' money for twelve; crediting at list would hand back more
       // than ever came in.
+      // The streak starts again from nothing. This route is only reachable by
+      // somebody with no live membership, so arriving here means they lapsed,
+      // and the renewal bonus is a reward for not lapsing.
       `UPDATE users SET
          tier                   = $1,
          membership_expires_at  = $2,
          membership_started_at  = $4,
          membership_term        = $5,
          membership_paid_tokens = $6,
-         membership_term_days   = $7
+         membership_term_days   = $7,
+         renewal_streak         = 0,
+         last_renewed_at        = NULL
        WHERE id = $3`,
       [tier, expiresAt, req.user.userId, now, term, totalCost, Math.round(months * 30.44)]
     );
@@ -566,7 +584,9 @@ router.post('/extend', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: userRows } = await client.query(
-      `SELECT tier, membership_expires_at, coin_balance FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT tier, membership_expires_at, coin_balance,
+              membership_paid_tokens, membership_term_days, renewal_streak
+         FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user     = userRows[0];
@@ -586,9 +606,36 @@ router.post('/extend', authMid, async (req, res) => {
 
     const expiresAt = addMonthsClamped(user.membership_expires_at, months);
 
+    // Renewing early is now worth something, so it has to be recorded. Until
+    // this, the only thing an extension wrote was the new expiry date: there
+    // was no count of renewals, no date of the last one, and so no way to tell
+    // a loyal member from somebody who had just signed up.
+    //
+    // This route is only reachable while the membership is still live — a
+    // lapsed one is refused above and has to be bought fresh — so reaching it
+    // at all is what "renewed before expiry" means. No window to define.
+    //
+    // The term record is accumulated rather than left alone, which fixes a
+    // quiet old bug. unusedValue() credits an upgrade at the rate actually
+    // paid, as paid tokens over term days, and an extension used to lengthen
+    // the expiry while leaving both untouched. Days remaining could then
+    // exceed the recorded term, and the member was under-credited for time
+    // they had genuinely paid for.
+    const paidSoFar = Number(user.membership_paid_tokens) || 0;
+    const daysSoFar = Number(user.membership_term_days)   || 0;
+
     await client.query(
-      `UPDATE users SET membership_expires_at = $1 WHERE id = $2`,
-      [expiresAt, req.user.userId]
+      `UPDATE users SET
+         membership_expires_at  = $1,
+         membership_term        = $3,
+         membership_paid_tokens = $4,
+         membership_term_days   = $5,
+         renewal_streak         = COALESCE(renewal_streak, 0) + 1,
+         last_renewed_at        = NOW()
+       WHERE id = $2`,
+      [expiresAt, req.user.userId, term,
+       paidSoFar + totalCost,
+       daysSoFar + Math.round(months * 30.44)]
     );
 
     // Membership is bought with purchased tokens. Gifting a membership is its own

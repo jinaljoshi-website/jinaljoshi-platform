@@ -4,6 +4,7 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { notifyArtist } = require('../lib/notify');
 const { getDmConfigForTier } = require('../lib/config');
+const { effectiveDmFree } = require('../lib/allowance');
 const { assertNotBlocked, assertNotMuted } = require('../lib/moderation');
 const { getLocalDateStr, getAllotmentPeriodKey } = require('../lib/time');
 const { spendTokens, getBalances } = require('../lib/tokens');
@@ -236,7 +237,7 @@ router.get('/status', authMid, async (req, res) => {
 
     const { rows: userRows } = await pool.query(
       `SELECT u.tier, u.membership_expires_at, u.membership_started_at, u.coin_balance, u.timezone,
-              u.display_name, u.email,
+              u.display_name, u.email, u.renewal_streak,
               fs.custom_chat_price, fs.custom_messages_per_token, fs.messages_since_charge,
               COALESCE(fs.can_send_media, FALSE) AS can_send_media,
               COALESCE(fs.personal_chat_bg, pc.value, '') AS chat_bg
@@ -250,7 +251,13 @@ router.get('/status', authMid, async (req, res) => {
     const now      = new Date();
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier = isActive ? user.tier : 'guest';
-    const config   = await getDmConfigForTier(userTier);
+    // The tier's message allowance, then the member's own.
+    //
+    // Renewing early raises the monthly count on the same schedule as gallery
+    // opens. Only the monthly figure moves: the daily cap is a rate limit
+    // rather than an allowance, and raising it would defeat what it is for.
+    const tierDm   = await getDmConfigForTier(userTier);
+    const config   = { ...tierDm, freeDMsPerMonth: effectiveDmFree(tierDm.freeDMsPerMonth, user) };
     const monthKey = getAllotmentPeriodKey(user.membership_started_at);
     const dayStr   = getLocalDateStr(user.timezone);
 
@@ -351,7 +358,7 @@ router.post('/send', authMid, async (req, res) => {
 
     const { rows: userRows } = await client.query(
       `SELECT u.tier, u.membership_expires_at, u.membership_started_at, u.coin_balance, u.timezone,
-              u.display_name, u.email,
+              u.display_name, u.email, u.renewal_streak,
               fs.custom_chat_price, fs.custom_messages_per_token, fs.messages_since_charge,
               COALESCE(fs.can_send_media, FALSE) AS can_send_media
        FROM users u
@@ -363,7 +370,13 @@ router.post('/send', authMid, async (req, res) => {
     const now      = new Date();
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > now;
     const userTier = isActive ? user.tier : 'guest';
-    const config   = await getDmConfigForTier(userTier);
+    // The tier's message allowance, then the member's own.
+    //
+    // Renewing early raises the monthly count on the same schedule as gallery
+    // opens. Only the monthly figure moves: the daily cap is a rate limit
+    // rather than an allowance, and raising it would defeat what it is for.
+    const tierDm   = await getDmConfigForTier(userTier);
+    const config   = { ...tierDm, freeDMsPerMonth: effectiveDmFree(tierDm.freeDMsPerMonth, user) };
     const monthKey = getAllotmentPeriodKey(user.membership_started_at);
     const dayStr   = getLocalDateStr(user.timezone);
 

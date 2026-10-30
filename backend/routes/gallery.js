@@ -13,6 +13,7 @@ const { assertNotBlocked } = require('../lib/moderation');
 const { roundTokensUp } = require('../lib/pricing');
 const { getAllotmentPeriodKey } = require('../lib/time');
 const { spendTokens } = require('../lib/tokens');
+const { applyRenewalBonus, renewalSummary } = require('../lib/allowance');
 
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
 const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
@@ -143,15 +144,25 @@ async function readOpenCap(userTier) {
 }
 
 // Every ladder number in one go, in the shape nextOpenCost expects.
-async function readBands(userTier, { isGuest = false } = {}) {
+//
+// The member is passed in so an early-renewal bonus can be applied here, once,
+// rather than at each of the three places that ask for bands. They must agree:
+// the gallery quotes from one, the unlock quote from the second and the actual
+// charge from the third, and a member shown one number and charged against
+// another has every right to be annoyed.
+//
+// applyRenewalBonus moves the whole ladder rather than just the cap — see
+// lib/allowance for why raising the cap alone would partly cancel the reward.
+async function readBands(userTier, { isGuest = false, user = null } = {}) {
   const [openCap, band2Until, band2Cost, band3Until, band3Cost] = await Promise.all([
     isGuest ? 0 : readOpenCap(userTier),
-    ladderNumber('tier_open_band2_until', 30),
+    ladderNumber('tier_open_band2_until', 42),
     ladderNumber('tier_open_band2_cost',   1),
-    ladderNumber('tier_open_band3_until', 50),
+    ladderNumber('tier_open_band3_until', 60),
     ladderNumber('tier_open_band3_cost',   3),
   ]);
-  return { openCap, band2Until, band2Cost, band3Until, band3Cost };
+  const bands = { openCap, band2Until, band2Cost, band3Until, band3Cost };
+  return isGuest ? bands : applyRenewalBonus(bands, user);
 }
 
 // What the next set at your own level costs, given how many you have already
@@ -384,7 +395,7 @@ router.post('/sets/:setId/fit-vote', authMid, async (req, res) => {
 router.get('/sets', authMid, async (req, res) => {
   try {
     const { rows: userRows } = await pool.query(
-      `SELECT tier, membership_expires_at, membership_started_at, coin_balance FROM users WHERE id = $1`,
+      `SELECT tier, membership_expires_at, membership_started_at, coin_balance, renewal_streak FROM users WHERE id = $1`,
       [req.user.userId]
     );
     const user      = userRows[0];
@@ -402,7 +413,7 @@ router.get('/sets', authMid, async (req, res) => {
     // is a ceiling high enough that no ordinary month reaches it, and low
     // enough that a single month cannot be used to take the whole library.
     const monthKey = getAllotmentPeriodKey(user.membership_started_at);
-    const bands = await readBands(userTier, { isGuest });
+    const bands = await readBands(userTier, { isGuest, user });
     const { openCap, band2Until, band2Cost, band3Until, band3Cost } = bands;
 
     let opensUsed = 0;
@@ -714,6 +725,10 @@ router.get('/sets', authMid, async (req, res) => {
       opensUsed,
       opensResetOn,
       bands: { openCap, band2Until, band2Cost, band3Until, band3Cost },
+      // Why their cap is what it is. Sent from here rather than worked out in
+      // the page, so the banner can never quote a number the charge disagrees
+      // with. Absent for guests, who have no renewals to speak of.
+      renewalBonus: isGuest ? null : renewalSummary(user),
       // Kept under the old names so anything still reading them keeps working
       // through the deploy.
       creditsRemaining: opensRemaining,
@@ -745,7 +760,7 @@ router.post('/unlock', authMid, async (req, res) => {
     await client.query('BEGIN');
 
     const { rows: userRows } = await client.query(
-      `SELECT tier, membership_expires_at, membership_started_at, coin_balance, display_name FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT tier, membership_expires_at, membership_started_at, coin_balance, display_name, renewal_streak FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user      = userRows[0];
@@ -783,7 +798,7 @@ router.post('/unlock', authMid, async (req, res) => {
     // zero every time: the gallery quoted a token and the unlock took nothing.
     // Every set opened past the monthly allowance has been free.
     const monthKeyForCap = getAllotmentPeriodKey(user.membership_started_at);
-    const bandsForCap = await readBands(userTier, { isGuest });
+    const bandsForCap = await readBands(userTier, { isGuest, user });
 
     const { rows: capRows } = await client.query(
       `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2`,
@@ -824,7 +839,7 @@ router.post('/unlock', authMid, async (req, res) => {
     // separately and has nothing to do with the allowance.
     if (scope === 'tier' && segments.tierPortionCount > 0 && !isGuest) {
       const monthKey = getAllotmentPeriodKey(user.membership_started_at);
-      const chargeBands = await readBands(userTier);
+      const chargeBands = await readBands(userTier, { user });
 
       const { rows: allotRows } = await client.query(
         `SELECT unlocks_used FROM monthly_allotments WHERE user_id = $1 AND month_key = $2 FOR UPDATE`,

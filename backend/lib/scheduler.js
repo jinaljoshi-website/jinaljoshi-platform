@@ -53,6 +53,7 @@ const { notifyArtist, pushToUser } = require('./notify');
 const fx = require('./fx');
 const { refundByRelated } = require('./tokens');
 const { sendRenewalReminderEmail } = require('./emails');
+const { renewalSummary, BONUS_STEP } = require('./allowance');
 const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 
 function getStreamClient() {
@@ -455,6 +456,20 @@ async function closeExpiredAccounts() {
   }
 }
 
+// What the reminder is allowed to promise.
+//
+// nextBonusPct is what they would have after renewing, not what they have now
+// — the reminder is asking them to renew, so the number it quotes has to be
+// the one they get for doing it.
+function atCeiling(u) {
+  return renewalSummary(u).atCeiling;
+}
+
+function nextBonusPct(u) {
+  const { renewals, maxPct } = renewalSummary(u);
+  return Math.min(Math.round(BONUS_STEP * (renewals + 1) * 100), maxPct);
+}
+
 async function checkMembershipExpiry() {
   const client = await pool.connect();
   try {
@@ -464,15 +479,23 @@ async function checkMembershipExpiry() {
       // This read "ends on the ." for as long as it has existed: the template
       // interpolated an empty string where the date belonged. A reminder that
       // does not say when is a reminder that asks somebody to go and find out.
+      // Renewing before the end is now worth something, so the reminder says
+      // so. Somebody already at the ceiling is told what they stand to lose
+      // instead — promising a rise that cannot happen would be a lie they
+      // would notice the moment they paid.
       { key: '3day', days: 3, title: 'Your membership ends in 3 days',
-        body: (t, when) => `Your ${t} membership ends on ${when}. Renew to keep your allowances and everything you have unlocked with them.` },
+        body: (t, when, u) => atCeiling(u)
+          ? `Your ${t} membership ends on ${when}. Renew before it does to keep your raised allowances and everything you have unlocked.`
+          : `Your ${t} membership ends on ${when}. Renew before it does and your monthly allowances go up ${nextBonusPct(u)}%.` },
       { key: '1day', days: 1, title: 'Your membership ends tomorrow',
-        body: (t, when) => `Your ${t} membership ends tomorrow, ${when}. Renew to keep your allowances and the sets you unlocked with them.` },
+        body: (t, when, u) => atCeiling(u)
+          ? `Your ${t} membership ends tomorrow, ${when}. Renew today to keep your raised allowances and the sets you unlocked.`
+          : `Your ${t} membership ends tomorrow, ${when}. Renew today and your monthly allowances go up ${nextBonusPct(u)}%.` },
     ];
 
     for (const stage of stages) {
       const { rows } = await client.query(
-        `SELECT u.id, u.email, u.display_name, u.tier, u.membership_expires_at
+        `SELECT u.id, u.email, u.display_name, u.tier, u.membership_expires_at, u.renewal_streak
          FROM users u
          WHERE u.is_artist = FALSE
            AND u.membership_expires_at IS NOT NULL
@@ -493,7 +516,10 @@ async function checkMembershipExpiry() {
         try {
           await pushToUser(u.id, {
             title: stage.title,
-            body:  `Your ${u.tier} membership ends on ${when}. Renew to keep your allowances and the sets you unlocked with them.`,
+            // The stage's own wording, which it always had and which nothing
+            // ever called — this line carried a third copy of the sentence, so
+            // the 1-day reminder said "ends on" where it meant "ends tomorrow".
+            body:  stage.body(u.tier, when, u),
             url:   '/platform/membership',
             tag:   'membership-expiry',
           });
