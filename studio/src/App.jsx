@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Login  from './pages/Login';
 import Studio from './pages/Studio';
+import ErrorBoundary from './components/ErrorBoundary';
 import { api } from './api';
 
 function isLoggedIn() {
@@ -40,10 +41,14 @@ function Private({ children }) {
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/*" element={<Private><Studio /></Private>} />
-      </Routes>
+      {/* Outside the routes, so a crash anywhere inside is caught rather than
+          taking the whole screen with it. */}
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/*" element={<Private><Studio /></Private>} />
+        </Routes>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }

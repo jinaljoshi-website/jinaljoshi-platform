@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { api } from '../api';
@@ -9,6 +9,54 @@ import GuestNudge from '../components/GuestNudge';
 import { StreamChat } from 'stream-chat';
 
 const MAX_VOICE_SECONDS = 60;
+
+// The writing box, with its own state.
+//
+// The same shape as Studio's. The text lived in the page component alongside
+// the whole thread, so every character re-rendered every message on screen.
+// Fans feel this less than Jinal does only because their threads are shorter —
+// the cost is the same per message, and it grows with the conversation.
+const Composer = forwardRef(function Composer({ onSend, onTyping, sending, placeholder }, ref) {
+  const [text, setText] = useState('');
+  const taRef = useRef(null);
+
+  const grow = (el) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 140) + 'px';
+  };
+
+  useImperativeHandle(ref, () => ({
+    get: () => text,
+    set: (t) => { setText(t); requestAnimationFrame(() => grow(taRef.current)); },
+    clear: () => { setText(''); if (taRef.current) taRef.current.style.height = 'auto'; },
+    focus: () => taRef.current?.focus(),
+  }), [text]);
+
+  const submit = () => {
+    const t = text.trim();
+    if (!t) return;
+    onSend(t);
+  };
+
+  return (
+    <>
+      <textarea
+        ref={taRef}
+        value={text}
+        onChange={(e) => { setText(e.target.value); onTyping?.(); grow(e.target); }}
+        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
+        placeholder={placeholder}
+        style={composerInput}
+        rows={2}
+      />
+      <button onClick={submit} disabled={sending || !text.trim()}
+              style={{ ...sendBtn, opacity: (sending || !text.trim()) ? 0.5 : 1 }}>
+        {sending ? '…' : 'Send'}
+      </button>
+    </>
+  );
+});
 
 // Calls left the navigation, so this is now the way to them. Drawn rather than
 // set as a character: the camera glyphs render as something different in every
@@ -64,7 +112,9 @@ export default function Chat() {
     return () => window.removeEventListener('keydown', onKey);
   }, [viewing]);
   const [status,     setStatus]     = useState(null);
-  const [message,    setMessage]    = useState('');
+  // The writing box holds its own text — see Composer above. Keeping it here
+  // re-rendered the whole thread on every keystroke.
+  const composerRef = useRef(null);
   const [loading,    setLoading]    = useState(true);
   const [sending,    setSending]    = useState(false);
   const [typing,     setTyping]     = useState(false);
@@ -87,7 +137,6 @@ export default function Chat() {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef   = useRef([]);
   const recordTimerRef   = useRef(null);
-  const textareaRef = useRef(null);
 
   // Background layer geometry — measured via getBoundingClientRect, but carefully guarded
   // against the exact failure mode that crashed a real fan's phone earlier: rAF-coalesces
@@ -415,12 +464,6 @@ export default function Chat() {
     }, 2000);
   };
 
-  const autoGrow = (el) => {
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
-  };
-
   const unlockMedia = async (dbMessageId) => {
     setUnlocking(dbMessageId);
     setError('');
@@ -505,9 +548,8 @@ export default function Chat() {
         mediaType: mediaType || undefined,
         parentId:  replyTo?.id || undefined,
       });
-      setMessage('');
+      composerRef.current?.clear();
       setReplyTo(null);
-      if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
       if (data.newBalance !== undefined) {
         setStatus((prev) => ({ ...prev, coinBalance: data.newBalance }));
@@ -537,13 +579,6 @@ export default function Chat() {
       }
     } finally {
       setSending(false);
-    }
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (message.trim()) sendMessage(message.trim());
     }
   };
 
@@ -810,18 +845,13 @@ export default function Chat() {
           )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
             <button onClick={startRecording} disabled={sending} style={{ ...micBtn, opacity: sending ? 0.5 : 1 }} title="Record a voice note">🎙️</button>
-            <textarea
-              ref={textareaRef}
-              value={message}
-              onChange={(e) => { setMessage(e.target.value); handleTyping(); autoGrow(e.target); }}
-              onKeyDown={handleKeyDown}
+            <Composer
+              ref={composerRef}
+              sending={sending}
+              onTyping={handleTyping}
+              onSend={(text) => sendMessage(text)}
               placeholder={nextIsFree ? `Message Jinal… (${freeRemaining} free remaining)` : isGuest ? `Message Jinal… (${nextCost} tokens each)` : `Message Jinal… (${nextCost} token${nextCost > 1 ? 's' : ''} each)`}
-              style={composerInput}
-              rows={2}
             />
-            <button onClick={() => { if (message.trim()) sendMessage(message.trim()); }} disabled={sending || !message.trim()} style={{ ...sendBtn, opacity: (sending || !message.trim()) ? 0.5 : 1 }}>
-              {sending ? '…' : 'Send'}
-            </button>
           </div>
           </>
         )}

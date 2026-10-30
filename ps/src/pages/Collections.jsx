@@ -115,8 +115,18 @@ export default function Collections() {
       // 404 is the answer for anybody without access, and it is indistinguishable
       // from the section not existing — which is the point. Send them home
       // rather than explaining what they cannot have.
-      setDenied(true);
-      if (err.code !== 'NOT_FOUND') console.error(err.message);
+      //
+      // Only for that case, though. This set denied on *any* failure and only
+      // told the two apart in the console line below — so a member who hit a
+      // 500 or a dropped connection on the highest-priced section on the
+      // platform was silently thrown out to the chat page with no explanation,
+      // and nothing to suggest trying again would work.
+      if (err.code === 'NOT_FOUND') {
+        setDenied(true);
+      } else {
+        console.error('collections/sets:', err.message);
+        setError(err.message || 'The collection could not be loaded.');
+      }
     }
   };
   useEffect(() => { load(); }, []);
@@ -192,6 +202,27 @@ export default function Collections() {
   };
 
   if (denied) return null;
+
+  // A failure here used to leave the ellipsis below on screen for good, because
+  // the only state that ended it was data arriving. Now that an ordinary
+  // failure no longer ejects the member, it has to be something they can see
+  // and act on.
+  if (!data && error) {
+    return (
+      <div style={{ ...page, fontFamily: T.body, padding: 32 }}>
+        <div style={{ color: V.ink, fontSize: 15, marginBottom: 8 }}>
+          The collection couldn’t be loaded.
+        </div>
+        <div style={{ color: V.quiet, fontSize: 13, lineHeight: 1.6, marginBottom: 18 }}>{error}</div>
+        <button onClick={() => { setError(''); load(); }}
+                style={{ fontFamily: T.body, fontSize: 13, padding: '9px 18px', borderRadius: 8,
+                         cursor: 'pointer', background: 'transparent',
+                         border: `1px solid ${V.edge}`, color: V.ink }}>
+          Try again
+        </button>
+      </div>
+    );
+  }
   if (!data)  return <div style={{ ...page, color: V.quiet, fontFamily: T.body, padding: 32 }}>…</div>;
 
   const sets = tab === 'photos' ? data.photos : data.videos;
@@ -220,7 +251,7 @@ export default function Collections() {
               {(open.items || []).map((it, i) => (
                 it.mediaType === 'video'
                   ? <video key={it.id} src={it.mediaUrl} controls style={tile} />
-                  : <img key={it.id} src={it.mediaUrl} alt="" style={tile} onClick={() => setLightbox(i)} />
+                  : <img key={it.id} src={it.mediaUrl} alt="" style={tile} loading="lazy" decoding="async" onClick={() => setLightbox(i)} />
               ))}
             </div>
           </div>
@@ -231,7 +262,7 @@ export default function Collections() {
             {open.items.map((it, i) => (
               it.mediaType === 'video'
                 ? <video key={it.id} src={it.mediaUrl} controls style={tile} />
-                : <img key={it.id} src={it.mediaUrl} alt="" style={tile} onClick={() => setLightbox(i)} />
+                : <img key={it.id} src={it.mediaUrl} alt="" style={tile} loading="lazy" decoding="async" onClick={() => setLightbox(i)} />
             ))}
           </div>
         ) : (
@@ -392,7 +423,7 @@ function SetCard({ set, flip, onOpen }) {
              }}>
       <div style={{ position: 'relative', borderRadius: 3, overflow: 'hidden', border: `1px solid ${V.edge}`, background: V.panel }}>
         {set.coverUrl
-          ? <img src={set.coverUrl} alt="" style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block' }} />
+          ? <img src={set.coverUrl} alt="" loading="lazy" decoding="async" style={{ width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block' }} />
           : <div style={{ width: '100%', aspectRatio: '4 / 3' }} />}
         {!set.unlocked && <Jaali />}
         {set.unlocked && (

@@ -24,8 +24,10 @@
 // requires the artist and says everything, because a summary that omits the
 // detail sends somebody to the logs anyway.
 
-const router = require('express').Router();
-const pool   = require('../db/pool');
+const router     = require('express').Router();
+const pool       = require('../db/pool');
+const authMid    = require('../middleware/auth');
+const artistOnly = require('../middleware/artistOnly');
 
 // A job that has not run in this long has stopped, whatever it says.
 //
@@ -65,7 +67,17 @@ router.get('/', async (req, res) => {
 // ─────────────────────────────────────────────
 //
 // The whole picture, for somebody who already knows something is wrong.
-router.get('/full', async (req, res) => {
+//
+// Behind the artist guard, which the comment above this route has always said
+// it was and which it never actually had — neither here nor at the mount in
+// server.js. Anybody at all could read the scheduler's job names, raw database
+// error text, and `checks.config.missing`, which enumerates whether JWT_SECRET,
+// RAZORPAY_KEY_SECRET and the rest are configured. That last part is a map of
+// which doors are unlocked.
+//
+// The terse `/` above stays public: an uptime checker reads a status code and
+// has no session to offer.
+router.get('/full', authMid, artistOnly, async (req, res) => {
   const started = Date.now();
   const out = { ok: true, at: new Date().toISOString(), checks: {} };
 

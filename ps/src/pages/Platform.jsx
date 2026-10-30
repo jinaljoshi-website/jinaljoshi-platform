@@ -1,6 +1,6 @@
 import Notices from './Notices';
 // ps/src/pages/Platform.jsx
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { C, F } from '../tokens';
 import { api, getUser, logout } from '../api';
@@ -131,7 +131,11 @@ function useReachable() {
 }
 
 const TOP_BAR_H = 56;
-const PROFILE_POLL_MS = 20000;
+const PROFILE_POLL_MS = 60000;
+// How recently a fetch has to have happened for a route change to skip its own.
+// Long enough to collapse a walk through the app into one request, short enough
+// that the balance after a purchase is never stale on the page it lands on.
+const MIN_PROFILE_GAP_MS = 10000;
 
 // Where the visible area is, and how tall.
 //
@@ -231,12 +235,36 @@ function StatusBadge({ isMobile }) {
   const location = useLocation();
   const [profile, setProfile] = useState(null);
 
-  const load = () => api.get('/api/auth/profile').then((d) => setProfile(d.user)).catch(() => {});
+  // Asked for far less often than it was.
+  //
+  // This refetched on a twenty-second timer *and* on every route change, with
+  // nothing between the two — so a fan walking through six screens made
+  // twenty-six requests to this one endpoint in under a minute, each paying the
+  // round trip to the server. The badge shows a tier and a token balance;
+  // neither changes often enough to be worth that.
+  //
+  // What it keeps is the reason the route-change refetch existed at all: the
+  // balance must be right immediately after a purchase or an unlock, and both
+  // of those navigate. So a route change still refreshes — unless the last one
+  // was moments ago, which is what a walk through the app looks like.
+  const lastAt = useRef(0);
+
+  const load = (force = false) => {
+    if (!force && Date.now() - lastAt.current < MIN_PROFILE_GAP_MS) return;
+    lastAt.current = Date.now();
+    api.get('/api/auth/profile').then((d) => setProfile(d.user)).catch(() => {});
+  };
 
   useEffect(() => {
-    load();
-    const interval = setInterval(load, PROFILE_POLL_MS);
-    return () => clearInterval(interval);
+    load(true);
+    // Nothing to refresh for somebody who is not looking. A phone with the app
+    // in the background was polling every twenty seconds regardless, which on
+    // mobile data is a radio waking for no reason.
+    const tick = () => { if (!document.hidden) load(true); };
+    const interval = setInterval(tick, PROFILE_POLL_MS);
+    const onVisible = () => { if (!document.hidden) load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVisible); };
   }, []);
 
   useEffect(() => { load(); }, [location.pathname]);
@@ -308,7 +336,9 @@ export default function Platform() {
 
   const applyCurrency = (d) => {
     const chosen = (d.options || []).find((o) => o.currency === d.current);
-    setDisplayCurrency(d.isForeign && chosen ? chosen : null);
+    // bufferPct travels on the response rather than on each option, and money()
+    // needs it to match what the server actually charges.
+    setDisplayCurrency(d.isForeign && chosen ? { ...chosen, bufferPct: d.bufferPct } : null);
     setCurrency(d);
     setCurrencyReady((n) => n + 1);
   };

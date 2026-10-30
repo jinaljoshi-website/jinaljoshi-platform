@@ -113,8 +113,21 @@ function SectionSave({ keys, draft, config, setConfig }) {
   const handleSave = async () => {
     setError(''); setSuccess(''); setSaving(true);
     try {
+      // Only what actually changed.
+      //
+      // This sent every key in the section. A key that does not yet exist in
+      // platform_config has no draft value, and the server writes String(value)
+      // — so saving one edited field also wrote the literal text "undefined"
+      // over every untouched key beside it. One guest-multiplier tweak could
+      // set token_rate_inr to "undefined", which parseFloat turns into NaN and
+      // getConfigNumber then throws on, and every priced action on the platform
+      // starts failing.
+      //
+      // `changed` is computed a few lines above for the confirmation list, and
+      // is the same set that was being described to her before she pressed
+      // save. Now it is also the set that gets sent.
       const changes = {};
-      keys.forEach((k) => { changes[k] = draft[k]; });
+      changed.forEach((k) => { changes[k] = draft[k]; });
       await api.post('/api/studio/config', { changes });
       setConfig((c) => ({ ...c, ...changes }));
       setSuccess('Saved — this is live for fans immediately.');

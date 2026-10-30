@@ -76,10 +76,21 @@ export function money(amountInr) {
   if (!c || !c.inrPerUnit) {
     return `\u20B9${Math.round(amountInr).toLocaleString('en-IN')}`;
   }
-  // Rounded up, matching how the server quotes a real charge -- so the figure
-  // shown is never lower than the figure billed.
+  // The buffer, which this had been leaving out.
+  //
+  // The server charges through fx.quote (backend/lib/fx.js), which divides the
+  // rate by (1 + bufferPct/100) before converting — a smaller effective rate,
+  // and so a larger figure in the fan's own currency. This divided by the raw
+  // rate, so every price outside the Coins page came out *below* what Razorpay
+  // then charged: the "Pay $X" button in the top-up sheet, the membership
+  // price, every token figure. The comment underneath claimed the figure shown
+  // "is never lower than the figure billed", and it was the only place that was
+  // wrong about it — Coins.jsx:105 has always done this correctly.
+  //
+  // Rounded up for the same reason the server rounds up.
   const f = Math.pow(10, c.decimals ?? 2);
-  const value = Math.ceil((amountInr / c.inrPerUnit) * f) / f;
+  const effectiveInrPerUnit = c.inrPerUnit / (1 + (c.bufferPct || 0) / 100);
+  const value = Math.ceil((amountInr / effectiveInrPerUnit) * f) / f;
   return `${c.symbol || c.currency + ' '}${value.toFixed(c.decimals ?? 2)}`;
 }
 

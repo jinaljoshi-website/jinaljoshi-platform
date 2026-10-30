@@ -236,6 +236,10 @@ export default function Gallery() {
   const { setId } = useParams();
   const [setItems,  setSetItems]  = useState([]);
   const [fitCheck,  setFitCheck]  = useState(null);
+  // The blurred frame behind a lock panel. It arrives with the set now rather
+  // than on the library listing, where a copy of it rode along with all 235
+  // sets — twice — to be drawn for at most one of them.
+  const [preview,   setPreview]   = useState(null);
   const [voting,    setVoting]    = useState(false);
   const [confirming, setConfirming] = useState(null);
 
@@ -309,14 +313,17 @@ export default function Gallery() {
   useEffect(() => { load(); }, []);
 
   const allSets = data
-    ? (data.sets || [...(data.unlockable || []), ...(data.freeForAll || [])])
+    // The fallback here concatenated `unlockable` and `freeForAll`, two arrays
+    // the server sent purely as copies of this one. They have gone, and with
+    // them half the size of this response.
+    ? (data.sets || [])
     : [];
   const unlockedSets = allSets.filter((s) => s.isGenuinelyUnlocked);
 
   const openViewer = async (set, { silent } = {}) => {
     if (!silent) navigate(`/platform/gallery/${set.id}`, { replace: false });
     setOpenSet(set);
-    setSetItems([]); setFitCheck(null);
+    setSetItems([]); setFitCheck(null); setPreview(null);
     setViewerError('');
     setItemsLoad(true);
     seedRef.current = Math.random().toString(36).slice(2, 12);
@@ -327,6 +334,7 @@ export default function Gallery() {
       const itemsData = await api.get(`/api/gallery/sets/${set.id}/items?seed=${seedRef.current}`);
       setSetItems(itemsData.items || []);
       setFitCheck(itemsData.fitCheck || null);
+      setPreview(itemsData.previewUrl || null);
 
       // Recorded once the set is open and the photographs are on screen.
       //
@@ -368,7 +376,7 @@ export default function Gallery() {
     const freshData = await api.get(`/api/gallery/sets?sort=${sort}&show=${show}`);
     setData(freshData);
     const updated = (freshData.sets
-      || [...(freshData.unlockable || []), ...(freshData.freeForAll || [])]).find((s) => s.id === setId);
+      || []).find((s) => s.id === setId);
     if (updated) setOpenSet(updated);
     // The same seed the set was opened with, so what was already on screen does
     // not move when more is unlocked. The new photographs arrive in their own
@@ -596,10 +604,25 @@ export default function Gallery() {
         <div style={viewerGrid}>
           {setItems.map((item, idx) => (
             <div key={item.id} onClick={() => setLightbox(idx)} style={thumbWrap}>
+              {/* Fetched as it comes into view, not all at once.
+                  //
+                  // These are the full-resolution originals scaled into a cell
+                  // about 200 pixels wide, and a set of a couple of hundred
+                  // photographs asked for every one of them the moment the set
+                  // opened — several hundred megabytes, on a phone, before
+                  // anything had been scrolled to. Studio's own review grid has
+                  // used an observer for this all along; the fan-facing copy,
+                  // where nearly all the traffic is, had nothing.
+                  //
+                  // `loading` and `decoding` are the browser's own and need no
+                  // observer. They do not make the files smaller — that wants a
+                  // thumbnail made at upload — but they stop all of them being
+                  // asked for at once, which is what made it unusable. */}
               {item.media_type === 'video' ? (
-                <video src={item.media_url} style={thumb} muted />
+                <video src={item.media_url} style={thumb} muted preload="none" />
               ) : (
-                <img src={item.media_url} alt="" style={thumb} />
+                <img src={item.media_url} alt="" style={thumb}
+                     loading="lazy" decoding="async" />
               )}
               {item.media_type === 'video' && <div style={playBadge}>▶</div>}
 
@@ -643,7 +666,9 @@ export default function Gallery() {
           const scope     = showTierFrame ? 'tier' : 'upsell';
           const count     = showTierFrame ? openSet.tierPortionCount : openSet.upsellPortionCount;
           const price     = showTierFrame ? openSet.tierPrice : openSet.upsellPrice;
-          const preview   = showTierFrame ? openSet.tierPreviewUrl : openSet.upsellPreviewUrl;
+          // The blurred frame used to be picked here from one of two fields the
+          // server sent, both holding the same image. Both have gone; `preview`
+          // is state now, filled from the set's own response.
           const onCredit  = showTierFrame && price === 0;
           const offer     = openSet.membershipOffer;
           const busy      = !!unlockingScope || joining;
@@ -1011,6 +1036,7 @@ export default function Gallery() {
                     // shows and the blur cannot be undone by scaling it back.
                     <div style={{ position: 'relative', width: '100%', height: 180, borderRadius: 6, overflow: 'hidden' }}>
                       <img src={item.cover_url} alt={item.title}
+                           loading="lazy" decoding="async"
                            style={{
                              width: '100%', height: '100%', objectFit: 'cover', display: 'block',
                              // Smooths the upscale. The hiding is done by the

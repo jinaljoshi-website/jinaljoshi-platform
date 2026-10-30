@@ -1,5 +1,5 @@
 // studio/src/sections/Messages.jsx
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { api } from '../api';
 import LibraryPicker from '../components/LibraryPicker';
 import Broadcast from '../components/Broadcast';
@@ -11,6 +11,66 @@ import CropTool from '../components/CropTool';
 const TOKEN_RATE = 66;
 const CHAT_BG_ASPECT = 9 / 16;
 const MAX_VOICE_SECONDS = 60;
+
+// The writing box, with its own state.
+//
+// What it is for: the text being typed used to live in the same component as
+// the thread, so every character re-rendered every message on screen. With a
+// long conversation that was 44,031 nodes rebuilt per keystroke and 140ms of
+// work before the letter appeared — which is what the typing lag was. Holding
+// the text down here means a keystroke re-renders this box and nothing else.
+//
+// The parent still needs to read and write the text — to send it, to clear it,
+// to put a sentence back after a failed send — so that is exposed through a ref
+// rather than lifted back into the parent's state, which would undo the point.
+const Composer = forwardRef(function Composer({ onSend, onTyping, sending, placeholder }, ref) {
+  const [text, setText] = useState('');
+  const taRef = useRef(null);
+
+  const grow = (el) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+  };
+
+  useImperativeHandle(ref, () => ({
+    get: () => text,
+    set: (t) => {
+      setText(t);
+      // After the value has landed, or the box measures its old contents.
+      requestAnimationFrame(() => grow(taRef.current));
+    },
+    clear: () => {
+      setText('');
+      if (taRef.current) taRef.current.style.height = 'auto';
+    },
+    focus: () => taRef.current?.focus(),
+  }), [text]);
+
+  const submit = () => {
+    const t = text.trim();
+    if (!t) return;
+    onSend(t);
+  };
+
+  return (
+    <>
+      <textarea
+        ref={taRef}
+        value={text}
+        onChange={(e) => { setText(e.target.value); onTyping?.(); grow(e.target); }}
+        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
+        placeholder={placeholder}
+        rows={3}
+        style={{ flex: 1, minWidth: 0, minHeight: 76, background: 'rgba(22,20,16,0.9)', border: `1px solid ${colors.border}`, color: colors.text, fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 16, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', textAlign: 'left', maxHeight: 160 }}
+      />
+      <button onClick={submit} disabled={sending || !text.trim()}
+              style={{ ...S.btn, opacity: (sending || !text.trim()) ? 0.5 : 1 }}>
+        {sending ? '…' : 'Send'}
+      </button>
+    </>
+  );
+});
 
 async function uploadToR2(file, context) {
   const { uploadUrl, publicUrl } = await api.post('/api/upload/presign', {
@@ -75,11 +135,18 @@ export function Messages({ openWith }) {
   const [convos,   setConvos]   = useState([]);
   const [selected, setSelected] = useState(null);
   const [thread,   setThread]   = useState([]);
+  // The thread is now a page rather than the whole history, so it has to know
+  // whether there is anything above it and where that page starts.
+  const [hasMore,     setHasMore]     = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [fan,      setFan]      = useState(null);
   // What this fan has left to spend and to say — so a quiet week reads as
   // "out of free messages" rather than "lost interest".
   const [quota,    setQuota]    = useState(null);
-  const [reply,    setReply]    = useState('');
+  // The writing box holds its own text now — see Composer at the top of this
+  // file. Keeping it here meant every keystroke re-rendered the whole thread.
+  const composerRef = useRef(null);
+  const scrollRef   = useRef(null);
   const [sending,  setSending]  = useState(false);
   const [loading,  setLoading]  = useState(true);
   const [typing,   setTyping]   = useState(false);
@@ -173,7 +240,6 @@ export function Messages({ openWith }) {
   const lockedFileRef = useRef(null);
   const bgFileRef     = useRef(null);
   const bottomRef     = useRef(null);
-  const replyRef      = useRef(null);
 
   const scClientRef  = useRef(null);
   const channelRef   = useRef(null);
@@ -321,6 +387,7 @@ export function Messages({ openWith }) {
     try {
       const data = await api.get(`/api/studio/dms/${fanId}`);
       setThread(data.messages || []);
+      setHasMore(!!data.hasMore);
       channelRef.current?.markRead().catch(() => {});
     } catch {}
   };
@@ -349,6 +416,7 @@ export function Messages({ openWith }) {
 
     const data = await api.get(`/api/studio/dms/${fanId}`);
     setThread(data.messages || []);
+    setHasMore(!!data.hasMore);
     setFan(data.fan || null);
     setQuota(data.quota || null);
     setBgPreview(data.fan?.personal_chat_bg || '');
@@ -458,10 +526,12 @@ export function Messages({ openWith }) {
           ? fromPanel
           : parseInt(window.prompt('Price to unlock, in tokens?', '10'), 10);
         if (!price || price <= 0) return;
+        // Read once from the box, used for both the record and the mirror.
+        const caption = (composerRef.current?.get() || '').trim();
         const data = await api.post(`/api/studio/dms/${selected}/send-locked-media`, {
           mediaItems: picked.map((p2) => ({ url: p2.url, type: p2.type })),
           priceCoins: price,
-          content: reply.trim() || undefined,
+          content: caption || undefined,
         });
         setThread((prev) => [...prev, data.message]);
 
@@ -472,14 +542,14 @@ export function Messages({ openWith }) {
         if (channelRef.current) {
           await channelRef.current.sendMessage({
             id: data.message.id,
-            text: reply.trim() || undefined,
+            text: caption || undefined,
             locked_media: true,
             db_message_id: data.message.id,
             locked_price: price,
             locked_item_count: picked.length,
           }).catch((e) => console.error('Stream mirror failed:', e.message));
         }
-        setReply('');
+        composerRef.current?.clear();
       } else {
         for (const item of picked) await sendReply(item.url, item.type);
       }
@@ -488,8 +558,11 @@ export function Messages({ openWith }) {
     } catch (err) { alert(err.message); }
   };
 
-  const sendReply = async (mediaUrl = null, mediaType = null) => {
-    if (!reply.trim() && !mediaUrl) return;
+  // `textArg` comes from the Composer when it is the composer sending. The
+  // media paths call this with no text and read whatever is in the box.
+  const sendReply = async (mediaUrl = null, mediaType = null, textArg = null) => {
+    const text = (textArg ?? composerRef.current?.get() ?? '').trim();
+    if (!text && !mediaUrl) return;
 
     // One send at a time, held in a ref rather than in state.
     //
@@ -504,8 +577,7 @@ export function Messages({ openWith }) {
     // Cleared here, not after the request. Whatever happens next, the words
     // have left the box, and a retry is the person's own decision rather than
     // something the keyboard does for them.
-    const text = reply.trim();
-    setReply('');
+    composerRef.current?.clear();
     setSending(true);
     try {
       const data = await api.post(`/api/studio/dms/${selected}/reply`, {
@@ -520,11 +592,14 @@ export function Messages({ openWith }) {
       // Not cleared again here. The box was emptied before the request went
       // out, and clearing it now would wipe whatever was typed while waiting —
       // which on a slow connection is a whole sentence.
-      if (replyRef.current) replyRef.current.style.height = 'auto';
 
       if (channelRef.current) {
         const streamMsg = {};
-        if (reply.trim()) streamMsg.text = reply.trim();
+        // `text`, not the box. This read the box, which had been emptied a few
+        // lines above — so the mirrored copy went to Stream with no text on it
+        // and the fan's live message arrived blank until a refresh pulled the
+        // real one from the database.
+        if (text) streamMsg.text = text;
         if (mediaUrl) {
           streamMsg.attachments = [{
             type: mediaType === 'audio' ? 'audio' : mediaType === 'video' ? 'video' : 'image',
@@ -539,7 +614,7 @@ export function Messages({ openWith }) {
     } catch (err) {
       // Put back what was taken out of the box, so a failed send is a retry
       // rather than a lost sentence.
-      setReply(text);
+      composerRef.current?.set(text);
       alert(err.message);
     }
     finally { setSending(false); sendingRef.current = false; }
@@ -750,14 +825,36 @@ export function Messages({ openWith }) {
     }
   };
 
-  const handleTyping = () => {
-    if (channelRef.current) channelRef.current.keystroke().catch(() => {});
+  // Walks backwards a page at a time from the oldest message on screen.
+  //
+  // The scroll position is held still by measuring the pane before and after:
+  // prepending rows otherwise pushes everything down and the message she was
+  // reading jumps off the top.
+  const loadEarlier = async () => {
+    if (loadingMore || !thread.length) return;
+    setLoadingMore(true);
+    const pane = scrollRef.current;
+    const before = pane ? pane.scrollHeight - pane.scrollTop : 0;
+    try {
+      const data = await api.get(
+        `/api/studio/dms/${selected}?before=${encodeURIComponent(thread[0].created_at)}`);
+      const older = data.messages || [];
+      if (older.length) {
+        setThread((prev) => [...older, ...prev]);
+        requestAnimationFrame(() => {
+          if (pane) pane.scrollTop = pane.scrollHeight - before;
+        });
+      }
+      setHasMore(!!data.hasMore);
+    } catch (err) {
+      console.error('load earlier:', err.message);
+    } finally {
+      setLoadingMore(false);
+    }
   };
 
-  const autoGrow = (el) => {
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+  const handleTyping = () => {
+    if (channelRef.current) channelRef.current.keystroke().catch(() => {});
   };
 
   if (loading) return <T.muted>Loading messages…</T.muted>;
@@ -1135,9 +1232,18 @@ export function Messages({ openWith }) {
                   </Card>
                 )}
 
-                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, padding: '4px 0', minHeight: 0 }}>
+                <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, padding: '4px 0', minHeight: 0 }}>
                   {thread.length === 0 && (
                     <T.muted>No messages yet — send the first one below.</T.muted>
+                  )}
+                  {hasMore && (
+                    <button onClick={loadEarlier} disabled={loadingMore}
+                            style={{ alignSelf: 'center', background: 'none', border: 'none',
+                                     fontFamily: sans, fontSize: 12, color: colors.muted,
+                                     textDecoration: 'underline', textUnderlineOffset: 3,
+                                     cursor: loadingMore ? 'default' : 'pointer', padding: '6px 0' }}>
+                      {loadingMore ? 'Loading…' : 'Load earlier messages'}
+                    </button>
                   )}
                   {thread.map((msg) => {
                     const isLockedBundle = msg.unlock_price_coins !== null && msg.unlock_price_coins !== undefined;
@@ -1310,18 +1416,13 @@ export function Messages({ openWith }) {
                           🎙
                         </button>
                       </div>
-                      <textarea
-                        ref={replyRef}
-                        value={reply}
-                        onChange={(e) => { setReply(e.target.value); handleTyping(); autoGrow(e.target); }}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
+                      <Composer
+                        ref={composerRef}
+                        sending={sending}
+                        onTyping={handleTyping}
+                        onSend={(text) => sendReply(null, null, text)}
                         placeholder={replyTo ? 'Write your reply…' : 'Reply… (Enter to send)'}
-                        rows={3}
-                        style={{ flex: 1, minWidth: 0, minHeight: 76, background: 'rgba(22,20,16,0.9)', border: `1px solid ${colors.border}`, color: colors.text, fontFamily: sans, fontSize: 16, padding: '10px 14px', borderRadius: 8, resize: 'none', outline: 'none', textAlign: 'left', maxHeight: 160 }}
                       />
-                      <button onClick={() => sendReply()} disabled={sending || !reply.trim()} style={{ ...S.btn, opacity: (sending || !reply.trim()) ? 0.5 : 1 }}>
-                        {sending ? '…' : 'Send'}
-                      </button>
                       </div>
                     </div>
                   )}

@@ -110,6 +110,27 @@ export function Dashboard({ onNavigate }) {
 
   if (loading) return <T.muted>Loading dashboard…</T.muted>;
 
+  // The failure case, which had nowhere to show.
+  //
+  // load() sets `error` and leaves `data` null, and the destructure below ran
+  // regardless — so one failed request to /api/studio/dashboard threw, and with
+  // no error boundary anywhere that white-screened the section she lands on.
+  // The message she needed was in state the whole time and never rendered.
+  if (!data) {
+    return (
+      <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", color: colors.text, padding: '8px 0' }}>
+        <div style={{ fontSize: 14, marginBottom: 6 }}>The dashboard couldn’t be loaded.</div>
+        <div style={{ fontSize: 12, color: colors.muted, marginBottom: 14 }}>
+          {error || 'No reason was given.'}
+        </div>
+        <button onClick={() => { setError(''); setLoading(true); load(); }}
+                style={{ ...S.btn, fontSize: 13, padding: '7px 14px' }}>
+          Try again
+        </button>
+      </div>
+    );
+  }
+
   const { notifications, pendingCalls, pendingRequests, recentMembers, unreadDMs, lowStockMerch, pendingReports } = data;
 
   // ── DMs ──────────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
 const { getClientIp, lookupIpCountry } = require('../lib/geoip');
 const { issueInvoiceForPurchase, generateInvoicePdfBuffer } = require('../lib/invoice');
+const { getSupplier } = require('../lib/issuedInvoice');
 const payments = require('../lib/payments');
 const { getConfigNumber, getConfigValue } = require('../lib/config');
 const { getBalances, activeBonusOffer, bonusFor, grantBonusTokens } = require('../lib/tokens');
@@ -115,7 +116,27 @@ router.get('/invoices/:id/pdf', authMid, async (req, res) => {
     );
     if (!rows.length) return res.status(404).json({ error: 'Invoice not found' });
 
-    const pdf = await generateInvoicePdfBuffer(rows[0]);
+    // The supplier block — legal name, registered address, GSTIN.
+    //
+    // This call passed the invoice alone, so the builder's `if (supplier)`
+    // branch was skipped and the fan's copy came out carrying nothing but the
+    // site's address. Studio's copy of the very same invoice passed it, so the
+    // document the artist can see was a valid tax invoice and the only one the
+    // customer could obtain was not — while a comment in that file claimed the
+    // two were "the same document, from the same builder".
+    //
+    // Loaded rather than fatal: if the legal details are ever missing from
+    // Studio this still hands over a document, which is better than a 500 for
+    // somebody trying to download a receipt for money they have paid. It is
+    // logged, because the result is not a valid tax invoice.
+    let supplier = null;
+    try {
+      supplier = await getSupplier();
+    } catch (err) {
+      console.error(`coins/invoice pdf: supplier details unavailable (${err.code || err.message}) — serving an invoice without a GSTIN`);
+    }
+
+    const pdf = await generateInvoicePdfBuffer(rows[0], supplier);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition',
       `attachment; filename="${String(rows[0].invoice_number).replace(/\//g, '-')}.pdf"`);
@@ -360,6 +381,34 @@ router.post('/recharge/verify', authMid, async (req, res) => {
 
     if (!result.verified) {
       return res.status(400).json({ error: 'Payment verification failed — signature mismatch' });
+    }
+
+    // Whose payment it was.
+    //
+    // The signature proves the payment is real, and the notes below prove what
+    // was bought. Neither proves who bought it, and this is the field that
+    // does: it is written into the order by this server at creation and, until
+    // now, never read back.
+    //
+    // All three values needed to call this endpoint — order id, payment id and
+    // signature — sit in the payer's own browser. Without this check, anybody
+    // holding somebody else's three could post them here and the tokens landed
+    // in their account instead. Worse, the real buyer could then never be
+    // credited at all: the replay guard further down is keyed on the payment
+    // id, so their own webhook would find the payment already settled. They had
+    // paid, received nothing, and the tax invoice carried the other person's
+    // name and email.
+    //
+    // An order with no user_id in its notes predates the field and cannot be
+    // forged — orders are only ever created by this server, which always writes
+    // it — so that case is logged and allowed rather than failing a payment
+    // somebody has genuinely made.
+    const buyerId = result.orderNotes?.user_id;
+    if (!buyerId) {
+      console.warn(`recharge/verify: order ${razorpay_order_id} carries no user_id in notes; ownership not checked`);
+    } else if (String(buyerId) !== String(req.user.userId)) {
+      console.error(`recharge/verify: order ${razorpay_order_id} belongs to user ${buyerId}, presented by ${req.user.userId}`);
+      return res.status(403).json({ error: 'This payment was made from a different account.' });
     }
 
     // The signature proves the payment is real; it does not prove what was

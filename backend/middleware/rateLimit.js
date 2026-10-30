@@ -159,8 +159,30 @@ const presign = limit({
   by: (req) => (req.user?.isArtist ? null : req.user?.userId || ipOf(req)),
 });
 
+// Every SMS here is money leaving the account, so this is tighter than the
+// others and counted two ways.
+//
+// SMS pumping is an automated attack: the attacker controls premium-rate
+// numbers in some country, drives verification messages at them, and takes a
+// share of what the carrier bills. The endpoint had no limiter at all, and the
+// only thing standing in front of it was that the account must have made one
+// purchase — which is a fixed, affordable price for an unbounded SMS bill.
+//
+// Per account first, so one compromised or bought account cannot run up a bill;
+// per IP as well, because the same person signing up a handful of accounts
+// would otherwise get the per-account allowance again each time.
+const verifyPhoneByUser = limit({
+  name: 'verifyPhoneUser', max: 5, windowMs: 60 * MIN,
+  by: (req) => req.user?.userId || null,
+});
+const verifyPhoneByIp = limit({
+  name: 'verifyPhoneIp', max: 15, windowMs: 60 * MIN,
+  by: ipOf,
+});
+
 module.exports = {
   limit, ipOf,
   loginByIp, loginByEmail, signup,
   resendVerification, forgotPassword, presign,
+  verifyPhoneByUser, verifyPhoneByIp,
 };

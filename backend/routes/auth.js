@@ -385,9 +385,20 @@ router.post('/logout', authMid, async (req, res) => {
 
 // ── PHONE VERIFY (post-first-payment) ──────────
 
-router.post('/verify-phone/send', authMid, async (req, res) => {
+router.post('/verify-phone/send', authMid, rl.verifyPhoneByUser, rl.verifyPhoneByIp, async (req, res) => {
   const { phone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone number is required' });
+
+  // Checked before it reaches Twilio, and checked for shape rather than
+  // existence. The number went straight through from the body, so this was an
+  // open relay for sending SMS to any number anywhere in the world, billed to
+  // this account — the attack has a name, SMS pumping, and it is automated.
+  // E.164: a leading +, a country code that cannot start with 0, and up to
+  // fifteen digits in all.
+  const to = String(phone).replace(/[\s()-]/g, '');
+  if (!/^\+[1-9]\d{6,14}$/.test(to)) {
+    return res.status(400).json({ error: 'Enter the number in international format, starting with the country code — for example +919876543210.' });
+  }
 
   const { rows } = await pool.query(
     "SELECT COUNT(*) FROM coin_ledger WHERE user_id = $1 AND type = 'recharge'",
@@ -397,11 +408,17 @@ router.post('/verify-phone/send', authMid, async (req, res) => {
     return res.status(403).json({ error: 'Phone verification is available after your first purchase' });
   }
 
-  const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-  await twilio.verify.v2.services(process.env.TWILIO_VERIFY_SERVICE_SID)
-    .verifications.create({ to: phone, channel: 'sms' });
-
-  res.json({ sent: true });
+  try {
+    const twilio = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+    await twilio.verify.v2.services(process.env.TWILIO_VERIFY_SERVICE_SID)
+      .verifications.create({ to, channel: 'sms' });
+    res.json({ sent: true });
+  } catch (err) {
+    // Twilio's own refusals — an unroutable number, a blocked region — were
+    // reaching the default error handler as a 500.
+    console.error('verify-phone/send:', err.message);
+    res.status(400).json({ error: 'That number could not be reached. Check it and try again.' });
+  }
 });
 
 router.post('/verify-phone/confirm', authMid, async (req, res) => {

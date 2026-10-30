@@ -13,6 +13,7 @@ import Shipping from './pages/Shipping';
 import Contact  from './pages/Contact';
 import Sitemap  from './pages/Sitemap';
 import OutfitsInfo from './pages/OutfitsInfo';
+import ErrorBoundary from './components/ErrorBoundary';
 import { C, F } from './tokens';
 
 function isLoggedIn() {
@@ -46,6 +47,9 @@ export default function App() {
     <BrowserRouter>
       <CountViews />
       <div style={{ background: C.bg, minHeight: '100vh', color: C.text, fontFamily: F.sans }}>
+        {/* Around the routes, so a crash in any page is caught instead of
+            blanking the whole app. */}
+        <ErrorBoundary>
         <Routes>
           <Route path="/"        element={<Homepage />} />
           <Route path="/auth"    element={<Auth />} />
@@ -77,6 +81,7 @@ export default function App() {
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </ErrorBoundary>
       </div>
     </BrowserRouter>
   );

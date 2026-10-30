@@ -189,7 +189,13 @@ router.post('/request', authMid, async (req, res) => {
     notifyArtist({
       title: 'New personalised request 🌟',
       body:  `${itemTitle} — "${topic.trim()}" · ${price} tokens offered`,
-      url:   `/requests?request=${request?.id || ''}`,
+      // requestRows[0].id — `request` is not a name that exists in this
+      // handler, and optional chaining does not rescue an undeclared binding,
+      // it throws on it. This line ran after COMMIT, so every personalised
+      // request charged its deposit, kept it, and then answered the fan with
+      // `500 Failed to submit request`. The feature has been taking money and
+      // reporting failure.
+      url:   `/requests?request=${requestRows[0].id}`,
     });
 
     postSystemMessage(`🌟 ${fanLabel} just requested a ${itemTitle}!`, { kind: 'activity', name: fanLabel });

@@ -5,6 +5,7 @@ const { effectiveMembership } = require('../lib/membership');
 const { shuffleWithinBands } = require('../lib/shuffle');
 const { upgradeOptions } = require('./membership');
 const authMid = require('../middleware/auth');
+const artistOnly = require('../middleware/artistOnly');
 const { postSystemMessage } = require('./community');
 const { notifyArtist } = require('../lib/notify');
 const { getGuestMultiplier, getDiscountForTier, getConfigNumber } = require('../lib/config');
@@ -619,8 +620,11 @@ router.get('/sets', authMid, async (req, res) => {
 
         tierPrice: segments.tierPrice,
         upsellPrice: segments.upsellPrice,
-        tierPreviewUrl:   s.cover_blur || null,
-        upsellPreviewUrl: s.cover_blur || null,
+        // tierPreviewUrl and upsellPreviewUrl used to sit here, both assigned
+        // the same value — the same 1.7 KB base64 image, twice, on every set in
+        // the library. Together they were about 720 KB of a 2.2 MB response,
+        // and the app only ever drew one of them, for the single set a fan had
+        // opened. It now arrives with that set, from /sets/:setId/items.
 
         coverBlurred,
       };
@@ -656,15 +660,18 @@ router.get('/sets', authMid, async (req, res) => {
       setsWithData.sort((a, b) => (a.basePrice - b.basePrice) || (at(b) - at(a)));
     }
 
-    // One sequence, as arranged.
+    // freeForAll and unlockable used to be built here and returned alongside
+    // `sets`.
     //
-    // These two groups used to be rendered separately, which meant a free set
-    // always surfaced above a paid one whatever order they were put in — the
-    // arrangement could not beat the split. They are still returned so an older
-    // bundle held in a cache does not lose its gallery, but `sets` is the real
-    // answer and the app prefers it.
-    const freeForAll = setsWithData.filter((s) => s.isFreeForAll);
-    const unlockable = setsWithData.filter((s) => !s.isFreeForAll);
+    // They were kept "so an older bundle held in a cache does not lose its
+    // gallery" during the deploy that introduced `sets`, and then left in. They
+    // were not a different view of the library — every object in them was a
+    // byte-for-byte copy of one already in `sets`, so the response carried the
+    // whole library twice. At 235 sets that was about half of a 2.2 MB payload,
+    // paid for on every gallery load, on a phone, on mobile data.
+    //
+    // The app has preferred `sets` since that deploy and only fell back to
+    // concatenating these when it was absent, which it never is.
 
     // What the library holds, and how much of it this fan has been inside.
     //
@@ -696,12 +703,8 @@ router.get('/sets', authMid, async (req, res) => {
       },
       sort: sortBy,
       show: showBy,
-      // One list, already in the requested order. freeForAll and unlockable are
-      // kept for anything still reading them, but concatenating those two is
-      // what put free sets last regardless of sort.
+      // One list, already filtered and in the requested order.
       sets: setsWithData,
-      freeForAll,
-      unlockable,
       userTier,
       isGuest,
       discountPct,
@@ -976,7 +979,11 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
     // Only what somebody can actually see is shuffled; the filter above has
     // already removed the rest. Unlocking more mid-visit leaves what was on
     // screen where it was and adds the new band shuffled among itself.
-    const { rows: coverRows } = await pool.query(`SELECT cover_key FROM sets WHERE id = $1`, [setId]);
+    // cover_blur comes along for the lock panel's preview. It is a base64 data
+    // URI of around 1.7 KB, and it used to be sent on the list for every set on
+    // the platform — twice, under two names — when it is only ever drawn for
+    // the one set a fan actually opens. Fetched here instead, with the set.
+    const { rows: coverRows } = await pool.query(`SELECT cover_key, cover_blur FROM sets WHERE id = $1`, [setId]);
     const ordered = shuffleWithinBands(visibleItems, req.query.seed, {
       coverKey: coverRows[0]?.cover_key || null,
     });
@@ -1042,7 +1049,7 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
       };
     }
 
-    res.json({ items: itemsWithUrls, fitCheck });
+    res.json({ items: itemsWithUrls, fitCheck, previewUrl: coverRows[0]?.cover_blur || null });
   } catch (err) {
     console.error('gallery/items error:', err);
     res.status(500).json({ error: 'Failed to load set items' });
@@ -1053,10 +1060,21 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
 // DELETE /api/gallery/sets/:setId
 // ─────────────────────────────────────────────
 
-router.delete('/sets/:setId', authMid, async (req, res) => {
-  if (req.user.email !== process.env.ARTIST_EMAIL) {
-    return res.status(403).json({ error: 'Not authorised' });
-  }
+// Guarded the way every other artist-only route is guarded.
+//
+// This compared `req.user.email` against an ARTIST_EMAIL environment variable,
+// and the token carries no email at all — only userId, sessionId and isArtist.
+// So the comparison was `undefined` against the variable, and the behaviour
+// depended entirely on whether that variable happened to be set on the API
+// service: set, and it refused everybody, leaving the route dead; unset, and
+// `undefined !== undefined` is false, so the guard admitted any signed-in fan
+// to a handler that deletes a set, its media rows, and every access_grant
+// recording what fans paid for it.
+//
+// It was set, so this was the dead version rather than the open one. Either way
+// the test was never meaningful; isArtist is the claim the middleware actually
+// issues and the one every other protected route reads.
+router.delete('/sets/:setId', authMid, artistOnly, async (req, res) => {
 
   const { setId } = req.params;
   const client = await pool.connect();

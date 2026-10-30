@@ -103,11 +103,28 @@ router.post('/config', async (req, res) => {
   try {
     const client = await pool.connect();
     await client.query('BEGIN');
+    // Nothing unusable gets written, whoever sent it.
+    //
+    // String(undefined) is the text "undefined", and that is what used to land
+    // in the table when the Settings form sent a key it had no value for. The
+    // form now sends only what changed, but this is where the damage was done,
+    // so it is also refused here: a config value decides what fans are charged,
+    // and a bad one does not fail at the point of writing, it fails later at
+    // every price on the platform.
     for (const [key, value] of Object.entries(changes)) {
+      if (value === undefined || value === null) {
+        await client.query('ROLLBACK'); client.release();
+        return res.status(400).json({ error: `No value given for "${key}" — nothing was saved.` });
+      }
+      const text = String(value).trim();
+      if (text === '' || text === 'undefined' || text === 'null' || text === 'NaN') {
+        await client.query('ROLLBACK'); client.release();
+        return res.status(400).json({ error: `"${key}" came through as "${text}" — nothing was saved.` });
+      }
       await client.query(
         `INSERT INTO platform_config (key, value, updated_at) VALUES ($1, $2, NOW())
          ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
-        [key, String(value)]
+        [key, text]
       );
     }
     await client.query(`UPDATE platform_config SET value = 'false', updated_at = NOW() WHERE key = 'config_published'`);
@@ -993,9 +1010,27 @@ router.get('/dms/:fanId/media', async (req, res) => {
 });
 
 
+// The newest page of a conversation, not the whole of it.
+//
+// This returned every message ever exchanged with a fan, oldest first, with no
+// limit — and Messages.jsx rendered all of them. On a long-standing member that
+// meant 4,549 messages and 44,031 DOM nodes on screen, and because the composer
+// lives in the same component as the list, every keystroke re-rendered the lot:
+// 140 milliseconds per character. That is what the typing lag was.
+//
+// The fan side of the same conversation was given a limit some time ago;
+// Studio never was.
+//
+// Newest first in SQL so the LIMIT takes the right end, then reversed for
+// display. `before` walks backwards through older pages.
+const DM_PAGE = 100;
+
 router.get('/dms/:fanId', async (req, res) => {
   try {
-    const { rows } = await pool.query(
+    const before = req.query.before ? new Date(req.query.before) : null;
+    const validBefore = before && !Number.isNaN(before.getTime()) ? before : null;
+
+    const { rows: page } = await pool.query(
       `SELECT dm.id, dm.sender_id, dm.recipient_id, dm.created_at, dm.parent_id,
               dm.tokens_charged, dm.read, dm.unlock_price_coins, dm.unlocked_at,
               (dm.deleted_at IS NOT NULL) AS deleted,
@@ -1005,10 +1040,17 @@ router.get('/dms/:fanId', async (req, res) => {
               CASE WHEN dm.deleted_at IS NULL THEN dm.locked_media_urls END  AS locked_media_urls,
               (dm.sender_id = $1) AS is_mine
        FROM direct_messages dm
-       WHERE (dm.sender_id = $1 AND dm.recipient_id = $2) OR (dm.sender_id = $2 AND dm.recipient_id = $1)
-       ORDER BY dm.created_at ASC`,
-      [req.user.userId, req.params.fanId]
+       WHERE ((dm.sender_id = $1 AND dm.recipient_id = $2) OR (dm.sender_id = $2 AND dm.recipient_id = $1))
+         AND ($3::timestamptz IS NULL OR dm.created_at < $3)
+       ORDER BY dm.created_at DESC
+       LIMIT $4`,
+      [req.user.userId, req.params.fanId, validBefore, DM_PAGE + 1]
     );
+
+    // One extra row was asked for purely to answer "is there more?" without a
+    // second count query. It is not part of the page.
+    const hasMore = page.length > DM_PAGE;
+    const rows = page.slice(0, DM_PAGE).reverse();
     await pool.query(
       `UPDATE direct_messages SET read = TRUE WHERE sender_id = $1 AND recipient_id = $2 AND read = FALSE`,
       [req.params.fanId, req.user.userId]
@@ -1075,7 +1117,16 @@ router.get('/dms/:fanId', async (req, res) => {
       };
     }
 
-    res.json({ messages: rows, fan: fan || null, quota });
+    // `hasMore` and the oldest timestamp on the page are what the Load earlier
+    // control needs; without them the thread has no way to know whether there
+    // is anything above it.
+    res.json({
+      messages: rows,
+      fan: fan || null,
+      quota,
+      hasMore,
+      oldestAt: rows.length ? rows[0].created_at : null,
+    });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load conversation' });
   }

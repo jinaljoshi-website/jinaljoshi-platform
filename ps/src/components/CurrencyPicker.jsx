@@ -28,7 +28,11 @@ export default function CurrencyPicker({ state, onChange, compact }) {
     setSaving(option.currency);
     try {
       await api.post('/api/coins/currency', { currency: option.currency });
-      setDisplayCurrency(option.currency === 'INR' ? null : option);
+      // Carried across with the option, as in Platform.jsx — without it every
+      // price would quote below what the server charges.
+      setDisplayCurrency(option.currency === 'INR'
+        ? null
+        : { ...option, bufferPct: state.bufferPct });
       onChange?.(option.currency);
       setOpen(false);
     } catch { /* the control simply stays as it was */ }

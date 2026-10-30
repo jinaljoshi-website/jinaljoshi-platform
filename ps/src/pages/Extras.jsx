@@ -127,7 +127,17 @@ export default function Extras() {
       load();
     } catch (err) {
       if (err.code === 'INSUFFICIENT_TOKENS') {
-        setTopUp(null); // amount varies per-request; a generic top-up still helps
+        // Opens the top-up sheet. It used to call setTopUp(null) — and null is
+        // the closed state (`topUp !== null` is the render condition further
+        // down), so the one branch that exists to offer a top-up was the one
+        // that shut it. setError('') above had already cleared any message, so
+        // a fan accepting a counter-offer while short of tokens got nothing at
+        // all: no sheet, no error, nothing. The comment here said "a generic
+        // top-up still helps", which is the opposite of what the line did.
+        //
+        // The shortfall is on the error body where the server put it; where it
+        // is not, 0 opens the sheet on its own amounts rather than closing it.
+        setTopUp(err.body?.shortfall ?? err.body?.requiredTokens ?? 0);
       } else {
         setError(err.message);
       }

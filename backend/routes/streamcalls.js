@@ -320,6 +320,23 @@ router.post('/:id/joined', authMid, async (req, res) => {
       return res.status(404).json({ error: 'Call not found' });
     }
     const call = rows[0];
+
+    // Only the two people on it may mark themselves as having joined.
+    //
+    // This was the one route in the file without the check that /decline,
+    // /leave and GET /:id all carry. It loaded the call by the id in the URL
+    // alone and then wrote a timestamp chosen by the caller's own isArtist
+    // claim, so any fan could post somebody else's call id and stamp
+    // fan_joined_at on it. Once the artist joined, the row flipped to
+    // in_progress with a call_started_at, which starts the paid clock on a call
+    // the actual buyer never joined — and the scheduler's no-show refund keys
+    // on call_started_at IS NULL, so it then completed the call and kept the
+    // money instead of returning it.
+    if (!req.user.isArtist && call.user_id !== req.user.userId) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Not your call' });
+    }
+
     const field = req.user.isArtist ? 'artist_joined_at' : 'fan_joined_at';
 
     await client.query(

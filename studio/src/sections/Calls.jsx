@@ -42,14 +42,17 @@ export function Calls({ openWith }) {
 
   const pollRef = useRef(null);
 
+  // Caught, because this runs every five seconds for as long as the section is
+  // open. Without a catch, a failing endpoint produced an unhandled rejection
+  // per tick and the list silently kept stale data — and while api.js signed
+  // out on any 401, one of those ticks could end her session mid-review.
   const load = () => api.get('/api/studio/calls')
     .then((d) => setCalls(d.calls || []))
+    .catch((err) => console.error('studio/calls poll:', err.message))
     .finally(() => setLoading(false));
 
   useEffect(() => {
     load();
-    api.get('/api/studio/config').then((d) => {
-    }).catch(() => {});
   }, []);
 
   // Poll for live updates — catches a fan proposing a new time, accepting, or a priority call starting to ring
