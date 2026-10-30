@@ -11,6 +11,7 @@ const { applyBlock, liftBlock, setMuted, logModerationAction } = require('../lib
 const { notifyArtist } = require('../lib/notify');
 const { approveCollectionsAccess } = require('../lib/collections');
 const { scanInBackground } = require('../lib/moderation-scan');
+const { deriveInBackground } = require('../lib/imagederive');
 const { issueInvoiceForPurchase } = require('../lib/invoice');
 const { notice } = require('../lib/notices');
 const { sendInvitationEmail } = require('../lib/emails');
@@ -2364,7 +2365,7 @@ function shapeLibraryItem(r) {
 router.get('/content/:id/items', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, set_id, type, media_type, r2_key, position, tier_category, created_at, quality,
+      `SELECT id, set_id, type, media_type, r2_key, thumb_key, position, tier_category, created_at, quality,
               review_flag, review_note, reviewed_at, moderation
        FROM set_items WHERE set_id = $1
        ORDER BY tier_category, position ASC, created_at ASC`,
@@ -2377,7 +2378,17 @@ router.get('/content/:id/items', async (req, res) => {
     // backend serves fans from the custom domain. The same photograph therefore
     // had two different addresses depending on who asked, and anything Studio
     // put into a message carried the wrong one.
-    res.json({ items: rows.map((r) => ({ ...r, media_url: toPublicUrl(r.r2_key) })) });
+    // thumb_url alongside, for the review grid.
+    //
+    // This is where it matters most: a shoot of two hundred photographs is
+    // reviewed as a wall of tiles, and every one of them was the
+    // full-resolution original. Falls back to the original where no thumbnail
+    // exists, so nothing waits on the backfill.
+    res.json({ items: rows.map((r) => ({
+      ...r,
+      media_url: toPublicUrl(r.r2_key),
+      thumb_url: toPublicUrl(r.thumb_key) || toPublicUrl(r.r2_key),
+    })) });
   } catch (err) {
     console.error('studio/content/items error:', err);
     res.status(500).json({ error: 'Failed to load set items' });
@@ -3386,6 +3397,19 @@ router.post('/content/item', async (req, res) => {
     // landscape or a fully clothed portrait answers a question nobody asked —
     // and it is not promised to anybody, so there is nothing to keep it running
     // for. It is asked for per set instead, from the review panel.
+
+    // Thumbnails are the opposite case, and do run on every upload.
+    //
+    // They cost nothing but a moment of processor time, nothing downstream
+    // charges per image, and every photograph needs one: a set page without
+    // them serves full-resolution originals into tiles a couple of hundred
+    // pixels wide. So unlike the scan there is no per-set decision to make.
+    //
+    // Started and not awaited, with its failures swallowed, for the reason the
+    // scan is: the browser has already been told the upload worked. A
+    // photograph whose thumbnail has not been made yet is served at full size,
+    // which is exactly what every photograph did before this existed.
+    deriveInBackground(rows[0].id, r2Key, type);
 
     res.json({ ok: true, item: rows[0] });
   } catch (err) {

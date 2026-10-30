@@ -976,7 +976,7 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
     const upsellUnlocked = upsellGrant && isEffectivelyUnlocked(upsellGrant.grant_type, true);
 
     const { rows: items } = await pool.query(
-      `SELECT id, r2_key, media_type, position, tier_category
+      `SELECT id, r2_key, thumb_key, blur_key, media_type, position, tier_category
        FROM set_items WHERE set_id = $1 ORDER BY position ASC, created_at ASC`,
       [setId]
     );
@@ -1029,9 +1029,18 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
       for (const r of vc.rows) viewCounts.set(r.item_id, r.n);
     }
 
+    // The grid gets a thumbnail, the lightbox gets the real thing.
+    //
+    // Falling back to the original when there is no thumbnail yet is what
+    // makes this safe to deploy before the backfill has finished, and what
+    // makes a failed derivation degrade to the old behaviour rather than to a
+    // broken tile. Videos have no derivatives at all and fall through here for
+    // the same reason.
     const itemsWithUrls = ordered.map((item) => ({
       ...item,
       media_url: toUrl(item.r2_key),
+      thumb_url: toUrl(item.thumb_key) || toUrl(item.r2_key),
+      blur_url:  toUrl(item.blur_key),
       likes: likeCounts.get(item.id) || 0,
       views: viewCounts.get(item.id) || 0,
       likedByMe: mine.has(item.id),

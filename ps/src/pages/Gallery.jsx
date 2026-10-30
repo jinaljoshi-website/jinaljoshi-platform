@@ -621,7 +621,14 @@ export default function Gallery() {
               {item.media_type === 'video' ? (
                 <video src={item.media_url} style={thumb} muted preload="none" />
               ) : (
-                <img src={item.media_url} alt="" style={thumb}
+                // The thumbnail, not the original. This tile is drawn a couple
+                // of hundred pixels wide and was being handed the
+                // full-resolution file — lazy loading stopped them all being
+                // asked for at once, but each one that was asked for was still
+                // the whole thing. The server falls back to the original where
+                // no thumbnail exists yet, so this is the same picture either
+                // way.
+                <img src={item.thumb_url || item.media_url} alt="" style={thumb}
                      loading="lazy" decoding="async" />
               )}
               {item.media_type === 'video' && <div style={playBadge}>▶</div>}

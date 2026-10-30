@@ -2407,7 +2407,7 @@ function SequenceView({ items, mediaUrl, busy, onSave, groupOf = {} }) {
           >
             {item.media_type === 'video' || item.type === 'video'
               ? <div style={{ ...reviewThumb, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🎬</div>
-              : <LazyThumb src={mediaUrl(item.r2_key)} alt="" style={reviewThumb} />}
+              : <LazyThumb src={mediaUrl(item.thumb_key || item.r2_key)} alt="" style={reviewThumb} />}
 
             <div style={seqBadge}>{idx + 1}</div>
             {idx === 0 && <div style={seqCover}>cover</div>}
@@ -3081,7 +3081,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                          style={{ ...reviewThumb, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, cursor: 'pointer',
                                   outline: isSelected(item.id) ? `2px solid ${colors.accent}` : 'none', outlineOffset: -2 }}>🎬</div>
                   ) : (
-                    <LazyThumb src={mediaUrl(item.r2_key)} alt=""
+                    <LazyThumb src={mediaUrl(item.thumb_key || item.r2_key)} alt=""
                                onClick={(e) => selecting ? toggle(item, e.shiftKey) : openInSection(cat.key, item)}
                                style={{ ...reviewThumb, cursor: 'pointer',
                                         outline: isSelected(item.id) ? `2px solid ${colors.accent}` : 'none', outlineOffset: -2,

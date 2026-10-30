@@ -285,7 +285,7 @@ export default function Collections() {
               {(open.items || []).map((it, i) => (
                 it.mediaType === 'video'
                   ? <video key={it.id} src={it.mediaUrl} controls style={tile} />
-                  : <img key={it.id} src={it.mediaUrl} alt="" style={tile} loading="lazy" decoding="async" onClick={() => setLightbox(i)} />
+                  : <img key={it.id} src={it.thumbUrl || it.mediaUrl} alt="" style={tile} loading="lazy" decoding="async" onClick={() => setLightbox(i)} />
               ))}
             </div>
           </div>
@@ -296,7 +296,7 @@ export default function Collections() {
             {open.items.map((it, i) => (
               it.mediaType === 'video'
                 ? <video key={it.id} src={it.mediaUrl} controls style={tile} />
-                : <img key={it.id} src={it.mediaUrl} alt="" style={tile} loading="lazy" decoding="async" onClick={() => setLightbox(i)} />
+                : <img key={it.id} src={it.thumbUrl || it.mediaUrl} alt="" style={tile} loading="lazy" decoding="async" onClick={() => setLightbox(i)} />
             ))}
           </div>
         ) : (

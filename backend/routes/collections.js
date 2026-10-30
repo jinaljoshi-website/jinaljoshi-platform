@@ -176,7 +176,7 @@ router.get('/sets/:id', async (req, res) => {
     let items = [];
     if (s.unlocked || previewIds.length) {
       const { rows: itemRows } = await pool.query(
-        `SELECT id, r2_key, media_type, position FROM set_items
+        `SELECT id, r2_key, thumb_key, blur_key, media_type, position FROM set_items
           WHERE set_id = $1 ${s.unlocked ? '' : 'AND id = ANY($2)'}
           ORDER BY position ASC, created_at ASC`,
         s.unlocked ? [req.params.id] : [req.params.id, previewIds]
@@ -190,7 +190,14 @@ router.get('/sets/:id', async (req, res) => {
       items = (s.unlocked
         ? shuffleWithinBands(itemRows, req.query.seed, { coverKey: s.cover_key })
         : itemRows
-      ).map((i) => ({ id: i.id, mediaType: i.media_type, mediaUrl: toUrl(i.r2_key) }));
+      // thumbUrl for the grid, mediaUrl for the full view. The fallback to the
+      // original is what lets this ship before the backfill has run.
+      ).map((i) => ({
+        id: i.id,
+        mediaType: i.media_type,
+        mediaUrl: toUrl(i.r2_key),
+        thumbUrl: toUrl(i.thumb_key) || toUrl(i.r2_key),
+      }));
     }
 
     res.json({
