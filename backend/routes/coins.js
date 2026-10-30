@@ -81,19 +81,25 @@ async function calcPrice(tokens) {
 // needs the document itself.
 router.get('/invoices', authMid, async (req, res) => {
   try {
+    // issued_at, not created_at. The invoices table has no created_at column at
+    // all, so this query has been failing since it was written and every fan
+    // asking for their invoices has had a 500 — which is why the list on the
+    // Coins page has never shown anything. Found while checking the deploy of
+    // the fix that gives those invoices a GSTIN; the document was being
+    // repaired while the list linking to it could not load.
     const { rows } = await pool.query(
-      `SELECT i.id, i.invoice_number, i.created_at, i.amount_inr_equivalent,
+      `SELECT i.id, i.invoice_number, i.issued_at, i.amount_inr_equivalent,
               i.tokens_purchased, i.currency, i.is_export
          FROM invoices i
         WHERE i.user_id = $1
-        ORDER BY i.created_at DESC`,
+        ORDER BY i.issued_at DESC`,
       [req.user.userId]
     );
     res.json({
       invoices: rows.map((r) => ({
         id: r.id,
         number: r.invoice_number,
-        at: r.created_at,
+        at: r.issued_at,
         amountInr: r.amount_inr_equivalent,
         tokens: r.tokens_purchased,
         currency: r.currency || 'INR',
