@@ -85,7 +85,7 @@ export function Settings() {
 
       {active === 'pricing'     && <PricingSection     draft={draft} set={set} config={config} setConfig={setConfig} tokenRate={tokenRate} />}
       {active === 'community'   && <CommunitySection    draft={draft} set={set} config={config} setConfig={setConfig} />}
-      {active === 'gallery'     && <GallerySection       draft={draft} set={set} config={config} setConfig={setConfig} />}
+      {active === 'gallery'     && <GallerySection       draft={draft} set={set} config={config} setConfig={setConfig} tokenRate={tokenRate} />}
       {active === 'currency'    && <CurrencySection      draft={draft} set={set} config={config} setConfig={setConfig} />}
       {active === 'offers'      && <OffersSection />}
       {active === 'calls'       && <CallsSection         draft={draft} set={set} config={config} setConfig={setConfig} tokenRate={tokenRate} />}
@@ -566,11 +566,12 @@ function CurrencySection({ draft, set, config, setConfig }) {
 }
 
 // ── Gallery ───────────────────────────────────────────────────────────────────
-function GallerySection({ draft, set, config, setConfig }) {
+function GallerySection({ draft, set, config, setConfig, tokenRate }) {
   const keys = [
     ...TIERS.map((t) => `tier_open_cap_${t}`),
     'tier_open_band2_until', 'tier_open_band2_cost',
     'tier_open_band3_until', 'tier_open_band3_cost',
+    'photo_price_insider', 'photo_price_premium', 'photo_price_supreme',
   ];
 
   // null, not a default. A blank field is a real problem that needs saying out
@@ -723,6 +724,29 @@ function GallerySection({ draft, set, config, setConfig }) {
             Resets on each member's own renewal date, not the 1st.
           </div>
         </div>
+      </Card>
+
+      <Card style={{ marginBottom: 20 }}>
+        <T.sectionTitle>One photograph at a time</T.sectionTitle>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14 }}>
+          What a member pays for a single photograph graded above their tier, before their
+          membership discount. Flat per grade and nothing to do with the set's own price —
+          a Supreme photograph is worth the same wherever it sits.
+        </p>
+        <div style={S.formGrid}>
+          <TokenField label="Insider photograph" value={n('photo_price_insider') ?? 3}
+                      onChange={(v) => set('photo_price_insider', v)} tokenRateInr={tokenRate} />
+          <TokenField label="Premium photograph" value={n('photo_price_premium') ?? 10}
+                      onChange={(v) => set('photo_price_premium', v)} tokenRateInr={tokenRate} />
+          <TokenField label="Supreme photograph" value={n('photo_price_supreme') ?? 50}
+                      onChange={(v) => set('photo_price_supreme', v)} tokenRateInr={tokenRate} />
+        </div>
+        <p style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 12 }}>
+          A member can buy all but one of the photographs above their tier in a set — the
+          last one only ever comes with the rest, so a set cannot be assembled piece by
+          piece. Whatever they spend on single photographs comes off that price if they
+          go on to take the rest.
+        </p>
       </Card>
 
       <SectionSave keys={keys} draft={draft} config={config} setConfig={setConfig} />

@@ -10,6 +10,7 @@ import Clamped from '../components/Clamped';
 import Selfies from './Selfies';
 import HowUnlocking from '../components/HowUnlocking';
 import GuestNudge from '../components/GuestNudge';
+import PhotoUnlock from '../components/PhotoUnlock';
 
 const CONTENT_CATEGORIES = [
   { key: 'behind_the_scenes', label: 'Behind-the-Scenes' },
@@ -291,6 +292,22 @@ export default function Gallery() {
   const [itemsLoad, setItemsLoad] = useState(false);
   const [lightbox,  setLightbox]  = useState(null);
   const [unlockingScope, setUnlockingScope] = useState(null);
+  // What a single photograph costs at each grade, for this member, and what
+  // they have already spent on photographs in the open set. Both come from
+  // the server with the set's items, so the panel never does the arithmetic.
+  const [photoPrices, setPhotoPrices] = useState({});
+  const [photosPaid,  setPhotosPaid]  = useState(0);
+  const [unlockPhoto, setUnlockPhoto] = useState(null);   // the locked tile that was tapped
+  const [buyingPhoto, setBuyingPhoto] = useState(false);
+
+  // The lightbox walks only what can actually be opened.
+  //
+  // It indexes into a flat list, and the grid is now grouped by grade with
+  // locked tiles among the rest — so an index into setItems would land on a
+  // photograph with no URL and show a blank screen. Locked tiles open the
+  // panel instead, and never the lightbox.
+  const viewableItems = setItems.filter((i) => !i.locked);
+  const lockedItems   = setItems.filter((i) => i.locked);
   const [viewerError, setViewerError] = useState('');
   // Two controls, not one. These used to share a dropdown, so choosing "free
   // for all" silently discarded "newest first" — a fan could have an order or a
@@ -331,10 +348,15 @@ export default function Gallery() {
     // more about whether the price is right than the sales figure does.
     if (!set.isGenuinelyUnlocked) track('set_preview', { set: set.id, price: set.tierPrice });
     try {
-      const itemsData = await api.get(`/api/gallery/sets/${set.id}/items?seed=${seedRef.current}`);
+      // includeLocked asks for the whole set rather than only the part this
+      // member can see. A locked row arrives with its blurred placeholder, its
+      // grade and its price, and no key to the photograph itself.
+      const itemsData = await api.get(`/api/gallery/sets/${set.id}/items?seed=${seedRef.current}&includeLocked=1`);
       setSetItems(itemsData.items || []);
       setFitCheck(itemsData.fitCheck || null);
       setPreview(itemsData.previewUrl || null);
+      setPhotoPrices(itemsData.photoPrices || {});
+      setPhotosPaid(itemsData.photosPaid || 0);
 
       // Recorded once the set is open and the photographs are on screen.
       //
@@ -382,8 +404,37 @@ export default function Gallery() {
     // not move when more is unlocked. The new photographs arrive in their own
     // band, shuffled among themselves — bands keep their places, which is what
     // shuffling within a tier means.
-    const itemsData = await api.get(`/api/gallery/sets/${setId}/items?seed=${seedRef.current || ''}`);
+    const itemsData = await api.get(`/api/gallery/sets/${setId}/items?seed=${seedRef.current || ''}&includeLocked=1`);
     setSetItems(itemsData.items || []);
+    setPhotoPrices(itemsData.photoPrices || {});
+    setPhotosPaid(itemsData.photosPaid || 0);
+  };
+
+  // Buying one photograph.
+  //
+  // The same shape as unlocking a set, because it is the same act at a
+  // smaller size: tokens go, something opens, and what was paid counts
+  // towards the rest. Reloads through refreshOpenSet with the same seed, so
+  // what was already on screen stays where it was and the photograph just
+  // bought appears in place rather than the grid reshuffling under them.
+  const buyPhoto = async (item) => {
+    if (!openSet || !item) return;
+    setViewerError('');
+    setBuyingPhoto(true);
+    try {
+      await api.post('/api/gallery/items/unlock', { setId: openSet.id, itemId: item.id });
+      setUnlockPhoto(null);
+      await refreshOpenSet(openSet.id);
+    } catch (err) {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
+        setUnlockPhoto(null);
+        setTopUp(err.body?.required || null);
+      } else {
+        setViewerError(err.message || 'That did not go through.');
+      }
+    } finally {
+      setBuyingPhoto(false);
+    }
   };
 
   const handleViewerUnlock = async (scope) => {
@@ -601,9 +652,49 @@ export default function Gallery() {
           <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14 }}>No items in this set yet.</div>
         )}
 
-        <div style={viewerGrid}>
-          {setItems.map((item, idx) => (
-            <div key={item.id} onClick={() => setLightbox(idx)} style={thumbWrap}>
+        {/* Grouped by grade, each under its own heading.
+            //
+            // The set used to render as one grid of whatever this member
+            // could reach, which told them nothing about what the set
+            // actually held — a set of seventy showing them twelve looked
+            // like a set of twelve. Graded, they can see the whole thing and
+            // what reaching the rest would mean.
+            //
+            // GRADE_ORDER rather than the order they arrive in, so free
+            // content leads and the grades climb from there. Anything whose
+            // grade is not in the list falls to the end under its own name,
+            // which is what happens to unsorted photographs. */}
+        {GRADE_ORDER.filter((g) => setItems.some((i) => (i.tier_category || 'unsorted') === g)).map((grade) => {
+          const group  = setItems.filter((i) => (i.tier_category || 'unsorted') === grade);
+          const locked = group.filter((i) => i.locked).length;
+          return (
+        <div key={grade} style={{ marginBottom: 22 }}>
+          <div style={gradeHeadRow}>
+            <h3 style={gradeHeading}>{GRADE_LABEL[grade] || grade}</h3>
+            <span style={gradeCount}>
+              {group.length}
+              {locked > 0 && <span style={{ color: C.accent }}> · {locked} locked</span>}
+            </span>
+          </div>
+          <div style={viewerGrid}>
+          {group.map((item) => item.locked ? (
+            /* Locked: the blurred placeholder, and a tap opens the panel
+               rather than the lightbox. There is no photograph here to open —
+               the server sent no key for it. */
+            <div key={item.id} onClick={() => setUnlockPhoto(item)} style={thumbWrap}
+                 role="button" aria-label={`Unlock this ${item.tier_category} photograph`}>
+              {item.blur_url
+                ? <img src={item.blur_url} alt="" aria-hidden style={thumb} loading="lazy" decoding="async" />
+                : <div style={{ ...thumb, background: 'rgba(255,255,255,0.04)' }} />}
+              <div style={lockedScrim} />
+              <div style={lockBadge}>
+                {Number.isFinite(item.price) && item.price > 0
+                  ? <>🔒 {item.price}</>
+                  : <>🔒</>}
+              </div>
+            </div>
+          ) : (
+            <div key={item.id} onClick={() => setLightbox(viewableItems.findIndex((v) => v.id === item.id))} style={thumbWrap}>
               {/* Fetched as it comes into view, not all at once.
                   //
                   // These are the full-resolution originals scaled into a cell
@@ -659,8 +750,10 @@ export default function Gallery() {
               </button>
             </div>
           ))}
-
+          </div>
         </div>
+          );
+        })}
 
         {/* Locked, and what to do about it — one panel rather than a tile in the
             grid and a button beneath it. The cover stays blurred: it is a 24px
@@ -794,19 +887,37 @@ export default function Gallery() {
           );
         })()}
 
+        {/* One photograph, the rest of the set, or the membership — priced
+            side by side at the moment somebody wants a particular picture. */}
+        {unlockPhoto && (
+          <PhotoUnlock
+            item={unlockPhoto}
+            set={openSet}
+            lockedCount={lockedItems.length}
+            upsellPrice={openSet?.upsellPrice}
+            photosPaid={photosPaid}
+            balance={data?.coinBalance}
+            busy={buyingPhoto || unlockingScope === 'upsell'}
+            onBuyPhoto={buyPhoto}
+            onBuySet={() => { setUnlockPhoto(null); handleViewerUnlock('upsell'); }}
+            onUpgrade={() => { setUnlockPhoto(null); navigate('/platform/membership'); }}
+            onClose={() => setUnlockPhoto(null)}
+          />
+        )}
+
         {lightbox !== null && (
           <div style={lightboxOverlay} onClick={() => setLightbox(null)}>
             <button onClick={(e) => { e.stopPropagation(); setLightbox(null); }} style={closeBtn}>✕</button>
             <button onClick={(e) => { e.stopPropagation(); setLightbox((i) => Math.max(0, i - 1)); }} style={{ ...navBtn, left: 16 }} disabled={lightbox === 0}>‹</button>
             <div onClick={(e) => e.stopPropagation()} style={lightboxInner}>
-              {setItems[lightbox]?.media_type === 'video' ? (
-                <video src={setItems[lightbox].media_url} controls autoPlay style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8 }} />
+              {viewableItems[lightbox]?.media_type === 'video' ? (
+                <video src={viewableItems[lightbox].media_url} controls autoPlay style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8 }} />
               ) : (
                 // Double tap to like, which is what a hand expects on a
                 // photograph. The button below does the same thing for anybody
                 // who does not think to try.
-                <img src={setItems[lightbox]?.media_url} alt=""
-                     onDoubleClick={() => { if (!setItems[lightbox]?.likedByMe) toggleLike(setItems[lightbox].id); }}
+                <img src={viewableItems[lightbox]?.media_url} alt=""
+                     onDoubleClick={() => { if (!viewableItems[lightbox]?.likedByMe) toggleLike(viewableItems[lightbox].id); }}
                      style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: 8, objectFit: 'contain',
                               userSelect: 'none', WebkitUserSelect: 'none' }} />
               )}
@@ -818,24 +929,24 @@ export default function Gallery() {
                   // feeling happens, so the button belongs in it. */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
                             gap: 18, marginTop: 12 }}>
-                <button onClick={(e) => { e.stopPropagation(); toggleLike(setItems[lightbox].id); }}
-                        aria-label={setItems[lightbox]?.likedByMe ? 'Unlike' : 'Like'}
+                <button onClick={(e) => { e.stopPropagation(); toggleLike(viewableItems[lightbox].id); }}
+                        aria-label={viewableItems[lightbox]?.likedByMe ? 'Unlike' : 'Like'}
                         style={{ display: 'flex', alignItems: 'center', gap: 8,
                                  background: 'rgba(255,255,255,0.08)',
-                                 border: `1px solid ${setItems[lightbox]?.likedByMe ? 'rgba(228,160,160,0.5)' : 'rgba(255,255,255,0.2)'}`,
+                                 border: `1px solid ${viewableItems[lightbox]?.likedByMe ? 'rgba(228,160,160,0.5)' : 'rgba(255,255,255,0.2)'}`,
                                  borderRadius: 999, padding: '9px 18px', cursor: 'pointer',
                                  fontFamily: F.sans, fontSize: 14, lineHeight: 1,
-                                 color: setItems[lightbox]?.likedByMe ? '#E4A0A0' : '#FFFFFF' }}>
-                  <span style={{ fontSize: 17 }}>{setItems[lightbox]?.likedByMe ? '♥' : '♡'}</span>
-                  <span>{setItems[lightbox]?.likes > 0 ? setItems[lightbox].likes : 'Like'}</span>
+                                 color: viewableItems[lightbox]?.likedByMe ? '#E4A0A0' : '#FFFFFF' }}>
+                  <span style={{ fontSize: 17 }}>{viewableItems[lightbox]?.likedByMe ? '♥' : '♡'}</span>
+                  <span>{viewableItems[lightbox]?.likes > 0 ? viewableItems[lightbox].likes : 'Like'}</span>
                 </button>
 
                 <span style={{ fontFamily: F.mono, fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
-                  {lightbox + 1} / {setItems.length}
+                  {lightbox + 1} / {viewableItems.length}
                 </span>
               </div>
             </div>
-            <button onClick={(e) => { e.stopPropagation(); setLightbox((i) => Math.min(setItems.length - 1, i + 1)); }} style={{ ...navBtn, right: 16 }} disabled={lightbox === setItems.length - 1}>›</button>
+            <button onClick={(e) => { e.stopPropagation(); setLightbox((i) => Math.min(viewableItems.length - 1, i + 1)); }} style={{ ...navBtn, right: 16 }} disabled={lightbox === viewableItems.length - 1}>›</button>
           </div>
         )}
 
@@ -1171,6 +1282,39 @@ const tabRow = { display: 'flex', gap: 10, marginBottom: 22, flexWrap: 'wrap' };
 const tabActive = { fontFamily: F.sans, fontSize: 14, fontWeight: 600, background: 'rgba(193,125,74,0.12)', border: `1px solid rgba(193,125,74,0.4)`, color: C.text, padding: '10px 20px', borderRadius: 999, cursor: 'pointer', display: 'flex', alignItems: 'center' };
 const tabInactive = { ...tabActive, background: 'transparent', border: `1px solid ${C.border}`, color: C.muted };
 const tabCount = { fontFamily: F.mono, fontSize: 11, color: C.accent, background: 'rgba(193,125,74,0.15)', borderRadius: 999, padding: '2px 8px', marginLeft: 8 };
+// The grades, in the order a set reads: free first, then up the ladder, with
+// anything outside it at the end. 'collection' never appears in the gallery —
+// those photographs are moved into their own set — but it is listed so a
+// stray one lands somewhere named rather than vanishing.
+const GRADE_ORDER = ['free', 'community', 'insider', 'premium', 'supreme', 'purchase_only', 'collection', 'unsorted'];
+
+const GRADE_LABEL = {
+  free:          'Free for everyone',
+  community:     'Community',
+  insider:       'Insider',
+  premium:       'Premium',
+  supreme:       'Supreme',
+  purchase_only: 'Purchase only',
+  collection:    'Private collection',
+  unsorted:      'Not yet sorted',
+};
+
+const gradeHeadRow = { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+                       gap: 10, marginBottom: 8 };
+const gradeHeading = { fontFamily: F.mono, fontSize: 11, letterSpacing: '0.1em',
+                       textTransform: 'uppercase', color: C.muted, margin: 0, fontWeight: 400 };
+const gradeCount   = { fontFamily: F.mono, fontSize: 11, color: C.muted };
+
+// Sits on the blurred tile so the price is readable before anything is tapped
+// — enough to decide whether to bother, without turning the grid into a list.
+const lockBadge = { position: 'absolute', bottom: 8, left: 8, zIndex: 2,
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    background: 'rgba(0,0,0,0.62)', backdropFilter: 'blur(6px)',
+                    border: '1px solid rgba(255,255,255,0.22)', borderRadius: 999,
+                    padding: '5px 10px', lineHeight: 1,
+                    fontFamily: F.mono, fontSize: 12, color: '#FFFFFF',
+                    textShadow: '0 1px 3px rgba(0,0,0,0.5)' };
+
 const viewerGrid  = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 };
 const thumbWrap   = { position: 'relative', cursor: 'pointer', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: C.surface };
 const thumb       = { width: '100%', height: '100%', objectFit: 'cover', display: 'block' };
