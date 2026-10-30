@@ -3,7 +3,7 @@ const router  = require('express').Router();
 const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { postSystemMessage } = require('./community');
-const { getClientIp, lookupIpCountry } = require('../lib/geoip');
+const { getClientIp, lookupIpCountry, indianStateFrom } = require('../lib/geoip');
 const { issueInvoiceForPurchase, generateInvoicePdfBuffer } = require('../lib/invoice');
 const { getSupplier } = require('../lib/issuedInvoice');
 const payments = require('../lib/payments');
@@ -288,7 +288,13 @@ router.post('/recharge/initiate', authMid, async (req, res) => {
   // without carrying these through the order they would be lost on any payment
   // credited that way — and country is what decides zero-rating for exports.
   const clientIp = getClientIp(req);
-  const { country: ipCountry } = await lookupIpCountry(clientIp);
+  const ipGeo = await lookupIpCountry(clientIp);
+  const ipCountry = ipGeo.country;
+  // The state the place of supply will be raised against, resolved once here
+  // and carried in the order's notes — the webhook is a call from Razorpay and
+  // has never seen the buyer's address, which is the same reason the country
+  // travels this way.
+  const ipState = indianStateFrom(ipGeo);
 
   // Off until Razorpay have enabled international payments on the account.
   // Sending a USD order before then is rejected at their end, which would fail
@@ -334,6 +340,7 @@ router.post('/recharge/initiate', authMid, async (req, res) => {
       userId:      req.user.userId,
       clientIp,
       userCountry: ipCountry,
+      userState: ipState,
       currency:         fxQuote ? fxQuote.currency : 'INR',
       amountInCurrency: fxQuote ? fxQuote.amount   : priceINR,
       bonusOfferId: offer?.id || null,
@@ -459,7 +466,12 @@ router.post('/recharge/verify', authMid, async (req, res) => {
     const invoicingOwner = payments.invoicingOwnerFor('razorpay');
 
     const clientIp = getClientIp(req);
-    const { country: userCountry } = await lookupIpCountry(clientIp);
+    const userGeo = await lookupIpCountry(clientIp);
+    const userCountry = userGeo.country;
+    // Preferred from the order's own notes, written when the buyer was actually
+    // present; this lookup is the fallback for an order raised before the field
+    // existed. Null either way means the registered state, as it always has.
+    const userState = result.orderNotes?.user_state || indianStateFrom(userGeo);
 
     const { rows: userRows0 } = await pool.query(`SELECT email FROM users WHERE id = $1`, [req.user.userId]);
     const userEmail = userRows0[0]?.email;
@@ -525,13 +537,19 @@ router.post('/recharge/verify', authMid, async (req, res) => {
         userId: req.user.userId,
         userEmail,
         userCountry,
+        userState,
         ipAddress: clientIp,
         coinLedgerId,
         tokensPurchased: amount,
         amountInrEquivalent: priceINR,
         currency: result.currency,
         amountInCurrency: result.amountInCurrency,
-        exchangeRateUsed: null,
+        // Was always null, so a foreign payment credited through this path
+        // reached the invoice with no exchange rate on it at all — the line
+        // simply did not print.
+        exchangeRateUsed: result.currency === 'INR' || !priceINR
+          ? null
+          : +(result.amountInCurrency / priceINR).toFixed(6),
         paymentMethodDisplay,
       });
       invoiceNumber = invoice?.invoice_number || null;
@@ -665,6 +683,8 @@ router.post('/recharge/webhook', async (req, res) => {
         // Recovered from the order notes. Previously null here, which meant every
         // webhook-credited payment lost the country that decides export status.
         userCountry: payment.notes?.user_country || null,
+        // Recovered the same way, and for the same reason.
+        userState:   payment.notes?.user_state || null,
         ipAddress:   payment.notes?.client_ip || null,
         coinLedgerId: ledgerRows[0].id,
         tokensPurchased: tokens,
@@ -675,7 +695,13 @@ router.post('/recharge/webhook', async (req, res) => {
         // payment — and charged 18% GST on sales that were zero-rated exports.
         currency:         paidCurrency,
         amountInCurrency: amountCharged,
-        exchangeRateUsed: paidCurrency === 'INR' ? null : priceINR / amountCharged,
+        // The invoice prints "1 INR = X {currency}", so that is what is stored:
+        // foreign units per rupee. This held rupees per foreign unit, so a ₹660
+        // sale billed as USD 7.95 printed "1 INR = 82.5000 USD" — out by a
+        // factor of about 6,800, and useless for reconciling a bank credit.
+        exchangeRateUsed: paidCurrency === 'INR' || !priceINR
+          ? null
+          : +(amountCharged / priceINR).toFixed(6),
         paymentMethodDisplay,
       });
     } catch (err) {

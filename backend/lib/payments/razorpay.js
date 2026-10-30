@@ -13,7 +13,7 @@ function getClient() {
   });
 }
 
-async function createOrder({ amountInr, tokens, discountPct, userId, clientIp, userCountry,
+async function createOrder({ amountInr, tokens, discountPct, userId, clientIp, userCountry, userState,
                              currency = 'INR', amountInCurrency,
                              bonusOfferId = null, bonusTokens = 0 }) {
   const razorpay = getClient();
@@ -39,6 +39,9 @@ async function createOrder({ amountInr, tokens, discountPct, userId, clientIp, u
       discount:     String(discountPct),
       client_ip:    clientIp || '',
       user_country: userCountry || '',
+      // The place of supply for a domestic sale. Empty means no definitive
+      // reading, which the invoice builder treats as the registered state.
+      user_state:   userState || '',
       amount_inr:   String(amountInr),
       bonus_offer_id: bonusOfferId || '',
       bonus_tokens:   String(bonusTokens || 0),
@@ -89,7 +92,13 @@ async function verifyPayment({ orderId, paymentId, signature }) {
 
   return {
     verified: true,
-    amountInCurrency: Math.round(paymentRaw.amount / 100),
+    // To the paisa (or cent), not to the whole unit.
+    //
+    // Razorpay reports in the smallest unit, and rounding that to a whole one
+    // meant USD 7.95 was recorded — and invoiced — as "Total Paid: $8.00". The
+    // stated export value then never matched the bank credit, and the exchange
+    // rate derived from it was wrong too.
+    amountInCurrency: Math.round(paymentRaw.amount) / 100,
     currency: paymentRaw.currency || 'INR',
     // What the order says was bought, and what it was worth in rupees at the
     // moment it was created.

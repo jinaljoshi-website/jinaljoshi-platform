@@ -4,6 +4,7 @@
 // token sales — the two have different series and must never share a sequence.
 
 const pool = require('../db/pool');
+const { financialYearStart } = require('./invoiceNumber');
 const PDFDocument = require('pdfkit');
 const { getConfigValue } = require('./config');
 
@@ -12,7 +13,11 @@ const { getConfigValue } = require('./config');
 // invoice long after the legal pages had moved on.
 async function getSupplier() {
   const keys = ['legal_business_name', 'legal_registered_address', 'legal_gstin',
-                'legal_state', 'legal_udyam', 'legal_iec', 'legal_billing_email', 'legal_phone'];
+                'legal_state', 'legal_udyam', 'legal_iec', 'legal_billing_email', 'legal_phone',
+                // The Letter of Undertaking a zero-rated export is made under.
+                // It is on record with the department and was nowhere in here,
+                // so no invoice could cite it.
+                'legal_lut_number', 'legal_lut_date'];
   const { rows } = await pool.query(
     `SELECT key, value FROM platform_config WHERE key = ANY($1)`, [keys]
   );
@@ -36,7 +41,23 @@ async function getSupplier() {
     iec:     c.legal_iec?.trim()           || null,
     email:   c.legal_billing_email?.trim() || null,
     phone:   c.legal_phone?.trim()         || null,
+    lutNumber: c.legal_lut_number?.trim()  || null,
+    // Stored as YYYY-MM-DD so it sorts and validates; printed as DDMMYYYY.
+    lutDate:   c.legal_lut_date?.trim()    || null,
   };
+}
+
+// The declaration a zero-rated export carries, built from the LUT on record.
+// DDMMYYYY, as the CA writes it. Null when the LUT is not configured, which
+// leaves the caller to fall back to the statutory wording.
+function lutDeclaration(supplier) {
+  if (!supplier?.lutNumber || !supplier?.lutDate) return null;
+  const d = new Date(supplier.lutDate);
+  if (Number.isNaN(d.getTime())) return null;
+  const p = (n) => String(n).padStart(2, '0');
+  const ddmmyyyy = `${p(d.getUTCDate())}${p(d.getUTCMonth() + 1)}${d.getUTCFullYear()}`;
+  return `Zero rated export of service as per LUT ${supplier.lutNumber} issued on ${ddmmyyyy}.`
+       + (supplier.gstin ? ` GSTIN: ${supplier.gstin}.` : '');
 }
 
 const PREFIX = { manual: 'MI', b2b: 'JJ' };
@@ -47,19 +68,48 @@ const PREFIX = { manual: 'MI', b2b: 'JJ' };
 async function getNextNumber(client, kind) {
   const prefix = PREFIX[kind];
   if (!prefix) throw new Error(`Unknown invoice kind: ${kind}`);
-  const year = new Date().getFullYear();
 
+  // The financial year, not the calendar one.
+  //
+  // This keyed on getFullYear(), so the run restarted on 1 January — in the
+  // middle of a financial year, which is the thing it is supposed to be
+  // consecutive within. Every invoice so far is numbered 2026xxx and sits in
+  // FY 2026-27, so this changes nothing about them: it only stops January
+  // starting a second series alongside them.
+  const year = financialYearStart();
+
+  // A lock that actually locks.
+  //
+  // FOR UPDATE was applied to a SELECT ... LIMIT 1 that matches no rows for the
+  // first invoice of a year, and a lock on no rows locks nothing — so two
+  // invoices raised at the same moment both read "none" and both took seq 1, a
+  // duplicate number on a tax document. An advisory lock needs no row to exist;
+  // it is held to the end of the caller's transaction and released with it.
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`issued_invoice:${prefix}:${year}`]);
+
+  // Ordered by the sequence as a number.
+  //
+  // The old query ordered the whole string and read the last three characters,
+  // so the 1000th invoice of a year came back as "000" and the next one
+  // reissued 001 — a duplicate, silently. Stripping the known prefix and
+  // casting what remains orders correctly however long the run gets.
+  const stem = `${prefix}/${year}`;
   const { rows } = await client.query(
-    `SELECT invoice_number FROM issued_invoices
-     WHERE kind = $1 AND invoice_number LIKE $2
-     ORDER BY invoice_number DESC LIMIT 1
-     FOR UPDATE`,
-    [kind, `${prefix}/${year}%`]
+    `SELECT substr(invoice_number, length($2) + 1)::bigint AS seq
+       FROM issued_invoices
+      WHERE kind = $1
+        AND invoice_number LIKE $2 || '%'
+        -- Anything after the stem that is not purely digits is not one of ours
+        -- and must not reach the cast below.
+        AND substr(invoice_number, length($2) + 1) ~ '^[0-9]+$'
+      ORDER BY seq DESC
+      LIMIT 1`,
+    [kind, stem]
   );
 
-  const last = rows[0]?.invoice_number;
-  const seq  = last ? parseInt(last.slice(-3), 10) + 1 : 1;
-  return `${prefix}/${year}${String(seq).padStart(3, '0')}`;
+  const seq = (rows[0]?.seq ? Number(rows[0].seq) : 0) + 1;
+  // Three digits while it fits, and more when it does not, rather than wrapping.
+  return `${stem}${String(seq).padStart(3, '0')}`;
 }
 
 // Place of supply decides the split, and getting it wrong is the most common
@@ -247,8 +297,12 @@ function generatePdf(inv, account, SUPPLIER, receipts = null) {
     y = doc.y + 14;
 
     if (inv.is_export) {
+      const lut = lutDeclaration(SUPPLIER);
+      if (!lut) {
+        console.error('issuedInvoice: legal_lut_number / legal_lut_date are not set in Studio — a zero-rated export went out without its LUT reference');
+      }
       doc.fontSize(8).font('Helvetica-Oblique').fillColor('#555')
-         .text('Supply meant for export under bond or letter of undertaking without payment of integrated tax.',
+         .text(lut || 'Supply meant for export under bond or letter of undertaking without payment of integrated tax.',
                L, y, { width: W });
       y = doc.y + 12;
     }
@@ -379,4 +433,4 @@ function generatePdf(inv, account, SUPPLIER, receipts = null) {
   });
 }
 
-module.exports = { getSupplier, PREFIX, getNextNumber, computeTax, amountInWords, generatePdf };
+module.exports = { getSupplier, PREFIX, getNextNumber, computeTax, amountInWords, generatePdf, lutDeclaration };

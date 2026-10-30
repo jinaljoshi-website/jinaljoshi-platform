@@ -900,7 +900,8 @@ function BackgroundsSection({ config, setConfig }) {
 
 // ── Legal Details ─────────────────────────────────────────────────────────────
 function LegalDetailsSection({ draft, set, config, setConfig }) {
-  const keys = ['legal_registered_address', 'legal_gstin', 'domestic_gst_rate_pct'];
+  const keys = ['legal_registered_address', 'legal_gstin', 'domestic_gst_rate_pct',
+                'legal_lut_number', 'legal_lut_date'];
 
   return (
     <Card>
@@ -929,6 +930,22 @@ function LegalDetailsSection({ draft, set, config, setConfig }) {
             share a charity receives, and what a photographer's work generated. Changing it
             changes all three.
           </div>
+      </Field>
+
+      <Field label="LUT number">
+        <input style={S.input} value={draft.legal_lut_number ?? ''}
+               onChange={(e) => set('legal_lut_number', e.target.value)} />
+      </Field>
+
+      <Field label="LUT issued on">
+        <input style={S.input} type="date"
+               value={draft.legal_lut_date ?? ''}
+               onChange={(e) => set('legal_lut_date', e.target.value)} />
+        <div style={{ fontFamily: sans, fontSize: 11, color: colors.muted, marginTop: 6, lineHeight: 1.6 }}>
+          Printed on every zero-rated export invoice as “Zero rated export of service as per
+          LUT &lt;number&gt; issued on DDMMYYYY”, with the GSTIN above. Until both are filled in,
+          those invoices fall back to the generic wording and cite no LUT.
+        </div>
       </Field>
 
       <SectionSave keys={keys} draft={draft} config={config} setConfig={setConfig} />

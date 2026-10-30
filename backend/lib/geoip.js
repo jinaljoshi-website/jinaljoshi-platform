@@ -19,10 +19,51 @@ const cache = new Map();
 const HIT_MS  = 6 * 60 * 60 * 1000;
 const MISS_MS = 60 * 1000;
 
+// The thirty-six states and union territories, by name and by the two-letter
+// code the lookup returns. A place of supply has to be one of these or it is
+// not a place of supply, and a tax invoice is the wrong document to write a
+// guess onto — anything unrecognised is treated as no reading at all.
+const INDIAN_STATES = {
+  AN: 'Andaman and Nicobar Islands', AP: 'Andhra Pradesh', AR: 'Arunachal Pradesh',
+  AS: 'Assam', BR: 'Bihar', CH: 'Chandigarh', CT: 'Chhattisgarh',
+  DH: 'Dadra and Nagar Haveli and Daman and Diu', DD: 'Dadra and Nagar Haveli and Daman and Diu',
+  DL: 'Delhi', GA: 'Goa', GJ: 'Gujarat', HR: 'Haryana', HP: 'Himachal Pradesh',
+  JK: 'Jammu and Kashmir', JH: 'Jharkhand', KA: 'Karnataka', KL: 'Kerala',
+  LA: 'Ladakh', LD: 'Lakshadweep', MP: 'Madhya Pradesh', MH: 'Maharashtra',
+  MN: 'Manipur', ML: 'Meghalaya', MZ: 'Mizoram', NL: 'Nagaland', OR: 'Odisha',
+  PY: 'Puducherry', PB: 'Punjab', RJ: 'Rajasthan', SK: 'Sikkim', TN: 'Tamil Nadu',
+  TG: 'Telangana', TR: 'Tripura', UP: 'Uttar Pradesh', UT: 'Uttarakhand', WB: 'West Bengal',
+};
+const STATE_BY_NAME = new Map(
+  Object.values(INDIAN_STATES).map((n) => [n.toLowerCase(), n]));
+
+// A definitive Indian state from a lookup, or null.
+//
+// Null is the safe answer and the one the invoice builder wants: it falls back
+// to the registered state, which is both what the CA asked for and exactly how
+// every invoice has been raised until now.
+function indianStateFrom(geo) {
+  if (!geo || !geo.known) return null;
+  if (geo.country && geo.country.trim().toLowerCase() !== 'india') return null;
+
+  const byCode = geo.region && INDIAN_STATES[String(geo.region).trim().toUpperCase()];
+  if (byCode) return byCode;
+
+  const byName = geo.regionName && STATE_BY_NAME.get(String(geo.regionName).trim().toLowerCase());
+  if (byName) return byName;
+
+  if (geo.regionName) {
+    // Worth seeing. It means the provider gave a reading this does not
+    // recognise, and every such sale is being billed to the registered state.
+    console.warn(`geoip: unrecognised Indian region "${geo.regionName}" (${geo.region || 'no code'})`);
+  }
+  return null;
+}
+
 async function lookupIpCountry(ip) {
   if (!ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.')) {
     // Local/private IPs (dev environment) — can't be geolocated
-    return { country: null, countryCode: null, known: false };
+    return { country: null, countryCode: null, region: null, regionName: null, known: false };
   }
 
   const hit = cache.get(ip);
@@ -36,18 +77,27 @@ async function lookupIpCountry(ip) {
   };
 
   try {
-    const res = await fetch(`http://ip-api.com/json/${ip}?fields=status,message,country,countryCode`);
+    // regionName comes along for the place of supply on a tax invoice. An
+    // Indian customer's state was never captured, so every domestic invoice was
+    // raised against the supplier's own state — the CA's instruction is to take
+    // a definitive reading from the address where there is one and fall back to
+    // the registered state otherwise, which is what indianStateFrom below does.
+    const res = await fetch(`http://ip-api.com/json/${ip}?fields=status,message,country,countryCode,region,regionName`);
     const data = await res.json();
     if (data.status === 'success') {
-      return remember({ country: data.country, countryCode: data.countryCode, known: true }, HIT_MS);
+      return remember({
+        country: data.country, countryCode: data.countryCode,
+        region: data.region || null, regionName: data.regionName || null,
+        known: true,
+      }, HIT_MS);
     }
     // Said out loud, because a throttled lookup and a genuinely unknown address
     // look identical from outside, and only one of them is worth fixing.
     console.error(`geoip: lookup failed for an address — ${data.message || 'no reason given'}`);
-    return remember({ country: null, countryCode: null, known: false }, MISS_MS);
+    return remember({ country: null, countryCode: null, region: null, regionName: null, known: false }, MISS_MS);
   } catch (err) {
     console.error('geoip/lookupIpCountry error:', err.message);
-    return remember({ country: null, countryCode: null, known: false }, MISS_MS);
+    return remember({ country: null, countryCode: null, region: null, regionName: null, known: false }, MISS_MS);
   }
 }
 
@@ -58,4 +108,4 @@ function getClientIp(req) {
   return req.socket?.remoteAddress || null;
 }
 
-module.exports = { lookupIpCountry, getClientIp };
+module.exports = { lookupIpCountry, getClientIp, indianStateFrom };

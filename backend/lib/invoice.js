@@ -17,11 +17,26 @@ const { getSupplier } = require('./issuedInvoice');
 const EXPORT_DISCLAIMER =
   'Supply meant for export under bond or letter of undertaking without payment of integrated tax.';
 
-// With-payment route: IGST charged and remitted, then reclaimed. This is the
-// live case for international customers — the e-FIRS evidences the remittance
-// as foreign inward when the refund is claimed.
-const EXPORT_WITH_TAX_DISCLAIMER =
-  'Supply meant for export on payment of integrated tax. Refund of IGST to be claimed under Section 16 of the IGST Act, 2017.';
+// A sale to somebody abroad that was paid in rupees used to carry a line
+// promising the IGST back under section 16. On the CA's ruling that refund is
+// not available — payment in rupees is not payment in convertible foreign
+// exchange, so the supply is an ordinary taxable one and the IGST stands.
+//
+// Twenty-two invoices went out saying otherwise. There is no replacement line:
+// a tax invoice with IGST on it needs no declaration beyond the tax itself, and
+// the instruction was to carry none.
+
+// The declaration a zero-rated export does carry, built from the LUT on record.
+// DDMMYYYY, as the CA writes it.
+function lutDeclaration(supplier) {
+  if (!supplier?.lutNumber || !supplier?.lutDate) return null;
+  const d = new Date(supplier.lutDate);
+  if (Number.isNaN(d.getTime())) return null;
+  const p = (n) => String(n).padStart(2, '0');
+  const ddmmyyyy = `${p(d.getUTCDate())}${p(d.getUTCMonth() + 1)}${d.getUTCFullYear()}`;
+  return `Zero rated export of service as per LUT ${supplier.lutNumber} issued on ${ddmmyyyy}.`
+       + (supplier.gstin ? ` GSTIN: ${supplier.gstin}.` : '');
+}
 
 // Zero-rating requires all three conditions, confirmed with the CA:
 //
@@ -231,13 +246,30 @@ function generateInvoicePdfBuffer(invoice, supplier) {
       doc.text(`GST Amount: ${formatCurrency(invoice.gst_amount_inr, 'INR')} (INR equivalent)`);
     }
     doc.fontSize(11).text(`Total Paid: ${formatCurrency(invoice.amount_in_currency, invoice.currency)}`, { bold: true });
+    // Both figures together, on the CA's instruction: the amount actually
+    // billed in the customer's currency, and what it came to in rupees. The
+    // rupee figure appeared only as a parenthetical on the taxable line, which
+    // is not the same as stating what was charged.
+    if (invoice.currency && invoice.currency !== 'INR') {
+      doc.fontSize(10).fillColor('#333')
+         .text(`INR equivalent: ${formatCurrency(invoice.amount_inr_equivalent, 'INR')}`);
+    }
     doc.moveDown(1);
 
+    // Only a zero-rated export carries a declaration. An invoice with IGST on
+    // it carries none — see the note beside the disclaimers above.
     if (invoice.is_export) {
-      doc.fontSize(9).fillColor('#555').text(EXPORT_DISCLAIMER, { italics: true, width: 495 });
-      doc.moveDown(1);
-    } else if (invoice.export_with_tax) {
-      doc.fontSize(9).fillColor('#555').text(EXPORT_WITH_TAX_DISCLAIMER, { italics: true, width: 495 });
+      const lut = lutDeclaration(supplier);
+      if (lut) {
+        doc.fontSize(9).fillColor('#555').text(lut, { italics: true, width: 495 });
+      } else {
+        // The LUT is not configured. The statutory wording still has to appear
+        // on a zero-rated invoice, so the generic form stands in — and it is
+        // logged, because an export declaration that cannot cite its own LUT is
+        // not what was asked for.
+        console.error('invoice: legal_lut_number / legal_lut_date are not set in Studio — a zero-rated export went out without its LUT reference');
+        doc.fontSize(9).fillColor('#555').text(EXPORT_DISCLAIMER, { italics: true, width: 495 });
+      }
       doc.moveDown(1);
     }
 
