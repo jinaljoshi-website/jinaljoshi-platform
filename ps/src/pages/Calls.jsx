@@ -330,6 +330,15 @@ export default function Calls() {
                 </button>
               ))}
             </div>
+            {freeCall && !isPriority && (
+              <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginTop: 8 }}>
+                {freeCall.remaining > 0
+                  ? freeCallApplies
+                    ? `Included with Supreme — this one is on the house.${freeCall.remaining > 1 ? ` ${freeCall.remaining} left this month.` : ''}`
+                    : `Your membership includes a ${freeCall.minutes}-minute call. Choose ${freeCall.minutes} minutes or fewer to use it.`
+                  : 'You have used your included call this month. Your next one arrives with your new period.'}
+              </div>
+            )}
           </div>
 
           {!isPriority && (
@@ -387,7 +396,9 @@ export default function Calls() {
             <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>{duration} min × {selected.coinsPerMin} tokens/min</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontFamily: F.sans, fontSize: 13, color: C.muted }}>Total</span>
-              <WonderCoinAmount amount={totalCost} size={20} fontSize={22} textColor={canAfford ? C.text : '#D99A9A'} />
+              {freeCallApplies
+                ? <span style={{ fontFamily: F.sans, fontSize: 16, color: C.accent }}>Included</span>
+                : <WonderCoinAmount amount={totalCost} size={20} fontSize={22} textColor={canAfford ? C.text : '#D99A9A'} />}
             </div>
           </div>
           {!canAfford && (
@@ -452,7 +463,16 @@ export default function Calls() {
 
   // ── Active call UI ──────────────────────────────────────────────────────────
   if (activeCall) {
-    const durationMinutes = activeCallRecord ? Math.round(activeCallRecord.coins_charged / activeCallRecord.coins_per_min) : null;
+    // The stored length, with the old arithmetic kept only for rows that
+    // predate the column. Working it out from the price gave zero for an
+    // included call, which would have expired the on-screen timer the moment
+    // it appeared.
+    const durationMinutes = !activeCallRecord ? null
+      : (Number(activeCallRecord.duration_minutes) > 0
+          ? Number(activeCallRecord.duration_minutes)
+          : (activeCallRecord.coins_per_min > 0
+              ? Math.round(activeCallRecord.coins_charged / activeCallRecord.coins_per_min)
+              : null));
     return (
       <StreamVideo client={activeCall.client}>
         <StreamCall call={activeCall.call}>
@@ -473,7 +493,16 @@ export default function Calls() {
     );
   }
 
-  const totalCost = selected ? selected.coinsPerMin * duration : 0;
+  // The call a Supreme membership includes. Scheduled only, and only up to its
+  // own length — ask for longer and it becomes an ordinary paid call, which is
+  // why the price below is worked out from this rather than the other way
+  // round. The server decides the same thing again at booking; this only has
+  // to agree with it, never to be trusted by it.
+  const freeCall = data?.freeCall || null;
+  const freeCallApplies = !!freeCall && freeCall.remaining > 0 && !isPriority
+    && !!selected && duration <= freeCall.minutes;
+
+  const totalCost = freeCallApplies ? 0 : (selected ? selected.coinsPerMin * duration : 0);
   const canAfford = (data?.coinBalance || 0) >= totalCost;
   const pastCalls = myCalls.filter((c) => ['completed', 'rejected', 'missed'].includes(c.status));
   const awaitingJinal = myCalls.filter((c) => c.status === 'pending' && c.proposed_by === 'fan');
@@ -574,7 +603,7 @@ export default function Calls() {
             <div key={c.id} style={{ ...card, marginBottom: 10 }}>
               <div style={{ fontFamily: F.display, fontSize: 18, color: C.text }}>{c.call_type} call</div>
               <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginTop: 4 }}>
-                Proposed {new Date(c.proposed_time).toLocaleString()} · {c.coins_charged} tokens · Jinal will confirm shortly
+                Proposed {new Date(c.proposed_time).toLocaleString()} · {c.is_free_call ? 'Included call' : `${c.coins_charged} tokens`} · Jinal will confirm shortly
               </div>
             </div>
           ))}
@@ -686,7 +715,7 @@ export default function Calls() {
                   <div>
                     <div style={{ fontFamily: F.sans, fontSize: 14, color: C.text, fontWeight: 600 }}>{c.call_type} call</div>
                     <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, marginTop: 2 }}>
-                      {c.coins_charged} tokens · {new Date(c.created_at).toLocaleDateString()}
+                      {c.is_free_call ? 'Included call' : `${c.coins_charged} tokens`} · {new Date(c.created_at).toLocaleDateString()}
                     </div>
                   </div>
                   <span style={{ fontFamily: F.sans, fontSize: 12, color: statusColor(c.status), textTransform: 'capitalize' }}>{c.status}</span>

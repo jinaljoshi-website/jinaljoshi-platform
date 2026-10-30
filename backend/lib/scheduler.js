@@ -54,6 +54,7 @@ const fx = require('./fx');
 const { refundByRelated } = require('./tokens');
 const { sendRenewalReminderEmail } = require('./emails');
 const { renewalSummary, BONUS_STEP } = require('./allowance');
+const { refundCall } = require('./freecalls');
 const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 
 function getStreamClient() {
@@ -136,13 +137,7 @@ async function checkNoShows() {
     for (const call of rows) {
       await client.query('BEGIN');
       try {
-        await refundByRelated(client, {
-          userId:     call.user_id,
-          type:       'call_charge',
-          relatedId:  call.id,
-          label:      'Refund: Jinal was unavailable for scheduled call',
-          refundType: 'call_refund',
-        });
+        await refundCall(client, call, { label: 'Refund: Jinal was unavailable for scheduled call' });
         await client.query(
           `UPDATE call_requests SET status = 'rejected', rejection_reason = $1 WHERE id = $2`,
           ['Jinal was unavailable due to unavoidable circumstances. Your tokens have been refunded automatically.', call.id]
@@ -174,13 +169,25 @@ async function checkNoShows() {
 
 async function checkDurationCutoffs() {
   try {
+    // Read, not inferred.
+    //
+    // This used to work the length back out of the price, as coins_charged
+    // over coins_per_min. That made the enforced duration an artefact of the
+    // money: any pricing change leaving a charge not exactly divisible by its
+    // rate would quietly shorten or lengthen the call. And a call charged
+    // nothing divided out to nothing, so the included Supreme call would have
+    // been ended by this job within fifteen seconds of connecting.
+    //
+    // The guard on duration_minutes > 0 is what keeps that from happening to
+    // any row the backfill could not work out either.
     const { rows } = await pool.query(
-      `SELECT *,
-              (coins_charged / NULLIF(coins_per_min, 0)) AS duration_minutes
+      `SELECT *
        FROM call_requests
        WHERE status = 'in_progress'
        AND call_started_at IS NOT NULL
-       AND call_started_at + ((coins_charged / NULLIF(coins_per_min, 0)) || ' minutes')::interval <= NOW()`
+       AND duration_minutes IS NOT NULL
+       AND duration_minutes > 0
+       AND call_started_at + (duration_minutes || ' minutes')::interval <= NOW()`
     );
 
     if (!rows.length) return;
@@ -224,13 +231,7 @@ async function checkMissedCalls() {
     for (const call of rows) {
       try {
         await client.query('BEGIN');
-        await refundByRelated(client, {
-          userId:     call.user_id,
-          type:       'call_charge',
-          relatedId:  call.id,
-          label:      'Refund: call not answered in time',
-          refundType: 'call_refund',
-        });
+        await refundCall(client, call, { label: 'Refund: call not answered in time' });
         await client.query(
           `UPDATE call_requests SET status = 'missed', rejection_reason = $1 WHERE id = $2`,
           ['No answer — the call was not picked up in time. Your tokens have been refunded automatically.', call.id]

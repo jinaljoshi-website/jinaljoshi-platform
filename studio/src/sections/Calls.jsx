@@ -183,7 +183,14 @@ export function Calls({ openWith }) {
 
   // ── Active call UI ──
   if (activeCall) {
-    const durationMinutes = activeCallRecord ? Math.round(activeCallRecord.coins_charged / activeCallRecord.coins_per_min) : null;
+    // The stored length. Derived from the price it was zero for an included
+    // call, which would have shown Jinal a timer that had already run out.
+    const durationMinutes = !activeCallRecord ? null
+      : (Number(activeCallRecord.duration_minutes) > 0
+          ? Number(activeCallRecord.duration_minutes)
+          : (activeCallRecord.coins_per_min > 0
+              ? Math.round(activeCallRecord.coins_charged / activeCallRecord.coins_per_min)
+              : null));
     return (
       <StreamVideo client={activeCall.client}>
         <StreamCall call={activeCall.call}>
@@ -257,7 +264,7 @@ export function Calls({ openWith }) {
                   <div>
                     <div style={S.rowTitle}>{c.display_name || c.email} — {c.call_type}</div>
                     <div style={{ ...S.rowSub, display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                      {c.coins_charged} tokens · <Badge tier={c.tier} />
+                      {c.is_free_call ? 'Included call' : `${c.coins_charged} tokens`} · <Badge tier={c.tier} />
                     </div>
                     <div style={{ fontFamily: sans, fontSize: 13, color: colors.accent, marginTop: 6 }}>
                       Proposed: {new Date(c.proposed_time).toLocaleString()}
@@ -408,7 +415,7 @@ export function Calls({ openWith }) {
                   <div style={{ flex: 1 }}>
                     <div style={S.rowTitle}>{c.display_name || c.email} — {c.call_type}</div>
                     <div style={{ ...S.rowSub, display: 'flex', gap: 8, marginTop: 4 }}>
-                      {c.coins_charged} tokens · {new Date(c.created_at).toLocaleDateString()}
+                      {c.is_free_call ? 'Included call' : `${c.coins_charged} tokens`} · {new Date(c.created_at).toLocaleDateString()}
                     </div>
                   </div>
                   <span style={{ fontFamily: sans, fontSize: 12, color: statusColor(c.status), textTransform: 'capitalize' }}>

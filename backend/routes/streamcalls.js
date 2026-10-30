@@ -8,6 +8,7 @@ const { notifyArtist } = require('../lib/notify');
 const { pushToUser } = require('./push');
 const { getCallRingWindowSeconds } = require('../lib/config');
 const { refundByRelated } = require('../lib/tokens');
+const { refundCall } = require('../lib/freecalls');
 
 const MAX_NEGOTIATION_ROUND = 4;
 
@@ -160,13 +161,7 @@ router.post('/:id/decline', authMid, async (req, res) => {
     const declinedBy = req.user.isArtist ? 'Jinal' : 'The fan';
     const reason = `${declinedBy} was unable to answer.`;
 
-    await refundByRelated(client, {
-      userId:     call.user_id,
-      type:       'call_charge',
-      relatedId:  call.id,
-      label:      'Refund: call declined',
-      refundType: 'call_refund',
-    });
+    await refundCall(client, call, { label: 'Refund: call declined' });
     await client.query(
       `UPDATE call_requests SET status = 'missed', rejection_reason = $1 WHERE id = $2`,
       [reason, call.id]
@@ -246,13 +241,7 @@ router.post('/:id/artist-respond', authMid, artistOnly, async (req, res) => {
     }
 
     if (action === 'reject') {
-      await refundByRelated(client, {
-        userId:     call.user_id,
-        type:       'call_charge',
-        relatedId:  call.id,
-        label:      'Refund: call declined by Jinal',
-        refundType: 'call_refund',
-      });
+      await refundCall(client, call, { label: 'Refund: call declined by Jinal' });
       await client.query(
         `UPDATE call_requests SET status = 'rejected', rejection_reason = $1 WHERE id = $2`,
         [reason || 'Declined by Jinal.', call.id]

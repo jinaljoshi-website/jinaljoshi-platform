@@ -9,6 +9,7 @@ const { getConfigNumber, getDiscountForTier, getGuestMultiplier, getCallMinLeadH
 const { assertNotBlocked, assertNotMuted } = require('../lib/moderation');
 const { roundTokensUp } = require('../lib/pricing');
 const { spendTokens, refundByRelated } = require('../lib/tokens');
+const { freeCallState, consumeFreeCall, refundCall } = require('../lib/freecalls');
 
 const MAX_NEGOTIATION_ROUND = 4;
 
@@ -36,6 +37,11 @@ const CALL_RATE_KEYS = {
 
 // What a fan may actually book now.
 const BOOKABLE_TYPES = ['video', 'priority-video'];
+
+// The longest a call may be booked for. Not in config because there is no
+// Studio field for it and a missing key here would mean no limit at all, which
+// is the state this replaces.
+const MAX_CALL_MINUTES = 120;
 
 async function getCallRate(type) {
   const key = CALL_RATE_KEYS[type];
@@ -68,10 +74,12 @@ router.get('/options', authMid, async (req, res) => {
     ]);
 
     const { rows: userRows } = await pool.query(
-      `SELECT coin_balance, tier, membership_expires_at FROM users WHERE id = $1`,
+      `SELECT id, coin_balance, tier, membership_expires_at, membership_started_at, last_renewed_at
+         FROM users WHERE id = $1`,
       [req.user.userId]
     );
     const user     = userRows[0];
+    const freeCalls = await freeCallState(pool, user);
     const isActive = user.membership_expires_at && new Date(user.membership_expires_at) > new Date();
     const isGuest  = !isActive;
     const [discountPct, guestMultiplier, minLeadHours] = await Promise.all([
@@ -130,6 +138,19 @@ router.get('/options', authMid, async (req, res) => {
         },
       ],
 
+      // The call a Supreme membership includes. Scheduled only, so it belongs
+      // to the second group — and it is reported rather than priced, because
+      // what it costs is nothing.
+      //
+      // Sent even when none are left, so the page can say "next month" instead
+      // of quietly dropping the option and leaving somebody wondering whether
+      // it was ever there.
+      freeCall: freeCalls.granted > 0
+        ? { granted: freeCalls.granted, used: freeCalls.used,
+            remaining: freeCalls.remaining, minutes: freeCalls.minutes,
+            appliesTo: 'video' }
+        : null,
+
       // Kept alongside so an older bundle still served from a cache does not
       // lose its call page the moment this deploys.
       options: [
@@ -155,6 +176,16 @@ router.post('/book', authMid, async (req, res) => {
 
   if (!callType || !durationMinutes || durationMinutes < 1) {
     return res.status(400).json({ error: 'callType and durationMinutes are required' });
+  }
+  // There was no upper bound on this at all. The fan app offers 1 to 15
+  // minutes, but the route takes whatever is posted to it, so a request for
+  // six hundred minutes was accepted and charged — and then held open by the
+  // watchdog for ten hours.
+  if (!Number.isInteger(durationMinutes) || durationMinutes > MAX_CALL_MINUTES) {
+    return res.status(400).json({
+      error: 'INVALID_DURATION',
+      message: `A call can be between 1 and ${MAX_CALL_MINUTES} minutes.`,
+    });
   }
   if (!BOOKABLE_TYPES.includes(callType)) {
     return res.status(400).json({ error: 'Invalid call type' });
@@ -220,7 +251,9 @@ router.post('/book', authMid, async (req, res) => {
     const baseRate = await getCallRate(callType);
 
     const { rows: userRows } = await client.query(
-      `SELECT coin_balance, tier, membership_expires_at, display_name, email FROM users WHERE id = $1 FOR UPDATE`,
+      `SELECT id, coin_balance, tier, membership_expires_at, membership_started_at,
+              last_renewed_at, display_name, email
+         FROM users WHERE id = $1 FOR UPDATE`,
       [req.user.userId]
     );
     const user     = userRows[0];
@@ -235,25 +268,43 @@ router.post('/book', authMid, async (req, res) => {
     let perMin = isGuest ? roundTokensUp(baseRate * guestMultiplier) : (discountPct ? roundTokensUp(baseRate * (1 - discountPct / 100)) : baseRate);
     perMin = roundTokensUp(perMin * multiplier);
 
-    const totalCost = perMin * durationMinutes;
+    // A Supreme membership includes one short call a month, and renewing adds
+    // two more the month after. It applies to the scheduled type only: an
+    // instant call rings her phone with no notice, and a free one of those is
+    // an open invitation to be rung at three in the morning.
+    const freeCalls = await freeCallState(client, user);
+    const useFreeCall =
+      !isPriority &&
+      freeCalls.remaining > 0 &&
+      durationMinutes <= freeCalls.minutes;
+
+    const totalCost = useFreeCall ? 0 : perMin * durationMinutes;
 
     // Calls are Jinal's time, so they must be paid for with purchased tokens.
     // Gifted credit is for messages and content only.
-    let spend;
-    try {
-      spend = await spendTokens(client, {
-        userId:      req.user.userId,
-        amount:      totalCost,
-        type:        'call_charge',
-        label:       `${callType} call — ${durationMinutes} min`,
-        allowGifted: false,
-      });
-    } catch (err) {
-      if (err.code === 'INSUFFICIENT_TOKENS') {
-        await client.query('ROLLBACK');
-        return res.status(402).json(err.httpBody);
+    //
+    // A free call takes neither, and takes no ledger row either: spending zero
+    // would leave a debit of nothing for a refund to later reverse, and the
+    // thing to give back is the allowance, not the money.
+    let spend = null;
+    if (!useFreeCall) {
+      try {
+        spend = await spendTokens(client, {
+          userId:      req.user.userId,
+          amount:      totalCost,
+          type:        'call_charge',
+          label:       `${callType} call — ${durationMinutes} min`,
+          allowGifted: false,
+        });
+      } catch (err) {
+        if (err.code === 'INSUFFICIENT_TOKENS') {
+          await client.query('ROLLBACK');
+          return res.status(402).json(err.httpBody);
+        }
+        throw err;
       }
-      throw err;
+    } else {
+      await consumeFreeCall(client, req.user.userId, freeCalls.monthKey);
     }
 
     let callRow;
@@ -282,24 +333,33 @@ router.post('/book', authMid, async (req, res) => {
       });
 
       const { rows } = await client.query(
+        // duration_minutes is written rather than inferred. It used to be
+        // recoverable only as coins_charged over coins_per_min, which made the
+        // enforced length an artefact of the price — and zero for a free call.
         `INSERT INTO call_requests
-           (user_id, call_type, coins_per_min, coins_charged, status, stream_call_id, ring_expires_at, proposed_by, negotiation_round)
-         VALUES ($1, $2, $3, $4, 'ringing', $5, $6, 'fan', 1) RETURNING *`,
-        [req.user.userId, callType, perMin, totalCost, callId, ringExpiresAt]
+           (user_id, call_type, coins_per_min, coins_charged, duration_minutes, is_free_call,
+            status, stream_call_id, ring_expires_at, proposed_by, negotiation_round)
+         VALUES ($1, $2, $3, $4, $5, $6, 'ringing', $7, $8, 'fan', 1) RETURNING *`,
+        [req.user.userId, callType, perMin, totalCost, durationMinutes, useFreeCall, callId, ringExpiresAt]
       );
       callRow = rows[0];
     } else {
       const { rows } = await client.query(
-        `INSERT INTO call_requests (user_id, call_type, coins_per_min, coins_charged, proposed_time, proposed_by, negotiation_round)
-         VALUES ($1, $2, $3, $4, $5, 'fan', 1) RETURNING *`,
-        [req.user.userId, callType, perMin, totalCost, proposedDate]
+        `INSERT INTO call_requests
+           (user_id, call_type, coins_per_min, coins_charged, duration_minutes, is_free_call,
+            proposed_time, proposed_by, negotiation_round)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'fan', 1) RETURNING *`,
+        [req.user.userId, callType, perMin, totalCost, durationMinutes, useFreeCall, proposedDate]
       );
       callRow = rows[0];
     }
 
     // The ledger row is written before the call exists, so link it now — refunds
-    // look the original spend up by call id.
-    await client.query(`UPDATE coin_ledger SET related_id = $1 WHERE id = $2`, [callRow.id, spend.ledgerId]);
+    // look the original spend up by call id. A free call has no ledger row to
+    // link, and what gets given back on refund is the allowance instead.
+    if (spend) {
+      await client.query(`UPDATE coin_ledger SET related_id = $1 WHERE id = $2`, [callRow.id, spend.ledgerId]);
+    }
 
     await client.query(
       `INSERT INTO artist_notifications (type, fan_id, payload)
@@ -349,11 +409,17 @@ router.post('/book', authMid, async (req, res) => {
       // earlier. A spend can draw on bonus tokens, which do not sit in
       // coin_balance, so subtracting the whole cost from it reported a balance
       // lower than the fan actually holds until something forced a refresh.
-      newBalance: spend.newPurchased,
+      // A free call spends nothing, so there is no spend to read back from and
+      // the balance is simply unchanged.
+      newBalance: spend ? spend.newPurchased : user.coin_balance,
+      usedFreeCall: useFreeCall,
+      freeCallsLeft: Math.max(0, freeCalls.remaining - (useFreeCall ? 1 : 0)),
       isPriority,
       message: isPriority
         ? 'Calling Jinal now — hang tight.'
-        : 'Your call request has been sent to Jinal for confirmation.',
+        : useFreeCall
+          ? `Your included call has been sent to Jinal for confirmation. It runs for ${freeCalls.minutes} minutes.`
+          : 'Your call request has been sent to Jinal for confirmation.',
     });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -410,20 +476,22 @@ router.post('/:id/respond', authMid, async (req, res) => {
     }
 
     if (action === 'reject') {
-      await refundByRelated(client, {
-        userId:     call.user_id,
-        type:       'call_charge',
-        relatedId:  call.id,
-        label:      'Refund: proposed call time declined',
-        refundType: 'call_refund',
-      });
+      // A free call has no charge to reverse, so what is given back is the
+      // allowance. Without this a member who declined a time they could not
+      // make would simply lose their included call for the month.
+      await refundCall(client, call, { label: 'Refund: proposed call time declined' });
       await client.query(
         `UPDATE call_requests SET status = 'rejected', rejection_reason = $1 WHERE id = $2`,
         ['Fan declined the proposed time.', call.id]
       );
       await client.query('COMMIT');
-      notifyArtist({ title: 'Call declined', body: `${who} declined the proposed time. Tokens refunded.`, url: `/calls?call=${call.id}` });
-      return res.json({ ok: true, message: 'Call declined and your tokens have been refunded.' });
+      notifyArtist({ title: 'Call declined', body: `${who} declined the proposed time. ${call.is_free_call ? 'Included call returned.' : 'Tokens refunded.'}`, url: `/calls?call=${call.id}` });
+      return res.json({
+        ok: true,
+        message: call.is_free_call
+          ? 'Call declined. Your included call has been returned to you.'
+          : 'Call declined and your tokens have been refunded.',
+      });
     }
 
     if (call.negotiation_round >= MAX_NEGOTIATION_ROUND) {

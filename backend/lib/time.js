@@ -38,10 +38,15 @@ function addMonthsClamped(date, months) {
 //
 // Guests have no membership, so they fall back to a calendar bucket — that row
 // only tracks daily counters, and no entitlement hangs off it.
-function getAllotmentPeriodKey(membershipStartedAt) {
+// `at` answers the same question about a past moment rather than about now,
+// which is how the renewal gift is dated: a renewal grants extra free calls
+// "next month", and the only way to know whether a renewal falls in the period
+// before this one is to ask which period it landed in. Defaults to now, so
+// every existing caller is unaffected.
+function getAllotmentPeriodKey(membershipStartedAt, at) {
   if (!membershipStartedAt) return new Date().toISOString().slice(0, 7);
   const start = new Date(membershipStartedAt);
-  const now   = new Date();
+  const now   = at ? new Date(at) : new Date();
   let periods = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
   // Step back if this month's anniversary has not arrived yet, using the same
   // clamping rule as expiry so month-end joiners line up exactly.
