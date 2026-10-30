@@ -14,6 +14,7 @@ const { roundTokensUp } = require('../lib/pricing');
 const { getAllotmentPeriodKey } = require('../lib/time');
 const { spendTokens } = require('../lib/tokens');
 const { applyRenewalBonus, renewalSummary } = require('../lib/allowance');
+const { pricesForMember, priceForMember, PRICED_GRADES } = require('../lib/photoPrice');
 
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
 const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
@@ -536,6 +537,19 @@ router.get('/sets', authMid, async (req, res) => {
       grantsBySet[g.set_id][g.scope] = g.grant_type;
     });
 
+    // What they have spent on individual photographs, per set.
+    //
+    // Loaded here with the grants, in one query for the whole library rather
+    // than one per set, because this list is 235 sets long. It comes off the
+    // upsell price below so the card quotes what the unlock will actually
+    // charge — the same figure the charge itself works out.
+    const { rows: photoPaidRows } = await pool.query(
+      `SELECT set_id, coins_paid FROM item_purchases WHERE user_id = $1`,
+      [req.user.userId]
+    );
+    const photosPaidBySet = {};
+    photoPaidRows.forEach((r) => { photosPaidBySet[r.set_id] = Number(r.coins_paid) || 0; });
+
     // Priced once for the whole request by the same code the membership page
     // uses, so a set and that page can never quote different numbers for the
     // same step up.
@@ -630,7 +644,11 @@ router.get('/sets', authMid, async (req, res) => {
                       && !membershipTierFor(items, userTier),
 
         tierPrice: segments.tierPrice,
-        upsellPrice: segments.upsellPrice,
+        // Less whatever single photographs have already been paid for in this
+        // set, so the card and the charge agree.
+        upsellPrice: Math.max(0, segments.upsellPrice - (photosPaidBySet[s.id] || 0)),
+        upsellPriceBeforeCredit: segments.upsellPrice,
+        photosPaid: photosPaidBySet[s.id] || 0,
         // tierPreviewUrl and upsellPreviewUrl used to sit here, both assigned
         // the same value — the same 1.7 KB base64 image, twice, on every set in
         // the library. Together they were about 720 KB of a 2.2 MB response,
@@ -831,6 +849,26 @@ router.post('/unlock', authMid, async (req, res) => {
     let useCredit = false;
     let price = scope === 'tier' ? segments.tierPrice : segments.upsellPrice;
 
+    // Photographs already bought one at a time come off the block.
+    //
+    // Without this a member who bought three supreme photographs and then
+    // decided to take the rest would pay for those three twice — which makes
+    // buying one first a penalty for changing your mind, and teaches people
+    // not to start. The same rule collections run on: every step credits what
+    // came before, so the total is the price of the thing, once.
+    //
+    // Only against the upsell. The tier portion is content they could already
+    // reach, so nothing bought above their grade has any bearing on it.
+    let photosCredited = 0;
+    if (scope === 'upsell') {
+      const { rows: paidRows } = await client.query(
+        `SELECT coins_paid FROM item_purchases WHERE user_id = $1 AND set_id = $2`,
+        [req.user.userId, setId]
+      );
+      photosCredited = Number(paidRows[0]?.coins_paid) || 0;
+      if (photosCredited > 0) price = Math.max(0, price - photosCredited);
+    }
+
     // Opening a set at your own level is included, and every open is recorded.
     // Past the included allowance the price climbs in bands rather than jumping
     // to one flat figure — the 16th set and the 60th are not the same thing.
@@ -946,6 +984,155 @@ router.post('/unlock', authMid, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// POST /api/gallery/items/unlock
+// ─────────────────────────────────────────────
+//
+// One photograph, above your tier, bought on its own.
+//
+// Until now the only way past your grade was the whole upsell block: a member
+// who wanted one supreme photograph out of a set had to buy every above-tier
+// photograph in it. Most did not, and we sold nothing.
+//
+// The price is flat by grade and has nothing to do with the set's own price —
+// see lib/photoPrice for why. What stops this cannibalising the set is that
+// the last one is never for sale: a member can buy up to one fewer than the
+// set holds above their tier, and the rest only ever comes as the block.
+router.post('/items/unlock', authMid, async (req, res) => {
+  const { setId, itemId } = req.body;
+  if (!setId || !itemId) return res.status(400).json({ error: 'setId and itemId are required' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: userRows } = await client.query(
+      `SELECT tier, membership_expires_at, coin_balance FROM users WHERE id = $1 FOR UPDATE`,
+      [req.user.userId]
+    );
+    const user     = userRows[0];
+    const isActive = user?.membership_expires_at && new Date(user.membership_expires_at) > new Date();
+    if (!isActive) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({
+        error: 'MEMBERS_ONLY',
+        message: 'Buying a single photograph is part of a membership.',
+      });
+    }
+    const userTier = user.tier;
+
+    const { rows: setRows } = await client.query(
+      `SELECT id, title, price_coins FROM sets WHERE id = $1 AND visible = TRUE AND is_collection = FALSE`,
+      [setId]
+    );
+    if (!setRows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'That set is not available' }); }
+    const set = setRows[0];
+
+    const { rows: allItems } = await client.query(
+      `SELECT id, tier_category FROM set_items WHERE set_id = $1`, [setId]
+    );
+    const item = allItems.find((i) => i.id === itemId);
+    if (!item) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'That photograph is not in this set' }); }
+
+    // Only what sits above their grade is sold this way. Anything at or below
+    // it either comes with the membership or comes with opening the set.
+    const grade = item.tier_category;
+    if (!PRICED_GRADES.includes(grade) || meetsCategory(userTier, grade)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'NOT_FOR_SALE',
+        message: 'That photograph is not sold on its own.',
+      });
+    }
+
+    const { rows: grantRows } = await client.query(
+      `SELECT scope, grant_type FROM access_grants WHERE user_id = $1 AND set_id = $2`,
+      [req.user.userId, setId]
+    );
+    if (grantRows.some((g) => g.scope === 'upsell' && isEffectivelyUnlocked(g.grant_type, true))) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'ALREADY_UNLOCKED', message: 'You already have all of this set.' });
+    }
+
+    const { rows: boughtRows } = await client.query(
+      `SELECT item_ids, coins_paid FROM item_purchases
+        WHERE user_id = $1 AND set_id = $2 FOR UPDATE`,
+      [req.user.userId, setId]
+    );
+    const owned = boughtRows[0]?.item_ids || [];
+    if (owned.includes(itemId)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'ALREADY_OWNED', message: 'You already have that one.' });
+    }
+
+    // Never the last one. A set cannot be assembled a photograph at a time.
+    const aboveTier = allItems.filter(
+      (i) => PRICED_GRADES.includes(i.tier_category) && !meetsCategory(userTier, i.tier_category)
+    );
+    if (owned.length + 1 >= aboveTier.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'BUY_THE_SET',
+        message: `That would be the last one. Unlock the rest of the set instead.`,
+      });
+    }
+
+    const price = await priceForMember(grade, userTier);
+    if (!Number.isFinite(price) || price <= 0) {
+      await client.query('ROLLBACK');
+      return res.status(500).json({ error: 'NO_PRICE', message: 'That photograph has no price set.' });
+    }
+
+    let spend;
+    try {
+      // Gifted tokens do not buy content here, the same rule collections use.
+      spend = await spendTokens(client, {
+        userId:    req.user.userId,
+        amount:    price,
+        type:      'content_unlock',
+        label:     `${set.title}: one ${grade} photograph`,
+        relatedId: setId,
+        allowGifted: false,
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      if (err.code === 'INSUFFICIENT_TOKENS') return res.status(402).json(err.httpBody);
+      throw err;
+    }
+
+    const paidTotal = (Number(boughtRows[0]?.coins_paid) || 0) + price;
+    await client.query(
+      `INSERT INTO item_purchases (user_id, set_id, item_ids, coins_paid)
+       VALUES ($1, $2, ARRAY[$3::uuid], $4)
+       ON CONFLICT (user_id, set_id) DO UPDATE
+         SET item_ids   = item_purchases.item_ids || EXCLUDED.item_ids,
+             coins_paid = EXCLUDED.coins_paid,
+             updated_at = NOW()`,
+      [req.user.userId, setId, itemId, paidTotal]
+    );
+
+    await client.query('COMMIT');
+    res.json({
+      ok: true,
+      itemId,
+      grade,
+      coinsSpent: price,
+      newBalance: spend.newPurchased,
+      photosOwned: owned.length + 1,
+      photosPaid: paidTotal,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('gallery/items/unlock error:', err);
+    res.status(500).json({
+      error: 'UNLOCK_FAILED',
+      message: 'That did not go through and nothing has been charged. Please try again.',
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// ─────────────────────────────────────────────
 // GET /api/gallery/sets/:setId/items
 // ─────────────────────────────────────────────
 
@@ -981,13 +1168,41 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
       [setId]
     );
 
-    const visibleItems = items.filter((item) => {
+    // Which individual photographs this member has bought outright.
+    //
+    // Per-photograph purchases live in their own table rather than in
+    // access_grants, which records one row per member per set and has no room
+    // for "these four of the twenty".
+    const { rows: boughtRows } = await pool.query(
+      `SELECT item_ids, coins_paid FROM item_purchases WHERE user_id = $1 AND set_id = $2`,
+      [req.user.userId, setId]
+    );
+    const ownedItemIds = new Set(boughtRows[0]?.item_ids || []);
+
+    const canSee = (item) => {
       if (item.tier_category === 'free') return true;
+      if (ownedItemIds.has(item.id)) return true;
       if (item.tier_category === 'purchase_only') return upsellUnlocked;
       const isTierReachable = meetsCategory(userTier, item.tier_category);
       if (isTierReachable) return tierUnlocked;
       return upsellUnlocked;
-    });
+    };
+
+    // Everything in the set, or only what can be seen.
+    //
+    // The new set page shows the whole set graded, with what a member cannot
+    // reach blurred rather than absent, so they can see what is there and what
+    // reaching it would cost. What they may not have is the photograph itself,
+    // and that is enforced below where the URLs are attached: a locked row
+    // carries its blurred placeholder and nothing else. Being able to see that
+    // a photograph exists is not the same as being able to see it.
+    //
+    // Behind a flag because the page that knows how to draw a locked tile
+    // ships separately. Without it this would hand the current page rows with
+    // no image URL, and it would draw them as broken tiles. Default stays
+    // exactly as it has always been.
+    const includeLocked = req.query.includeLocked === '1';
+    const visibleItems = includeLocked ? items : items.filter(canSee);
 
     // Shuffled per viewing, within tier bands, cover first.
     //
@@ -1036,15 +1251,47 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
     // makes a failed derivation degrade to the old behaviour rather than to a
     // broken tile. Videos have no derivatives at all and fall through here for
     // the same reason.
-    const itemsWithUrls = ordered.map((item) => ({
-      ...item,
-      media_url: toUrl(item.r2_key),
-      thumb_url: toUrl(item.thumb_key) || toUrl(item.r2_key),
-      blur_url:  toUrl(item.blur_key),
-      likes: likeCounts.get(item.id) || 0,
-      views: viewCounts.get(item.id) || 0,
-      likedByMe: mine.has(item.id),
-    }));
+    // What a member may buy one at a time, and for how much.
+    const photoPrices = await pricesForMember(userTier, { isGuest: userTier === 'guest' });
+
+    // The whole set is returned, so this is the line that decides what a
+    // locked photograph actually hands over. It must stay a whitelist: build
+    // the safe shape first and add the real keys only once canSee has passed.
+    // Spreading the row and then deleting fields would mean one new column in
+    // the SELECT could quietly ship the original to somebody who has not paid.
+    const itemsWithUrls = ordered.map((item) => {
+      const unlocked = canSee(item);
+      const grade    = item.tier_category || 'unsorted';
+      const base = {
+        id: item.id,
+        media_type: item.media_type,
+        position: item.position,
+        tier_category: grade,
+        locked: !unlocked,
+        owned: ownedItemIds.has(item.id),
+        likes: likeCounts.get(item.id) || 0,
+        views: viewCounts.get(item.id) || 0,
+        likedByMe: mine.has(item.id),
+      };
+
+      if (unlocked) {
+        return {
+          ...base,
+          media_url: toUrl(item.r2_key),
+          thumb_url: toUrl(item.thumb_key) || toUrl(item.r2_key),
+        };
+      }
+
+      // Locked: the blurred placeholder, the grade, and what one costs. No
+      // key, no original, no thumbnail. A photograph with no blur yet — the
+      // backfill has not reached it, or it is a video — sends nothing at all
+      // and the page draws its own placeholder.
+      return {
+        ...base,
+        blur_url: toUrl(item.blur_key),
+        price: photoPrices[grade] ?? null,
+      };
+    });
 
     // The vote, if this set is one of the fit checks.
     let fitCheck = null;
@@ -1073,7 +1320,19 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
       };
     }
 
-    res.json({ items: itemsWithUrls, fitCheck, previewUrl: coverRows[0]?.cover_blur || null });
+    res.json({
+      items: itemsWithUrls,
+      fitCheck,
+      previewUrl: coverRows[0]?.cover_blur || null,
+      // What a single photograph costs at each grade, for this member, with
+      // their discount already applied. Sent once rather than on every tile.
+      photoPrices,
+      // What they have already spent on photographs from this set, which comes
+      // off the price of unlocking the rest.
+      photosOwned: ownedItemIds.size,
+      photosPaid:  Number(boughtRows[0]?.coins_paid) || 0,
+      userTier,
+    });
   } catch (err) {
     console.error('gallery/items error:', err);
     res.status(500).json({ error: 'Failed to load set items' });
