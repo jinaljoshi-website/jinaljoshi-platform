@@ -27,7 +27,34 @@
 // one — which matters, because choosing photographs from a grid of 24-pixel
 // smears would be shuffling with extra steps rather than choosing.
 
-const sharp = require('sharp');
+// sharp is loaded defensively, and the whole server depends on that.
+//
+// This module is required by routes/studio.js, which is required by server.js,
+// so a bare require('sharp') that fails takes the entire API down at boot —
+// every page, every payment, every call — because a thumbnail library is
+// missing. That is exactly what happened the first time this deployed.
+//
+// It is a native module, which makes it the most likely dependency in the
+// project to fail: a missing install, a platform mismatch between a Mac and a
+// Linux container, a binary that did not download. None of those are reasons
+// for the gallery to go dark.
+//
+// So: if sharp is not here, the module still loads, the server still boots,
+// and photographs are served at full size exactly as they were before any of
+// this existed. Thumbnails simply start appearing once it is installed.
+let sharp = null;
+let sharpUnavailable = null;
+try {
+  sharp = require('sharp');
+} catch (err) {
+  sharpUnavailable = err.message;
+  console.warn(
+    'imagederive: sharp is not available, so no thumbnails or blurs will be made. ' +
+    'Photographs will be served at full size, as before. Run `npm install sharp` in backend/ to enable them. ' +
+    `(${err.message})`
+  );
+}
+
 const { S3Client, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
 const pool = require('../db/pool');
 
@@ -94,6 +121,7 @@ async function put(key, body) {
 // sideways comes out of here rotated, because the resize throws the tag away
 // and the browser has nothing left to correct by.
 async function derivationsFrom(bytes) {
+  if (!sharp) throw new Error(`sharp is not installed (${sharpUnavailable})`);
   const base = sharp(bytes, { failOn: 'none' }).rotate();
 
   const [thumb, blur] = await Promise.all([
@@ -118,6 +146,10 @@ async function derivationsFrom(bytes) {
 // a library can treat "nothing to do" and "done" the same way.
 async function deriveItem(itemId, r2Key, mediaType) {
   if (mediaType === 'video') return null;
+  // Nothing to do rather than something to fail at. The caller — an upload, or
+  // the backfill — carries on, and the row keeps no thumbnail, which every
+  // reader already falls back from.
+  if (!sharp) return null;
 
   const key = keyOf(r2Key);
   if (!key) return null;
@@ -155,6 +187,7 @@ async function deriveItem(itemId, r2Key, mediaType) {
 // photograph was before this existed — so a failure here degrades to the old
 // behaviour rather than to a broken tile.
 function deriveInBackground(itemId, r2Key, mediaType) {
+  if (!sharp) return;
   setImmediate(() => {
     deriveItem(itemId, r2Key, mediaType).catch((err) => {
       console.error(`thumbnail derivation failed for ${itemId}:`, err.message);
