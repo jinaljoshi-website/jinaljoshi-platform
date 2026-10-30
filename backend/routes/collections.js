@@ -30,7 +30,7 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { hasCollectionsAccess } = require('../lib/collections');
 const { spendTokens } = require('../lib/tokens');
-const { dueFor, optionsFor } = require('../lib/collectionPreview');
+const { dueFor, optionsFor, maxPreviewPhotos } = require('../lib/collectionPreview');
 const { roundTokensUp } = require('../lib/pricing');
 const { shuffleWithinBands } = require('../lib/shuffle');
 
@@ -236,8 +236,19 @@ router.get('/sets/:id', async (req, res) => {
 // price of the set.
 router.post('/preview', async (req, res) => {
   const { setId, level } = req.body;
-  const want = Number(level) === 2 ? 2 : 1;
   if (!setId) return res.status(400).json({ error: 'Which set?' });
+
+  // How many photographs, as a number.
+  //
+  // This used to read `Number(level) === 2 ? 2 : 1`, which silently turned
+  // anything that was not a 2 into a 1 — including a 7, a 0 and a typo. Now
+  // that any quantity is allowed, silently coercing a bad one would hide the
+  // mistake and charge for something nobody asked for, so it is rejected
+  // outright. The upper bound is checked below, where the set's size is known.
+  const want = Number(level);
+  if (!Number.isInteger(want) || want < 1) {
+    return res.status(400).json({ error: 'How many photographs?' });
+  }
 
   const client = await pool.connect();
   try {
@@ -262,6 +273,17 @@ router.post('/preview', async (req, res) => {
       [setId]
     );
     if (items.length < 2) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'Too small to preview.' }); }
+
+    // Never the whole set. The last photograph only ever comes with it, so a
+    // collection cannot be assembled one preview at a time.
+    const maxPhotos = maxPreviewPhotos(items.length);
+    if (want > maxPhotos) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'TOO_MANY',
+        message: `You can preview up to ${maxPhotos} of these. For all ${items.length}, unlock the set.`,
+      });
+    }
 
     const { rows: existing } = await client.query(
       `SELECT * FROM collection_previews WHERE user_id = $1 AND set_id = $2 FOR UPDATE`,

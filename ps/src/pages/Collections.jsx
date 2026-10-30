@@ -101,6 +101,7 @@ export default function Collections() {
   const [topUp,   setTopUp]   = useState(null);
   const [pending, setPending] = useState(null);   // an unlock waiting on tokens
   const [confirming, setConfirming] = useState(false);
+  const [previewQty, setPreviewQty] = useState(null);  // how many photographs the dropdown is on
   const [lightbox, setLightbox] = useState(null);
   const [denied,  setDenied]  = useState(false);
   // One seed per opening, as in the gallery: the order is fresh each visit but
@@ -155,6 +156,27 @@ export default function Collections() {
   // then throws the moment somebody actually follows such a link.
   useEffect(() => { if (setId && data) openSet(setId); }, [setId, !!data]);
 
+  // The dropdown starts on the smallest quantity still available whenever a
+  // different set is opened, or when buying some changes what is left.
+  const previewChoices = (open?.previewOptions || []).filter((o) => o.kind === 'preview');
+  const fullOption     = (open?.previewOptions || []).find((o) => o.kind === 'full') || null;
+
+  useEffect(() => {
+    setPreviewQty(previewChoices.length ? previewChoices[0].level : null);
+  }, [open?.id, previewChoices.length]);
+
+  const chosenPreview = previewChoices.find((o) => o.level === previewQty) || previewChoices[0] || null;
+
+  // What opening the whole set actually costs right now.
+  //
+  // The page used to quote open.price here, which is the set's list price with
+  // nothing taken off. Somebody who had previewed was shown a number higher
+  // than they were about to be charged — directly beneath a line promising the
+  // preview came off the total. The credited figure was already in the payload
+  // and simply was not read.
+  const dueForFull = fullOption ? fullOption.due : (open ? open.price : 0);
+  const alreadyPaid = open && fullOption ? Math.max(0, open.price - fullOption.due) : 0;
+
   // Buying a look at one or two.
   //
   // The same shape as unlocking, because it is the same act at a smaller size:
@@ -176,6 +198,7 @@ export default function Collections() {
     } finally { setBusy(false); }
   };
 
+
   const unlock = async (id) => {
     setError('');
     setBusy(true);
@@ -186,18 +209,29 @@ export default function Collections() {
       setPending(null);
     } catch (err) {
       if (err.code === 'INSUFFICIENT_TOKENS') {
-        setPending(id);
+        setPending({ id });
         setTopUp(err.body?.shortBy ? err.body.required : null);
       } else setError(err.message);
     } finally { setBusy(false); }
   };
 
   // Carries on by itself once the tokens land, as everywhere else.
+  //
+  // What was interrupted decides what resumes. A preview stores the quantity
+  // it was reaching for and an unlock stores only the set, so the presence of
+  // a quantity is the difference between the two.
+  //
+  // This used to read `const id = pending` and call unlock with it. A preview
+  // stored an object there, so running short of tokens on a preview, topping
+  // up and coming back posted that object where a set id belonged — and if it
+  // had ever resolved, it would have charged for the entire set instead of the
+  // preview that was asked for.
   const afterTopUp = async () => {
-    const id = pending;
+    const p = pending;
     setTopUp(null);
     setPending(null);
-    if (id) await unlock(id);
+    if (p && p.level) await takePreview(p.id, p.level);
+    else if (p && p.id) await unlock(p.id);
     else await load();
   };
 
@@ -287,22 +321,53 @@ export default function Collections() {
                 <div style={{ marginTop: 18, display: 'grid', gap: 10, justifyItems: 'center' }}>
                   {open.previewLevel > 0 && (
                     <div style={{ fontFamily: T.body, fontSize: 12, color: V.quiet }}>
-                      You have seen {open.previewLevel === 1 ? 'one photograph' : 'two photographs'} of this set.
+                      You have seen {open.previewLevel} of {open.itemCount} photograph{open.itemCount === 1 ? '' : 's'} in this set.
                     </div>
                   )}
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
-                    {(open.previewOptions || []).filter((o) => o.kind === 'preview').map((o) => (
-                      <button key={o.level} onClick={() => takePreview(open.id, o.level)} disabled={busy}
-                              style={{ fontFamily: T.body, fontSize: 13, padding: '10px 18px', borderRadius: 999,
-                                       background: 'transparent', border: `1px solid ${V.edge}`,
-                                       color: V.ink, cursor: 'pointer' }}>
-                        {busy ? '…' : (
-                          <>See {o.photos === 1 ? 'one photograph' : 'two photographs'} for{' '}
-                            <WonderCoinAmount amount={o.due} size={12} fontSize={13} /></>
-                        )}
-                      </button>
-                    ))}
+
+                  {/* How many, then what it costs. A dropdown rather than a row
+                      of buttons because a large set offers dozens of
+                      quantities, and the price has to move as the number does
+                      or the choice is being made blind. */}
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' }}>
+                    <select
+                      value={previewQty ?? ''}
+                      onChange={(e) => setPreviewQty(Number(e.target.value))}
+                      disabled={busy}
+                      style={{ fontFamily: T.body, fontSize: 16, padding: '10px 14px', borderRadius: 10,
+                               background: 'transparent', border: `1px solid ${V.edge}`, color: V.ink,
+                               cursor: 'pointer', maxWidth: 260 }}
+                    >
+                      {previewChoices.map((o) => (
+                        <option key={o.level} value={o.level}>
+                          {o.photos} photograph{o.photos === 1 ? '' : 's'} — {o.due} token{o.due === 1 ? '' : 's'}
+                          {o.setIsBetter ? ' (the set costs the same)' : ''}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button onClick={() => chosenPreview && takePreview(open.id, chosenPreview.level)}
+                            disabled={busy || !chosenPreview}
+                            style={{ fontFamily: T.body, fontSize: 13, padding: '10px 18px', borderRadius: 999,
+                                     background: 'transparent', border: `1px solid ${V.edge}`,
+                                     color: V.ink, cursor: 'pointer' }}>
+                      {busy ? '…' : chosenPreview ? (
+                        <>See {chosenPreview.photos} for{' '}
+                          <WonderCoinAmount amount={chosenPreview.due} size={12} fontSize={13} /></>
+                      ) : 'See a few'}
+                    </button>
                   </div>
+
+                  {/* Past about five-sixths of a set the markup carries the
+                      price to the set's own, so the same money buys everything.
+                      Said here rather than left for somebody to work out. */}
+                  {chosenPreview?.setIsBetter && (
+                    <div style={{ fontFamily: T.body, fontSize: 12, color: V.gold, maxWidth: 380, textAlign: 'center', lineHeight: 1.6 }}>
+                      At that many, the whole set costs the same — {dueForFull} token{dueForFull === 1 ? '' : 's'} for
+                      all {open.itemCount} rather than {chosenPreview.due} for {chosenPreview.photos}.
+                    </div>
+                  )}
+
                   <div style={{ fontFamily: T.body, fontSize: 11, color: V.quiet, maxWidth: 380, textAlign: 'center', lineHeight: 1.6 }}>
                     Whatever you spend on a preview comes off the price of the set.
                     Opening it later costs only the difference.
@@ -313,13 +378,16 @@ export default function Collections() {
               {confirming ? (
                 <div style={{ marginTop: 18, display: 'grid', gap: 12, justifyItems: 'center' }}>
                   <div style={{ fontFamily: T.body, fontSize: 13, color: V.ink, lineHeight: 1.6, maxWidth: 360 }}>
-                    Spend <strong style={{ color: V.gold }}>{open.price} tokens</strong> to open this?
+                    Spend <strong style={{ color: V.gold }}>{dueForFull} tokens</strong> to open this?
                     Tokens are not refundable once spent.
+                    {alreadyPaid > 0 && (
+                      <> The {alreadyPaid} you have already spent on previews has come off.</>
+                    )}
                   </div>
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
                     <button onClick={() => { setConfirming(false); unlock(open.id); }} disabled={busy}
                             style={unlockBtn}>
-                      {busy ? 'Opening…' : <>Yes, spend <WonderCoinAmount amount={open.price} size={13} fontSize={13} textColor="#1A1410" /></>}
+                      {busy ? 'Opening…' : <>Yes, spend <WonderCoinAmount amount={dueForFull} size={13} fontSize={13} textColor="#1A1410" /></>}
                     </button>
                     <button onClick={() => setConfirming(false)} disabled={busy}
                             style={{ fontFamily: T.body, fontSize: 13, padding: '10px 20px', borderRadius: 999,
@@ -331,7 +399,7 @@ export default function Collections() {
                 </div>
               ) : (
                 <button onClick={() => setConfirming(true)} disabled={busy} style={{ ...unlockBtn, marginTop: 18 }}>
-                  {busy ? 'Opening…' : <>Open for <WonderCoinAmount amount={open.price} size={13} fontSize={13} textColor="#1A1410" /></>}
+                  {busy ? 'Opening…' : <>Open for <WonderCoinAmount amount={dueForFull} size={13} fontSize={13} textColor="#1A1410" /></>}
                 </button>
               )}
               {error && <div style={errBox}>{error}</div>}
