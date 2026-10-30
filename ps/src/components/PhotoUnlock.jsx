@@ -74,7 +74,7 @@ export default function PhotoUnlock({
         <button onClick={onClose} aria-label="Close" style={closeX}>×</button>
 
         <div style={eyebrow}>{gradeLabel} photograph</div>
-        <div style={heading}>{set?.title || 'This set'}</div>
+        <div style={heading}>This image is not in your membership category.</div>
 
         {/* A reminder of what they are looking at, as blurred here as it is
             on the grid. Without it the panel is three prices and no subject. */}
@@ -87,16 +87,15 @@ export default function PhotoUnlock({
           {canBuyOne ? (
             <button onClick={() => onBuyPhoto(item)} disabled={busy}
                     style={{ ...option, ...(setIsBetter ? {} : optionPrimary) }}>
-              <span style={optionName}>This photograph</span>
+              <span style={optionName}><span style={optionNum}>1</span>Unlock this photo</span>
               <span style={optionPrice}><WonderCoinAmount amount={photoPrice} size={14} fontSize={15} /></span>
             </button>
           ) : (
             <div style={{ ...option, ...optionDisabled }}>
               <span style={optionName}>
+                <span style={optionNum}>1</span>
                 {isLastOne ? 'This is the last one left' : 'Not sold on its own'}
-              </span>
-              <span style={optionNote}>
-                {isLastOne ? 'It comes with the rest of the set' : ''}
+                {isLastOne && <span style={optionSub}>It comes with the rest of the set</span>}
               </span>
             </div>
           )}
@@ -106,7 +105,8 @@ export default function PhotoUnlock({
             <button onClick={onBuySet} disabled={busy}
                     style={{ ...option, ...(setIsBetter ? optionPrimary : {}) }}>
               <span style={optionName}>
-                Everything still locked — {lockedCount} photograph{lockedCount === 1 ? '' : 's'}
+                <span style={optionNum}>2</span>Unlock complete set
+                <span style={optionSub}>{lockedCount} photograph{lockedCount === 1 ? '' : 's'} still locked</span>
               </span>
               <span style={optionPrice}><WonderCoinAmount amount={upsellPrice} size={14} fontSize={15} /></span>
             </button>
@@ -115,7 +115,10 @@ export default function PhotoUnlock({
           {/* 3 — the membership that covers the grade */}
           {monthlyCost && (
             <button onClick={onUpgrade} disabled={busy} style={{ ...option, ...optionQuiet }}>
-              <span style={optionName}>Reach all {gradeLabel} content</span>
+              <span style={optionName}>
+                <span style={optionNum}>3</span>Upgrade membership
+                <span style={optionSub}>Reaches all {gradeLabel} content</span>
+              </span>
               {/* Spelled out. Every other figure in this panel carries the coin
                   and its rupee value, and a bare number beside them reads as
                   the same unit at a glance when it is a monthly subscription. */}
@@ -183,7 +186,19 @@ const optionPrimary  = { border: `1px solid ${C.accent}`, background: 'rgba(193,
 const optionQuiet    = { borderStyle: 'dashed' };
 const optionDisabled = { cursor: 'default', opacity: 0.6, display: 'grid', gap: 2 };
 
-const optionName  = { fontFamily: F.sans, fontSize: 13, color: C.text };
+const optionName  = { fontFamily: F.sans, fontSize: 13, color: C.text,
+                      display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 9, alignItems: 'baseline' };
+
+// The options are numbered because they are a ranked list of three ways out
+// of the same situation, and a number is read before the words are.
+const optionNum = { fontFamily: F.mono, fontSize: 11, color: C.muted,
+                    gridRow: '1 / span 2', alignSelf: 'center' };
+
+// The second line of an option: what it covers, in the quieter voice, so the
+// name stays the thing that is scanned.
+const optionSub = { gridColumn: 2, fontFamily: F.sans, fontSize: 11,
+                    color: C.muted, marginTop: 2 };
+
 const optionPrice = { flexShrink: 0 };
 const optionNote  = { fontFamily: F.sans, fontSize: 12, color: C.muted, flexShrink: 0 };
 

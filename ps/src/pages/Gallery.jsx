@@ -652,6 +652,89 @@ export default function Gallery() {
           <div style={{ color: C.muted, fontFamily: F.sans, fontSize: 14 }}>No items in this set yet.</div>
         )}
 
+        {/* Opening the set, at the top where the decision is made.
+            //
+            // This used to sit below the photographs, which on a set of two
+            // hundred meant the one action somebody came to take was several
+            // screens down — under everything they could not yet see.
+            //
+            // It offers one thing: opening the set at your own level. What
+            // sits above your grade stays locked afterwards and is bought
+            // from the panel on the photograph itself, where the choice is
+            // between that picture, the rest, and upgrading. Putting "unlock
+            // everything" here too made the cheaper, included action compete
+            // with a paid one at the moment of arrival. */}
+        {showTierFrame && (() => {
+          const price    = openSet.tierPrice;
+          const onCredit = price === 0;
+          const offer    = openSet.membershipOffer;
+          const busy     = !!unlockingScope || joining;
+          const terms    = offer ? membershipTerms(openSet, data?.userTier) : null;
+
+          return (
+            <div style={unlockBar}>
+              {confirming === 'tier' ? (
+                <div style={{ display: 'grid', gap: 10, justifyItems: 'center' }}>
+                  <div style={{ fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6 }}>
+                    Spend <strong style={{ color: C.accent }}>{price} tokens</strong> to open this set?
+                    Tokens are not refundable once spent.
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+                    <button onClick={() => { setConfirming(null); handleViewerUnlock('tier'); }}
+                            disabled={busy} style={lockedPrimary}>
+                      {unlockingScope === 'tier' ? 'Unlocking…' : `Yes, spend ${price}`}
+                    </button>
+                    <button onClick={() => setConfirming(null)} disabled={busy} style={lockedSecondary}>
+                      Not now
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* No confirmation where nothing is spent. A set opening
+                      against the membership allowance costs no tokens and
+                      takes nothing away, so stopping to ask is ceremony. */}
+                  <button onClick={() => !busy && (onCredit ? handleViewerUnlock('tier') : setConfirming('tier'))}
+                          disabled={busy} style={lockedPrimary}>
+                    {unlockingScope === 'tier' ? 'Unlocking…'
+                      : onCredit ? 'Unlock set with your membership'
+                      : `Unlock this set for ${price} tokens`}
+                  </button>
+                  <div style={unlockBarNote}>
+                    {onCredit
+                      ? `Credits Balance - ${data?.opensRemaining ?? '—'}`
+                      : `Token balance - ${data?.coinBalance ?? 0}`}
+                  </div>
+                </>
+              )}
+
+              {viewerError && (
+                <div style={{ ...errorBox, margin: '12px auto 0', maxWidth: 460, textAlign: 'center' }}>
+                  {viewerError}
+                </div>
+              )}
+
+              {/* The way in for somebody with no membership at all. It opens
+                  the comparison rather than buying anything, because naming
+                  one tier here once meant quoting Supreme's price to a guest
+                  as though it were the price of joining. */}
+              {offer && (
+                <div style={{ marginTop: 12, display: 'grid', gap: 4, justifyItems: 'center' }}>
+                  <button onClick={() => !busy && setShowMemberships(true)} disabled={busy} style={lockedSecondary}>
+                    Get free access with membership* (See Details)
+                  </button>
+                  {terms && (
+                    <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted,
+                                  lineHeight: 1.6, maxWidth: 440, textAlign: 'center' }}>
+                      *{terms.note}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Grouped by grade, each under its own heading.
             //
             // The set used to render as one grid of whatever this member
@@ -762,130 +845,6 @@ export default function Gallery() {
 
             Two ways in, stated plainly and priced. Nothing explains the
             difference because the two lines already do. */}
-        {(showTierFrame || showUpsellFrame) && (() => {
-          const scope     = showTierFrame ? 'tier' : 'upsell';
-          const count     = showTierFrame ? openSet.tierPortionCount : openSet.upsellPortionCount;
-          const price     = showTierFrame ? openSet.tierPrice : openSet.upsellPrice;
-          // The blurred frame used to be picked here from one of two fields the
-          // server sent, both holding the same image. Both have gone; `preview`
-          // is state now, filled from the set's own response.
-          const onCredit  = showTierFrame && price === 0;
-          const offer     = openSet.membershipOffer;
-          const busy      = !!unlockingScope || joining;
-
-          return (
-            <div style={lockedPanel}>
-              {preview && (
-                <>
-                  <img src={preview} alt="" aria-hidden style={lockedBackdrop} />
-                  <div style={lockedScrim} />
-                </>
-              )}
-              <div style={{ position: 'relative' }}>
-                <div style={lockedHeading}>
-                  {openSet.tierLapsed ? 'This set is locked again' : 'This set is locked'}
-                </div>
-                <div style={lockedSub}>{count} {count === 1 ? 'photo' : 'photos'}</div>
-
-                {/* Shown here rather than at the top of the set. On a couple of
-                    hundred photos the locked panel is a long way down, so a
-                    failure reported up there appeared somewhere the person was
-                    not looking — and an unlock that silently did nothing is
-                    indistinguishable from a dead button. */}
-                {viewerError && (
-                  <div style={{ ...errorBox, margin: '14px auto 0', maxWidth: 460, textAlign: 'center' }}>
-                    {viewerError}
-                  </div>
-                )}
-
-                <div style={lockedActions}>
-                  {/* Asked before the tokens go.
-                      //
-                      // One tap used to spend them. On a phone, a set priced at
-                      // six hundred tokens is a stray thumb away from being
-                      // bought, and the policy that purchases are final is a
-                      // poor answer to somebody who never meant to make one.
-                      //
-                      // Only where tokens are actually spent. A set opening
-                      // against a membership allowance costs nothing and takes
-                      // nothing away, so stopping to ask would be ceremony. */}
-                  {confirming === scope ? (
-                    <div style={{ display: 'grid', gap: 10 }}>
-                      <div style={{ fontFamily: F.sans, fontSize: 14, color: C.text, lineHeight: 1.6 }}>
-                        Spend <strong style={{ color: C.accent }}>{price} tokens</strong> to open
-                        this set? Tokens are not refundable once spent.
-                      </div>
-                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                        <button onClick={() => { setConfirming(null); handleViewerUnlock(scope); }}
-                                disabled={busy} style={lockedPrimary}>
-                          {unlockingScope === scope ? 'Unlocking…' : `Yes, spend ${price}`}
-                        </button>
-                        <button onClick={() => setConfirming(null)} disabled={busy} style={lockedSecondary}>
-                          Not now
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button onClick={() => !busy && (onCredit ? handleViewerUnlock(scope) : setConfirming(scope))}
-                            disabled={busy} style={lockedPrimary}>
-                      {unlockingScope === scope ? 'Unlocking…'
-                        : onCredit ? 'Unlock this set with membership credit'
-                        : `Unlock this set for ${price} tokens`}
-                    </button>
-                  )}
-
-                  {/* The second way in.
-                      //
-                      // This used to name one tier and quote its price —
-                      // whichever tier the set's most exclusive photograph
-                      // happened to sit at. A single Supreme frame among forty
-                      // eight meant a guest was shown Supreme's price as
-                      // though it were the price of joining, and Community was
-                      // never mentioned on the screen at all.
-                      //
-                      // It now opens the comparison instead of buying
-                      // anything, and says what the cheapest membership would
-                      // actually open rather than promising "free", which is
-                      // only true until the monthly allowance runs out. */}
-                  {offer && (() => {
-                    const terms = membershipTerms(openSet, data?.userTier);
-                    return (
-                      <>
-                        <button onClick={() => !busy && setShowMemberships(true)} disabled={busy} style={lockedSecondary}>
-                          Get free access with membership* (See Details)
-                        </button>
-                        {/* The asterisk has to resolve to something, or it is
-                            decoration on a promise. This is the condition, in
-                            one line, before anybody spends anything. */}
-                        {terms && (
-                          <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted,
-                                        lineHeight: 1.6, marginTop: 2, maxWidth: 440,
-                                        marginLeft: 'auto', marginRight: 'auto' }}>
-                            *{terms.note}
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
-
-                  {/* Their tier already covers this set and the month's
-                      allowance is simply spent. No upgrade is worth suggesting
-                      against a one-token charge, so this says what happened
-                      instead of selling. */}
-                  {openSet.capExhausted && (
-                    <div style={{ fontFamily: F.sans, fontSize: 13, color: C.muted,
-                                  lineHeight: 1.7, marginTop: 4, maxWidth: 440,
-                                  marginLeft: 'auto', marginRight: 'auto' }}>
-                      This one is at your level — you have used the sets included with your
-                      membership this month, so it is {price} {price === 1 ? 'token' : 'tokens'} until
-                      your allowance resets.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })()}
 
         {/* One photograph, the rest of the set, or the membership — priced
             side by side at the moment somebody wants a particular picture. */}
@@ -1298,6 +1257,13 @@ const GRADE_LABEL = {
   collection:    'Private collection',
   unsorted:      'Not yet sorted',
 };
+
+// The one action at the top of an unopened set: a button, and underneath it
+// in a quieter voice what opening it will draw on.
+const unlockBar = { textAlign: 'center', padding: '16px 14px', marginBottom: 20,
+                    background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12 };
+const unlockBarNote = { fontFamily: F.mono, fontSize: 11, letterSpacing: '0.04em',
+                        color: C.muted, marginTop: 8 };
 
 const gradeHeadRow = { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
                        gap: 10, marginBottom: 8 };
