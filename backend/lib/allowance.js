@@ -140,6 +140,49 @@ function renewalSummary(user) {
   };
 }
 
+// What renewing before expiry is actually worth to this member, in words.
+//
+// One place, because the push notification and the email say the same thing
+// and a promise that differs between the two is worse than one that is only
+// in one of them. Both read from here.
+//
+// It has to be true of the person reading it. Somebody already at the ceiling
+// gains nothing further and is told what they would lose instead; a Supreme
+// member's set opens are already unlimited, so the rise applies to their
+// messages and the reward worth naming is the calls.
+function renewalBenefits(user) {
+  const { renewals, atCeiling, maxPct } = renewalSummary(user);
+  const nextPct   = Math.min(Math.round(BONUS_STEP * (renewals + 1) * 100), maxPct);
+  const isSupreme = user && user.tier === 'supreme';
+
+  const { RENEWAL_GIFT_CALLS, FREE_CALL_MINUTES } = require('./freecalls');
+
+  const lines = [];
+  if (atCeiling) {
+    lines.push(isSupreme
+      ? 'Your allowances stay where they are. Let it lapse and they go back to the standard amount.'
+      : 'Your raised set and message allowances stay as they are. Let it lapse and they reset.');
+  } else {
+    lines.push(isSupreme
+      ? `Your monthly message allowance goes up ${nextPct}%. Set opens are already unlimited at your level.`
+      : `Your monthly set opens and messages both go up ${nextPct}%, and again on the next renewal, up to ${maxPct}%.`);
+  }
+
+  if (isSupreme) {
+    lines.push(`Next month includes ${RENEWAL_GIFT_CALLS + 1} calls instead of one, ${FREE_CALL_MINUTES} minutes each.`);
+  }
+
+  return {
+    atCeiling,
+    nextPct,
+    isSupreme,
+    headline: atCeiling
+      ? 'Renew before it ends to keep what you have built up.'
+      : `Renew before it ends and your allowances go up ${nextPct}%.`,
+    lines,
+  };
+}
+
 module.exports = {
   BONUS_STEP,
   BONUS_MAX_STEPS,
@@ -150,4 +193,5 @@ module.exports = {
   effectiveDmFree,
   effectiveAllowances,
   renewalSummary,
+  renewalBenefits,
 };

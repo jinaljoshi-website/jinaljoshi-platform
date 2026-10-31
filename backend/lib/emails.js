@@ -209,10 +209,31 @@ async function sendWelcomeEmail(userId) {
 // paragraph would be in the way of the date. One day out is a goodbye, and it
 // should sound like one — because for most people it is one, and pretending
 // otherwise while asking for money reads as exactly that.
-async function sendRenewalReminderEmail(userId, { tier, expiresAt, daysLeft }) {
+async function sendRenewalReminderEmail(userId, { tier, expiresAt, daysLeft, user }) {
   const when = new Date(expiresAt).toLocaleDateString('en-IN', {
     day: 'numeric', month: 'long', year: 'numeric',
   });
+
+  // What renewing early is worth, in the same words the push notification
+  // uses — both read from lib/allowance so they cannot drift apart. Absent
+  // rather than guessed if the caller did not pass the member's record.
+  const { renewalBenefits } = require('./allowance');
+  const benefit = user ? renewalBenefits({ ...user, tier }) : null;
+
+  const benefitBlock = benefit ? `
+    <div style="margin: 0 0 24px; padding: 14px 16px; background: #F7F2EC;
+                border-left: 3px solid #C17D4A; border-radius: 4px;">
+      <p style="font-size: 15px; line-height: 1.7; margin: 0 0 8px; font-weight: 600;">
+        ${benefit.headline}
+      </p>
+      ${benefit.lines.map((l) => `
+        <p style="font-size: 14px; line-height: 1.7; margin: 0 0 6px; color: #5A5048;">${l}</p>
+      `).join('')}
+      <p style="font-size: 13px; line-height: 1.7; margin: 8px 0 0; color: #7A7068;">
+        This only applies while the membership is still running. Once it lapses it starts again from the beginning.
+      </p>
+    </div>
+  ` : '';
 
   // Three days: short, plain, and out of the way.
   if (daysLeft > 1) {
@@ -228,6 +249,7 @@ async function sendRenewalReminderEmail(userId, { tier, expiresAt, daysLeft }) {
           nothing needs doing — everything you have already unlocked stays yours, and
           your J Tokens are unaffected.
         </p>
+        ${benefitBlock}
         <p style="margin: 0;">
           <a href="${SITE}/platform/membership"
              style="display:inline-block; background:#C17D4A; color:#fff; padding:12px 24px;
@@ -249,6 +271,10 @@ async function sendRenewalReminderEmail(userId, { tier, expiresAt, daysLeft }) {
         can choose to renew, or change your tier, to carry on enjoying your membership
         benefits.
       </p>
+      ${benefit ? `
+      <p style="font-size: 15px; line-height: 1.75; margin: 0 0 16px; color: #5A5048;">
+        ${benefit.headline}
+      </p>` : ''}
       <p style="font-size: 15px; line-height: 1.75; margin: 0 0 16px;">
         Should you choose not to renew, your account still remains active and you can
         browse the platform as a guest. Anything you unlocked using membership credits

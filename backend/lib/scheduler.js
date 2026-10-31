@@ -53,7 +53,7 @@ const { notifyArtist, pushToUser } = require('./notify');
 const fx = require('./fx');
 const { refundByRelated } = require('./tokens');
 const { sendRenewalReminderEmail } = require('./emails');
-const { renewalSummary, BONUS_STEP } = require('./allowance');
+const { renewalBenefits } = require('./allowance');
 const { refundCall } = require('./freecalls');
 const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 
@@ -457,20 +457,6 @@ async function closeExpiredAccounts() {
   }
 }
 
-// What the reminder is allowed to promise.
-//
-// nextBonusPct is what they would have after renewing, not what they have now
-// — the reminder is asking them to renew, so the number it quotes has to be
-// the one they get for doing it.
-function atCeiling(u) {
-  return renewalSummary(u).atCeiling;
-}
-
-function nextBonusPct(u) {
-  const { renewals, maxPct } = renewalSummary(u);
-  return Math.min(Math.round(BONUS_STEP * (renewals + 1) * 100), maxPct);
-}
-
 async function checkMembershipExpiry() {
   const client = await pool.connect();
   try {
@@ -484,14 +470,13 @@ async function checkMembershipExpiry() {
       // so. Somebody already at the ceiling is told what they stand to lose
       // instead — promising a rise that cannot happen would be a lie they
       // would notice the moment they paid.
+      // The second sentence comes from lib/allowance, which is also what the
+      // email reads. A push and an email that promise different things about
+      // the same renewal is worse than only sending one of them.
       { key: '3day', days: 3, title: 'Your membership ends in 3 days',
-        body: (t, when, u) => atCeiling(u)
-          ? `Your ${t} membership ends on ${when}. Renew before it does to keep your raised allowances and everything you have unlocked.`
-          : `Your ${t} membership ends on ${when}. Renew before it does and your monthly allowances go up ${nextBonusPct(u)}%.` },
+        body: (t, when, u) => `Your ${t} membership ends on ${when}. ${renewalBenefits({ ...u, tier: t }).headline}` },
       { key: '1day', days: 1, title: 'Your membership ends tomorrow',
-        body: (t, when, u) => atCeiling(u)
-          ? `Your ${t} membership ends tomorrow, ${when}. Renew today to keep your raised allowances and the sets you unlocked.`
-          : `Your ${t} membership ends tomorrow, ${when}. Renew today and your monthly allowances go up ${nextBonusPct(u)}%.` },
+        body: (t, when, u) => `Your ${t} membership ends tomorrow, ${when}. ${renewalBenefits({ ...u, tier: t }).headline}` },
     ];
 
     for (const stage of stages) {
@@ -535,6 +520,11 @@ async function checkMembershipExpiry() {
             tier: u.tier,
             expiresAt: u.membership_expires_at,
             daysLeft: stage.days,
+            // The member's own record, so the email can say what renewing is
+            // worth to them rather than quoting the general case — somebody
+            // at the ceiling gains nothing further and should not be told
+            // their allowances will rise.
+            user: u,
           }).catch((e) => console.error('renewal email failed:', e.message));
           await client.query(
             `INSERT INTO membership_reminders (user_id, stage, expires_at) VALUES ($1, $2, $3)
