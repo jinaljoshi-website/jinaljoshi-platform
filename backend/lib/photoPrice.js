@@ -88,7 +88,58 @@ async function pricesForMember(userTier, { isGuest = false } = {}) {
   return out;
 }
 
+// ── Purchase-only, bought a few at a time ───────────────────────────
+//
+// Purchase-only content sits outside the tier ladder: no membership reaches
+// it at any level, which is why none of the flat grade prices above apply to
+// it. Until now the only way in was the whole set.
+//
+// So it gets what the private collection gets — a quantity, priced per
+// photograph with the same fifth on top for breaking the set open. The markup
+// does the same job here: every photograph bought singly comes to 120% of the
+// block, so taking the set whole is always the better deal and it cannot be
+// assembled out of previews.
+//
+// Priced against the purchase-only portion rather than the whole set, so a
+// set holding free photographs alongside them charges for what is actually
+// being sold.
+const { PREVIEW_MARKUP, maxPreviewPhotos, priceFor, dueFor } = require('./collectionPreview');
+
+// What the purchase-only part of a set is worth to this member, before any
+// preview markup: the set's own price, pro-rated by how much of it that part
+// is, then their discount or the guest surcharge.
+function purchaseOnlyBlockPrice({ setPriceCoins, totalItems, purchaseOnlyCount, discountPct = 0, guestMultiplier = 1, isGuest = false }) {
+  const base  = Number(setPriceCoins) || 0;
+  const total = Math.max(1, Number(totalItems) || 1);
+  const share = base * (Math.max(0, Number(purchaseOnlyCount) || 0) / total);
+  return isGuest ? share * guestMultiplier : share * (1 - (Number(discountPct) || 0) / 100);
+}
+
+// The quantities on offer and what each costs, in the shape the collections
+// dropdown already uses — so one component can render either.
+function purchaseOnlyOptions({ blockPrice, purchaseOnlyCount, alreadyPaid = 0 }) {
+  const max = maxPreviewPhotos(purchaseOnlyCount);
+  const out = [];
+  for (let n = 1; n <= max; n++) {
+    const price = priceFor(n, blockPrice, purchaseOnlyCount);
+    out.push({
+      kind: 'preview',
+      photos: n,
+      price,
+      due: Math.max(0, price - alreadyPaid),
+      setIsBetter: price >= Math.ceil(blockPrice),
+    });
+  }
+  return out;
+}
+
 module.exports = {
+  PREVIEW_MARKUP,
+  purchaseOnlyBlockPrice,
+  purchaseOnlyOptions,
+  purchaseOnlyPriceFor: priceFor,
+  purchaseOnlyDueFor: dueFor,
+  maxPurchaseOnlyPreview: maxPreviewPhotos,
   DEFAULTS,
   PRICED_GRADES,
   KEY,

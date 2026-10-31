@@ -299,6 +299,10 @@ export default function Gallery() {
   const [photosPaid,  setPhotosPaid]  = useState(0);
   const [unlockPhoto, setUnlockPhoto] = useState(null);   // the locked tile that was tapped
   const [buyingPhoto, setBuyingPhoto] = useState(false);
+  // Quantities on offer where a set's locked content is purchase-only, and
+  // which one the dropdown is on.
+  const [purchasePreview, setPurchasePreview] = useState(null);
+  const [previewQty, setPreviewQty] = useState(null);
 
   // The lightbox walks only what can actually be opened.
   //
@@ -356,6 +360,7 @@ export default function Gallery() {
       setFitCheck(itemsData.fitCheck || null);
       setPreview(itemsData.previewUrl || null);
       setPhotoPrices(itemsData.photoPrices || {});
+      setPurchasePreview(itemsData.purchasePreview || null);
       setPhotosPaid(itemsData.photosPaid || 0);
 
       // Recorded once the set is open and the photographs are on screen.
@@ -407,6 +412,7 @@ export default function Gallery() {
     const itemsData = await api.get(`/api/gallery/sets/${setId}/items?seed=${seedRef.current || ''}&includeLocked=1`);
     setSetItems(itemsData.items || []);
     setPhotoPrices(itemsData.photoPrices || {});
+      setPurchasePreview(itemsData.purchasePreview || null);
     setPhotosPaid(itemsData.photosPaid || 0);
   };
 
@@ -417,6 +423,30 @@ export default function Gallery() {
   // towards the rest. Reloads through refreshOpenSet with the same seed, so
   // what was already on screen stays where it was and the photograph just
   // bought appears in place rather than the grid reshuffling under them.
+  // Taking a number of purchase-only photographs, the way the private
+  // collection sells them. Cumulative on the server: asking for five when you
+  // already have two charges the difference.
+  const buyPhotos = async (count) => {
+    if (!openSet || !count) return;
+    setViewerError('');
+    setBuyingPhoto(true);
+    try {
+      await api.post('/api/gallery/items/preview', { setId: openSet.id, photos: count });
+      setUnlockPhoto(null);
+      setPreviewQty(null);
+      await refreshOpenSet(openSet.id);
+    } catch (err) {
+      if (err.code === 'INSUFFICIENT_TOKENS') {
+        setUnlockPhoto(null);
+        setTopUp(err.body?.required || null);
+      } else {
+        setViewerError(err.message || 'That did not go through.');
+      }
+    } finally {
+      setBuyingPhoto(false);
+    }
+  };
+
   const buyPhoto = async (item) => {
     if (!openSet || !item) return;
     setViewerError('');
@@ -872,6 +902,10 @@ export default function Gallery() {
             busy={buyingPhoto || !!unlockingScope}
             tierPrice={openSet?.tierPrice}
             tierOnCredit={openSet?.tierPrice === 0}
+            purchasePreview={purchasePreview}
+            previewQty={previewQty}
+            onPreviewQty={setPreviewQty}
+            onBuyPhotos={buyPhotos}
             onBuyPhoto={buyPhoto}
             onBuySet={() => { setUnlockPhoto(null); handleViewerUnlock('upsell'); }}
             // Opening the set at their own level. Where it costs tokens this

@@ -42,6 +42,10 @@ export default function PhotoUnlock({
   busy,
   tierPrice,          // what opening the set costs, 0 where the membership covers it
   tierOnCredit,       // true when opening it spends an allowance rather than tokens
+  purchasePreview,    // quantities on offer where the set is purchase-only
+  previewQty,
+  onPreviewQty,
+  onBuyPhotos,        // take this many purchase-only photographs
   onBuyPhoto,
   onBuySet,
   onOpenSet,          // open the set at this member's own level
@@ -62,6 +66,12 @@ export default function PhotoUnlock({
   // would be charging for what they already pay for. One action, and it is
   // the same one at the top of the page.
   const withinTier = !!item.withinTier;
+
+  // Purchase-only is sold by the handful rather than one at a time, because
+  // no membership reaches it at any level and there is no grade price to
+  // quote. Only offered where the server sent quantities for this set.
+  const purchaseChoices = (!withinTier && grade === 'purchase_only' && purchasePreview?.options) || [];
+  const chosenQty = purchaseChoices.find((o) => o.photos === previewQty) || purchaseChoices[0] || null;
 
   // The membership that would reach this grade, priced from the same config
   // the membership page reads. Absent rather than guessed if it is unknown.
@@ -115,7 +125,57 @@ export default function PhotoUnlock({
                 <span style={optionPrice}><WonderCoinAmount amount={tierPrice} size={14} fontSize={15} /></span>
               )}
             </button>
-          ) : (<>
+          ) : purchaseChoices.length ? (<>
+            {/* Purchase-only: a quantity, the way the private collection
+                sells one. No membership reaches this content at any level, so
+                there is no grade price to quote and no upgrade to offer —
+                just how many, and the whole set beside it. */}
+            <div style={{ ...option, display: 'grid', gap: 10, cursor: 'default' }}>
+              <span style={optionName}>
+                <span style={optionNum}>1</span>Unlock a few photographs
+                <span style={optionSub}>
+                  {purchasePreview.owned > 0
+                    ? `You have ${purchasePreview.owned} of ${purchasePreview.total}`
+                    : `${purchasePreview.total} in this set`}
+                </span>
+              </span>
+              <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap' }}>
+                <select value={chosenQty?.photos ?? ''}
+                        onChange={(e) => onPreviewQty(Number(e.target.value))}
+                        disabled={busy}
+                        style={{ fontFamily: F.sans, fontSize: 16, padding: '9px 12px', borderRadius: 9,
+                                 background: 'transparent', border: `1px solid ${C.border}`,
+                                 color: C.text, cursor: 'pointer', flex: '1 1 150px' }}>
+                  {purchaseChoices.map((o) => (
+                    <option key={o.photos} value={o.photos}>
+                      {o.photos} photograph{o.photos === 1 ? '' : 's'} — {o.due} token{o.due === 1 ? '' : 's'}
+                      {o.setIsBetter ? ' (the set costs the same)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <button onClick={() => chosenQty && onBuyPhotos(chosenQty.photos)}
+                        disabled={busy || !chosenQty}
+                        style={{ fontFamily: F.sans, fontSize: 13, padding: '10px 16px', borderRadius: 999,
+                                 background: 'transparent', border: `1px solid ${C.accent}`,
+                                 color: C.accent, cursor: 'pointer' }}>
+                  {busy ? '…' : 'Take these'}
+                </button>
+              </div>
+            </div>
+
+            {/* The whole thing, beside the handful, so the comparison is on
+                the screen rather than in the reader's head. */}
+            {Number.isFinite(upsellPrice) && upsellPrice > 0 && (
+              <button onClick={onBuySet} disabled={busy}
+                      style={{ ...option, ...(chosenQty?.setIsBetter ? optionPrimary : {}) }}>
+                <span style={optionName}>
+                  <span style={optionNum}>2</span>Unlock complete set
+                  <span style={optionSub}>all {purchasePreview.total} photographs</span>
+                </span>
+                <span style={optionPrice}><WonderCoinAmount amount={upsellPrice} size={14} fontSize={15} /></span>
+              </button>
+            )}
+          </>) : (<>
           {/* 1 — this one photograph */}
           {canBuyOne ? (
             <button onClick={() => onBuyPhoto(item)} disabled={busy}

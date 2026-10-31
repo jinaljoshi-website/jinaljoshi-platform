@@ -14,7 +14,9 @@ const { roundTokensUp } = require('../lib/pricing');
 const { getAllotmentPeriodKey } = require('../lib/time');
 const { spendTokens } = require('../lib/tokens');
 const { applyRenewalBonus, renewalSummary } = require('../lib/allowance');
-const { pricesForMember, priceForMember, PRICED_GRADES } = require('../lib/photoPrice');
+const { pricesForMember, priceForMember, PRICED_GRADES,
+        purchaseOnlyBlockPrice, purchaseOnlyOptions, purchaseOnlyDueFor,
+        maxPurchaseOnlyPreview } = require('../lib/photoPrice');
 
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL || '';
 const TIER_ORDER = ['guest', 'community', 'insider', 'premium', 'supreme'];
@@ -984,6 +986,162 @@ router.post('/unlock', authMid, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// POST /api/gallery/items/preview
+// ─────────────────────────────────────────────
+//
+// A few photographs from a purchase-only set, rather than all of it.
+//
+// Purchase-only content sits outside the tier ladder — no membership reaches
+// it at any level — so none of the flat grade prices apply and the only way
+// in has been the whole set. This gives it what the private collection has:
+// pick a number, see the price, pay the difference.
+//
+// Cumulative, like the collection previews. Asking for five when you already
+// have two charges the difference between two and five, never five again.
+router.post('/items/preview', authMid, async (req, res) => {
+  const { setId, photos } = req.body;
+  if (!setId) return res.status(400).json({ error: 'setId is required' });
+
+  const want = Number(photos);
+  if (!Number.isInteger(want) || want < 1) {
+    return res.status(400).json({ error: 'How many photographs?' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: userRows } = await client.query(
+      `SELECT tier, membership_expires_at, coin_balance FROM users WHERE id = $1 FOR UPDATE`,
+      [req.user.userId]
+    );
+    const user     = userRows[0];
+    const isActive = user?.membership_expires_at && new Date(user.membership_expires_at) > new Date();
+    const isGuest  = !isActive;
+    const userTier = isActive ? user.tier : 'guest';
+
+    const { rows: setRows } = await client.query(
+      `SELECT id, title, price_coins FROM sets
+        WHERE id = $1 AND visible = TRUE AND is_collection = FALSE`,
+      [setId]
+    );
+    if (!setRows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'That set is not available' }); }
+    const set = setRows[0];
+
+    const { rows: allItems } = await client.query(
+      `SELECT id, tier_category FROM set_items
+        WHERE set_id = $1 AND review_flag IS DISTINCT FROM 'remove'
+        ORDER BY position ASC, created_at ASC`,
+      [setId]
+    );
+    const poItems = allItems.filter((i) => i.tier_category === 'purchase_only');
+    if (poItems.length < 2) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'TOO_SMALL', message: 'There is nothing to preview in this set.' });
+    }
+
+    // Nothing to sell piecemeal to somebody who already has the lot.
+    const { rows: grantRows } = await client.query(
+      `SELECT scope, grant_type FROM access_grants WHERE user_id = $1 AND set_id = $2`,
+      [req.user.userId, setId]
+    );
+    if (grantRows.some((g) => g.scope === 'upsell' && isEffectivelyUnlocked(g.grant_type, true))) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'ALREADY_UNLOCKED', message: 'You already have all of this set.' });
+    }
+
+    const { rows: boughtRows } = await client.query(
+      `SELECT item_ids, coins_paid FROM item_purchases
+        WHERE user_id = $1 AND set_id = $2 FOR UPDATE`,
+      [req.user.userId, setId]
+    );
+    const owned     = boughtRows[0]?.item_ids || [];
+    const paidSoFar = Number(boughtRows[0]?.coins_paid) || 0;
+
+    // Never the last one — a set cannot be assembled a photograph at a time.
+    const maxPhotos = maxPurchaseOnlyPreview(poItems.length);
+    const target    = owned.length + want;
+    if (target > maxPhotos) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'BUY_THE_SET',
+        message: `You can take up to ${maxPhotos} of these. For all ${poItems.length}, unlock the set.`,
+      });
+    }
+
+    const [discountPct, guestMultiplier] = await Promise.all([
+      isGuest ? 0 : getDiscountForTier(userTier),
+      isGuest ? getGuestMultiplier() : 1,
+    ]);
+    const blockPrice = purchaseOnlyBlockPrice({
+      setPriceCoins: set.price_coins, totalItems: allItems.length,
+      purchaseOnlyCount: poItems.length, discountPct, guestMultiplier, isGuest,
+    });
+
+    const due = purchaseOnlyDueFor(target, blockPrice, poItems.length, paidSoFar);
+    if (due <= 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'NOTHING_DUE', message: 'You already have that many.' });
+    }
+
+    let spend;
+    try {
+      spend = await spendTokens(client, {
+        userId:    req.user.userId,
+        amount:    due,
+        type:      'content_unlock',
+        label:     `${set.title}: ${want} photograph${want === 1 ? '' : 's'}`,
+        relatedId: setId,
+        allowGifted: false,
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      if (err.code === 'INSUFFICIENT_TOKENS') return res.status(402).json(err.httpBody);
+      throw err;
+    }
+
+    // The next ones in her order, added to what they have.
+    //
+    // Deterministic and never reshuffled: somebody who paid to see a
+    // particular photograph should find it there tomorrow, and the order of
+    // the set is hers to decide.
+    const taken = poItems
+      .map((i) => i.id)
+      .filter((id) => !owned.includes(id))
+      .slice(0, want);
+
+    await client.query(
+      `INSERT INTO item_purchases (user_id, set_id, item_ids, coins_paid)
+       VALUES ($1, $2, $3::uuid[], $4)
+       ON CONFLICT (user_id, set_id) DO UPDATE
+         SET item_ids   = item_purchases.item_ids || EXCLUDED.item_ids,
+             coins_paid = EXCLUDED.coins_paid,
+             updated_at = NOW()`,
+      [req.user.userId, setId, taken, paidSoFar + due]
+    );
+
+    await client.query('COMMIT');
+    res.json({
+      ok: true,
+      photos: want,
+      photosOwned: owned.length + taken.length,
+      coinsSpent: due,
+      photosPaid: paidSoFar + due,
+      newBalance: spend.newPurchased,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('gallery/items/preview error:', err);
+    res.status(500).json({
+      error: 'UNLOCK_FAILED',
+      message: 'That did not go through and nothing has been charged. Please try again.',
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// ─────────────────────────────────────────────
 // POST /api/gallery/items/unlock
 // ─────────────────────────────────────────────
 //
@@ -1254,6 +1412,40 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
     // What a member may buy one at a time, and for how much.
     const photoPrices = await pricesForMember(userTier, { isGuest: userTier === 'guest' });
 
+    // Purchase-only content is sold by the handful instead.
+    //
+    // It sits outside the tier ladder, so none of the grade prices reach it
+    // and the only way in used to be the whole set. These are the quantities
+    // on offer and what each costs, priced against the purchase-only portion
+    // rather than the whole set so a set holding free photographs alongside
+    // them charges for what is actually being sold.
+    const poItems = items.filter((i) => i.tier_category === 'purchase_only');
+    let purchasePreview = null;
+    if (poItems.length >= 2 && !upsellUnlocked) {
+      const guest = userTier === 'guest';
+      const [discountPct, guestMultiplier] = await Promise.all([
+        guest ? 0 : getDiscountForTier(userTier).catch(() => 0),
+        guest ? getGuestMultiplier().catch(() => 1) : 1,
+      ]);
+      const { rows: setPriceRows } = await pool.query(
+        `SELECT price_coins FROM sets WHERE id = $1`, [setId]);
+      const blockPrice = purchaseOnlyBlockPrice({
+        setPriceCoins: setPriceRows[0]?.price_coins, totalItems: items.length,
+        purchaseOnlyCount: poItems.length, discountPct, guestMultiplier, isGuest: guest,
+      });
+      purchasePreview = {
+        total:     poItems.length,
+        owned:     poItems.filter((i) => ownedItemIds.has(i.id)).length,
+        max:       maxPurchaseOnlyPreview(poItems.length),
+        blockPrice: Math.ceil(blockPrice),
+        options:   purchaseOnlyOptions({
+          blockPrice,
+          purchaseOnlyCount: poItems.length,
+          alreadyPaid: Number(boughtRows[0]?.coins_paid) || 0,
+        }).filter((o) => o.photos > (poItems.filter((i) => ownedItemIds.has(i.id)).length)),
+      };
+    }
+
     // The whole set is returned, so this is the line that decides what a
     // locked photograph actually hands over. It must stay a whitelist: build
     // the safe shape first and add the real keys only once canSee has passed.
@@ -1341,6 +1533,7 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
       // What a single photograph costs at each grade, for this member, with
       // their discount already applied. Sent once rather than on every tile.
       photoPrices,
+      purchasePreview,
       // What they have already spent on photographs from this set, which comes
       // off the price of unlocking the rest.
       photosOwned: ownedItemIds.size,
