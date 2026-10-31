@@ -274,6 +274,10 @@ export function Members() {
   // out from the ledger rather than guessing from the tier.
   const trialFans  = fans.filter((f) => f.has_paid_membership);
   const inNow      = (f) => f.collections_until && new Date(f.collections_until) > new Date();
+  // Supreme reaches the private collection through the tier itself, so held
+  // time is beside the point for them and revoking it changes nothing.
+  const bySupreme  = (f) => f.tier === 'supreme'
+                         && f.membership_expires_at && new Date(f.membership_expires_at) > new Date();
   const trialInNow = trialFans.filter(inNow).length;
 
   const SORTS = {
@@ -435,6 +439,28 @@ export function Members() {
       setSuccess(d.extended
         ? `${who} already had access — added ${d.days} days${until ? `, now until ${until}` : ''}.`
         : `${who} has the private collection for ${d.days} days${until ? `, until ${until}` : ''}.`);
+      loadFans();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTrialBusy(null);
+    }
+  };
+
+  // Taking it back. Asked for twice, because it is the only button on this
+  // tab that removes something somebody already has.
+  const [revokeFor, setRevokeFor] = useState(null);
+
+  const revokeCollection = async (fan) => {
+    setError(''); setSuccess('');
+    setTrialBusy(fan.id);
+    try {
+      const d = await api.post(`/api/studio/collections/${fan.id}/revoke`, {});
+      const who = fan.display_name || fan.email;
+      setSuccess(d.stillInByTier
+        ? `${who} no longer holds any granted time, but Supreme reaches the collection on its own — that ends when the membership does.`
+        : `${who} no longer has the private collection.`);
+      setRevokeFor(null);
       loadFans();
     } catch (err) {
       setError(err.message);
@@ -845,12 +871,20 @@ export function Members() {
                   line of noise on every row. */}
               {tab === 'trial' && (
                 <div style={{ fontFamily: mono, fontSize: 11,
-                              color: inNow(fan) ? '#C9A227' : colors.muted }}>
+                              color: inNow(fan) || bySupreme(fan) ? '#C9A227' : colors.muted }}>
                   {inNow(fan)
                     ? `In the private collection until ${new Date(fan.collections_until).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
                     : fan.collections_until
                       ? `Had access until ${new Date(fan.collections_until).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
                       : 'Has never had the private collection'}
+                  {/* Supreme reaches the collection through the tier, not
+                      through held time. Worth saying on the row, or revoking
+                      looks like it did nothing. */}
+                  {bySupreme(fan) && (
+                    <div style={{ color: colors.muted, marginTop: 2 }}>
+                      Supreme reaches it anyway, until the membership ends
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -884,6 +918,29 @@ export function Members() {
                       : inNow(fan) ? 'Add 15 more days'
                       : 'Give 15-day collection trial'}
                   </button>
+                )}
+
+                {/* Only where there is something to take back, and only after
+                    being asked twice. */}
+                {tab === 'trial' && inNow(fan) && (
+                  revokeFor === fan.id ? (
+                    <>
+                      <button onClick={() => revokeCollection(fan)} disabled={trialBusy === fan.id}
+                              style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px',
+                                       color: '#D98A8A', borderColor: '#D98A8A' }}>
+                        {trialBusy === fan.id ? 'Removing…' : 'Yes, remove access'}
+                      </button>
+                      <button onClick={() => setRevokeFor(null)} disabled={trialBusy === fan.id}
+                              style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
+                        Keep it
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={() => setRevokeFor(fan.id)}
+                            style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', color: colors.muted }}>
+                      Revoke access
+                    </button>
+                  )
                 )}
 
                 <button

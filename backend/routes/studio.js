@@ -948,6 +948,53 @@ router.post('/collections/:userId/trial', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────
+// POST /api/studio/collections/:userId/revoke
+// ─────────────────────────────────────────────
+//
+// Taking the private collection back.
+//
+// Clears the held time, which is what a trial, a gift and earned access all
+// write to. It does not touch a Supreme membership: that reaches the
+// collection through the tier itself, and the only way to end it is for the
+// membership to end. The response says which of the two happened so Studio
+// can tell her rather than leaving her to wonder why nothing changed.
+//
+// Quietly, with no notification. Somebody who is told their access has been
+// withdrawn has been handed a slight; somebody who simply finds it over at
+// the end has been handed a trial that finished, which is what it was.
+router.post('/collections/:userId/revoke', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, display_name, tier, membership_expires_at, collections_until
+         FROM users WHERE id = $1`,
+      [req.params.userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'No such member' });
+    const fan = rows[0];
+
+    const hadHeldTime = fan.collections_until && new Date(fan.collections_until) > new Date();
+    const stillInByTier = fan.tier === 'supreme'
+      && fan.membership_expires_at && new Date(fan.membership_expires_at) > new Date();
+
+    await pool.query(
+      `UPDATE users SET collections_until = NULL, collections_days_owed = 0 WHERE id = $1`,
+      [req.params.userId]
+    );
+
+    res.json({
+      ok: true,
+      hadHeldTime: !!hadHeldTime,
+      // True where they keep the collection regardless, because Supreme
+      // reaches it through the membership rather than through held time.
+      stillInByTier: !!stillInByTier,
+    });
+  } catch (err) {
+    console.error('studio/collections/revoke error:', err);
+    res.status(500).json({ error: 'Could not take it back' });
+  }
+});
+
 // Declining clears what is owed without granting anything, and without telling
 // them. Somebody who was never told they had qualified has nothing to be
 // refused, and saying so now would only invent a disappointment.
