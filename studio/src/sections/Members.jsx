@@ -268,6 +268,14 @@ export function Members() {
   const memberFans = fans.filter(everMember);
   const liveCount  = memberFans.filter(liveMember).length;
 
+  // Who the collection trial can be offered to: anybody who has paid for a
+  // membership, now or at any point. A gifted membership does not count —
+  // nobody's money moved — which is why this reads a flag the server works
+  // out from the ledger rather than guessing from the tier.
+  const trialFans  = fans.filter((f) => f.has_paid_membership);
+  const inNow      = (f) => f.collections_until && new Date(f.collections_until) > new Date();
+  const trialInNow = trialFans.filter(inNow).length;
+
   const SORTS = {
     joined:  { label: 'Newest',        fn: (a, b) => new Date(b.created_at) - new Date(a.created_at) },
     spend:   { label: 'Spent most',    fn: (a, b) => (b.paid_inr || 0) - (a.paid_inr || 0) },
@@ -292,6 +300,7 @@ export function Members() {
   }, [tab]);
 
   const forTab = tab === 'spent'   ? spentFans
+               : tab === 'trial'   ? trialFans
                : tab === 'members' ? memberFans
                :                     fans;
   const visibleFans = [...forTab].sort(SORTS[sortBy].fn);
@@ -409,6 +418,31 @@ export function Members() {
     }
   };
 
+  // A fortnight in the private collection, given rather than earned.
+  //
+  // The server checks the paying condition again — this button being on the
+  // row is a convenience, not the rule. Extending somebody who is already in
+  // adds to their time rather than restarting it, and says so.
+  const [trialBusy, setTrialBusy] = useState(null);
+
+  const giveCollectionTrial = async (fan) => {
+    setError(''); setSuccess('');
+    setTrialBusy(fan.id);
+    try {
+      const d = await api.post(`/api/studio/collections/${fan.id}/trial`, {});
+      const who = fan.display_name || fan.email;
+      const until = d.until ? new Date(d.until).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : null;
+      setSuccess(d.extended
+        ? `${who} already had access — added ${d.days} days${until ? `, now until ${until}` : ''}.`
+        : `${who} has the private collection for ${d.days} days${until ? `, until ${until}` : ''}.`);
+      loadFans();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTrialBusy(null);
+    }
+  };
+
   const startBlock = (fanId) => { setBlockingId(fanId); setBlockReason(''); };
   const cancelBlock = () => { setBlockingId(null); setBlockReason(''); };
 
@@ -469,6 +503,9 @@ export function Members() {
           // Live out of total, because a membership list where a third have
           // lapsed is a different thing from one where none have.
           { key: 'members', label: `Memberships (${liveCount}/${memberFans.length})` },
+          // In the collection out of eligible, because the useful question is
+          // how many of the people who could be shown it already have it.
+          { key: 'trial',   label: `Collection trial (${trialInNow}/${trialFans.length})` },
         ]}
         active={tab} onChange={setTab}
       />
@@ -803,6 +840,20 @@ export function Members() {
                 </div>
               )}
 
+              {/* Where this person stands with the collection, shown only on
+                  the tab that is about it — everywhere else it would be a
+                  line of noise on every row. */}
+              {tab === 'trial' && (
+                <div style={{ fontFamily: mono, fontSize: 11,
+                              color: inNow(fan) ? '#C9A227' : colors.muted }}>
+                  {inNow(fan)
+                    ? `In the private collection until ${new Date(fan.collections_until).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                    : fan.collections_until
+                      ? `Had access until ${new Date(fan.collections_until).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                      : 'Has never had the private collection'}
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderTop: `1px solid ${colors.border}`, paddingTop: 10 }}>
                 <button onClick={() => openHistory(fan)}
                         style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
@@ -819,6 +870,21 @@ export function Members() {
                                  ...(giftFor === fan.id && giftKind === 'membership' ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
                   Gift membership
                 </button>
+
+                {/* Only on its own tab, and only for somebody who has paid.
+                    The server checks the same thing — this just keeps the
+                    button off rows where pressing it would be refused. */}
+                {tab === 'trial' && fan.has_paid_membership && (
+                  <button onClick={() => giveCollectionTrial(fan)}
+                          disabled={trialBusy === fan.id}
+                          style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px',
+                                   color: inNow(fan) ? colors.muted : '#C9A227',
+                                   borderColor: inNow(fan) ? colors.border : '#C9A227' }}>
+                    {trialBusy === fan.id ? 'Opening…'
+                      : inNow(fan) ? 'Add 15 more days'
+                      : 'Give 15-day collection trial'}
+                  </button>
+                )}
 
                 <button
                   onClick={() => toggleMute(fan.id, fan.is_muted)}

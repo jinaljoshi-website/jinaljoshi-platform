@@ -9,7 +9,7 @@ const { postSystemMessage } = require('./community');
 const { pushToUser } = require('./push');
 const { applyBlock, liftBlock, setMuted, logModerationAction } = require('../lib/moderation');
 const { notifyArtist } = require('../lib/notify');
-const { approveCollectionsAccess } = require('../lib/collections');
+const { approveCollectionsAccess, grantCollectionsAccess } = require('../lib/collections');
 const { scanInBackground } = require('../lib/moderation-scan');
 const { deriveInBackground } = require('../lib/imagederive');
 const { issueInvoiceForPurchase } = require('../lib/invoice');
@@ -496,6 +496,20 @@ router.get('/fans', async (req, res) => {
                 WHERE cl.user_id = u.id AND cl.type = 'recharge' AND cl.direction = 'credit'
               ), 0)::float8 AS paid_inr,
 
+              -- Has this person ever bought a membership, rather than been
+              -- given one? A gifted membership spends nobody's money, so it
+              -- does not make somebody a paying member — and the collection
+              -- trial is offered on the strength of having paid, whether or
+              -- not the membership is still running.
+              EXISTS (
+                SELECT 1 FROM coin_ledger cl
+                WHERE cl.user_id = u.id AND cl.type = 'membership_purchase'
+              ) AS has_paid_membership,
+
+              -- Where they stand with the private collection right now, so
+              -- the trial is not offered to somebody who already has it.
+              u.collections_until,
+
               -- Last seen. active_sessions.last_seen_at is already written on
               -- every authenticated request, so this needed no new column and
               -- no new write — it was simply never read.
@@ -854,6 +868,81 @@ router.post('/collections/:userId/approve', async (req, res) => {
     await client.query('ROLLBACK').catch(() => {});
     console.error('studio/collections/approve error:', err);
     res.status(500).json({ error: 'Could not give access' });
+  } finally {
+    client.release();
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/studio/collections/:userId/trial
+// ─────────────────────────────────────────────
+//
+// A fortnight in the private collection, given rather than earned.
+//
+// The accrual route above is the one that runs itself: spend enough and days
+// are owed, which Jinal then approves. This is the other direction — offering
+// it to somebody who has not got there, to show them what it is.
+//
+// Only to a member who has paid, now or at some point. Not because of what it
+// costs us, but because of who it is for: it is a thank-you and a nudge to
+// somebody with a history here, and handing it to an account that has never
+// paid for anything makes it a giveaway instead. A gifted membership does not
+// count — nobody's money moved.
+const COLLECTION_TRIAL_DAYS = 15;
+
+router.post('/collections/:userId/trial', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
+      `SELECT u.id, u.display_name, u.collections_until,
+              EXISTS (
+                SELECT 1 FROM coin_ledger cl
+                WHERE cl.user_id = u.id AND cl.type = 'membership_purchase'
+              ) AS has_paid_membership
+         FROM users u WHERE u.id = $1 FOR UPDATE`,
+      [req.params.userId]
+    );
+    if (!rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No such member' });
+    }
+    const fan = rows[0];
+
+    if (!fan.has_paid_membership) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'NOT_A_PAYING_MEMBER',
+        message: 'The trial is for members who have paid for a membership at some point. This account never has.',
+      });
+    }
+
+    // Extends rather than replaces, which is what grantCollectionsAccess does
+    // everywhere — so giving a trial to somebody who already has access adds
+    // to it instead of cutting it short.
+    const alreadyIn = fan.collections_until && new Date(fan.collections_until) > new Date();
+    const days = Number(req.body?.days) > 0 ? Math.floor(Number(req.body.days)) : COLLECTION_TRIAL_DAYS;
+    const out  = await grantCollectionsAccess(client, req.params.userId, days);
+
+    await client.query('COMMIT');
+
+    // Told only when it is new to them. Somebody whose access was extended
+    // never saw it end, and announcing it would be announcing nothing.
+    if (!alreadyIn) {
+      pushToUser(req.params.userId, {
+        title: 'The Private Collection is open to you',
+        body:  `Jinal has opened it for the next ${days} days. Have a look whenever you like.`,
+        url:   '/platform/collections',
+        tag:   'collections',
+      }).catch(() => {});
+    }
+
+    res.json({ ok: true, days, until: out?.until || null, extended: !!alreadyIn });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('studio/collections/trial error:', err);
+    res.status(500).json({ error: 'Could not start the trial' });
   } finally {
     client.release();
   }
