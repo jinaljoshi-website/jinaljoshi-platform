@@ -869,9 +869,19 @@ export default function Gallery() {
             upsellPrice={openSet?.upsellPrice}
             photosPaid={photosPaid}
             balance={data?.coinBalance}
-            busy={buyingPhoto || unlockingScope === 'upsell'}
+            busy={buyingPhoto || !!unlockingScope}
+            tierPrice={openSet?.tierPrice}
+            tierOnCredit={openSet?.tierPrice === 0}
             onBuyPhoto={buyPhoto}
             onBuySet={() => { setUnlockPhoto(null); handleViewerUnlock('upsell'); }}
+            // Opening the set at their own level. Where it costs tokens this
+            // routes through the same confirmation the top of the page uses,
+            // rather than spending them straight from a panel.
+            onOpenSet={() => {
+              setUnlockPhoto(null);
+              if (openSet?.tierPrice === 0) handleViewerUnlock('tier');
+              else setConfirming('tier');
+            }}
             onUpgrade={() => { setUnlockPhoto(null); navigate('/platform/membership'); }}
             onClose={() => setUnlockPhoto(null)}
           />

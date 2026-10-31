@@ -40,8 +40,11 @@ export default function PhotoUnlock({
   photosPaid,         // what has been spent on single photographs here so far
   balance,
   busy,
+  tierPrice,          // what opening the set costs, 0 where the membership covers it
+  tierOnCredit,       // true when opening it spends an allowance rather than tokens
   onBuyPhoto,
   onBuySet,
+  onOpenSet,          // open the set at this member's own level
   onUpgrade,
   onClose,
 }) {
@@ -50,6 +53,15 @@ export default function PhotoUnlock({
   const grade      = item.tier_category;
   const gradeLabel = GRADE_LABEL[grade] || grade;
   const photoPrice = item.price;
+
+  // Locked, but not because of the grade.
+  //
+  // Everything at or below a member's own level is locked until the set is
+  // opened and included the moment it is. Telling them it is "not in your
+  // membership category" would be untrue, and offering to sell it to them
+  // would be charging for what they already pay for. One action, and it is
+  // the same one at the top of the page.
+  const withinTier = !!item.withinTier;
 
   // The membership that would reach this grade, priced from the same config
   // the membership page reads. Absent rather than guessed if it is unknown.
@@ -74,7 +86,11 @@ export default function PhotoUnlock({
         <button onClick={onClose} aria-label="Close" style={closeX}>×</button>
 
         <div style={eyebrow}>{gradeLabel} photograph</div>
-        <div style={heading}>This image is not in your membership category.</div>
+        <div style={heading}>
+          {withinTier
+            ? 'This set is not open yet.'
+            : 'This image is not in your membership category.'}
+        </div>
 
         {/* A reminder of what they are looking at, as blurred here as it is
             on the grid. Without it the panel is three prices and no subject. */}
@@ -83,6 +99,23 @@ export default function PhotoUnlock({
         )}
 
         <div style={optionList}>
+          {/* Within their own grade: one action, the same one at the top of
+              the page, and no prices at all. */}
+          {withinTier ? (
+            <button onClick={onOpenSet} disabled={busy} style={{ ...option, ...optionPrimary }}>
+              <span style={optionName}>
+                {tierOnCredit ? 'Unlock set with your membership' : 'Unlock this set'}
+                <span style={optionSub}>
+                  {tierOnCredit
+                    ? 'This photograph is included at your level'
+                    : 'This photograph is included once the set is open'}
+                </span>
+              </span>
+              {!tierOnCredit && Number.isFinite(tierPrice) && tierPrice > 0 && (
+                <span style={optionPrice}><WonderCoinAmount amount={tierPrice} size={14} fontSize={15} /></span>
+              )}
+            </button>
+          ) : (<>
           {/* 1 — this one photograph */}
           {canBuyOne ? (
             <button onClick={() => onBuyPhoto(item)} disabled={busy}
@@ -125,9 +158,10 @@ export default function PhotoUnlock({
               <span style={optionNote}>{monthlyCost} tokens a month</span>
             </button>
           )}
+          </>)}
         </div>
 
-        {setIsBetter && (
+        {setIsBetter && !withinTier && (
           <div style={betterNote}>
             The rest of the set costs the same or less than this one photograph — and you get
             {' '}{lockedCount} instead of 1.

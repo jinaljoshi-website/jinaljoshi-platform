@@ -1286,10 +1286,24 @@ router.get('/sets/:setId/items', authMid, async (req, res) => {
       // key, no original, no thumbnail. A photograph with no blur yet — the
       // backfill has not reached it, or it is a video — sends nothing at all
       // and the page draws its own placeholder.
+      //
+      // A price only where there is something to sell.
+      //
+      // Everything at or below a member's own grade is locked before the set
+      // is opened and included the moment it is, so quoting a price for it
+      // would be charging for what the membership already covers. An Insider
+      // looking at an unopened set should see a bare lock on the community
+      // and insider photographs and a price only on premium and supreme. A
+      // Supreme member should see no price anywhere.
+      //
+      // withinTier travels with the row so the panel can say which of the two
+      // it is: "open the set" or "this is above your grade".
+      const withinTier = meetsCategory(userTier, grade);
       return {
         ...base,
         blur_url: toUrl(item.blur_key),
-        price: photoPrices[grade] ?? null,
+        withinTier,
+        price: withinTier ? null : (photoPrices[grade] ?? null),
       };
     });
 
