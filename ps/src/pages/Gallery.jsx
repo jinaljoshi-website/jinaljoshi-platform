@@ -700,10 +700,22 @@ export default function Gallery() {
                       : onCredit ? 'Unlock set with your membership'
                       : `Unlock this set for ${price} tokens`}
                   </button>
+                  {/* What opening this set draws on.
+                      //
+                      // An uncapped tier has no number to show: Supreme's cap
+                      // is a literal zero meaning no limit, and opensRemaining
+                      // comes back null. Printing that as a dash told a member
+                      // paying the most that their balance was unknown, which
+                      // read as something being broken rather than as the
+                      // thing they are paying for. */}
                   <div style={unlockBarNote}>
-                    {onCredit
-                      ? `Credits Balance - ${data?.opensRemaining ?? '—'}`
-                      : `Token balance - ${data?.coinBalance ?? 0}`}
+                    {!onCredit
+                      ? `Token balance - ${data?.coinBalance ?? 0}`
+                      : data?.openCap === 0
+                        ? 'Credits Balance - Unlimited'
+                        : Number.isFinite(data?.opensRemaining)
+                          ? `Credits Balance - ${data.opensRemaining}`
+                          : 'Included with your membership'}
                   </div>
                 </>
               )}
@@ -765,7 +777,8 @@ export default function Gallery() {
                rather than the lightbox. There is no photograph here to open —
                the server sent no key for it. */
             <div key={item.id} onClick={() => setUnlockPhoto(item)} style={thumbWrap}
-                 role="button" aria-label={`Unlock this ${item.tier_category} photograph`}>
+                 role="button"
+                 aria-label={`Unlock this ${(GRADE_LABEL[item.tier_category] || item.tier_category || '').toLowerCase()} photograph`}>
               {item.blur_url
                 ? <img src={item.blur_url} alt="" aria-hidden style={thumb} loading="lazy" decoding="async" />
                 : <div style={{ ...thumb, background: 'rgba(255,255,255,0.04)' }} />}
