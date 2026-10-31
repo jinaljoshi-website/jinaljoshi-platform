@@ -58,9 +58,18 @@ router.get('/posts', authMid, async (req, res) => {
       // People only. Announcements about unlocks and purchases were mixed in
       // with the conversation, which meant a room that is meant to feel like
       // people talking read like a feed of transactions instead.
+      // The name to show is worked out here, not sent raw.
+      //
+      // This used to select u.email and let the page fall back to the part
+      // before the @ when somebody had set no display name. That shipped every
+      // poster's real address to every reader — anybody who could sign up for
+      // a free account could load this endpoint and harvest the lot. The
+      // fallback is the same; it just happens where the address cannot leave.
       `SELECT cp.id, cp.content, cp.pinned, cp.is_system, cp.created_at,
               cp.parent_id, cp.post_kind,
-              u.id AS user_id, u.display_name, u.email, u.is_artist, u.tier
+              u.id AS user_id, u.is_artist, u.tier,
+              COALESCE(NULLIF(TRIM(u.display_name), ''), split_part(u.email, '@', 1), 'Member')
+                AS display_name
        FROM community_posts cp
        JOIN users u ON u.id = cp.user_id
        WHERE cp.removed = FALSE AND cp.is_system = FALSE

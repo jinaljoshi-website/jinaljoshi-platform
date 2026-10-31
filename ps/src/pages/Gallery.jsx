@@ -701,6 +701,18 @@ export default function Gallery() {
           const busy     = !!unlockingScope || joining;
           const terms    = offer ? membershipTerms(openSet, data?.userTier) : null;
 
+          // Offered only to somebody with no live membership.
+          //
+          // A member who is shown "free access with membership" is being sold
+          // the thing they already pay for. What would actually help them is an
+          // upgrade, and that is already on every locked photograph below, next
+          // to its price — so this panel says nothing rather than saying it
+          // twice and getting it wrong once.
+          //
+          // userTier reads 'guest' for a membership that has lapsed, so
+          // somebody coming back still gets the invitation.
+          const offerable = !!offer && !PAID_TIERS.includes(data?.userTier);
+
           return (
             <div style={unlockBar}>
               {confirming === 'tier' ? (
@@ -760,7 +772,7 @@ export default function Gallery() {
                   the comparison rather than buying anything, because naming
                   one tier here once meant quoting Supreme's price to a guest
                   as though it were the price of joining. */}
-              {offer && (
+              {offerable && (
                 <div style={{ marginTop: 12, display: 'grid', gap: 4, justifyItems: 'center' }}>
                   <button onClick={() => !busy && setShowMemberships(true)} disabled={busy} style={lockedSecondary}>
                     Get free access with membership* (See Details)

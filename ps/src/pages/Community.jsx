@@ -539,7 +539,9 @@ function PostBubble({ post, parent, artistId, isOwn, onReply, isReporting, repor
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
       <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 3 }}>
-        {post.display_name || post.email?.split('@')[0] || 'Member'}
+        {/* The server works the name out now, address and all, so there is
+            nothing to fall back to here and no email to fall back on. */}
+        {post.display_name || 'Member'}
         {post.tier && post.tier !== 'guest' && (
           <span style={{ marginLeft: 6, color: C.accent, fontSize: 10 }}>· {post.tier}</span>
         )}
