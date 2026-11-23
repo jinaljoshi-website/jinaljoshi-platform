@@ -221,7 +221,7 @@ export function Content({ openWith, collection = false, upload = false }) {
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
 
-  const [form, setForm] = useState({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key, photographerNames: [] });
+  const [form, setForm] = useState({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key, photographerNames: [], shoot_month: '' });
 
   // Names already used, so the same person is picked rather than retyped —
   // a second spelling would become a second photographer with separate earnings.
@@ -983,6 +983,7 @@ export function Content({ openWith, collection = false, upload = false }) {
         visible:     form.visible,
         category:    form.category,
         photographerNames: form.photographerNames,
+        shoot_month: form.shoot_month || null,
         // Which library it belongs to, decided by the mode on the upload tab
         // and by the page everywhere else. A collection set is a collection set
         // from the moment it exists — there is no control to change it later
@@ -1017,7 +1018,7 @@ export function Content({ openWith, collection = false, upload = false }) {
       setUploadProgress('');
       setSuccess(`"${form.title}" created with ${position} item${position !== 1 ? 's' : ''}.`);
       setSets((prev) => [{ ...setData.set, cover_url: coverUrl }, ...prev]);
-      setForm({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key, photographerNames: [] });
+      setForm({ title: '', description: '', price_coins: '0', visible: false, category: CONTENT_CATEGORIES[0].key, photographerNames: [], shoot_month: '' });
       loadPhotographers();
       releasePreviews(filesByCategory); setFilesByCategory(emptyCategoryFiles());
       setCoverFile(null);
@@ -1032,7 +1033,11 @@ export function Content({ openWith, collection = false, upload = false }) {
 
   const startEdit = (set) => {
     setEditing(set.id);
-    setEditForm({ title: set.title, description: set.description || '', price_coins: set.price_coins, visible: set.visible, category: set.category || CONTENT_CATEGORIES[0].key, photographerNames: set.photographer ? set.photographer.split(',').map((n) => n.trim()) : [] });
+    setEditForm({ title: set.title, description: set.description || '', price_coins: set.price_coins, visible: set.visible, category: set.category || CONTENT_CATEGORIES[0].key, photographerNames: set.photographer ? set.photographer.split(',').map((n) => n.trim()) : [],
+      // Comes back from Postgres as a full date; only the month and year are
+      // meant. Sliced from the string rather than put through a Date, which
+      // would shift the month backwards for anybody west of UTC.
+      shoot_month: set.shoot_month ? String(set.shoot_month).slice(0, 7) : '' });
   };
 
   const handleUpdate = async (id) => {
@@ -1246,6 +1251,11 @@ export function Content({ openWith, collection = false, upload = false }) {
             </Field>
           </div>
         )}
+
+        <div style={{ marginTop: 16 }}>
+          <ShootMonthField value={form.shoot_month || ''}
+                           onChange={(v) => setForm({ ...form, shoot_month: v })} />
+        </div>
 
         <div style={{ marginTop: 16, marginBottom: 20 }}>
           <div style={fieldLabel}>Description (shown to fans in gallery)</div>
@@ -1804,6 +1814,10 @@ export function Content({ openWith, collection = false, upload = false }) {
                         ))}
                       </select>
                     </Field>
+                  </div>
+                  <div style={{ margin: '12px 0' }}>
+                    <ShootMonthField value={editForm.shoot_month || ''}
+                                     onChange={(v) => setEditForm({ ...editForm, shoot_month: v })} />
                   </div>
                   <div style={{ margin: '12px 0' }}>
                     <div style={fieldLabel}>Description</div>
@@ -2436,6 +2450,56 @@ function SequenceView({ items, mediaUrl, busy, onSave, groupOf = {} }) {
     </div>
   );
 }
+
+// When the shoot happened: a month and a year, or nothing at all.
+//
+// Two selects rather than <input type="month">, which Safari on the desktop
+// still renders as a plain text box — leaving you to type "2026-03" and guess
+// the format. Selects also make the precision honest: there is no day to pick,
+// because a day is not stored.
+//
+// The value in and out is "YYYY-MM", or "" for none. Half an answer counts as
+// none, so choosing a month and leaving the year blank saves nothing rather
+// than inventing a year.
+function ShootMonthField({ value, onChange }) {
+  const [y, m] = String(value || '').split('-');
+
+  // Back to 2010 covers the archive; one year ahead allows a shoot booked for
+  // January to be dated in December.
+  const thisYear = new Date().getFullYear();
+  const years = [];
+  for (let yr = thisYear + 1; yr >= 2010; yr--) years.push(yr);
+
+  const set = (nextY, nextM) => onChange(nextY && nextM ? `${nextY}-${nextM}` : '');
+
+  return (
+    <Field label="When was this shot? — optional, month and year">
+      <div style={{ display: 'flex', gap: 8 }}>
+        <select style={{ ...S.input, flex: 1 }} value={m || ''}
+                onChange={(e) => set(y || '', e.target.value)}>
+          <option value="">Month</option>
+          {MONTH_NAMES.map((name, i) => (
+            <option key={name} value={String(i + 1).padStart(2, '0')}>{name}</option>
+          ))}
+        </select>
+        <select style={{ ...S.input, flex: 1 }} value={y || ''}
+                onChange={(e) => set(e.target.value, m || '')}>
+          <option value="">Year</option>
+          {years.map((yr) => <option key={yr} value={String(yr)}>{yr}</option>)}
+        </select>
+        {value && (
+          <button type="button" onClick={() => onChange('')}
+                  style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 10px', whiteSpace: 'nowrap' }}>
+            Clear
+          </button>
+        )}
+      </div>
+    </Field>
+  );
+}
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+                     'July', 'August', 'September', 'October', 'November', 'December'];
 
 function PhotographerPicker({ names, onChange, options }) {
   const [draft, setDraft] = useState('');

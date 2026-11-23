@@ -317,8 +317,26 @@ export default function Gallery() {
   // for all" silently discarded "newest first" — a fan could have an order or a
   // filter but never both. `sort` orders what is shown; `show` decides what that
   // is.
-  const [sort, setSort] = useState('newest');
+  // A sort the fan chose themselves outlives the visit, on this device only.
+  //
+  // Null until they touch the control, which is the distinction that matters:
+  // null means "no opinion", so Jinal's default from Studio applies and will
+  // keep applying if she changes it. Once they have chosen, their choice wins
+  // and her default becomes information rather than instruction.
+  //
+  // Wrapped because localStorage throws in a private window and comes back
+  // empty after cleared site data, and a remembered dropdown is not worth a
+  // blank gallery.
+  const [sort, setSort] = useState(() => {
+    try { return localStorage.getItem('gallerySort') || null; } catch { return null; }
+  });
   const [show, setShow] = useState('all');
+
+  const chooseSort = (next) => {
+    setSort(next);
+    try { localStorage.setItem('gallerySort', next); } catch { /* nothing to do */ }
+    load(next, show);
+  };
 
   const [mediaFilter, setMediaFilter] = useState('all');
   const [activeTab, setActiveTab] = useState(() => {
@@ -326,7 +344,12 @@ export default function Gallery() {
     return TABS.some((x) => x.key === t) ? t : 'all';
   }); // 'all' | 'selfies' | 'unlocked' | a content-category key
 
-  const load = (s = sort, w = show) => api.get(`/api/gallery/sets?sort=${s}&show=${w}`)
+  // No sort in the query string when the fan has not chosen one, so the server
+  // answers with Jinal's default rather than us guessing at it here and getting
+  // a different answer from the one she set.
+  const load = (s = sort, w = show) => api.get(
+    `/api/gallery/sets?show=${w}` + (s ? `&sort=${s}` : '')
+  )
     .then(setData)
     .catch((err) => setError(err.message))
     .finally(() => setLoading(false));
@@ -400,7 +423,9 @@ export default function Gallery() {
   };
 
   const refreshOpenSet = async (setId) => {
-    const freshData = await api.get(`/api/gallery/sets?sort=${sort}&show=${show}`);
+    const freshData = await api.get(
+      `/api/gallery/sets?show=${show}` + (sort ? `&sort=${sort}` : '')
+    );
     setData(freshData);
     const updated = (freshData.sets
       || []).find((s) => s.id === setId);
@@ -1142,11 +1167,16 @@ export default function Gallery() {
                         flex: '1 1 260px', minWidth: 0, paddingRight: 56 }}>
             <label style={controlWrap}>
               <span style={controlLabel}>Sort</span>
-              <select value={sort}
-                      onChange={(e) => { setSort(e.target.value); load(e.target.value, show); }}
+              {/* Falls back to what the server actually ordered by, so before
+                  the fan has chosen anything the dropdown shows Jinal's
+                  default rather than claiming "Newest first" regardless. */}
+              <select value={sort || data?.sort || 'newest'}
+                      onChange={(e) => chooseSort(e.target.value)}
                       style={sortSelect}>
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
+                <option value="newest">Shared: newest first</option>
+                <option value="oldest">Shared: oldest first</option>
+                <option value="shoot_newest">Shot: newest first</option>
+                <option value="shoot_oldest">Shot: oldest first</option>
                 <option value="price_high">Price: high to low</option>
                 <option value="price_low">Price: low to high</option>
               </select>
@@ -1245,11 +1275,15 @@ export default function Gallery() {
 
                 <div style={{ fontFamily: F.display, fontSize: 20, color: C.text, marginBottom: 4 }}>{item.title}</div>
 
-                {(item.photoCount > 0 || item.videoCount > 0) && (
+                {(item.photoCount > 0 || item.videoCount > 0 || item.shootMonth) && (
                   <div style={{ fontFamily: F.sans, fontSize: 11, color: C.muted, marginBottom: 6 }}>
                     {[
                       item.photoCount > 0 ? `${item.photoCount} photo${item.photoCount === 1 ? '' : 's'}` : null,
                       item.videoCount > 0 ? `${item.videoCount} video${item.videoCount === 1 ? '' : 's'}` : null,
+                      // Only where it is known. A set with no shoot date says
+                      // nothing rather than "Shot —", and most of the library
+                      // has no date yet.
+                      shootLabel(item.shootMonth),
                     ].filter(Boolean).join(' · ')}
                   </div>
                 )}
@@ -1314,6 +1348,22 @@ const tabCount = { fontFamily: F.mono, fontSize: 11, color: C.accent, background
 // anything outside it at the end. 'collection' never appears in the gallery —
 // those photographs are moved into their own set — but it is listed so a
 // stray one lands somewhere named rather than vanishing.
+// "Shot March 2018", or nothing at all.
+//
+// Read off the string rather than through a Date. The server sends a plain
+// date, and new Date('2018-03-01') is parsed as midnight UTC — which in any
+// timezone west of London is still February when you ask it for the month, so
+// a March shoot would be labelled February for a fan in New York.
+const SHOOT_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December'];
+function shootLabel(value) {
+  if (!value) return null;
+  const m = String(value).match(/^(\d{4})-(\d{2})/);
+  if (!m) return null;
+  const name = SHOOT_MONTHS[Number(m[2]) - 1];
+  return name ? `Shot ${name} ${m[1]}` : null;
+}
+
 const GRADE_ORDER = ['free', 'community', 'insider', 'premium', 'supreme', 'purchase_only', 'collection', 'unsorted'];
 
 const GRADE_LABEL = {

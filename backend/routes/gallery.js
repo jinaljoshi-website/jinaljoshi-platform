@@ -8,7 +8,7 @@ const authMid = require('../middleware/auth');
 const artistOnly = require('../middleware/artistOnly');
 const { postSystemMessage } = require('./community');
 const { notifyArtist } = require('../lib/notify');
-const { getGuestMultiplier, getDiscountForTier, getConfigNumber } = require('../lib/config');
+const { getGuestMultiplier, getDiscountForTier, getConfigNumber, getConfigValue } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
 const { roundTokensUp } = require('../lib/pricing');
 const { getAllotmentPeriodKey } = require('../lib/time');
@@ -465,20 +465,30 @@ router.get('/sets', authMid, async (req, res) => {
     // member pays nothing for their own level, so ordering by their price would
     // collapse most of the library to one value and come out looking like date
     // order — which is why an earlier attempt at a price sort was dropped.
-    const SORTS = ['newest', 'oldest', 'price_high', 'price_low'];
+    // 'newest' and 'oldest' are about when a set was shared. The shoot_* pair is
+    // about when it was photographed, which for an archive going back years is a
+    // different order entirely — and often the one somebody actually wants.
+    const SORTS = ['newest', 'oldest', 'shoot_newest', 'shoot_oldest', 'price_high', 'price_low'];
     const SHOWS = ['all', 'free_for_all', 'free_for_me', 'locked', 'purchase_only'];
 
     const rawSort = String(req.query.sort || '');
     const rawShow = String(req.query.show || '');
 
-    const sortBy = SORTS.includes(rawSort) ? rawSort : 'newest';
+    // Her default decides what the app opens on, so it has to be a sort that
+    // exists — a typo in config must not leave the gallery in no order at all.
+    const configured  = await getConfigValue('gallery_default_sort').catch(() => null);
+    const defaultSort = SORTS.includes(String(configured)) ? String(configured) : 'newest';
+
+    // An explicit ?sort= always wins. The default only fills in for a request
+    // that did not name one.
+    const sortBy = SORTS.includes(rawSort) ? rawSort : defaultSort;
     const showBy = SHOWS.includes(rawShow)                        ? rawShow
                  : SHOWS.includes(rawSort) && rawSort !== 'all'   ? rawSort
                  : 'all';
 
     const { rows: sets } = await pool.query(
       `SELECT s.id, s.title, s.description, s.type, s.category, s.price_coins,
-              s.created_at, s.published_at,
+              s.created_at, s.published_at, s.shoot_month,
               (SELECT string_agg(p.name, ', ' ORDER BY p.name)
                 FROM set_photographers spx JOIN photographers p ON p.id = spx.photographer_id
                 WHERE spx.set_id = s.id) AS photographer,
@@ -596,6 +606,9 @@ router.get('/sets', authMid, async (req, res) => {
         photographer: s.photographer,
         // Carried through so the price sort can fall back to date on a tie.
         publishedAt: s.published_at || s.created_at,
+        // When it was photographed, if that is known. Always the first of a
+        // month — the day is meaningless and the app shows "March 2026".
+        shootMonth: s.shoot_month || null,
         // The set's own price, before anything about this fan is applied. What
         // the price sort orders by, and the only price that is the same for
         // everybody looking at the library.
@@ -679,12 +692,27 @@ router.get('/sets', authMid, async (req, res) => {
     // 'newest' is the order the query already returned — pinned first, then the
     // arranged sequence — so it is left alone.
     //
-    // The other three re-sort the whole list, which costs a pinned set its
+    // The others re-sort the whole list, which costs a pinned set its
     // place. That is deliberate: pinning says "look at this first", and somebody
     // who has just asked for the cheapest set has said something more specific.
     const at = (s) => new Date(s.publishedAt || 0).getTime();
+
+    // When sorting by shoot date, a set with no shoot date yet falls back to
+    // when it was shared rather than dropping to the bottom.
+    //
+    // Most of the library has no shoot date on the day this ships, and an order
+    // that parks two hundred sets in an undated heap is not an order. Using the
+    // shared date keeps the list sensible immediately and tightens as the dates
+    // get filled in, because a set that was shot and shared in the same era
+    // lands in roughly the right place either way.
+    const shotAt = (s) => (s.shootMonth ? new Date(s.shootMonth).getTime() : at(s));
+
     if (sortBy === 'oldest') {
       setsWithData.sort((a, b) => at(a) - at(b));
+    } else if (sortBy === 'shoot_newest') {
+      setsWithData.sort((a, b) => shotAt(b) - shotAt(a) || at(b) - at(a));
+    } else if (sortBy === 'shoot_oldest') {
+      setsWithData.sort((a, b) => shotAt(a) - shotAt(b) || at(a) - at(b));
     } else if (sortBy === 'price_high') {
       setsWithData.sort((a, b) => (b.basePrice - a.basePrice) || (at(b) - at(a)));
     } else if (sortBy === 'price_low') {
@@ -734,6 +762,10 @@ router.get('/sets', authMid, async (req, res) => {
       },
       sort: sortBy,
       show: showBy,
+      // Jinal's choice of which order the gallery opens in. The app uses it only
+      // until a member picks their own, after which their pick is remembered on
+      // that device and this is just information.
+      defaultSort: defaultSort,
       // One list, already filtered and in the requested order.
       sets: setsWithData,
       userTier,

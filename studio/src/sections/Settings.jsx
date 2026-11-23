@@ -572,6 +572,7 @@ function GallerySection({ draft, set, config, setConfig, tokenRate }) {
     'tier_open_band2_until', 'tier_open_band2_cost',
     'tier_open_band3_until', 'tier_open_band3_cost',
     'photo_price_insider', 'photo_price_premium', 'photo_price_supreme',
+    'gallery_default_sort',
   ];
 
   // null, not a default. A blank field is a real problem that needs saying out
@@ -615,6 +616,31 @@ function GallerySection({ draft, set, config, setConfig, tokenRate }) {
 
   return (
     <div>
+      <Card style={{ marginBottom: 20 }}>
+        <T.sectionTitle>How the gallery opens</T.sectionTitle>
+        <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14, lineHeight: 1.7 }}>
+          The order a member sees the first time they open the gallery. Once somebody picks their
+          own order it is remembered on their device and this stops applying to them — so changing
+          it moves new members and anybody who has never touched the control.
+          <br /><br />
+          <strong style={{ color: colors.text }}>Shot</strong> uses the shoot date on each set.
+          A set with no shoot date yet falls back to when it was shared, so the order stays
+          sensible while you fill them in.
+        </p>
+        <Field label="Default order for members">
+          <select style={S.input}
+                  value={draft.gallery_default_sort ?? 'newest'}
+                  onChange={(e) => set('gallery_default_sort', e.target.value)}>
+            <option value="newest">Shared: newest first</option>
+            <option value="oldest">Shared: oldest first</option>
+            <option value="shoot_newest">Shot: newest first</option>
+            <option value="shoot_oldest">Shot: oldest first</option>
+            <option value="price_high">Price: high to low</option>
+            <option value="price_low">Price: low to high</option>
+          </select>
+        </Field>
+      </Card>
+
       <Card style={{ marginBottom: 20 }}>
         <T.sectionTitle>Sets included with a membership</T.sectionTitle>
         <p style={{ fontFamily: sans, fontSize: 13, color: colors.muted, marginBottom: 14, lineHeight: 1.7 }}>

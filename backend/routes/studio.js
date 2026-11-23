@@ -1477,8 +1477,20 @@ router.get('/content', async (req, res) => {
 
 router.post('/content', async (req, res) => {
   const { title, description, type = 'photo_set', price_coins = 0, visible = false, category,
-          photographerName, photographerNames, isCollection = false } = req.body;
+          photographerName, photographerNames, isCollection = false, shoot_month } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
+
+  // Optional, and month precision only. Asked for at upload as well as on the
+  // edit form, because the month is never more obvious than on the day the
+  // photographs are being put in.
+  let shootMonth = null;
+  if (shoot_month) {
+    const m = String(shoot_month).match(/^(\d{4})-(\d{2})/);
+    if (!m || Number(m[2]) < 1 || Number(m[2]) > 12) {
+      return res.status(400).json({ error: 'Shoot date should be a month and year.' });
+    }
+    shootMonth = `${m[1]}-${m[2]}-01`;
+  }
 
   const client = await pool.connect();
   try {
@@ -1492,12 +1504,14 @@ router.post('/content', async (req, res) => {
       // Straight to the top of its own library. A new drop is the thing worth
       // seeing, and putting it last would mean rearranging after every upload.
       `INSERT INTO sets (title, description, type, price_coins, visible, category, is_collection,
-                         display_order, published_at)
+                         display_order, published_at, shoot_month)
        VALUES ($1, $2, $3, $4, $5, $6, $7,
                (SELECT COALESCE(MIN(display_order), 0) - 1 FROM sets WHERE is_collection = $7),
-               CASE WHEN $5 = TRUE THEN NOW() ELSE NULL END)
+               CASE WHEN $5 = TRUE THEN NOW() ELSE NULL END,
+               date_trunc('month', $8::date)::date)
        RETURNING *`,
-      [title.trim(), description || null, type, price_coins, visible, category || null, Boolean(isCollection)]
+      [title.trim(), description || null, type, price_coins, visible, category || null, Boolean(isCollection),
+       shootMonth]
     );
 
     await setPhotographers(client, rows[0].id, photographerNames ?? photographerName);
@@ -3557,6 +3571,29 @@ router.post('/content/item', async (req, res) => {
 router.patch('/content/:id', async (req, res) => {
   const { title, description, price_coins, visible, type, category, cover_key, cover_blur,
           cover_og_key, photographerName, photographerNames, removeMarked } = req.body;
+
+  // When the shoot happened, which is optional and may be cleared again.
+  //
+  // Every other field here uses COALESCE($n, col), which cannot tell "left this
+  // alone" from "empty this" — both arrive as null. That is fine for a title,
+  // which is never deliberately blanked, and wrong for a date somebody may want
+  // to take off a set after guessing badly. So the presence of the key in the
+  // body is what decides whether to write, and the value decides what to write.
+  const shootMonthSent = Object.prototype.hasOwnProperty.call(req.body, 'shoot_month');
+  let shootMonth = null;
+  if (shootMonthSent && req.body.shoot_month) {
+    // Accepts "2026-03" from a month input, or a full date, and keeps only the
+    // month. Stored as the first of that month so the stray-day check on the
+    // column can never fire and "March 2026" cannot become "14 March 2026".
+    const m = String(req.body.shoot_month).match(/^(\d{4})-(\d{2})/);
+    if (!m) return res.status(400).json({ error: 'Shoot date should be a month and year.' });
+    const year  = Number(m[1]);
+    const month = Number(m[2]);
+    if (month < 1 || month > 12 || year < 1900 || year > 2200) {
+      return res.status(400).json({ error: 'That is not a month and year I can use.' });
+    }
+    shootMonth = `${m[1]}-${m[2]}-01`;
+  }
   // Filled in only if publishing also removed the marked photos; cleared from
   // storage after the transaction commits.
   let pendingKeyCleanup = [];
@@ -3713,10 +3750,14 @@ router.patch('/content/:id', async (req, res) => {
          cover_key   = COALESCE($7, cover_key),
          cover_blur  = COALESCE($8, cover_blur),
          cover_og_key = COALESCE($9, cover_og_key),
+         -- $11 says whether the field was sent at all, so a null in $12 means
+         -- "clear it" rather than "no opinion". date_trunc is belt and braces:
+         -- the value is already the first of a month by the time it gets here.
+         shoot_month  = CASE WHEN $11 THEN date_trunc('month', $12::date)::date ELSE shoot_month END,
          published_at = CASE WHEN $4 = TRUE AND published_at IS NULL THEN NOW() ELSE published_at END
        WHERE id = $10 RETURNING *`,
       [title, description, price_coins, visible, type, category, cover_key, cover_blur || null,
-       cover_og_key || null, req.params.id]
+       cover_og_key || null, req.params.id, shootMonthSent, shootMonth]
     );
     if (!rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Set not found' }); }
 
