@@ -90,6 +90,19 @@ function collapseDeleted(list) {
 export default function Chat() {
   const navigate = useNavigate();
   const [messages,   setMessages]   = useState([]);
+
+  // Taking messages off this screen, and only this screen.
+  //
+  // The member's copy and Jinal's are separate from here on: nothing below
+  // deletes a message, it stops being sent to this member. Said plainly in the
+  // panel, because "delete" that leaves the other person holding a copy is the
+  // kind of half-truth people are right to resent finding out later.
+  const [chatMenu, setChatMenu]   = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearing, setClearing]   = useState(false);
+  // What the last Remove took away, so it can be put back.
+  const [undoRemoved, setUndoRemoved] = useState(null);
+  const undoTimer = useRef(null);
   // The photograph being looked at full size. Nothing opened before — an
   // unlocked set stayed at the width of a chat bubble, which is a poor way to
   // see something somebody has just paid for.
@@ -464,6 +477,62 @@ export default function Chat() {
     }, 2000);
   };
 
+  // Emptied on this side. The messages leave the screen at once rather than
+  // after a round trip, because a clear that sits there for a second looks like
+  // it failed — and if the request does fail, they are back on the next load.
+  const clearChat = async () => {
+    setClearing(true);
+    try {
+      await api.post('/api/chat/clear', {});
+      setMessages([]);
+      setMedia(null);
+      setChatMenu(false);
+      setConfirmClear(false);
+      setUndoRemoved(null);
+    } catch (err) {
+      setError(err.message || 'Could not clear the chat');
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  // One message off this screen, with a few seconds to change your mind.
+  //
+  // The undo earns its extra route: a tap meant for Reply landing on Remove is
+  // an easy mistake on a phone, and without it the only way back would be
+  // asking Jinal what the message said.
+  const removeMessage = async (msg) => {
+    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+    setUndoRemoved(msg);
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    undoTimer.current = setTimeout(() => setUndoRemoved(null), 8000);
+    try {
+      await api.post('/api/chat/hide', { messageIds: [msg.id] });
+    } catch (err) {
+      restoreLocally(msg);
+      setUndoRemoved(null);
+      setError(err.message || 'Could not remove that message');
+    }
+  };
+
+  const restoreLocally = (msg) => setMessages((prev) =>
+    prev.some((m) => m.id === msg.id)
+      ? prev
+      : [...prev, msg].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)));
+
+  const undoRemove = async () => {
+    const msg = undoRemoved;
+    if (!msg) return;
+    setUndoRemoved(null);
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    try {
+      await api.post('/api/chat/unhide', { messageIds: [msg.id] });
+      restoreLocally(msg);
+    } catch (err) {
+      setError(err.message || 'Could not bring that back');
+    }
+  };
+
   const unlockMedia = async (dbMessageId) => {
     setUnlocking(dbMessageId);
     setError('');
@@ -685,7 +754,42 @@ export default function Chat() {
                            border: `1px solid ${C.border}`, color: C.muted, flexShrink: 0 }}>
             <VideoCallIcon />
           </button>
+          {/* Clearing lives behind a control of its own rather than beside
+              Media, so it cannot be hit while reaching for something else. */}
+          <button onClick={() => { setChatMenu((v) => !v); setConfirmClear(false); }}
+                  title="Chat options"
+                  aria-label="Chat options"
+                  aria-expanded={chatMenu}
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                           width: 44, height: 44, borderRadius: 999, fontSize: 18, lineHeight: 1,
+                           background: 'transparent', cursor: 'pointer', flexShrink: 0,
+                           border: `1px solid ${chatMenu ? C.accent : C.border}`,
+                           color: chatMenu ? C.accent : C.muted }}>
+            ⋯
+          </button>
         </div>
+
+        {chatMenu && (
+          <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginBottom: 10 }}>
+            <div style={{ fontFamily: F.sans, fontSize: 12, color: C.muted, lineHeight: 1.7, marginBottom: 10 }}>
+              Clearing empties this conversation <strong style={{ color: C.text }}>on your side only</strong>.
+              Jinal keeps her copy, and anything you have paid to unlock stays on her side too.
+              New messages will appear as normal afterwards.
+              <br /><br />
+              It cannot be undone from here.
+            </div>
+            {!confirmClear ? (
+              <button onClick={() => setConfirmClear(true)} style={clearBtn}>Clear this chat for me</button>
+            ) : (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={clearChat} disabled={clearing} style={{ ...clearBtn, borderColor: C.accent, color: C.accent }}>
+                  {clearing ? 'Clearing…' : 'Yes, clear my copy'}
+                </button>
+                <button onClick={() => setConfirmClear(false)} disabled={clearing} style={clearBtn}>Keep it</button>
+              </div>
+            )}
+          </div>
+        )}
 
         {showMedia && (
           <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginBottom: 10 }}>
@@ -790,6 +894,7 @@ export default function Chat() {
                 msg={msg}
                 parent={msg.parent_id ? msgById[msg.parent_id] : null}
                 onReply={setReplyTo}
+                onRemove={removeMessage}
                 onUnlock={() => unlockMedia(msg.id)}
                 unlocking={unlocking === msg.id}
                 onOpenImage={setViewing}
@@ -804,6 +909,16 @@ export default function Chat() {
           )}
           <div ref={bottomRef} />
         </div>
+
+        {/* Pinned to the feed, not placed in it: inside the scrolling column
+            an absolutely positioned bar is carried away by the scroll, which
+            is the one place an undo must not go. */}
+        {undoRemoved && (
+          <div style={undoBar}>
+            <span>Removed from your copy.</span>
+            <button onClick={undoRemove} style={{ ...replyLink, color: C.accent }}>Undo</button>
+          </div>
+        )}
       </div>
 
       <div style={{ ...composer, padding: '10px 16px', flexShrink: 0 }}>
@@ -873,7 +988,10 @@ export default function Chat() {
   );
 }
 
-function MessageBubble({ msg, parent, onReply, onUnlock, unlocking, onOpenImage }) {
+function MessageBubble({ msg, parent, onReply, onRemove, onUnlock, unlocking, onOpenImage }) {
+  // Two taps, because Remove sits next to Reply and the two are a thumb's width
+  // apart. The first tap only changes the word.
+  const [askRemove, setAskRemove] = useState(false);
   // Per message, so confirming one does not put every other locked bundle in
   // the thread into the same state.
   const [askUnlock, setAskUnlock] = useState(false);
@@ -972,9 +1090,20 @@ function MessageBubble({ msg, parent, onReply, onUnlock, unlocking, onOpenImage 
             {msg.content}
           </div>
         )}
-        {onReply && (
-          <div style={{ padding: '0 8px 6px' }}>
-            <button onClick={() => onReply(msg)} style={replyLink}>Reply</button>
+        {(onReply || onRemove) && (
+          <div style={{ padding: '0 8px 6px', display: 'flex', gap: 12, alignItems: 'center' }}>
+            {onReply && <button onClick={() => onReply(msg)} style={replyLink}>Reply</button>}
+            {onRemove && (
+              askRemove ? (
+                <>
+                  <button onClick={() => { setAskRemove(false); onRemove(msg); }}
+                          style={{ ...replyLink, color: C.accent }}>Remove for me</button>
+                  <button onClick={() => setAskRemove(false)} style={replyLink}>Keep</button>
+                </>
+              ) : (
+                <button onClick={() => setAskRemove(true)} style={{ ...replyLink, opacity: 0.6 }}>Remove</button>
+              )
+            )}
           </div>
         )}
       </div>
@@ -1018,6 +1147,18 @@ const recordingBar = { display: 'flex', alignItems: 'center', gap: 10, backgroun
 const recordingDot = { width: 10, height: 10, borderRadius: '50%', background: '#D99A9A', flexShrink: 0 };
 const cancelRecordBtn = { background: 'transparent', border: `1px solid ${C.border}`, color: C.muted, fontFamily: F.sans, fontSize: 13, padding: '8px 14px', borderRadius: 8, cursor: 'pointer' };
 const tombstone = { alignSelf: 'center', fontFamily: F.sans, fontSize: 11, color: C.muted, fontStyle: 'italic', opacity: 0.7, padding: '6px 0' };
+
+const clearBtn = { fontFamily: F.sans, fontSize: 12, padding: '8px 14px', borderRadius: 999,
+                   background: 'transparent', cursor: 'pointer',
+                   border: `1px solid ${C.border}`, color: C.muted };
+
+// Sits over the composer rather than the feed, so it never covers the message
+// just above the gap it left.
+const undoBar = { position: 'absolute', left: 16, right: 16, bottom: 12, zIndex: 5,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                  padding: '10px 14px', borderRadius: 10,
+                  background: 'rgba(20,18,16,0.95)', border: `1px solid ${C.border}`,
+                  fontFamily: F.sans, fontSize: 12, color: C.text };
 const quoted    = { borderLeft: `2px solid ${C.accent}`, paddingLeft: 8, marginBottom: 6, opacity: 0.85 };
 const replyLink = { background: 'none', border: 'none', color: C.muted, fontFamily: F.sans, fontSize: 11, cursor: 'pointer', padding: 0 };
 const replyingBar = { display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(193,125,74,0.08)', borderLeft: `2px solid ${C.accent}`, borderRadius: 6, padding: '6px 10px', marginBottom: 8 };

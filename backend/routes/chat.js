@@ -65,6 +65,20 @@ function toFanSafeMessage(row) {
 // ─────────────────────────────────────────────
 
 
+// What a member has taken off their own screen.
+//
+// Two ways in: "Clear chat" sets a watermark on the member, and deleting single
+// messages writes a row each. Both are one-sided — the message itself is
+// untouched, so Jinal's copy and the record of anything paid for are unchanged.
+//
+// $1 is the member throughout. Written once and used by both the message list
+// and the media list: a photograph the member has cleared must not come back
+// through the media grid, which would be a strange way to find out that
+// clearing does not clear.
+const HIDDEN_BY_FAN = `
+  AND created_at > COALESCE((SELECT chat_cleared_at FROM users WHERE id = $1), '-infinity'::timestamptz)
+  AND NOT EXISTS (SELECT 1 FROM dm_hidden h WHERE h.user_id = $1 AND h.message_id = direct_messages.id)`;
+
 // ─────────────────────────────────────────────
 // GET /api/chat/media
 // ─────────────────────────────────────────────
@@ -86,6 +100,7 @@ router.get('/media', authMid, async (req, res) => {
          FROM direct_messages
         WHERE ((sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1))
           AND deleted_at IS NULL
+          ${HIDDEN_BY_FAN}
           AND (media_url IS NOT NULL OR (locked_media_urls IS NOT NULL AND unlocked_at IS NOT NULL))
         ORDER BY created_at DESC`,
       [req.user.userId, artistId]
@@ -124,8 +139,11 @@ router.get('/messages', authMid, async (req, res) => {
               read,
               tokens_charged, created_at, (sender_id = $1) AS is_mine
        FROM direct_messages
-       WHERE (sender_id = $1 AND recipient_id = $2)
-          OR (sender_id = $2 AND recipient_id = $1)
+       WHERE ((sender_id = $1 AND recipient_id = $2)
+          OR (sender_id = $2 AND recipient_id = $1))
+       -- Filtered here rather than after the fetch, so a cleared message does
+       -- not take up one of the fifty slots below and leave the thread short.
+       ${HIDDEN_BY_FAN}
        -- The most recent fifty, put back into reading order.
        --
        -- This was ASC LIMIT 50, which is the *oldest* fifty. A thread longer
@@ -148,6 +166,97 @@ router.get('/messages', authMid, async (req, res) => {
   } catch (err) {
     console.error('chat/messages error:', err);
     res.status(500).json({ error: 'Failed to load messages' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/chat/clear
+// ─────────────────────────────────────────────
+//
+// Clearing the whole thread, for the member only.
+//
+// A watermark on the member rather than a row per message. Jinal's copy is
+// untouched and so is the ledger, which matters because messages here are paid
+// for: a mutual delete would let somebody buy a media unlock and then remove
+// the proof of it.
+//
+// Not reversible from their side, which the app says before asking. The
+// messages are all still there — a watermark forgets where it used to be, not
+// what it was hiding — so if somebody clears by accident and minds, it can be
+// put back by hand.
+router.post('/clear', authMid, async (req, res) => {
+  try {
+    await pool.query(`UPDATE users SET chat_cleared_at = NOW() WHERE id = $1`, [req.user.userId]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('chat/clear error:', err);
+    res.status(500).json({ error: 'Could not clear the chat' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/chat/hide
+// ─────────────────────────────────────────────
+//
+// Taking single messages off the member's own screen.
+//
+// The ids are checked against their own conversation before anything is
+// written. Without that, anybody could post the id of a message between Jinal
+// and somebody else and have a row written about it — harmless to read, but it
+// would let one member learn whether a given id exists, and there is no reason
+// to answer that question.
+router.post('/hide', authMid, async (req, res) => {
+  const { messageIds } = req.body;
+  if (!Array.isArray(messageIds) || !messageIds.length) {
+    return res.status(400).json({ error: 'Nothing selected' });
+  }
+  if (messageIds.length > 200) {
+    return res.status(400).json({ error: 'Too many at once — clear the chat instead' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO dm_hidden (user_id, message_id)
+       SELECT $1, d.id FROM direct_messages d
+        WHERE d.id = ANY($2::uuid[])
+          AND ((d.sender_id = $1 AND d.recipient_id = $3)
+            OR (d.sender_id = $3 AND d.recipient_id = $1))
+       ON CONFLICT DO NOTHING
+       RETURNING message_id`,
+      [req.user.userId, messageIds, process.env.ARTIST_USER_ID]
+    );
+    res.json({ ok: true, hidden: rows.length });
+  } catch (err) {
+    console.error('chat/hide error:', err);
+    res.status(500).json({ error: 'Could not remove those' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/chat/unhide
+// ─────────────────────────────────────────────
+//
+// The undo behind the toast that appears after deleting a message.
+//
+// Only reaches rows belonging to the member who asks, so the worst anybody can
+// do with somebody else's id is delete nothing. Clearing the whole thread has
+// no equivalent on purpose: it is one action with one confirmation, and an undo
+// would need to remember a watermark that clearing has just thrown away.
+router.post('/unhide', authMid, async (req, res) => {
+  const { messageIds } = req.body;
+  if (!Array.isArray(messageIds) || !messageIds.length) {
+    return res.status(400).json({ error: 'Nothing selected' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM dm_hidden
+        WHERE user_id = $1 AND message_id = ANY($2::uuid[])
+       RETURNING message_id`,
+      [req.user.userId, messageIds]
+    );
+    res.json({ ok: true, restored: rows.length });
+  } catch (err) {
+    console.error('chat/unhide error:', err);
+    res.status(500).json({ error: 'Could not bring those back' });
   }
 });
 
