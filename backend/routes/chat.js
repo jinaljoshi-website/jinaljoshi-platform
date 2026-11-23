@@ -8,6 +8,7 @@ const { effectiveDmFree } = require('../lib/allowance');
 const { assertNotBlocked, assertNotMuted } = require('../lib/moderation');
 const { getLocalDateStr, getAllotmentPeriodKey } = require('../lib/time');
 const { spendTokens, getBalances } = require('../lib/tokens');
+const { clip, jsonForPg } = require('../lib/jsonsafe');
 
 
 function toDateStr(val) {
@@ -477,7 +478,11 @@ router.post('/send', authMid, async (req, res) => {
     await client.query(
       `INSERT INTO artist_notifications (type, fan_id, payload)
        VALUES ('new_dm', $1, $2)`,
-      [req.user.userId, JSON.stringify({ preview: content?.slice(0, 80) || '[media]', tier: userTier })]
+      // clip() counts characters, not UTF-16 units, so an emoji sitting on the
+      // 80th boundary is kept whole instead of being cut into a lone surrogate
+      // that Postgres rejects. That rejection used to roll the whole
+      // transaction back and refuse the member's message.
+      [req.user.userId, jsonForPg({ preview: clip(content, 80) || '[media]', tier: userTier })]
     );
 
     await client.query('COMMIT');

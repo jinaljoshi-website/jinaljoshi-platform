@@ -33,6 +33,7 @@ const router = require('express').Router();
 const crypto = require('crypto');
 const pool   = require('../db/pool');
 const { getClientIp, lookupIpCountry } = require('../lib/geoip');
+const { jsonForPg } = require('../lib/jsonsafe');
 
 // Country, looked up once a day per visitor rather than once a pageview.
 //
@@ -159,7 +160,12 @@ router.post('/hit', async (req, res) => {
         utm_campaign ? String(utm_campaign).slice(0, 60) : null,
         country,
         deviceFrom(ua),
-        meta ? JSON.stringify(meta).slice(0, 500) : null,
+        // This used to be JSON.stringify(meta).slice(0, 500), which cut the
+        // finished JSON text at 500 characters — through an escape or a brace
+        // if it got unlucky — and Postgres refused the row. Over the ceiling
+        // the value is now replaced rather than severed, so a long meta costs
+        // its own detail instead of the whole visit.
+        meta ? jsonForPg(meta, { maxChars: 500 }) : null,
       ]
     );
   } catch (err) {

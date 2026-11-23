@@ -138,9 +138,7 @@ router.post('/request', authMid, async (req, res) => {
     // A tenth to place it, not the whole thing.
     //
     // The full price used to go at once, so anything expensive had to be
-    // affordable in one payment or not asked for at all. It is also the shape
-    // that gets a merchant account looked at — a single very large payment from
-    // one member is what put this platform under a risk audit.
+    // affordable in one payment or not asked for at all.
     //
     // The deposit reserves her time. Nothing is made until it is settled.
     const deposit = depositFor(price);
@@ -249,11 +247,15 @@ router.get('/requests/:id/balance', authMid, async (req, res) => {
     const r = rows[0];
     const { perDayInr, perPaymentInr, tokenRate } = await limits();
 
-    const { rows: today } = await pool.query(
-      `SELECT COALESCE(SUM(inr_value), 0) AS spent FROM request_payments
-        WHERE user_id = $1 AND created_at > NOW() - INTERVAL '24 hours'`,
-      [req.user.userId]
-    );
+    // Only worth asking when there is a daily ceiling to measure against.
+    const dayCapped = Number.isFinite(perDayInr) && perDayInr > 0;
+    const today = dayCapped
+      ? (await pool.query(
+          `SELECT COALESCE(SUM(inr_value), 0) AS spent FROM request_payments
+            WHERE user_id = $1 AND created_at > NOW() - INTERVAL '24 hours'`,
+          [req.user.userId]
+        )).rows
+      : [{ spent: 0 }];
     const { rows: history } = await pool.query(
       `SELECT coins, inr_value, created_at FROM request_payments
         WHERE request_id = $1 ORDER BY created_at`,
@@ -261,7 +263,9 @@ router.get('/requests/:id/balance', authMid, async (req, res) => {
     );
 
     const owed = outstanding(r);
-    const leftToday = Math.max(0, perDayInr - Number(today[0].spent));
+    const leftToday = dayCapped
+      ? Math.max(0, perDayInr - Number(today[0].spent))
+      : null;
 
     res.json({
       agreed: Number(r.agreed_price_coins ?? r.offered_price_coins ?? 0),
@@ -271,11 +275,17 @@ router.get('/requests/:id/balance', authMid, async (req, res) => {
       payments: history.map((h) => ({ coins: h.coins, at: h.created_at })),
       // What can go in right now, so the screen can offer a sensible maximum
       // rather than letting somebody type a number that will be refused.
-      maxNow: Math.max(0, Math.min(
+      //
+      // Only the ceilings that are switched on get a say. Taking the minimum
+      // across all of them unconditionally would read an uncapped 0 as a limit
+      // of zero tokens and offer the member nothing at all.
+      maxNow: Math.max(0, Math.min(...[
         owed,
-        Math.floor(perPaymentInr / tokenRate),
-        Math.floor(leftToday / tokenRate),
-      )),
+        ...(Number.isFinite(perPaymentInr) && perPaymentInr > 0 ? [Math.floor(perPaymentInr / tokenRate)] : []),
+        ...(dayCapped ? [Math.floor(leftToday / tokenRate)] : []),
+      ])),
+      // null, not 0, when nothing is capping the day — so the screen can tell
+      // "no limit" from "nothing left".
       dailyLeftInr: leftToday,
     });
   } catch (err) {

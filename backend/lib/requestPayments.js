@@ -7,10 +7,9 @@
 // The whole price was taken the moment a request was made, so anything
 // expensive had to be affordable in one go or not asked for at all.
 //
-// It is also the shape that gets a merchant account looked at. A single very
-// large payment from one member is what put this platform under a risk audit,
-// and spreading the same amount across a fortnight is both kinder to the member
-// and quieter on the account.
+// Spreading the same amount across a fortnight is kinder to the member, and it
+// lets a commission be priced at what it is worth rather than at what somebody
+// can part with in one go.
 //
 // ── The rules ───────────────────────────────────────────────────────
 //
@@ -18,10 +17,23 @@
 // Nothing is made until it is paid in full — the deposit reserves her time, not
 // the work.
 //
-// And a ceiling: no single payment worth more than a lakh, and no more than a
-// lakh towards commissions in any twenty-four hours. Both are in rupees rather
-// than tokens, because the reason for them is the rupee figure that appears on
-// a bank statement.
+// And a ceiling: no single payment worth more than a lakh. In rupees rather
+// than tokens, because the figure that matters is the one on a bank statement,
+// not the token count.
+//
+// ── Ceilings, and how to move them ──────────────────────────────────
+//
+// There was a second ceiling — a lakh towards commissions in any rolling
+// twenty-four hours — and it is off. It was stopping a member from settling
+// several commissions in an afternoon, which is a thing we would rather they
+// could do.
+//
+// Both ceilings are config values, and both read 0 as "no limit", the same way
+// tier_open_cap_* does. So either can be switched off, moved, or put back from
+// config alone, with no deploy:
+//
+//   request_max_single_inr   0 = no limit   (currently a lakh)
+//   request_max_daily_inr    0 = no limit   (currently off)
 
 const { getConfigNumber } = require('./config');
 
@@ -31,18 +43,27 @@ const DEPOSIT_FRACTION = 0.10;
 // Written in rupees because that is the number anybody reviewing an account
 // sees. Configurable, because a cap that cannot be moved is a cap that gets
 // worked around.
+// A cap of 0 means no cap, which is how gallery.js already exempts a tier.
+const UNCAPPED = 0;
+
 async function limits() {
   const [perPayment, perDay, tokenRate] = await Promise.all([
     getConfigNumber('request_max_single_inr').catch(() => 100000),
-    getConfigNumber('request_max_daily_inr').catch(() => 100000),
+    getConfigNumber('request_max_daily_inr').catch(() => UNCAPPED),
     getConfigNumber('token_rate_inr').catch(() => 66),
   ]);
+  // Number.isFinite rather than `||`, because `||` cannot tell a deliberate 0
+  // from a missing key and would quietly turn "no limit" back into a lakh.
+  // Neither key is in DEFAULTS, so an absent row arrives here as undefined.
   return {
-    perPaymentInr: perPayment || 100000,
-    perDayInr:     perDay || 100000,
+    perPaymentInr: Number.isFinite(perPayment) ? perPayment : 100000,
+    perDayInr:     Number.isFinite(perDay)     ? perDay     : UNCAPPED,
     tokenRate:     tokenRate || 66,
   };
 }
+
+// Is this ceiling switched on at all?
+const capped = (inr) => Number.isFinite(inr) && inr > 0;
 
 // What is still owed on a request.
 function outstanding(request) {
@@ -67,7 +88,7 @@ async function checkPayment(db, userId, coins, { requestId = null } = {}) {
   const { perPaymentInr, perDayInr, tokenRate } = await limits();
   const valueInr = Math.round(Number(coins) * tokenRate);
 
-  if (valueInr > perPaymentInr) {
+  if (capped(perPaymentInr) && valueInr > perPaymentInr) {
     const maxCoins = Math.floor(perPaymentInr / tokenRate);
     return {
       ok: false,
@@ -76,6 +97,9 @@ async function checkPayment(db, userId, coins, { requestId = null } = {}) {
       maxCoins,
     };
   }
+
+  // With no daily ceiling there is nothing to measure, so the sum is not run.
+  if (!capped(perDayInr)) return { ok: true, valueInr, tokenRate };
 
   // What has already gone towards commissions since this time yesterday.
   //

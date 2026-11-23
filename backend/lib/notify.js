@@ -7,6 +7,14 @@
 const pool    = require('../db/pool');
 const webpush = require('web-push');
 
+// This was missing, and nothing said so until the logs were read. pushToUser
+// calls notice() to file a record of what it just sent; without the import that
+// call threw a ReferenceError on every push, which the catch below swallowed
+// and logged as "pushToUser error: notice is not defined". The push itself had
+// already gone out by then, so phones still buzzed — but no notice was ever
+// written, and every caller was told sent: 0.
+const { notice } = require('./notices');
+
 webpush.setVapidDetails(
   'mailto:support@jinaljoshi.in',
   process.env.VAPID_PUBLIC,
