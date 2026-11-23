@@ -189,6 +189,30 @@ export function Messages({ openWith }) {
   const toggleSelect = (id) =>
     setPickedMsgs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
+  // What the selection actually covers.
+  //
+  // Deleting works on messages, but the media grid deliberately shows one tile
+  // per photograph — "a bundle of six is six things to look at, not one". So
+  // picking one tile from a bundle of six takes all six, and a bar that only
+  // counted the tiles tapped would be quietly wrong about it.
+  //
+  // The photograph count is only given once the grid has been loaded, because
+  // otherwise there is nothing to count it from, and a confident 0 would read
+  // as "no photographs" rather than "not looked yet".
+  const selectionCovers = (() => {
+    const picked = new Set(pickedMsgs);
+    if (!chatMedia) return { messages: pickedMsgs.length, photos: null, paid: 0 };
+    const mine = chatMedia.filter((m) => picked.has(m.messageId));
+    return {
+      messages: pickedMsgs.length,
+      photos: mine.length,
+      // Paid for and opened: deleting takes it back from somebody who bought it.
+      paid: mine.filter((m) => m.locked && m.paidAt).length,
+    };
+  })();
+
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   // Marked rather than removed. A message that vanishes without trace leaves
   // the other person wondering whether they imagined it.
   const deleteSelected = async () => {
@@ -196,7 +220,12 @@ export function Messages({ openWith }) {
     try {
       await api.post('/api/studio/dms/delete', { messageIds: pickedMsgs });
       setPickedMsgs([]);
-      if (selected) resyncThread(selected);
+      setConfirmDelete(false);
+      if (selected) {
+        resyncThread(selected);
+        // The grid is showing what was just deleted until it is asked again.
+        if (chatMedia) loadChatMedia(selected);
+      }
     } catch (err) { console.error(err); } finally { setDeleting(false); }
   };
 
@@ -1173,21 +1202,56 @@ export function Messages({ openWith }) {
                         : chatMedia.length === 0 ? 'Nothing sent yet'
                         : `${chatMedia.length} photograph${chatMedia.length === 1 ? '' : 's'}`}
                     </div>
+                    {/* Deleting from here rather than from the thread.
+                        //
+                        // The grid already exists so a photograph can be found
+                        // without scrolling past seventeen hundred messages;
+                        // deleting one had still meant going to find its
+                        // message by hand, which is the same journey the grid
+                        // was built to avoid.
+                        //
+                        // The tile still opens the photograph. Selection is its
+                        // own target in the corner, because tapping a thumbnail
+                        // to look at something and tapping it to delete that
+                        // thing should not be the same gesture. */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(84px,1fr))', gap: 6, maxHeight: '46vh', overflowY: 'auto' }}>
-                      {(chatMedia || []).map((m, i) => (
-                        <a key={i} href={m.url} target="_blank" rel="noreferrer"
-                           style={{ position: 'relative', display: 'block' }}>
-                          <img src={m.url} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 4, display: 'block' }} />
-                          {m.locked && (
-                            <span style={{ position: 'absolute', bottom: 3, left: 3, fontSize: 9, fontFamily: mono,
-                                           padding: '1px 4px', borderRadius: 3,
-                                           background: 'rgba(6,5,4,0.8)',
-                                           color: m.paidAt ? '#8FC88F' : colors.muted }}>
-                              {m.paidAt ? 'opened' : `${m.price}t`}
-                            </span>
-                          )}
-                        </a>
-                      ))}
+                      {(chatMedia || []).map((m, i) => {
+                        // Siblings light up for free: every tile of a bundle
+                        // carries the same messageId, so selecting one shows
+                        // all of them as going — which is what will happen.
+                        const picked = pickedMsgs.includes(m.messageId);
+                        return (
+                          <div key={i} style={{ position: 'relative' }}>
+                            <a href={m.url} target="_blank" rel="noreferrer" style={{ display: 'block' }}>
+                              <img src={m.url} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover',
+                                     borderRadius: 4, display: 'block',
+                                     outline: picked ? '2px solid rgba(217,154,154,0.9)' : 'none',
+                                     outlineOffset: -2, opacity: picked ? 0.55 : 1 }} />
+                            </a>
+                            <button onClick={() => toggleSelect(m.messageId)}
+                                    title={picked ? 'Deselect this message' : 'Select this message for deletion'}
+                                    aria-label={picked ? 'Deselect this message' : 'Select this message for deletion'}
+                                    aria-pressed={picked}
+                                    style={{ position: 'absolute', top: 3, right: 3, width: 22, height: 22,
+                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                             borderRadius: 999, cursor: 'pointer', padding: 0, fontSize: 12,
+                                             lineHeight: 1, fontFamily: sans,
+                                             background: picked ? 'rgba(156,90,90,0.95)' : 'rgba(6,5,4,0.7)',
+                                             border: `1px solid ${picked ? 'rgba(217,154,154,0.9)' : 'rgba(255,255,255,0.35)'}`,
+                                             color: picked ? '#fff' : 'rgba(255,255,255,0.7)' }}>
+                              {picked ? '✓' : ''}
+                            </button>
+                            {m.locked && (
+                              <span style={{ position: 'absolute', bottom: 3, left: 3, fontSize: 9, fontFamily: mono,
+                                             padding: '1px 4px', borderRadius: 3,
+                                             background: 'rgba(6,5,4,0.8)',
+                                             color: m.paidAt ? '#8FC88F' : colors.muted }}>
+                                {m.paidAt ? 'opened' : `${m.price}t`}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </Card>
                 )}
@@ -1367,14 +1431,41 @@ export function Messages({ openWith }) {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {pickedMsgs.length > 0 && (
                         <div style={deleteBar}>
+                          {/* Counted in messages and in photographs, because
+                              one selected tile can take five others with it. */}
                           <span style={{ fontFamily: sans, fontSize: 13, color: colors.text }}>
-                            {pickedMsgs.length} selected
+                            {selectionCovers.messages} message{selectionCovers.messages === 1 ? '' : 's'}
+                            {selectionCovers.photos !== null && selectionCovers.photos > 0 && (
+                              <span style={{ color: colors.muted }}>
+                                {' · '}{selectionCovers.photos} photograph{selectionCovers.photos === 1 ? '' : 's'}
+                              </span>
+                            )}
                           </span>
-                          <button onClick={deleteSelected} disabled={deleting}
-                                  style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 14px', color: '#D99A9A', borderColor: 'rgba(156,90,90,0.4)' }}>
-                            {deleting ? 'Deleting…' : 'Delete for everyone'}
-                          </button>
-                          <button onClick={() => setPickedMsgs([])} style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 14px' }}>
+
+                          {/* Paid for and opened. Deleting takes back something
+                              somebody bought, so it is said before, not after,
+                              and it is the one case that asks twice. */}
+                          {selectionCovers.paid > 0 && (
+                            <span style={{ fontFamily: sans, fontSize: 12, color: '#D99A9A', flexBasis: '100%' }}>
+                              {selectionCovers.paid} of these {selectionCovers.paid === 1 ? 'was' : 'were'} paid
+                              for and opened — deleting takes {selectionCovers.paid === 1 ? 'it' : 'them'} back.
+                            </span>
+                          )}
+
+                          {selectionCovers.paid > 0 && !confirmDelete ? (
+                            <button onClick={() => setConfirmDelete(true)}
+                                    style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 14px', color: '#D99A9A', borderColor: 'rgba(156,90,90,0.4)' }}>
+                              Delete for everyone
+                            </button>
+                          ) : (
+                            <button onClick={deleteSelected} disabled={deleting}
+                                    style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 14px', color: '#D99A9A', borderColor: 'rgba(156,90,90,0.4)' }}>
+                              {deleting ? 'Deleting…'
+                                : selectionCovers.paid > 0 ? 'Yes, delete paid media' : 'Delete for everyone'}
+                            </button>
+                          )}
+                          <button onClick={() => { setPickedMsgs([]); setConfirmDelete(false); }}
+                                  style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 14px' }}>
                             Cancel
                           </button>
                         </div>
