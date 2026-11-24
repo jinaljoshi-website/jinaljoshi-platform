@@ -1357,6 +1357,11 @@ const COVER_FALLBACK = `COALESCE(s.cover_key,
   (SELECT r2_key FROM set_items WHERE set_id = s.id
    AND media_type <> 'video' ORDER BY position ASC, created_at ASC LIMIT 1))`;
 
+// Whitelisted rather than interpolated. The value reaches an ORDER BY, and the
+// only safe way to let a query string choose a sort is to let it choose from a
+// list written here.
+const ORDERS = ['arranged', 'published', 'shoot_newest', 'shoot_oldest'];
+
 router.get('/content', async (req, res) => {
   try {
     // Each page asks for its own and sees nothing of the other, so there is no
@@ -1439,12 +1444,18 @@ router.get('/content', async (req, res) => {
              )
            )
          )
-       -- Two ways of looking at the same shelf.
+       -- Four ways of looking at the same shelf.
        --
        -- The arranged order is what fans see, so arranging here is arranging
        -- there. But finding a set you uploaded on Tuesday among a hundred
        -- arranged by hand is its own problem, and the newest-first view answers
        -- it without disturbing anything.
+       --
+       -- The shoot orders answer a different question again: not "what did
+       -- fans see first" but "when was this taken". For an archive going back
+       -- to 2017 those are nothing like each other — a 2018 villa shoot went
+       -- live last month — and finding every set from one shoot means sorting
+       -- by when it happened.
        ORDER BY
          -- Pinned first in either order. A set pinned to the top is pinned to
          -- the top, and having that hold in one view and not the other would
@@ -1456,9 +1467,21 @@ router.get('/content', async (req, res) => {
          -- before anybody saw them and is not an order anybody thinks in. The
          -- useful sequence is the one fans experienced: what appeared first.
          CASE WHEN $2::text = 'published' THEN COALESCE(s.published_at, s.created_at) END DESC,
+         -- A set with no shoot month yet falls back to when it went live,
+         -- which is the same rule the gallery uses — so a set sits in the same
+         -- place here as a fan sees it, rather than dropping to the bottom in
+         -- one view and not the other.
+         --
+         -- A CASE that is NULL for every row is a constant and reorders
+         -- nothing, so the three date clauses can sit here together and only
+         -- the chosen one has any say.
+         CASE WHEN $2::text = 'shoot_newest'
+              THEN COALESCE(s.shoot_month, s.published_at::date, s.created_at::date) END DESC,
+         CASE WHEN $2::text = 'shoot_oldest'
+              THEN COALESCE(s.shoot_month, s.published_at::date, s.created_at::date) END ASC,
          s.display_order ASC NULLS LAST,
          COALESCE(s.published_at, s.created_at) DESC`,
-      [wantCollection, req.query.order === 'published' ? 'published' : 'arranged']
+      [wantCollection, ORDERS.includes(req.query.order) ? req.query.order : 'arranged']
     );
     const { rows: itemCounts } = await pool.query(
       `SELECT set_id, tier_category, COUNT(*) AS count FROM set_items GROUP BY set_id, tier_category`

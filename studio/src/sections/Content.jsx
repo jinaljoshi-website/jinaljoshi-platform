@@ -420,7 +420,7 @@ export function Content({ openWith, collection = false, upload = false }) {
     upload ? '/api/studio/content/queue'
            : `/api/studio/content?${new URLSearchParams({
                ...(collection ? { collection: '1' } : {}),
-               ...(setOrder === 'published' ? { order: 'published' } : {}),
+               ...(setOrder !== 'arranged' ? { order: setOrder } : {}),
              })}`
   ).then((d) => setSets(d.sets || []));
   // Reloaded from the server rather than re-sorted here, because the arranged
@@ -1510,14 +1510,26 @@ export function Content({ openWith, collection = false, upload = false }) {
             // arranging is disabled while looking that way, so nothing can be
             // reordered by accident against a sequence that is not the real one. */}
         {sets.length > 1 && !arranging && (
-          <button onClick={() => setSetOrder(setOrder === 'published' ? 'arranged' : 'published')}
+          /* A picker rather than a toggle, now that there are four orders
+             and not two.
+             //
+             // "Went live" is the sequence fans experienced. "Shot" is when the
+             // photographs were taken, which for an archive going back to 2017
+             // is a different order entirely — a 2018 villa shoot went live
+             // last month. Neither is when the files were uploaded, which can
+             // be weeks before anybody saw them and is an order nobody thinks
+             // in, so it is not offered. */
+          <select value={setOrder}
+                  onChange={(e) => setSetOrder(e.target.value)}
+                  title="How this list is ordered"
+                  aria-label="How this list is ordered"
                   style={{ ...S.ghostBtn, fontSize: 12, padding: '6px 12px',
-                           ...(setOrder === 'published' ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
-            {/* When it went live, which is the sequence fans experienced —
-                not when the photographs were uploaded, which can be weeks
-                earlier and is an order nobody thinks in. */}
-            {setOrder === 'published' ? 'By when it went live' : 'Order by when it went live'}
-          </button>
+                           ...(setOrder !== 'arranged' ? { color: colors.accent, borderColor: colors.accent } : {}) }}>
+            <option value="arranged">Arranged order (what fans see)</option>
+            <option value="published">Went live: newest first</option>
+            <option value="shoot_newest">Shot: newest first</option>
+            <option value="shoot_oldest">Shot: oldest first</option>
+          </select>
         )}
       </div>
 
@@ -1874,6 +1886,12 @@ export function Content({ openWith, collection = false, upload = false }) {
                       {set.photographer && <span style={{ color: colors.accent }}>{set.photographer} · </span>}
                       Base price {set.price_coins} tokens
                       {summary && ` · ${summary}`}
+                      {/* Shown because the list can now be ordered by it, and a
+                          sort by a date that appears nowhere on the card is a
+                          sequence you have to take on trust. Absent rather than
+                          "Shot —" where it is unknown, which is most of what
+                          arrives before it has been set. */}
+                      {shootLabel(set.shoot_month) && ` · ${shootLabel(set.shoot_month)}`}
                     </div>
 
                     {/* How the fit check went.
@@ -2500,6 +2518,19 @@ function ShootMonthField({ value, onChange }) {
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
                      'July', 'August', 'September', 'October', 'November', 'December'];
+
+// "Shot Oct 2023", or nothing.
+//
+// Read off the string rather than through a Date: Postgres sends a plain date,
+// and new Date('2023-10-01') is midnight UTC, which in any zone west of London
+// still reads as September when you ask it for the month.
+function shootLabel(value) {
+  if (!value) return null;
+  const m = String(value).match(/^(\d{4})-(\d{2})/);
+  if (!m) return null;
+  const name = MONTH_NAMES[Number(m[2]) - 1];
+  return name ? `Shot ${name.slice(0, 3)} ${m[1]}` : null;
+}
 
 function PhotographerPicker({ names, onChange, options }) {
   const [draft, setDraft] = useState('');
