@@ -39,6 +39,7 @@ import { Selfies }       from '../sections/Selfies';
 import { Photographers } from '../sections/Photographers';
 import { Activity }      from '../sections/Activity';
 import { MerchMedia }    from '../sections/MerchMedia';
+import { Security }      from '../sections/Security';
 import { RingWatch }     from '../components/RingWatch';
 
 // Two groups, because two different jobs share this login. Jinal answers
@@ -76,6 +77,7 @@ const ADMIN_NAV = [
   { id: 'merchmedia',    label: 'Media library' },
   { id: 'notifications', label: 'Send a push'   },
   { id: 'website',       label: 'Website'       },
+  { id: 'security',      label: 'Security'      },
   { id: 'settings',      label: 'Settings'      },
 ];
 
@@ -166,6 +168,7 @@ const SECTIONS = {
   website:       Website,
   invoices:      Invoices,
   settings:      Settings,
+  security:      Security,
 };
 
 const sans    = "'DM Sans', system-ui, sans-serif";

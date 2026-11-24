@@ -7,6 +7,7 @@ const { getGuestMultiplier } = require('../lib/config');
 const { roundTokensUp } = require('../lib/pricing');
 const { postSystemMessage } = require('./community');
 const { assertNotBlocked } = require('../lib/moderation');
+const integrity = require('../lib/integrity');
 const { spendTokens, refundByRelated } = require('../lib/tokens');
 const { depositFor, checkPayment, recordPayment, outstanding, limits } = require('../lib/requestPayments');
 
@@ -91,6 +92,26 @@ router.post('/request', authMid, async (req, res) => {
   } catch (err) {
     return res.status(403).json({ error: err.code || 'RESTRICTED', message: err.message });
   }
+
+  // A reference URL is shown to Jinal in Studio as a link she is meant to
+  // click — that is the whole point of the field. So it has to actually be a
+  // web address. Without this check a member could submit
+  // javascript:...localStorage.getItem('jwt')... and the link in Studio would
+  // hand over her session the moment she opened it. Clicking a member's
+  // reference is the normal workflow, so she would.
+  //
+  // An allow-list of two schemes, not a search for bad ones: there is no
+  // cleverness here to get around.
+  for (const [field, value] of [['reference link', referenceUrl], ['reference image', referenceImageUrl]]) {
+    const v = value?.trim();
+    if (!v) continue;
+    if (!/^https?:\/\//i.test(v)) {
+      return res.status(400).json({ error: `Please give the ${field} as a web address starting with http:// or https://` });
+    }
+  }
+
+  const screened = await integrity.screen(req, { topic, details });
+  if (screened) return res.status(screened.status).json(screened.body);
 
   const client = await pool.connect();
   try {

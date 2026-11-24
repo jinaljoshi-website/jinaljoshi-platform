@@ -8,6 +8,7 @@ const artistOnly = require('../middleware/artistOnly');
 const { postSystemMessage } = require('./community');
 const { pushToUser } = require('./push');
 const { applyBlock, liftBlock, setMuted, logModerationAction } = require('../lib/moderation');
+const { applyIntegrityBlock, liftIntegrityBlock } = require('../lib/integrity');
 const { notifyArtist } = require('../lib/notify');
 const { approveCollectionsAccess, grantCollectionsAccess } = require('../lib/collections');
 const { scanInBackground } = require('../lib/moderation-scan');
@@ -5333,6 +5334,89 @@ router.patch('/portfolio/works/:id', async (req, res) => {
 router.delete('/portfolio/works/:id', async (req, res) => {
   await pool.query(`DELETE FROM portfolio_works WHERE id = $1`, [req.params.id]);
   res.json({ ok: true });
+});
+
+// ─────────────────────────────────────────────
+// Security
+//
+// What the integrity detector has seen, and the one control that matters: a
+// way to let somebody back in. An indefinite automatic block with no visible
+// undo is a trap for whoever gets caught by it wrongly, so the undo ships in
+// the same change as the block.
+// ─────────────────────────────────────────────
+
+router.get('/security', async (req, res) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
+
+    const { rows: events } = await pool.query(
+      `SELECT e.id, e.created_at, e.user_id, e.signal, e.severity, e.action,
+              e.method, e.path, e.ip, e.sample,
+              COALESCE(NULLIF(TRIM(u.display_name), ''), e.email, 'deleted account') AS who,
+              u.integrity_blocked_at IS NOT NULL AS still_blocked
+         FROM security_events e
+         LEFT JOIN users u ON u.id = e.user_id
+        WHERE e.created_at > NOW() - ($1 || ' days')::interval
+        ORDER BY e.created_at DESC
+        LIMIT 300`,
+      [String(days)]
+    );
+
+    // Blocked accounts are listed separately, because the reason to open this
+    // screen is usually to act on one rather than to read the log.
+    const { rows: blocked } = await pool.query(
+      `SELECT u.id, u.email, u.tier, u.integrity_blocked_at, u.integrity_reason,
+              COALESCE(NULLIF(TRIM(u.display_name), ''), split_part(u.email, '@', 1)) AS display_name,
+              (SELECT COUNT(*) FROM security_events e WHERE e.user_id = u.id) AS event_count
+         FROM users u
+        WHERE u.integrity_blocked_at IS NOT NULL
+        ORDER BY u.integrity_blocked_at DESC`
+    );
+
+    res.json({
+      events: events.map((e) => ({
+        id: e.id, at: e.created_at, userId: e.user_id, who: e.who,
+        signal: e.signal, severity: e.severity, action: e.action,
+        method: e.method, path: e.path, ip: e.ip, sample: e.sample,
+        stillBlocked: e.still_blocked,
+      })),
+      blocked: blocked.map((b) => ({
+        userId: b.id, displayName: b.display_name, email: b.email, tier: b.tier,
+        at: b.integrity_blocked_at, reason: b.integrity_reason,
+        eventCount: Number(b.event_count),
+      })),
+      days,
+    });
+  } catch (err) {
+    console.error('studio/security error:', err);
+    res.status(500).json({ error: 'Failed to load security events' });
+  }
+});
+
+// Blocking by hand, for the accounts the detector never saw because they were
+// created before it existed.
+router.post('/security/block/:userId', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT is_artist FROM users WHERE id = $1`, [req.params.userId]);
+    if (!rows.length)        return res.status(404).json({ error: 'No such account' });
+    if (rows[0].is_artist)   return res.status(400).json({ error: 'That is your own account' });
+
+    const out = await applyIntegrityBlock(req.params.userId, (req.body?.reason || 'Blocked by hand from Studio').slice(0, 200));
+    res.json({ ok: true, sessionsEnded: out.sessionsEnded });
+  } catch (err) {
+    console.error('studio/security/block error:', err);
+    res.status(500).json({ error: 'Failed to block' });
+  }
+});
+
+router.post('/security/lift/:userId', async (req, res) => {
+  try {
+    await liftIntegrityBlock(req.params.userId, (req.body?.note || null));
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('studio/security/lift error:', err);
+    res.status(500).json({ error: 'Failed to lift the block' });
+  }
 });
 
 module.exports = router;

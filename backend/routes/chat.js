@@ -6,6 +6,7 @@ const { notifyArtist } = require('../lib/notify');
 const { getDmConfigForTier } = require('../lib/config');
 const { effectiveDmFree } = require('../lib/allowance');
 const { assertNotBlocked, assertNotMuted } = require('../lib/moderation');
+const integrity = require('../lib/integrity');
 const { getLocalDateStr, getAllotmentPeriodKey } = require('../lib/time');
 const { spendTokens, getBalances } = require('../lib/tokens');
 const { clip, jsonForPg } = require('../lib/jsonsafe');
@@ -461,6 +462,12 @@ router.post('/send', authMid, async (req, res) => {
   } catch (err) {
     return res.status(403).json({ error: err.code || 'RESTRICTED', message: err.message });
   }
+
+  // Checked here rather than beside the length cap above, so the conduct
+  // blocks answer first: somebody already restricted gets told that, not a
+  // message about their characters.
+  const screened = await integrity.screen(req, { message: content });
+  if (screened) return res.status(screened.status).json(screened.body);
 
   const client = await pool.connect();
   try {

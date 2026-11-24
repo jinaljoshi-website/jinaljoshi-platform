@@ -14,6 +14,18 @@ const { sendJoinedWelcome } = require('../lib/welcome');
 // sits far above plausible human behaviour, so a member who genuinely forgot a
 // password is never the one refused.
 const rl = require('../middleware/rateLimit');
+const integrity = require('../lib/integrity');
+
+// A display name is a name, and this column had no bound at all, which is one
+// half of how an account came to be called <img src=x onerror=...>.
+//
+// Sixty rather than forty, and the difference was measured rather than
+// guessed: across the 540 members who have set a name, the longest genuine one
+// is 39 characters and the median is 5. A cap of 40 would clear everybody
+// today by a single character, which is not headroom — the next member with a
+// long double-barrelled name would be the one who finds out. Sixty leaves room
+// for a real name and still bounds what a stranger can store.
+const NAME_MAX = 60;
 const { getConfigNumber } = require('../lib/config');
 
 async function logAccessEvent(userId, req, eventType) {
@@ -157,6 +169,16 @@ router.post('/signup', rl.signup, async (req, res) => {
   if (password.length < 8) {
     return res.status(400).json({ error: 'Password must be at least 8 characters' });
   }
+
+  // The display name arrives with no shape at all beyond a trim, which is how
+  // an account came to exist called <img src=x onerror=alert(...)>. Checked
+  // before the row is written, so the account is never created in that shape
+  // and there is nothing to clean up afterwards.
+  if (displayName != null && String(displayName).trim().length > NAME_MAX) {
+    return res.status(400).json({ error: `Display name cannot be longer than ${NAME_MAX} characters.` });
+  }
+  const nameCheck = await integrity.screen(req, { displayName });
+  if (nameCheck) return res.status(nameCheck.status).json(nameCheck.body);
 
   const birthDate = new Date(dob);
   const today     = new Date();
@@ -720,6 +742,14 @@ router.post('/cancel-close', authMid, async (req, res) => {
 
 router.patch('/profile', authMid, async (req, res) => {
   const { displayName, dob } = req.body;
+
+  // The same two checks as signup. A name refused at the door is no use if it
+  // can be set from the profile screen a minute later.
+  if (displayName != null && String(displayName).trim().length > NAME_MAX) {
+    return res.status(400).json({ error: `Display name cannot be longer than ${NAME_MAX} characters.` });
+  }
+  const nameCheck = await integrity.screen(req, { displayName });
+  if (nameCheck) return res.status(nameCheck.status).json(nameCheck.body);
 
   if (dob) {
     const birthDate = new Date(dob);

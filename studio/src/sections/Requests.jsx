@@ -175,6 +175,18 @@ export function Requests({ openWith }) {
   );
 }
 
+// A reference link is only a link if it is http or https. Checked by parsing,
+// not by pattern: a URL object knows what its own protocol is, and a regex
+// guessing at it is how "java\nscript:" gets through.
+function isWebUrl(value) {
+  try {
+    const u = new URL(String(value || '').trim());
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;   // Not parseable as a URL at all, so not a link.
+  }
+}
+
 function RequestRow({
   request: r, onUpdate, rejecting, onStartReject, onCancelReject, onConfirmReject, reason, onReasonChange,
   countering, onStartCounter, onCancelCounter, onSubmitCounter, counterAmount, onCounterAmountChange, counterNote, onCounterNoteChange,
@@ -221,7 +233,20 @@ function RequestRow({
       {r.reference_url && (
         <div style={{ fontFamily: sans, fontSize: 13, marginBottom: 10 }}>
           <span style={{ color: colors.muted }}>Reference: </span>
-          <a href={r.reference_url} target="_blank" rel="noopener noreferrer" style={{ color: colors.accent, wordBreak: 'break-all' }}>{r.reference_url}</a>
+          {/* Only made clickable if it is really a web address.
+
+              The request text comes from a member, and this link is one Jinal
+              is meant to click. A javascript: address here would run in her
+              Studio session, where her own token is, so the scheme is checked
+              before it becomes an href. The backend refuses these on the way
+              in as well; this is the half that protects her from the rows
+              already in the table. Anything else is shown as plain text, so
+              she can still read what was sent. */}
+          {isWebUrl(r.reference_url)
+            ? <a href={r.reference_url} target="_blank" rel="noopener noreferrer" style={{ color: colors.accent, wordBreak: 'break-all' }}>{r.reference_url}</a>
+            : <span style={{ color: colors.muted, wordBreak: 'break-all' }}>
+                {r.reference_url} <span style={{ color: '#D96C6C' }}>· not a usable link</span>
+              </span>}
         </div>
       )}
 

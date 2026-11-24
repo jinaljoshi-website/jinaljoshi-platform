@@ -38,8 +38,21 @@ module.exports = async (req, res, next) => {
     // Checks whether THIS specific session still exists, rather than comparing against
     // a single row — works correctly whether the account has exactly one active session
     // (fans) or several at once (Jinal's multi-device access).
+    // The integrity flag is read in the same round trip, by joining the user
+    // row that is already identified by the session. One query, as before.
+    //
+    // This check belongs here rather than at the action routes where
+    // assertNotBlocked sits, and the difference is deliberate. A behavioural
+    // block stops a member from posting, bidding and messaging while leaving
+    // them able to look around, which is the right shape for conduct. Somebody
+    // mapping the platform is mostly reading, so a block that permits reading
+    // barely inconveniences them. This one is checked before any route runs,
+    // so it closes everything at once.
     const { rows } = await pool.query(
-      'SELECT 1 FROM active_sessions WHERE user_id = $1 AND session_id = $2',
+      `SELECT u.integrity_blocked_at
+         FROM active_sessions s
+         JOIN users u ON u.id = s.user_id
+        WHERE s.user_id = $1 AND s.session_id = $2`,
       [decoded.userId, decoded.sessionId]
     );
 
@@ -47,6 +60,17 @@ module.exports = async (req, res, next) => {
       return res.status(401).json({
         error: 'SESSION_EXPIRED',
         message: 'You were signed in on another device.'
+      });
+    }
+
+    // Set means blocked, with no expiry read from it: an integrity block ends
+    // when Jinal ends it in Studio, not when a clock runs out. The message
+    // says nothing about why, because naming the reason is free advice for
+    // the next attempt.
+    if (rows[0].integrity_blocked_at) {
+      return res.status(403).json({
+        error: 'ACCOUNT_RESTRICTED',
+        message: 'This account has been restricted. Contact support if you believe this is a mistake.'
       });
     }
 

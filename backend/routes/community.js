@@ -4,6 +4,7 @@ const pool    = require('../db/pool');
 const authMid = require('../middleware/auth');
 const { getConfigNumber } = require('../lib/config');
 const { assertNotBlocked } = require('../lib/moderation');
+const integrity = require('../lib/integrity');
 const { getLocalDateStr } = require('../lib/time');
 
 // Community chat is free. Members post without limit; guests get one message a
@@ -214,6 +215,11 @@ router.post('/post', authMid, async (req, res) => {
   } catch (err) {
     return res.status(403).json({ error: err.code || 'RESTRICTED', message: err.message });
   }
+
+  // The Public Corner is the one place a payload would be shown to other
+  // members rather than only to Jinal, so it is screened before it is stored.
+  const screened = await integrity.screen(req, { post: content });
+  if (screened) return res.status(screened.status).json(screened.body);
 
   const client = await pool.connect();
   try {
