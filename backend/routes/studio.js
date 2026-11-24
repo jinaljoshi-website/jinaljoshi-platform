@@ -468,6 +468,10 @@ router.get('/fans', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT u.id, u.email, u.display_name, u.tier, u.membership_expires_at,
               u.coin_balance, u.created_at, u.is_muted, u.blocked_until, u.block_count,
+              -- The integrity block, which is a different thing from
+              -- blocked_until above: that one is the conduct ladder and expires
+              -- on its own, this one does not expire at all.
+              u.integrity_blocked_at, u.integrity_reason,
               -- Bonus tokens, which were credited and never shown. A grant
               -- landed in the account and the one screen that manages accounts
               -- had no way to say so — indistinguishable from it having failed.

@@ -235,6 +235,11 @@ export function Members() {
   };
   const [blockingId,  setBlockingId]  = useState(null);
   const [blockReason, setBlockReason] = useState('');
+  // The immediate block is deliberately a separate pair of states from the
+  // ladder above: confirmForever is the two-tap guard, integrityId is which
+  // row is mid-request.
+  const [integrityId,    setIntegrityId]    = useState(null);
+  const [confirmForever, setConfirmForever] = useState(null);
 
   const [error,   setError]   = useState('');
   const [success, setSuccess] = useState('');
@@ -469,8 +474,8 @@ export function Members() {
     }
   };
 
-  const startBlock = (fanId) => { setBlockingId(fanId); setBlockReason(''); };
-  const cancelBlock = () => { setBlockingId(null); setBlockReason(''); };
+  const startBlock = (fanId) => { setBlockingId(fanId); setBlockReason(''); setConfirmForever(null); };
+  const cancelBlock = () => { setBlockingId(null); setBlockReason(''); setConfirmForever(null); };
 
   const confirmBlock = async (fanId) => {
     setError('');
@@ -483,6 +488,35 @@ export function Members() {
     } catch (err) {
       setError(err.message);
     }
+  };
+
+  // Shuts the account now and for good: the flag has no expiry and every
+  // session is dropped, so whoever is holding that login is signed out
+  // mid-action rather than at their next visit. Reversible only from here or
+  // the Security screen.
+  const blockForever = async (fanId) => {
+    if (confirmForever !== fanId) { setConfirmForever(fanId); return; }
+    setIntegrityId(fanId); setError(''); setSuccess('');
+    try {
+      await api.post(`/api/studio/security/block/${fanId}`,
+        { reason: blockReason.trim() || 'Blocked by hand from Members' });
+      setSuccess('Account blocked. It stays blocked until you let them back in.');
+      setBlockingId(null); setBlockReason(''); setConfirmForever(null);
+      loadFans();
+      loadModLog();
+    } catch (e) { setError(e.message); }
+    finally { setIntegrityId(null); }
+  };
+
+  const liftIntegrity = async (fanId) => {
+    setIntegrityId(fanId); setError(''); setSuccess('');
+    try {
+      await api.post(`/api/studio/security/lift/${fanId}`, {});
+      setSuccess('They can sign in again.');
+      loadFans();
+      loadModLog();
+    } catch (e) { setError(e.message); }
+    finally { setIntegrityId(null); }
   };
 
   const unblock = async (fanId) => {
@@ -951,7 +985,18 @@ export function Members() {
                   {mutingId === fan.id ? '…' : fan.is_muted ? 'Unmute' : 'Mute chat & calls'}
                 </button>
 
-                {isBlocked ? (
+                {/* An account shut for integrity is shown on its own, because
+                    it is not the same state as a restriction running down a
+                    clock and should not be read as one. Nothing lifts it but
+                    this button. */}
+                {fan.integrity_blocked_at ? (
+                  <button
+                    onClick={() => liftIntegrity(fan.id)}
+                    disabled={integrityId === fan.id}
+                    style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', color: '#8FC88F' }}>
+                    {integrityId === fan.id ? '…' : 'Let back in'}
+                  </button>
+                ) : isBlocked ? (
                   <button onClick={() => unblock(fan.id)} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px', color: '#8FC88F' }}>
                     Lift restriction
                   </button>
@@ -966,6 +1011,22 @@ export function Members() {
                     <button onClick={() => confirmBlock(fan.id)} style={{ ...S.btn, fontSize: 11, padding: '5px 10px', background: '#9C5A5A', border: 'none' }}>
                       Confirm restriction
                     </button>
+
+                    {/* The way out of the ladder. Two taps, because it does not
+                        expire and it ends their session mid-use — but only two,
+                        because the moment you need it is the moment you do not
+                        want to be reading a form. */}
+                    <button
+                      onClick={() => blockForever(fan.id)}
+                      disabled={integrityId === fan.id}
+                      style={{ ...S.btn, fontSize: 11, padding: '5px 10px',
+                               background: confirmForever === fan.id ? '#8B3A3A' : 'transparent',
+                               color: confirmForever === fan.id ? '#F2EBE0' : '#D99A9A',
+                               border: '1px solid rgba(156,90,90,0.5)' }}>
+                      {integrityId === fan.id ? '…'
+                        : confirmForever === fan.id ? 'Tap again — no expiry' : 'Block immediately'}
+                    </button>
+
                     <button onClick={cancelBlock} style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>Cancel</button>
                   </div>
                 ) : (
