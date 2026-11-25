@@ -2524,6 +2524,39 @@ const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
 // Read off the string rather than through a Date: Postgres sends a plain date,
 // and new Date('2023-10-01') is midnight UTC, which in any zone west of London
 // still reads as September when you ask it for the month.
+// Why a photograph is going.
+//
+// Asked at the moment of the decision, because that is the only moment the
+// answer is known — coming back to a wall of rejects later and reconstructing
+// why is guesswork. The first nine are on the number keys, so the whole
+// removal costs two keystrokes: 0, then the digit. The rest are a click away,
+// and 0 twice removes it without saying why, which keeps the fast path as fast
+// as it was before there was anything to say.
+//
+// The note is stored as the words below rather than a code, because the thing
+// that reads it is a person looking at a list months from now.
+const REMOVAL_REASONS = [
+  { key: '1', label: 'Mid-pose' },
+  { key: '2', label: 'Awkward pose' },
+  { key: '3', label: 'Not aesthetic' },
+  { key: '4', label: 'Proportions look off' },
+  { key: '5', label: 'Fold or crease' },
+  { key: '6', label: 'Scars or marks visible' },
+  { key: '7', label: 'Too explicit' },
+  { key: '8', label: 'Eyes closed or blinking' },
+  { key: '9', label: 'Soft focus or blur' },
+  // Past nine digits, so these are clicked. Still worth having: most of a
+  // cull is craft rather than the subject, and a reason she can pick is a
+  // reason that actually gets recorded.
+  { label: 'Expression off' },
+  { label: 'Hair across the face' },
+  { label: 'Wardrobe slipped' },
+  { label: 'Harsh light or shadow' },
+  { label: 'Distracting background' },
+  { label: 'Too similar to another' },
+  { label: 'Framing or crop off' },
+];
+
 function shootLabel(value) {
   if (!value) return null;
   const m = String(value).match(/^(\d{4})-(\d{2})/);
@@ -2948,6 +2981,13 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  // The photograph that has just been marked and is waiting to be told why.
+  // Null the rest of the time, and while it is set the number keys mean
+  // reasons rather than tiers.
+  const [reasonFor,  setReasonFor]  = useState(null);
+  const [otherText,  setOtherText]  = useState('');
+  const [otherOpen,  setOtherOpen]  = useState(false);
+
   const TIER_KEYS = {
     1: 'free', 2: 'community', 3: 'insider', 4: 'premium', 5: 'supreme',
     6: 'purchase_only', 7: 'collection',
@@ -2991,10 +3031,43 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
 
   const markRemove = async () => {
     if (!current) return;
+    // Pressing 0 on a photograph already waiting for a reason means "no
+    // reason, move on", so the fast path is 0 0 and never needs the mouse.
+    if (reasonFor === current.id) { closeReason(); go(1); return; }
     try {
       await api.post('/api/studio/content/items/flag', { itemIds: [current.id], flag: 'remove' });
       onItemsChanged?.([current.id], { review_flag: 'remove', reviewed_at: new Date().toISOString() });
-    } catch { /* leaving it unmarked is safe */ }
+    } catch (err) {
+      // Not advancing on a failure, for the reason keepHere already learned:
+      // moving on made a mark that never happened look exactly like one that
+      // did, and the photograph came back unreviewed later with nothing to
+      // say why.
+      onKeepFailed?.(current.id, err.message);
+      return;
+    }
+    // Marked. Now ask why, without moving — the answer is only known while
+    // the picture is still in front of her.
+    setReasonFor(current.id);
+    setOtherOpen(false);
+    setOtherText('');
+  };
+
+  const closeReason = () => { setReasonFor(null); setOtherOpen(false); setOtherText(''); };
+
+  // Attaches the reason to the photograph that was just marked, then moves on.
+  // A failure here loses the note and keeps the mark, which is the right way
+  // round: the decision matters and the annotation does not.
+  const giveReason = async (label) => {
+    const id = reasonFor;
+    const note = (label || '').trim().slice(0, 200);
+    closeReason();
+    if (id && note) {
+      try {
+        await api.post('/api/studio/content/items/flag',
+          { itemIds: [id], flag: 'remove', note });
+        onItemsChanged?.([id], { review_note: note });
+      } catch { /* the photograph is still marked; only the note is lost */ }
+    }
     go(1);
   };
 
@@ -3002,6 +3075,28 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
     if (at < 0) return;
     const onKey = (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // While a reason is being asked for, the number keys answer that
+      // question instead of filing a tier. Handled before everything else and
+      // always returning, so a digit cannot do both.
+      if (reasonFor) {
+        if (otherOpen) {
+          // Typing a reason: let the field have the keyboard, except for the
+          // two keys that finish.
+          if (e.key === 'Enter')  { e.preventDefault(); giveReason(otherText); }
+          if (e.key === 'Escape') { e.preventDefault(); setOtherOpen(false); }
+          return;
+        }
+        const pick = REMOVAL_REASONS.find((r) => r.key && r.key === e.key);
+        if (pick)                   { e.preventDefault(); giveReason(pick.label); return; }
+        if (e.key === '0')          { e.preventDefault(); closeReason(); go(1); return; }
+        if (e.key === 'Enter' ||
+            e.key === 'ArrowRight') { e.preventDefault(); closeReason(); go(1); return; }
+        if (e.key === 'ArrowLeft')  { e.preventDefault(); closeReason(); go(-1); return; }
+        // Escape leaves the photograph marked and simply stops asking.
+        if (e.key === 'Escape')     { e.preventDefault(); closeReason(); return; }
+        return;
+      }
+
       // In a collection there is no tier to assign, so 1 is the whole of the
       // other answer: keep it. Anywhere else the numbers are tiers.
       if (collection && e.key === '1') { e.preventDefault(); keepHere(); return; }
@@ -3013,7 +3108,7 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [at, walk.length, current]);
+  }, [at, walk.length, current, reasonFor, otherOpen, otherText]);
 
   // Warm the next image so stepping forward feels instant. Deliberately modest:
   // holding down the arrow key through a few hundred photos would otherwise
@@ -3183,7 +3278,15 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
                                         opacity: selecting && !isSelected(item.id) ? 0.55 : 1 }} />
                   )}
                   {item.review_flag === 'remove' && (
-                    <div style={{ ...flagChip, color: '#D99A9A', borderColor: 'rgba(217,154,154,0.5)' }}>to be removed</div>
+                    <div style={{ ...flagChip, color: '#D99A9A', borderColor: 'rgba(217,154,154,0.5)' }}
+                         title={item.review_note || 'No reason recorded'}>
+                      {/* The reason in place of the generic label where there
+                          is one: on a wall of rejects, which ones went for
+                          which reason is the whole of what the note is for.
+                          The full text is on hover, since a chip this size
+                          will clip a longer one. */}
+                      {item.review_note || 'to be removed'}
+                    </div>
                   )}
 
                   {/* A second opinion, not a verdict.
@@ -3553,6 +3656,55 @@ function ReviewPanel({ set, items, loading, onClose, onDelete, onRetier, onItems
               )}
             </div>
 
+            {/* Why it is going.
+                //
+                // Sits under the picture rather than over it, because the
+                // question is about what she is still looking at. Appears only
+                // for the photograph just marked, and never blocks: every way
+                // out of it — a digit, 0 again, Enter, an arrow, Escape —
+                // leaves the mark in place and differs only in whether a
+                // reason was recorded. */}
+            {reasonFor === current.id && (
+              <div style={reasonBar}>
+                <div style={reasonHead}>
+                  <span style={{ color: '#D99A9A' }}>Marked for removal.</span>{' '}
+                  Why? <span style={reasonHint}>press a number, or 0 to skip</span>
+                </div>
+
+                {!otherOpen ? (
+                  <div style={reasonWrap}>
+                    {REMOVAL_REASONS.map((r) => (
+                      <button key={r.label} onClick={() => giveReason(r.label)} style={reasonChip}>
+                        {r.key && <span style={reasonKey}>{r.key}</span>}
+                        {r.label}
+                      </button>
+                    ))}
+                    <button onClick={() => setOtherOpen(true)} style={{ ...reasonChip, color: colors.muted }}>
+                      Something else…
+                    </button>
+                    <button onClick={() => { closeReason(); go(1); }}
+                            style={{ ...reasonChip, color: colors.muted, borderStyle: 'dashed' }}>
+                      <span style={reasonKey}>0</span>No reason
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input
+                      autoFocus
+                      value={otherText}
+                      onChange={(e) => setOtherText(e.target.value)}
+                      placeholder="In your own words"
+                      maxLength={200}
+                      style={{ ...S.input, flex: 1, minWidth: 200, padding: '6px 10px', fontSize: 12 }}
+                    />
+                    <button onClick={() => giveReason(otherText)} style={reasonChip}>Save</button>
+                    <button onClick={() => setOtherOpen(false)}
+                            style={{ ...reasonChip, color: colors.muted }}>Back</button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* The desk controls, on a desk.
                 //
                 // A dropdown and a Remove button underneath the picture do the
@@ -3649,6 +3801,25 @@ const sideBtn      = { fontFamily: mono, fontSize: 15, width: 40, height: 40, bo
 const lbStage      = { position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', flex: 1, minHeight: 0 };
 const lbArrow      = { position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: 40, height: 40, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.12)', color: '#fff', fontSize: 24, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, zIndex: 2 };
 const lbActions    = { display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' };
+
+// The reason strip. Deliberately quiet — it is a question, not an alarm, and
+// it appears hundreds of times in a sitting.
+const reasonBar  = { marginTop: 10, padding: '10px 12px', borderRadius: 10,
+                     background: 'rgba(217,154,154,0.06)',
+                     border: '1px solid rgba(217,154,154,0.22)', maxWidth: 760,
+                     marginLeft: 'auto', marginRight: 'auto' };
+const reasonHead = { fontFamily: sans, fontSize: 12, color: '#B8AFA4', marginBottom: 8 };
+const reasonHint = { color: '#7C736A', fontSize: 11 };
+const reasonWrap = { display: 'flex', flexWrap: 'wrap', gap: 6 };
+const reasonChip = { fontFamily: sans, fontSize: 12, padding: '5px 10px', borderRadius: 999,
+                     background: 'transparent', color: '#E8DFD2', cursor: 'pointer',
+                     border: '1px solid rgba(255,255,255,0.16)',
+                     display: 'inline-flex', alignItems: 'center', gap: 6 };
+// The digit, shown on the chip so the keyboard shortcut is learned by using
+// the mouse rather than by being told about it somewhere else.
+const reasonKey  = { fontFamily: mono, fontSize: 10, color: '#8C8279',
+                     border: '1px solid rgba(255,255,255,0.14)', borderRadius: 4,
+                     padding: '0 4px', lineHeight: '14px' };
 const lbSelect     = { background: '#100F0C', border: '1px solid rgba(255,255,255,0.18)', color: '#E8E1D8', fontFamily: sans, fontSize: 12, padding: '6px 10px', borderRadius: 6, outline: 'none' };
 const lightboxMedia = { maxWidth: 'min(92vw, 900px)', maxHeight: '70vh', objectFit: 'contain', borderRadius: 8, display: 'block' };
 const lightboxDelete = { background: '#9C5A5A', border: 'none', color: '#fff', fontFamily: sans, fontSize: 13, fontWeight: 700, padding: '9px 18px', borderRadius: 8, cursor: 'pointer' };

@@ -2721,7 +2721,10 @@ router.post('/content/items/flag', async (req, res) => {
               reviewed_at = NOW()
         WHERE id = ANY($3::uuid[])
         RETURNING id, review_flag, review_note, reviewed_at`,
-      [flag, note || null, itemIds]
+      // Bounded here as well as in Studio. A note is a few words about why a
+      // photograph is going, and the column should not be able to hold an
+      // essay because a client forgot to stop.
+      [flag, (typeof note === 'string' ? note.trim().slice(0, 200) : null) || null, itemIds]
     );
     res.json({ ok: true, updated: rows.length, items: rows });
   } catch (err) {
