@@ -283,7 +283,14 @@ export function Members() {
   // time is beside the point for them and revoking it changes nothing.
   const bySupreme  = (f) => f.tier === 'supreme'
                          && f.membership_expires_at && new Date(f.membership_expires_at) > new Date();
-  const trialInNow = trialFans.filter(inNow).length;
+  // Barred outranks both ways in, so it is read first — the same order the
+  // server reads them in.
+  const barred       = (f) => !!f.collections_barred_at;
+  const hasCollection = (f) => !barred(f) && (inNow(f) || bySupreme(f));
+  // Counts who can actually open it, not who holds granted time. A Supreme
+  // member with no granted time could open the collection all along and was
+  // missing from this number; somebody barred is in it no longer.
+  const trialInNow = trialFans.filter(hasCollection).length;
 
   const SORTS = {
     joined:  { label: 'Newest',        fn: (a, b) => new Date(b.created_at) - new Date(a.created_at) },
@@ -466,6 +473,50 @@ export function Members() {
         ? `${who} no longer holds any granted time, but Supreme reaches the collection on its own — that ends when the membership does.`
         : `${who} no longer has the private collection.`);
       setRevokeFor(null);
+      loadFans();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTrialBusy(null);
+    }
+  };
+
+  // The complete revoke: the one that works on Supreme.
+  //
+  // revokeCollection above ends granted time, which leaves a Supreme member
+  // still inside because the tier carries the collection on its own — its own
+  // success message has to admit that. This sets the bar the server reads
+  // before any of the three ways in, so it works on anybody, and it leaves
+  // the rest of the membership untouched.
+  const barCollection = async (fan) => {
+    setError(''); setSuccess('');
+    setTrialBusy(fan.id);
+    try {
+      const d = await api.post(`/api/studio/collections/${fan.id}/bar`, {});
+      const who = fan.display_name || fan.email;
+      setSuccess(d.hadNothing
+        ? `${who} did not have the collection; they are now barred from it either way.`
+        : d.wasInByTier
+          ? `${who} is out of the collection. Their Supreme membership is untouched — they keep everything else.`
+          : `${who} is out of the collection.`);
+      setRevokeFor(null);
+      loadFans();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTrialBusy(null);
+    }
+  };
+
+  const unbarCollection = async (fan) => {
+    setError(''); setSuccess('');
+    setTrialBusy(fan.id);
+    try {
+      const d = await api.post(`/api/studio/collections/${fan.id}/unbar`, {});
+      const who = fan.display_name || fan.email;
+      setSuccess(d.backInByTier
+        ? `${who} has the collection again through their Supreme membership.`
+        : `${who} is no longer barred, but holds no time — give them a trial for them to see anything.`);
       loadFans();
     } catch (err) {
       setError(err.message);
@@ -954,16 +1005,45 @@ export function Members() {
                   </button>
                 )}
 
-                {/* Only where there is something to take back, and only after
-                    being asked twice. */}
-                {tab === 'trial' && inNow(fan) && (
+                {/* Barred shows only the way back, because every other
+                    control here would be a lie while the bar is on: granting
+                    time to a barred account buys them nothing. */}
+                {tab === 'trial' && barred(fan) && (
+                  <button onClick={() => unbarCollection(fan)} disabled={trialBusy === fan.id}
+                          style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px',
+                                   color: '#8FC88F', borderColor: 'rgba(143,200,143,0.4)' }}>
+                    {trialBusy === fan.id ? 'Restoring…' : 'Barred — restore'}
+                  </button>
+                )}
+
+                {/* Offered to anybody who can actually open the collection,
+                    which now includes a Supreme member holding no granted
+                    time. They were absent from this control entirely, and
+                    that absence was the thing with no way around it. */}
+                {tab === 'trial' && !barred(fan) && hasCollection(fan) && (
                   revokeFor === fan.id ? (
                     <>
-                      <button onClick={() => revokeCollection(fan)} disabled={trialBusy === fan.id}
-                              style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px',
-                                       color: '#D98A8A', borderColor: '#D98A8A' }}>
-                        {trialBusy === fan.id ? 'Removing…' : 'Yes, remove access'}
+                      {/* The gentle one, offered only where there is granted
+                          time for it to end. On a Supreme member it would do
+                          nothing at all, so it is not shown to suggest it
+                          might. */}
+                      {inNow(fan) && (
+                        <button onClick={() => revokeCollection(fan)} disabled={trialBusy === fan.id}
+                                style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px',
+                                         color: '#D98A8A', borderColor: '#D98A8A' }}>
+                          {trialBusy === fan.id ? 'Removing…' : 'End granted time'}
+                        </button>
+                      )}
+
+                      {/* The one that always works. */}
+                      <button onClick={() => barCollection(fan)} disabled={trialBusy === fan.id}
+                              style={{ ...S.btn, fontSize: 11, padding: '5px 10px',
+                                       background: '#8B3A3A', border: 'none', color: '#F2EBE0' }}>
+                        {trialBusy === fan.id ? 'Removing…'
+                          : bySupreme(fan) && !inNow(fan) ? 'Remove, despite Supreme'
+                          : 'Remove completely'}
                       </button>
+
                       <button onClick={() => setRevokeFor(null)} disabled={trialBusy === fan.id}
                               style={{ ...S.ghostBtn, fontSize: 11, padding: '5px 10px' }}>
                         Keep it

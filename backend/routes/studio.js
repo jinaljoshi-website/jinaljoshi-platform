@@ -513,7 +513,7 @@ router.get('/fans', async (req, res) => {
 
               -- Where they stand with the private collection right now, so
               -- the trial is not offered to somebody who already has it.
-              u.collections_until,
+              u.collections_until, u.collections_barred_at,
 
               -- Last seen. active_sessions.last_seen_at is already written on
               -- every authenticated request, so this needed no new column and
@@ -813,7 +813,7 @@ router.get('/collections/waiting', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT u.id, u.email, u.display_name, u.tier,
               u.collections_days_owed, u.collections_eligible_at,
-              u.collections_until, u.collections_tranches,
+              u.collections_until, u.collections_barred_at, u.collections_tranches,
               u.created_at,
               (SELECT COALESCE(SUM(payment_amount_inr), 0)::int
                  FROM coin_ledger
@@ -839,6 +839,9 @@ router.get('/collections/waiting', async (req, res) => {
         // somebody is a smaller decision than letting them in.
         alreadyIn: r.collections_until && new Date(r.collections_until) > new Date(),
         holdsUntil: r.collections_until,
+        // Barred outranks everything, so the row says so rather than showing
+        // a grant button for somebody who would still see nothing.
+        barred: !!r.collections_barred_at,
         paidInr: r.paid_inr,
         messages: r.messages,
         memberSince: r.created_at,
@@ -901,7 +904,7 @@ router.post('/collections/:userId/trial', async (req, res) => {
     await client.query('BEGIN');
 
     const { rows } = await client.query(
-      `SELECT u.id, u.display_name, u.collections_until,
+      `SELECT u.id, u.display_name, u.collections_until, u.collections_barred_at,
               EXISTS (
                 SELECT 1 FROM coin_ledger cl
                 WHERE cl.user_id = u.id AND cl.type = 'membership_purchase'
@@ -997,6 +1000,113 @@ router.post('/collections/:userId/revoke', async (req, res) => {
   } catch (err) {
     console.error('studio/collections/revoke error:', err);
     res.status(500).json({ error: 'Could not take it back' });
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/studio/collections/:userId/bar
+// ─────────────────────────────────────────────
+//
+// Taking the private collection away from anybody, Supreme included.
+//
+// The revoke above ends held time, which is what a trial, a gift and earned
+// access all write to. It cannot touch Supreme, because Supreme reaches the
+// collection through the tier rather than through a stored grant — its own
+// response says so. This is the one that does.
+//
+// It does two things: clears held time, and sets a flag that
+// hasCollectionsAccess reads before any of the three ways in. The collection
+// goes and the rest of the membership is untouched — they keep every other
+// benefit they paid for, which downgrading their tier would have taken too.
+//
+// No duration. It ends when she ends it, from the same screen.
+//
+// Quietly, as with the revoke. Somebody told their access has been withdrawn
+// has been handed a slight; somebody who finds the section simply absent has
+// been handed what everybody without access sees, which is nothing at all.
+router.post('/collections/:userId/bar', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, display_name, tier, membership_expires_at,
+              collections_until, collections_barred_at
+         FROM users WHERE id = $1`,
+      [req.params.userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'No such member' });
+    const fan = rows[0];
+
+    const now = new Date();
+    const hadHeldTime = fan.collections_until && new Date(fan.collections_until) > now;
+    const wasInByTier = fan.tier === 'supreme'
+      && fan.membership_expires_at && new Date(fan.membership_expires_at) > now;
+
+    await pool.query(
+      `UPDATE users
+          SET collections_until        = NULL,
+              collections_days_owed    = 0,
+              -- Left alone if already barred, so re-barring does not overwrite
+              -- the original reason or restate when it began.
+              collections_barred_at    = COALESCE(collections_barred_at, NOW()),
+              collections_barred_reason = COALESCE(collections_barred_reason, $2)
+        WHERE id = $1`,
+      [req.params.userId, (req.body?.reason || '').trim().slice(0, 200) || null]
+    );
+
+    await logModerationAction(
+      req.params.userId, 'collections_barred',
+      (req.body?.reason || '').trim().slice(0, 200) || null,
+      { hadHeldTime: !!hadHeldTime, wasInByTier: !!wasInByTier }
+    );
+
+    res.json({
+      ok: true,
+      // What was actually taken, so Studio can say something true rather than
+      // a generic success on an account that never had access anyway.
+      hadHeldTime:  !!hadHeldTime,
+      wasInByTier:  !!wasInByTier,
+      hadNothing:   !hadHeldTime && !wasInByTier,
+      alreadyBarred: !!fan.collections_barred_at,
+    });
+  } catch (err) {
+    console.error('studio/collections/bar error:', err);
+    res.status(500).json({ error: 'Could not take the collection away' });
+  }
+});
+
+// Lifting the bar.
+//
+// Held time is not restored — it was cleared when the bar went on, and
+// inventing a span back would be guessing at what it should be. A Supreme
+// member has the collection again the moment this runs, because the
+// membership they are still paying for carries it. Anybody else needs a fresh
+// grant, which is the control immediately above this one.
+router.post('/collections/:userId/unbar', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT tier, membership_expires_at FROM users WHERE id = $1`, [req.params.userId]);
+    if (!rows.length) return res.status(404).json({ error: 'No such member' });
+
+    await pool.query(
+      `UPDATE users
+          SET collections_barred_at = NULL, collections_barred_reason = NULL
+        WHERE id = $1`,
+      [req.params.userId]
+    );
+    await logModerationAction(req.params.userId, 'collections_unbarred', null, null);
+
+    const fan = rows[0];
+    const backInByTier = fan.tier === 'supreme'
+      && fan.membership_expires_at && new Date(fan.membership_expires_at) > new Date();
+
+    res.json({
+      ok: true,
+      // True where lifting alone restores it. Where false, she needs to grant
+      // time for them to have anything, and Studio says so.
+      backInByTier: !!backInByTier,
+    });
+  } catch (err) {
+    console.error('studio/collections/unbar error:', err);
+    res.status(500).json({ error: 'Could not lift it' });
   }
 });
 

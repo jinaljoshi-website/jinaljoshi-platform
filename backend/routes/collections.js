@@ -43,7 +43,10 @@ router.use(authMid, async (req, res, next) => {
     const { rows } = await pool.query(
       `SELECT tier, membership_expires_at, membership_started_at,
               trial_tier, trial_started_at, trial_ends_at,
-              collections_until, coin_balance
+              collections_until, coin_balance,
+              -- Without this the guard below reads undefined and the bar
+              -- does not apply. It is the whole point of the query.
+              collections_barred_at
          FROM users WHERE id = $1`,
       [req.user.userId]
     );

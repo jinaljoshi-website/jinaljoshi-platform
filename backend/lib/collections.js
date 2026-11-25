@@ -33,6 +33,23 @@ const CARRYING_TIER = 'supreme';
 function hasCollectionsAccess(user, now = new Date()) {
   if (!user) return false;
 
+  // The bar, read before any of the three ways in.
+  //
+  // This is the one thing that outranks a Supreme membership. Supreme reaches
+  // the collection through the tier rather than through a stored grant, so
+  // there was previously nothing to take away short of downgrading the
+  // membership — which would also remove everything else they paid for, a far
+  // larger punishment than the one intended. The flag removes the collection
+  // and leaves the rest of the membership exactly as it was.
+  //
+  // Checked first deliberately: a later check could be skipped by an early
+  // return above it, and the point of this flag is that nothing gets past it.
+  //
+  // A caller that has not selected the column sees undefined, which is falsy,
+  // and the bar would silently not apply — so every query feeding this
+  // function selects it. There are two, and both do.
+  if (user.collections_barred_at) return false;
+
   // Supreme carries it while the membership is live. effectiveMembership is
   // used rather than the raw column so a trial at Supreme counts: somebody who
   // is Supreme this month is Supreme for this purpose too.

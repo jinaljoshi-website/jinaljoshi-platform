@@ -141,7 +141,8 @@ router.get('/status', authMid, async (req, res) => {
       `SELECT tier, membership_expires_at, membership_started_at,
               membership_paid_tokens, membership_term_days,
               trial_tier, trial_started_at, trial_ends_at, coin_balance, timezone,
-              collections_until, renewal_streak, last_renewed_at
+              collections_until, renewal_streak, last_renewed_at,
+              collections_barred_at
          FROM users WHERE id = $1`,
       [req.user.userId]
     );
