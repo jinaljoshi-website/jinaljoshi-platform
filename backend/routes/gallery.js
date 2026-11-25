@@ -276,21 +276,34 @@ function computeSegments(items, userTier, basePrice, discountPct, isGuest, guest
 // question is how many people have seen a photograph, not how many times it has
 // been on a screen.
 router.post('/items/viewed', authMid, async (req, res) => {
-  const ids = Array.isArray(req.body.itemIds) ? req.body.itemIds.slice(0, 300) : [];
-  if (!ids.length) return res.json({ ok: true, recorded: 0 });
+  const ids   = Array.isArray(req.body.itemIds) ? req.body.itemIds.slice(0, 300) : [];
+  const setId = req.body.setId || null;
+
+  // The set has to be named. The comment above this route used to claim it
+  // recorded only photographs the person could see, and the query did not
+  // check that at all — it took any ids belonging to any visible set, so one
+  // account logged 640 views across twelve sets it could not open. Naming the
+  // set confines a call to the set being looked at.
+  //
+  // Access is deliberately NOT required: a locked tile arrives blurred and on
+  // screen, and a blurred photograph that was looked at has been seen. What
+  // is being prevented is spraying ids across the library, not counting a
+  // locked photograph somebody actually saw.
+  //
+  // A client that sends no setId records nothing. Briefly after this ships an
+  // older cached bundle will still be posting the old shape and its counts are
+  // dropped, which is a handful of lost counts for a day and no hole left open.
+  if (!ids.length || !setId) return res.json({ ok: true, recorded: 0 });
 
   try {
-    // Only photographs the person can actually see. Without this, a script
-    // could record views against a locked set and learn what is in it from the
-    // counts.
     const { rows } = await pool.query(
       `INSERT INTO item_views (item_id, user_id)
        SELECT i.id, $2 FROM set_items i
          JOIN sets s ON s.id = i.set_id
-        WHERE i.id = ANY($1) AND s.visible = TRUE
+        WHERE i.id = ANY($1) AND i.set_id = $3 AND s.visible = TRUE
        ON CONFLICT DO NOTHING
        RETURNING item_id`,
-      [ids, req.user.userId]
+      [ids, req.user.userId, setId]
     );
     res.json({ ok: true, recorded: rows.length });
   } catch (err) {

@@ -219,6 +219,102 @@ function FitResult({ keep, ret, yours }) {
   );
 }
 
+
+// ── Counting a photograph as seen ──────────────────────────────────
+//
+// This used to post every id in the set the moment it opened, which turned the
+// count into a restatement of the set's size: open a 300-photograph set, read
+// nothing, close it, and all 300 were recorded. The live numbers bore that out
+// exactly — a set's total came to its photograph count times the number of
+// people who had opened it, to the digit, which is another way of saying it
+// carried no information about looking at all. A 344-photograph set seen by
+// six people outranked an 11-photograph set read by two hundred.
+//
+// Now a photograph counts once it has actually been on screen: half the tile
+// visible for half a second. Scrolling past at speed does not count it, and a
+// set opened and abandoned records the first screenful rather than the lot.
+//
+// A locked tile still counts. A blurred photograph on screen has been seen,
+// and that is deliberate rather than an oversight.
+const SEEN_FRACTION  = 0.5;    // half the tile on screen
+const SEEN_DWELL_MS  = 500;    // for half a second
+const SEEN_FLUSH_MS  = 2500;   // batched, so a scroll is not one call per tile
+
+function useSeenTracker(setId) {
+  const queued   = useRef(new Set());  // already counted this visit; never twice
+  const pending  = useRef(new Set());  // counted, waiting to be sent
+  const dwell    = useRef(new Map());  // id -> timer, cleared if it leaves early
+  const observer = useRef(null);
+  const flushJob = useRef(null);
+  const sid      = useRef(setId);
+  sid.current = setId;
+
+  const flush = useRef(() => {});
+  flush.current = () => {
+    if (flushJob.current) { clearTimeout(flushJob.current); flushJob.current = null; }
+    const ids = Array.from(pending.current);
+    if (!ids.length || !sid.current) return;
+    pending.current.clear();
+    // Never awaited, and a failure loses a count — which is the right thing to
+    // lose. This is information about the pictures and must not stand between
+    // somebody and looking at them.
+    api.post('/api/gallery/items/viewed', { setId: sid.current, itemIds: ids.slice(0, 300) })
+       .catch(() => {});
+  };
+
+  const handle = (entries) => {
+    for (const e of entries) {
+      const id = e.target?.dataset?.itemId;
+      if (!id || queued.current.has(id)) continue;
+
+      if (e.isIntersecting) {
+        if (dwell.current.has(id)) continue;
+        dwell.current.set(id, setTimeout(() => {
+          dwell.current.delete(id);
+          queued.current.add(id);
+          pending.current.add(id);
+          if (!flushJob.current) flushJob.current = setTimeout(() => flush.current(), SEEN_FLUSH_MS);
+        }, SEEN_DWELL_MS));
+      } else {
+        // Gone before it counted.
+        const t = dwell.current.get(id);
+        if (t) { clearTimeout(t); dwell.current.delete(id); }
+      }
+    }
+  };
+
+  // Built on first use rather than in an effect: a tile's ref callback runs
+  // during commit, before effects, so an observer created in useEffect would
+  // miss everything already on screen when the set opened — which is most of
+  // what anybody sees.
+  const getObserver = () => {
+    if (!observer.current && typeof IntersectionObserver !== 'undefined') {
+      observer.current = new IntersectionObserver(handle, { threshold: SEEN_FRACTION });
+    }
+    return observer.current;
+  };
+
+  // A different set is a different count.
+  useEffect(() => {
+    flush.current();
+    queued.current.clear();
+    pending.current.clear();
+    dwell.current.forEach((t) => clearTimeout(t));
+    dwell.current.clear();
+  }, [setId]);
+
+  // Leaving sends what was seen before going.
+  useEffect(() => () => {
+    observer.current?.disconnect();
+    observer.current = null;
+    dwell.current.forEach((t) => clearTimeout(t));
+    dwell.current.clear();
+    flush.current();
+  }, []);
+
+  return (el) => { const o = getObserver(); if (el && o) o.observe(el); };
+}
+
 export default function Gallery() {
   const navigate    = useNavigate();
   const [data,      setData]      = useState(null);
@@ -310,6 +406,7 @@ export default function Gallery() {
   // locked tiles among the rest — so an index into setItems would land on a
   // photograph with no URL and show a blank screen. Locked tiles open the
   // panel instead, and never the lightbox.
+  const registerSeen  = useSeenTracker(openSet?.id || null);
   const viewableItems = setItems.filter((i) => !i.locked);
   const lockedItems   = setItems.filter((i) => i.locked);
   const [viewerError, setViewerError] = useState('');
@@ -386,16 +483,9 @@ export default function Gallery() {
       setPurchasePreview(itemsData.purchasePreview || null);
       setPhotosPaid(itemsData.photosPaid || 0);
 
-      // Recorded once the set is open and the photographs are on screen.
-      //
-      // Sent as one batch rather than a request per photograph, and never
-      // awaited: this is information about the pictures, and it must not stand
-      // between somebody and looking at them. A failure loses a count, which is
-      // the right thing to lose.
-      const seen = (itemsData.items || []).map((i) => i.id);
-      if (seen.length) {
-        api.post('/api/gallery/items/viewed', { itemIds: seen }).catch(() => {});
-      }
+      // Nothing is recorded here any more. Posting every id the moment the
+      // set opened counted photographs nobody had looked at; useSeenTracker
+      // above records each one as it actually reaches the screen.
     } catch (err) {
       setViewerError('Failed to load set contents');
     } finally {
@@ -843,7 +933,8 @@ export default function Gallery() {
             /* Locked: the blurred placeholder, and a tap opens the panel
                rather than the lightbox. There is no photograph here to open —
                the server sent no key for it. */
-            <div key={item.id} onClick={() => setUnlockPhoto(item)} style={thumbWrap}
+            <div key={item.id} ref={registerSeen} data-item-id={item.id}
+                 onClick={() => setUnlockPhoto(item)} style={thumbWrap}
                  role="button"
                  aria-label={`Unlock this ${(GRADE_LABEL[item.tier_category] || item.tier_category || '').toLowerCase()} photograph`}>
               {item.blur_url
@@ -857,7 +948,8 @@ export default function Gallery() {
               </div>
             </div>
           ) : (
-            <div key={item.id} onClick={() => setLightbox(viewableItems.findIndex((v) => v.id === item.id))} style={thumbWrap}>
+            <div key={item.id} ref={registerSeen} data-item-id={item.id}
+                 onClick={() => setLightbox(viewableItems.findIndex((v) => v.id === item.id))} style={thumbWrap}>
               {/* Fetched as it comes into view, not all at once.
                   //
                   // These are the full-resolution originals scaled into a cell
